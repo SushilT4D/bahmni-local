@@ -1,0 +1,1725 @@
+{
+    "id": "bahmni.clinical",
+    "extensionPoints": [
+       
+        {
+            "id": "org.bahmni.clinical.consultation.board",
+            "description": "Bahmni Clinical Consultation Page"
+        },
+        {
+            "id": "org.bahmni.clinical.conceptSetGroup.*",
+            "description": "Define conceptsets part of a conceptset group"
+        },
+        {
+            "id": "org.bahmni.clinical.orders",
+            "description": "Bahmni Orders Page"
+        },
+        {
+            "id": "org.bahmni.patient.search",
+            "description": "Bahmni Patient search, lookups Page"
+        }
+    ],
+    "contextModel": [
+        "patientUuid",
+        "visitUuid"
+    ],
+    "config": {
+        "enableRadiologyOrderOptions":["Urgent","NeedsPrint"],
+        "quickPrints":false,
+        "networkConnectivity" : {
+            "showNetworkStatusMessage": false,
+            "networkStatusCheckInterval": 20000,
+            "locales" : [
+                { "locale" : "fr", "css" : "offline-language-french"},
+                { "locale" : "es", "css": "offline-language-spanish"},
+                { "locale" : "pt", "css": "offline-language-portuguese-brazil"}
+            ]
+        },
+        "diagnosisStatus": "Inactive",
+            "program": {
+                "patientInformation": {
+                    "ageLimit": 100
+                },
+             
+               "Stage": {
+                    "excludeFrom": ["Referral"]
+                },
+
+               "ID_Number": {
+                    "excludeFrom": ["Referral"]
+                },
+
+               "Co-morbidites": {
+                    "excludeFrom": ["Referral"]
+                },
+
+               "Doctor": {
+                    "excludeFrom": ["Referral"]
+                },
+                 
+                "Referred By": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Referred by Name": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "vehicle": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "status": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "hospital name": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "admission date": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "time": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Diagnosis": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Diagnosis Admitted Hospital": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Admitted  Dept.": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Treatment": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Blood Transfusion (in Unit)": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "unit": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Financial Support": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Financial": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "Discharged date": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                },
+
+                "remark": {
+                    "excludeFrom": ["HIV Program","TB Program"]
+                }
+            },
+            "patientContext": {
+                        "programAttributes": [
+                        "Id_Number",
+                        "Doctor",
+                        "Stage"
+                        ],
+                        "personAttributes": [
+                        "class",
+                        "caste"
+                        ],
+                        "additionalPatientIdentifiers": [
+                                "National ID"
+                ],
+                        "preferredIdentifier": "Id_Number"
+        },
+        "obsIgnoreList": [
+            "REGISTRATION FEES",
+            "COMMENTS",
+            "Patient file"
+        ],
+        "otherInvestigationsMap": {
+            "Radiology": "Radiology Order",
+            "Endoscopy": "Endoscopy Order"
+        },
+        "allowConsultationWhenNoOpenVisit": false,
+        "defaultVisitType": "OPD",
+        "visitTypeForRetrospectiveEntries": "Special OPD",
+        "maxConceptSetLevels": 3,
+        "allowOnlyCodedDiagnosis": false,
+        "conceptSetUI": {
+            "Chief Complaint Data": {
+                "autocomplete":true,
+                "codedConceptName":"Chief Complaint",
+                "nonCodedConceptName":"Non-Coded Chief Complaint",
+                "durationRequired": false,
+                "allowAddMore": true
+            },
+            
+            "Tuberculosis, Adverse Effects" :{
+                "multiSelect" : true,
+                "autocomplete" : true
+            },
+            "Posture": {
+                "buttonSelect": true
+            },
+            "P/A Presenting Part": {
+                "multiSelect": true
+            },
+            "FHS": {
+                "buttonSelect": true
+            },
+            "P/S (Per Speculum) - Cervix": {
+                "grid": true
+            },
+            "Anaemia, Stopped Since When": {
+                "conciseText": true
+            },
+            "Examination Notes": {
+                "conciseText": true
+            },
+            "Set1": {
+                "allowAddMore": true
+            },
+            "Set2": {
+                "allowAddMore": true
+            },
+
+
+            "Under5_Danger_Signs" : {
+                "multiSelect" : true,
+                "required" : true
+            },
+            "under5_Cough" : {
+                "required" : true
+            },
+            "Does the child have diarrhea" : {
+                "required" : true
+            },
+            "Does the child have fever" : {
+                "required" : true
+            },
+            "Serious Malnutrition ( WHZ <- 3 SD ) " : {
+                "required" : true
+            },
+            "See fade of the palm" : {
+                "required" : true
+            },
+            "See the child's general condition" : {
+                 "multiSelect" : true
+            },
+            "IF Yes Then What" : {
+                 "conciseText": true
+            },
+            "Quantity Of Feeding" : {
+                 "conciseText": true
+            },
+            "PNCM_breasts_check" : {
+                "multiSelect": true
+            },
+            "2MInfant_Which Tieke are given" : {
+                "conciseText": true
+            },
+            "2MInfant_Use to feed":{
+                "multiSelect" : true
+            },
+            "2MInfant_What is given for drinking": {
+                "conciseText":true
+            },
+            "2MInfant_Which Tieke are given": {
+                 "conciseText":true
+            },
+            "2MInfant_Vaccination check": {
+                 "multiSelect": true
+            },
+
+        "GLOBAL_Follow up after": {
+            "allowFutureDates": true
+        },
+        "GLOBAL_Hindi_Name_of_Doctor" : {
+            "dropdown": true,
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Name_of_nurse_or_SHW_hindi" : {
+            "dropdown": true,
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Doctors_Name": {
+            "dropdown": true,
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Nurse_Name": {
+            "dropdown": true,
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_FollowUpDate":{
+            "allowFutureDates": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_FollowUpDate_required":{
+            "allowFutureDates": true,
+            "disableAddNotes": true,
+            "required": true
+        },
+        "GLOBAL_Visit_Date": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Other": {
+            "conciseText":true
+        },
+        "GLOBAL_breathingRate": {
+            "disableAddNotes": true
+        },
+        "GLOBAL_See ribs": {
+            "disableAddNotes": true
+        },
+        "GLOBAL_Groan": {
+            "disableAddNotes": true
+        },
+        "Global_Outcome": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Date_Time": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "GLOBAL_Type_Of_Visit": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "GLOBAL_Hindi_Date": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "Global_Hindi_Tem_Data": {
+            "disableAddNotes": true
+        },
+        "GLOBAL_Infant_Weight": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "GLOBAL_Infant_Height": {
+            "disableAddNotes": true
+        },
+        
+               
+        "HEIGHT": {
+            "disableAddNotes": true
+        },
+        "WEIGHT": {
+            "disableAddNotes": true
+        },
+        "Temperature Data": {
+            "disableAddNotes": true
+        },
+        "AF_Temperature_Data": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "Pulse Data": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "SPO2 Data": {
+            "disableAddNotes": true
+        },
+        "RR Data": {
+            "disableAddNotes": true
+        },
+        "Systolic Data": {
+            "disableAddNotes": true
+        },
+        "Diastolic Data":{
+            "disableAddNotes": true
+        },
+        "TB_Intake_Type_Of_Visit": {
+            "required": true,
+            "disableAddNotes": true
+        },
+               
+        
+        "ADULTCaseSheet_movement location":{
+            "multiSelect": true
+        },      
+        
+        "Immunization_Done": {
+            "dropdown": true
+        },
+        "Immunization_Section": {
+            "allowAddMore": true
+        },
+        "Immunization_Date": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Immunization_Location": {
+            "required": true,
+            "disableAddNotes": true
+        },
+
+
+        "ADULTCaseSheet_Add more": {
+            "conciseText":true
+        },
+        "ACS_Type_Of_Visit": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ACS_General": {
+            "multiSelect": true
+        },
+        "ACS_Respiratory_CVS": {
+            "multiSelect": true
+        },
+        "ACS_Abdominal_Pain": {
+            "multiSelect": true
+        },
+        "ACS_Location": {
+            "multiSelect": true
+        },
+        "ACS_Skin": {
+            "multiSelect": true
+        },
+        "ACS_Eyes_Problems": {
+            "multiSelect": true
+        },
+        "ACS_Muscular_skeletal": {
+            "multiSelect": true
+        },
+        "ACS_Others": {
+            "multiSelect": true
+        },
+        "ACS_Addiction": {
+            "multiSelect": true
+        },
+        "ACS_Past history": {
+            "multiSelect": true
+        },
+        "ACS_FAMILY HISTORY": {
+            "multiSelect": true
+        },
+        "ACS_Obstetric history": {
+            "multiSelect": true
+        },
+        "ACS_CF_General": {
+            "multiSelect": true
+        },
+        "ACS_Lymph nodes_None": {
+            "multiSelect": true
+        },
+        "ACS_Throat": {
+            "multiSelect": true
+        },
+        "ACS_Auscultation": {
+            "multiSelect": true
+        },
+        "ACS_Abdomen": {
+            "multiSelect": true
+        },
+        "ACS_CNS": {
+            "multiSelect": true
+        },
+        "ACS_CVS_Condition": {
+            "multiSelect": true
+        },
+        "ACS_Joints": {
+            "multiSelect": true
+        },
+       "ACS_If swelling location": {
+            "dropdown": true
+        },
+        "ACS_Skin_Condition": {
+            "multiSelect": true
+        },
+        "ACS_Genitals": {
+            "multiSelect": true
+        },
+        "ACS_Eye": {
+            "multiSelect": true
+        },
+        "ACS_Ear": {
+            "multiSelect": true
+        },
+        "ACS_Ear_Side": {
+            "multiSelect": true
+        },
+        "ACS_Breast_Right": {
+            "multiSelect": true
+        },
+        "ACS_P_S": {
+            "multiSelect": true
+        },
+        "ACS_Tenderness_Pv": {
+            "multiSelect": true
+        },
+        "ACS_Injury_Site": {
+            "multiSelect": true
+        },
+        "ACS_Lymph_nodes": {
+            "multiSelect": true
+        },
+        "ACS_Gravida_Data": {
+            "hideAbnormalButton" : true
+        },
+        "ACS_Para_Data": {
+            "hideAbnormalButton" : true
+        },
+        "ADULT_FollowUP_Gnral_Condtion": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ACS_Sever_Illness": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "ACS_FollowUpDate": {
+            "allowFutureDates": true,
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ACS_OBS_GYNAE_HISTORY": {
+            "expanded": false
+        },
+        "ACS_Gynaecological_History": {
+            "multiSelect": true
+        },
+        "Diagnosis": {
+            "dropdown": true
+        },
+         "ACS_BMI_Data": {
+            "disableAddNotes" : true
+        },
+        "ACS_No_of_joints_involved": {
+            "disableAddNotes": true
+        },
+        "ACS_Vision_Right": {
+            "dropdown": true
+        },
+        "ACS_Vision_Left": {
+            "dropdown": true
+        },
+        "ACS_ADULT_Diagnosis1": {
+            "autocomplete": true,
+            "disableAddNotes": true,
+            "multiSelect": true,
+             "required" : true
+        },
+        "ACS_ADULT_Initial_Diagnosis1": {
+            "autocomplete": true,
+            "required": true,
+            "multiSelect": true
+        },
+        "AFF_Other": {
+            "disableAddNotes": true
+        },
+
+
+        "ANC_Possible date delivery":{
+            "allowFutureDates": true
+        },
+        "ANC_Information on danger signs":{
+            "multiSelect": true
+        },
+        "ANC_Baby_status_after32weeks":{
+            "multiSelect": true
+        },
+        "ANC_Needofreferral":{
+            "multiSelect": true
+        },
+        "ANC-WEIGHT":{
+            "disableAddNotes": true,
+            "required": true 
+        },
+
+
+        "2MT5Y_Auscultation": {
+           "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "2MT5Y_SPO2_Data": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Heart_Rate_Data": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Breath_Rate_Data": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_WAZ": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_Danger_Common_Symptoms": {
+            "disableAddNotes": true
+        },
+       
+        "TB_Intake_Hemoglobin":{
+            "required": true
+        },
+        "TB_Intake_Blood_Sugar":{
+            "required": true
+        },
+       "TB_Intake_Follow_Up": {
+            "allowFutureDates": true,
+            "required": true
+        },
+       
+
+        "LabTest_1": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+        "LabTest_2": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+      
+      
+        "Accepted Family Planning methods": {
+            "multiSelect": true
+        },
+
+        "LabTest_In_House_Test": {
+            "allowAddMore": true
+        },
+        "LabTest_Out_Lab_Test": {
+            "allowAddMore": true
+        },
+      
+
+        "2MT5Y_Difficulty_Coughing_Breathing": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_Fast_Breath": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Ribs_Fall": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Does_Child _Have_Diarrhea": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_How_Many_Days": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Dehydration_Symptoms": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "2MT5Y_Blood_In_Stool": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Diarrhea_Classification": {
+            "multiSelect": true
+        },
+        "2MT5Y_Does_Baby_Have_Fever": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_From_How_many_Days": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Any_Of_These_Symptoms": {
+            "multiSelect": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_RDK": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Dryness_On_Hands": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Hemoglobin_Data": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Feed_Estimation": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "2MT5Y_Malnutrition_Grade_Determine": {
+            "required": true,
+            "disableAddNotes": true            
+        },
+        "2MT5Y_Malnutrition_Check": {
+            "required": true,
+            "multiSelect": true
+        },
+        "2MT5Y_Does_Child_Have_Severe_Malnutrition": {
+            "required": true
+        },
+        "2MT5Y_Treatment_Of_Severe_Malnutrition": {
+            "disableAddNotes": true
+        },
+        "2MT5Y_Any_Disease_Condition": {
+            "multiSelect": true
+        },
+        "2MT5Y_Advice": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        }, 
+        "2MT5Y_Is_SAM_complications": {
+            "disableAddNotes": true
+        }, 
+         "2MT5Y_Diagnosis": {
+            "autocomplete": true,
+            "required": true,
+            "multiSelect": true
+        },     
+       
+        "MediObsForm_Drug_Name": {
+            "autocomplete": true,
+            "required": true
+        },
+        "MediObsForm_Details": {
+            "allowAddMore": true
+        },
+        "Procedure": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+        "MediObsForm_Quantity": {
+            "required": true
+        },
+        "Tre_Counselling": {
+            "multiSelect": true
+        },
+
+
+
+        "Fees_Amount": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Fees_Purpose": {
+            "required": true,
+            "multiSelect": true
+        },
+        "Fees-Amount_Waivered": {
+            "disableAddNotes": true
+        },
+       
+        
+        "ADULT_FollowUP_Symptoms": {
+            "allowAddMore": true
+        },
+        "ADULT_FollowUP_Signs": {
+            "allowAddMore": true
+        },
+        "AFF_Symp": {
+            "autocomplete": true
+        },
+        "AFF_New_Symp": {
+            "multiSelect": true,
+            "autocomplete": true
+        },
+        "ACS_Initial_Signs": {
+            "autocomplete": true
+        },
+        "ACS_New_Signs": {
+          "multiSelect": true,
+          "autocomplete": true  
+        },
+        "AFF_Severe_Illness": {
+            "disableAddNotes": true
+        },
+        "Adult_follow_Overall_impression_visit": {
+            "required": true
+        },
+      
+        "Test_Form_Question": {
+            "multiSelect": true,
+            "autocomplete": true
+        },
+        "Image": {
+            "allowAddMore": true
+        },
+
+         "PNCM_Number": {
+            "disableAddNotes": true
+        },
+        "PNC_C_How many months pregnancy": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Delivery_Period_In_Weeks": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Which_Visit": {
+            "required": true,
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "PNC_Visit_Date": {
+            "required": true
+        },
+        "PNC_C_Date": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Visit_Location": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "PNCM_How_are_you_feelling": {
+            "disableAddNotes": true
+        },
+        "PNCM_Is_fever_to_you": {
+            "disableAddNotes": true
+        },
+        "PNCM_Is_there_smelly_discharge": {
+            "disableAddNotes": true
+        },
+        "PNCM_Is_there_dysuria": {
+            "disableAddNotes": true
+        },
+        "PNCM_Is_there_pain_at_bottom_area": {
+            "disableAddNotes": true
+        },
+        "PNCM_Is_there_bledding_continuously": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Mother_Birth_Weight": {
+            "disableAddNotes": true
+        },
+        "PNCM_Mother's_Weight": {
+            "disableAddNotes": true
+        },
+        "PNC_Pulse_Data": {
+            "disableAddNotes": true
+        },
+        "PNC_Systolic_Data": {
+            "disableAddNotes": true
+        },
+        "PNC_Distolic_Data": {
+            "disableAddNotes": true
+        },
+        "PNC_Breath_Rate_Data": {
+            "disableAddNotes": true
+        },
+        "PNC_SPO2_Data": {
+            "disableAddNotes": true
+        },
+        "PNCM_anemic": {
+            "disableAddNotes": true
+        },
+        "PNCM_breasts_check_nipple_flap": {
+            "disableAddNotes": true
+        },
+        "PNCM_breasts_check_nipple_cut": {
+            "disableAddNotes": true
+        },
+        "PNCM_breasts_check_pain on_thrombing_or_pressing_on_breasts": {
+            "disableAddNotes": true
+        },
+        "PNCM_breasts_check_excessive_amount_of_milk": {
+            "disableAddNotes": true
+        },
+        "PNCM_Hemoglobin": {
+            "disableAddNotes": true
+        },
+        "Temprature": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Consultation_Hindi_Self_care": {
+            "disableAddNotes": true
+        },
+        "Consultation_Hindi_family_planning": {
+            "disableAddNotes": true
+        },
+        "PNC_C_kangaroo mother care": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Infant_name": {
+            "disableAddNotes": true,
+            "conciseText": true
+        },
+        "PNC_C_Infant_Gender": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Ask Mother - do you have any problems related to the newborn": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Temprature_Data": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Birth_Weight": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Navel is red or brittle": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Rubbish-pimple On Body": {
+            "disableAddNotes": true
+        },
+        "PNC_C_How is the childs attachment to the breast": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Is the mother breastfeeding effectively": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Provides only breastfeeding or other diet": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Back abscess": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Lipped lips or palate": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Breast Feeding": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Immunization": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Keep the baby warm": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Child Cleanliness & Care": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Danger signs": {
+            "disableAddNotes": true
+        },
+        "PNC_C_Is need to sent to hospital": {
+            "disableAddNotes": true
+        },
+        
+
+
+        "Global_Observation_Date": {
+            "required": true,
+            "disableAddNotes": true
+        },
+         "Global_Location_Visit": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ANC_Gravida_Data": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ANC_LMP": {
+            "disableAddNotes": true
+        },
+        "ANC_EDD": {
+            "disableAddNotes": true,
+            "allowFutureDates" : true
+        },
+        "ANC_Any_Bad_OH": {
+            "disableAddNotes": true
+        },
+        "ANC_Bad_OH_Specify": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "ANC_Gestation_Date_in_Weeks": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "ANC_Compliance_to_IFAMVMMCa": {
+            "disableAddNotes": true
+        },
+        "ANC_Gestation_by_fundal_height_in weeks": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "ANC_Has_weight_incrs_pre_visit": {
+            "disableAddNotes": true,
+            "required": true
+        },
+       "Hemoglobin Data": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "ANC_VDRL": {
+            "disableAddNotes": true
+        },
+        "ANC_HIV": {
+            "disableAddNotes": true
+        },
+        "ANC_Urine_Albumin": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "ANC_Urine_LCE": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "ANC_Any_Complications": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+         "ANC_Parity": {
+            "required": true,
+            "disableAddNotes":true
+        },
+        "ANC_Edema": {
+            "disableAddNotes":true
+        },
+        "ANC_Previous_Pregnancies": {
+            "multiSelect": true
+        },
+        "ANC_Any_Other_Problems": {
+            "dropdown": true,
+            "disableAddNotes": true
+        },
+        "ANC_No_Of_Visit": {
+            "required": true,
+            "dropdown": true,
+            "disableAddNotes": true
+        },
+        "ANC_Pallor": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "ANC_Blood_Group":{
+            "dropdown": true,
+             "disableAddNotes": true
+        },
+        "ANC_Abortions": {
+            "disableAddNotes": true
+        },
+        "ANC_Live_Births": {
+            "disableAddNotes": true
+        },
+        "ANC_Still_Births": {
+            "disableAddNotes": true
+        },
+        "ANC_Neonatal_Deaths": {
+            "disableAddNotes": true
+        },
+        "ANC_HEIGHT": {
+            "disableAddNotes": true
+        },
+        "ANC_BMI_Data": {
+            "disableAddNotes": true
+        },
+        "ANC_SPO2_Data": {
+            "disableAddNotes": true
+        },
+        "ANC_Fetal_Heart_Rate": {
+            "disableAddNotes": true
+        },
+        "ANC_Blood_Sugar_Data": {
+            "disableAddNotes": true
+        },
+        "ANC_Any_other_sign": {
+            "disableAddNotes": true,
+            "autocomplete": true,
+            "multiSelect": true
+        },
+        "ANC_Diastolic_Data":{
+            "required": true,
+            "disableAddNotes": true
+        },
+         "ANC_Systolic_Data":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        
+
+
+
+
+
+
+
+
+        "Admission_Date_And _Time": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Admission_Diagnosis": {
+            "disableAddNotes": true,
+            "autocomplete": true,
+            "multiSelect": true
+        },
+        "Admission_Dis_Date": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "Admission_Dis_Reason": {
+            "disableAddNotes": true
+        },
+        "Global_Gnral_Condtion": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "Adm_FollowUpDate": {
+            "disableAddNotes": true,
+            "required": true,
+            "allowFutureDates": true
+        },
+        "Admission_Outcome_of_adm": {
+            "disableAddNotes": true,
+            "required": true
+        },
+
+       
+
+        "Del_Gravida": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Del_Parity": {
+            "disableAddNotes": true
+        },
+        "Del_Abortions": {
+            "disableAddNotes": true
+        },
+        "Del_Live_Births": {
+            "disableAddNotes": true
+        },
+        "Del_Still_Births": {
+            "disableAddNotes": true
+        },
+        "Del_Neonatal_Death" : {
+            "disableAddNotes": true
+        },
+        "Del_Any_High_risk":{
+            "multiSelect": true,
+            "disableAddNotes": true
+        },
+        "Del_Active_labour":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Del_Outcome":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Del_specify_reason": {
+            "multiSelect": true,
+            "disableAddNotes": true
+        },
+        "Del_complications_in_delivery": {
+            "disableAddNotes": true
+        },
+        "Del_Specify_complications": {
+            "multiSelect": true,
+            "disableAddNotes": true
+        },
+        "Del_Newborn_complication": {
+            "multiSelect": true,
+            "disableAddNotes": true
+        },
+        "Del_Outcome_Delivery": {
+            "disableAddNotes": true
+        },
+        "Del_Period_Of_Gestation": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "Del_Newborn_Weight": {
+            "disableAddNotes": true
+        },
+        "Del_LowBirth_Weight": {
+            "disableAddNotes": true
+        },
+        "Del_ANY_Newborn_Compli": {
+            "disableAddNotes": true
+        },
+        "Del_Baby_referred": {
+            "disableAddNotes": true
+        },
+        "Del_Final_outcome_Twenty_eight": {
+            "disableAddNotes": true
+        },
+        "Del_Final_outcome_One_year": {
+            "disableAddNotes": true
+        },
+        "Del_N_born_sex": {
+            "disableAddNotes": true
+        },
+        "Del_Hemoglobin_Data": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "RF_Reason": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+         "Del_Date_of_Delivery": {
+            "disableAddNotes": true
+        },
+        "Del_Date_and_Time_of_discharge": {
+            "disableAddNotes": true
+        },
+        "Del_Doctors_Name": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Del_Height":{
+            "disableAddNotes": true,
+            "required": true 
+        },
+
+
+
+        "2M_Breath_Rate_Data": {
+            "disableAddNotes": true  
+        },
+        "2M_RE_Breath_Data": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "2M_Infec_Any_Symp": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "2M_Have_Diarihea": {
+            "disableAddNotes": true
+        },
+        "2M_Any_Symp": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "2M_Any_Classification": {
+            "multiSelect": true
+        },
+        "2M_Feed_Problem": {
+             "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "2M_Blood_Sugar_Data": {
+            "disableAddNotes": true
+        },
+        "2M_Problem_Estimation": {
+            "autocomplete": true,
+            "disableAddNotes": true
+        },
+        "2M_Serious_Illness": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "2M_Heart_Rate_Data": {
+            "disableAddNotes": true
+        },
+        "2M_SPO2_Data": {
+            "disableAddNotes": true
+        },
+         "2M_Advice": {
+            "multiSelect": true
+        },
+        "2M_CFT": {
+            "disableAddNotes": true
+        },
+        "GLOBAL_Infant_Weight": {
+            "required": true,
+            "disableAddNotes": true  
+        },
+        "GLOBAL_Infant_Height": {
+            "disableAddNotes": true
+        },        
+        "2M_Blood_Stool": {
+            "disableAddNotes": true
+        },
+
+        "2M_diagnosis":{
+            "autocomplete":true,
+            "multiSelect": true,
+            "required": true
+        },
+
+        
+
+
+        "TB_Intake_Date": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_History_Of_Family": {
+            "required": true
+        },
+        "TB_Intake_History_Of_TB_Death": {
+            "required": true
+        },
+        "TB_Intake_Received_Treatment": {
+            "required": true
+        },
+        "TB_FollowUP_Weight": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_HEIGHT":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_BMI":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_SPO2_Data": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_Basic_Of_StartingATT":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_Primary Site":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_Previous_Treatment":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_CAT":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_ATT_start":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Intake_Treatment_Plan":{
+            "required": true
+        },
+         "TB_Intake_Any_Other_Diagnosis": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+
+
+
+        "LMP": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Bleeding_Days": {
+            "disableAddNotes": true
+        },
+        "MTP_Cycle_Intervals": {
+            "disableAddNotes": true
+        },
+        "MTP_Regularity": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Flow": {
+            "disableAddNotes": true
+        },
+        "MTP_Gravida": {
+            "disableAddNotes": true
+        },
+        "MTP_Para": {
+            "disableAddNotes": true
+        },
+        "MTP_Abortion": {
+            "disableAddNotes": true
+        },
+        "MTP_Live_Birth": {
+            "disableAddNotes": true
+        },
+        "MTP_Still_Birth": {
+            "disableAddNotes": true
+        },
+        "MTP_Hemoglobin_Data": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Urin_Prgncy_Test": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Gestation_Examination": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Eligible_MTP": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Consent": {
+            "disableAddNotes": true
+        },
+        "MTP_Medication": {
+            "disableAddNotes": true,
+            "required": true
+        },
+         "MTP_FollowUpDate":{
+            "allowFutureDates": true,
+            "disableAddNotes": true
+        },
+        "MTP_Gestation_History": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "MTP_Pv":{
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "MTP_P_S":{
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "MTP_Pulse_Data": {
+            "disableAddNotes": true
+        },
+        "MTP_RR Data": {
+            "disableAddNotes": true
+        },
+        "ACS_P_V_Uterus_Size":{
+            "disableAddNotes": true,
+            "dropdown" : true
+        },
+        "BMI": {
+            "disableAddNotes": true
+        },
+
+
+        "TB_Intake_When": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_For_How_long": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_Past_Treatment": {
+            "multiSelect": true
+        },
+        "TB_Intake_HIV": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_Date_Of_Sputum_Test": {
+            "disableAddNotes": true
+        },
+        "TB_Pulse_Data":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Follow_Up": {
+            "allowFutureDates": true,
+            "disableAddNotes": true
+        },
+        "TB_RR_Data" :{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Systolic_Data":{
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Temperature_Data": {
+            "disableAddNotes": true
+        },
+        "TB_Diastolic_Data": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Hemoglobin_Data": {
+            "disableAddNotes": true
+        },
+        "TB_Blood_Sugar_Data": {
+            "disableAddNotes": true,
+             "required": true
+        },
+        "TB_SGPT": {
+            "disableAddNotes": true
+        },
+        "TB_Sputum_Outcome": {
+            "disableAddNotes": true
+        },
+        "TB_Severe_Illness": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_Need_for_Referral": {
+            "required": true
+        },
+        "TB_Intake_Date_Of_CBNAAT": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_Extent": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_Cavity": {
+            "disableAddNotes": true
+        },
+        "TB_Effusion_Right": {
+            "disableAddNotes": true
+        },
+        "TB_Effusion_Left": {
+            "disableAddNotes": true
+        },
+        "TB_Intake_Consolidation": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_Intake_Cavity": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_Effusion_Right": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_Collapse": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_Miliary":{
+            "disableAddNotes": true
+        },
+
+
+
+        "TB_FollowUP_Treatment_Compliance": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Date": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_RR_Since_Last_Visit": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Treatment_Status": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Visit_Impresion": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Change_In_Weight": {
+            "disableAddNotes": true,
+            "required": true
+        },
+        "TB_FollowUP_Cough": {
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Breathlessness": {
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Hemoptysis": {
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Loss_Of_Appetite": {
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Fever": {
+            "disableAddNotes": true
+        },
+        "TB_FollowUP_Vomiting": {
+            "disableAddNotes": true
+        },
+         "TB_FollowUp_Add_More_Symp": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+        "TB_FollowUP_Symp_Status": {
+            "disableAddNotes": true
+        },
+        "TB_CS_Creps": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_CS_Wheeze": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_CS_Bronchial_breathing": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_CS_Air_entry_decreased": {
+            "disableAddNotes": true,
+            "multiSelect": true
+        },
+        "TB_Linked_To_Other_Services": {
+            "multiSelect": true
+        },
+        "TB_diagnosis": {
+            "autocomplete": true,
+            "multiSelect": true
+        },
+         "TB_SPO2_Data": {
+            "disableAddNotes": true
+        },
+
+        
+        "Lab_Hemoglobin_Data": {
+            "disableAddNotes": true
+        },
+        "Lab_Random_Blood_Sugar_Data": {
+            "disableAddNotes": true
+        },
+        "Lab_Fasting_Blood_Sugar_Data": {
+            "disableAddNotes": true
+        },
+        "Lab_PP_Blood_Sugar_Test_Data": {
+            "disableAddNotes": true
+        },
+        "Lab_RDK_For_MP": {
+            "disableAddNotes": true
+        },
+        "Lab_Typhoid_RDK_Test": {
+            "disableAddNotes": true
+        },
+        "Lab_HIV": {
+            "disableAddNotes": true
+        },
+        "Lab_VDRL": {
+            "disableAddNotes": true
+        },
+        "Lab_Urine_Pregnancy_Test": {
+            "disableAddNotes": true
+        },
+        "Lab_Urine_Leucocyte": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Urine_Nitrite": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Urine_Blood": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Urine_Sugar": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Urine_Albumin": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Sputum_For_AFB_Test": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Out_Lab_Section":{
+            "allowAddMore": true
+        },
+         "Lab_OS_test_ordered": {
+            "disableAddNotes": true,
+            "dropdown": true
+        },
+        "Lab_Test_Result": {
+            "conciseText": true
+        },
+
+
+        
+
+
+        "MTP_FollowUp_Started_Bleeding": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_Bleeding_Excessive": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_Misoprostal_Given": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_Reffered": {
+            "disableAddNotes": true
+        },
+       "MTP_Uterus_Size": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_Provided_Contraceptive": {
+            "disableAddNotes": true
+        },
+        "MTP_FU_Urin_Prgncy_Test": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_CN_Contra_method": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_CN_CM_Adopted": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_CN_What_CM_Adopted": {
+            "disableAddNotes": true
+        },
+        "MTP_FollowUp_abortion_complete": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        
+        "RF_Type_Of_Referral": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "RF_Newborn_Complication": {
+            "multiSelect": true
+        },
+        "RF_Date_Of_Scheduled": {
+            "disableAddNotes": true,
+            "allowFutureDates": true
+        },
+        "RF_Institute_Name": {
+            "required": true,
+            "disableAddNotes": true
+        },
+        "RF_Other_Institution": {
+            "disableAddNotes": true
+        },
+        "RF_Accepted_Referral": {
+            "disableAddNotes": true
+        },
+        "RF_Accepting_Date_Time": {
+            "disableAddNotes": true,
+            "allowFutureDates": true
+        },
+        "RF_Vehicle_Used": {
+            "disableAddNotes": true
+        },
+        "RF_Final_Outcome": {
+            "disableAddNotes": true
+        },
+        "RF_Baby_Referance": {
+            "disableAddNotes": true
+        },
+        "RF_Final_Outcome_At_28days": {
+            "disableAddNotes": true
+        },
+        "RF_Final outcome_At_1Year": {
+            "disableAddNotes": true
+        },
+
+
+        "Coded3": {
+            "multiSelect": true
+        },
+        
+        "defaults": {
+            "Number of living children": 1,
+            "Accepted Family Planning methods": [
+                "Condoms",
+                "Pills"
+            ],
+            "Pain management given": true,
+            "Safe Abortion, Remarks": "Remarks",
+            "Malaria, Death Date": "2015-12-01"
+            }
+        },
+        "visitPage": {
+            "observationDisplay": {
+                "conceptNames": []
+            }
+        }
+    }
+
+}
+

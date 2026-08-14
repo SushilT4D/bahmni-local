@@ -1,0 +1,3 @@
+# Python dependencies for Kafka authentication testing
+kafka-python
+

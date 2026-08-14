@@ -1,0 +1,25 @@
+{
+    "name": "mysql-sink-${TABLE}",
+    "config": {
+        "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+        "connection.username": "openmrs-user",
+        "connection.password": "password",
+        "connection.url": "jdbc:mysql://openmrsdb:3306/openmrs?useSSL=FALSE&allowPublicKeyRetrieval=true",
+        "tasks.max": "1",
+        "topics": "source.bahmni-local.openmrs.${TABLE}",
+        "transforms": "dropPrefix",
+        "transforms.dropPrefix.regex": "source\\.bahmni-local\\.openmrs\\.(.*)",
+        "transforms.dropPrefix.type": "org.apache.kafka.connect.transforms.RegexRouter",
+        "transforms.dropPrefix.replacement": "$1",
+        "table.name.format.default": "${TABLE}",
+        "delete.enabled": "false",
+        "schema.evolution": "basic",
+        "insert.mode": "upsert",
+        "primary.key.mode": "record_value",
+        "primary.key.fields": "${PRIMARY_KEY}",
+        "value.converter.schemas.enable": "true",
+        "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+        "key.converter.schemas.enable": "true",
+        "key.converter": "org.apache.kafka.connect.json.JsonConverter"
+    }
+}

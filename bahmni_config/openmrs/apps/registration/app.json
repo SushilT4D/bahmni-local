@@ -1,0 +1,90 @@
+{
+    "id": "bahmni.registration",
+    "instanceOf":"bahmni.template.registration",
+    "description": "Bahmni Patient Registration App",
+    "extensionPoints": [
+        {
+            "id": "org.bahmni.registration.identifier",
+            "description": "NDHM HealthID Verification"
+        }
+    ],
+    "config" : {
+        "readOnlyFields": ["FileNumber"],
+        "uniquePersonAttribute": "FileNumber",
+        "uniquePersonAttributeErrorText": "Please specify unique File number",
+        "mandatoryPersonAttributes" : ["phoneNumber","Caste","FileNumber", "Catchment Area","Migrant"],
+        "patientInformation": {
+            "additionalPatientInformation": {
+                "title": "Other Information",
+                "attributes": ["Caste", "Migrant", "occupation", "email", "Primary Number", "Alternate Number","FileNumber","Diagnosis","Other Diagnosis"],
+                "expanded": true
+
+            }
+        },
+        "addressAttributes": ["Catchment Area"],
+        "defaultIdentifierPrefix": "ABC",
+        "showMiddleName": true,
+        "showLastName": true,
+        "defaultVisitType":"OPD",
+        "isLastNameMandatory": true,
+        "patientNameDisplayOrder": ["firstName", "middleName", "lastName"],
+        "showSaveConfirmDialog": false,
+        "showBirthTime": false,
+        "enableDashboardRedirect": true,
+        "dashboardUrl": "/bahmni/clinical/index.html#/default/patient/{{patientUuid}}/dashboard",
+        "registrationMessage": "REGISTRATION_MESSAGE",
+        "enableWhatsAppButton": true,
+        "readOnlyExtraIdentifiers": ["ABHA Number","ABHA Address"],
+        "printOptions": [
+            {
+                "translationKey": "REGISTRATION_PRINT_REG_CARD_KEY",
+                "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/print.html",
+                "shortcutKey": "p"
+            },
+            {
+                "translationKey": "REGISTRATION_PRINT_LABEL_CARD_KEY",
+                "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/Print_Label.html",
+                "shortcutKey": "m"
+            }
+        ],
+        "fieldValidation" : {
+            "email" : {"pattern" : "^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$", "errorMessage" : "Should be a valid email address"},
+            "Primary Number": {"pattern": "^[1-9][0-9]{9}$", "errorMessage": "Primary Number should be 10 digits"},
+            "Alternate Number": {"pattern": "^[1-9][0-9]{9}$", "errorMessage": "Primary Number should be 10 digits"},
+            "familyName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The last name should contain only alphabets without space."},
+            "givenName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The first name should contain only alphabets without space."},
+            "middleName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The Middle name should contain only alphabets without space."},
+            "phoneNumber" : {"pattern" : "^([+]91[1-9]{1}[0-9]{9})$", "errorMessage" : "Phone Number should be 10 digits with prefix +91 eg:+91xxxxxxxxxx"},
+            "alternatePhoneNumber" : {"pattern" : "^([+]91[1-9]{1}[0-9]{9})$", "errorMessage" : "Phone Number should be 10 digits with prefix +91 eg:+91xxxxxxxxxx"},
+            "address2":{"pattern":"^[a-zA-Z0-9\\s,'\\-.\\/]{1,}", "errorMessage":"Only Alphanumerics and following special characters are allowed. Special characters - [ ,'-./]"},
+            "cityVillage":{"pattern":"^[a-zA-Z0-9\\s,'\\-.\\/]{2,}", "errorMessage":"Only Alphanumerics and following special characters are allowed. Special characters - [ ,'-./]"}
+        },
+         "patientSearch": {
+            "address": {
+                    "label": "Address",
+                    "placeholder": "Enter Address Field",
+                    "field": "city_village"
+                },
+                    "customAttributes": {
+                    "label": "Phone Number",
+                    "placeholder": "Phone Number",
+                    "fields": ["Primary Number","FileNumber"]
+                },
+                "gender": {
+                    "label": "Gender",
+                    "placeholder": "Select Gender",
+                    "fields": ["gender"]
+                },
+                "allLocations": {
+                    "label": "All Locations"
+                }
+        },
+        "addressHierarchy": {
+            "showAddressFieldsTopDown": false,
+            "strictAutocompleteFromLevel": "",
+            "freeTextAddressFields": ["cityVillage", "postalCode", "address1", "address2", "country", "stateProvince"]
+        },
+        "getPreviousVisitData": true,
+        "previousVisitConceptNamesToPull": ["Notes"]
+    }
+}

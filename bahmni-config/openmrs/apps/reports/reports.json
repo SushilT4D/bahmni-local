@@ -1,0 +1,229 @@
+{
+  "visitReport10": {
+    "name": "Visit Report",
+    "type": "visits",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "forDataAnalysis": true,
+      "patientAttributes": [
+        "caste",
+        "class",
+        "education",
+        "occupation",
+        "primaryContact"
+      ],
+      "visitAttributes": [
+        "Visit Status",
+        "Admission Status"
+      ],
+      "patientAddresses": [
+        "address3",
+        "city_village"
+      ],
+      "applyDateRangeFor": "visitStopDate",
+      "visitTypesToFilter": [
+        "PHARMACY VISIT",
+        "OPD"
+      ]
+    }
+  },
+  "formBuilderReport": {
+    "name": "Form builder form Report",
+    "type": "formBuilder",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "patientAttributes": [
+        "caste",
+        "class",
+        "education",
+        "occupation"
+      ],
+      "patientAddresses": [
+        "address3",
+        "city_village"
+      ],
+      "visitAttributes": [
+        "Visit Status"
+      ],
+      "showVisitInfo": true,
+      "showProvider": true,
+      "formNamesToFilter": [
+        "Second Vitals"
+      ],
+      "conceptNameDisplayFormat": "shortNamePreferred",
+      "locationTagsToFilter": [],
+      "programsToFilter": [],
+      "applyDateRangeFor": "obsDate",
+      "visitTypesToFilter": []
+    }
+  },
+  "diabetes": {
+    "name": "Diabetes",
+    "type": "obsCount",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "ageGroupName": "All Ages",
+      "conceptNames": [
+        "Diabetes Intake"
+      ],
+      "visitTypes": [
+        "OPD",
+        "IPD"
+      ]
+    }
+  },
+  "OPD/IPDVisitCount": {
+    "name": "OPD/IPD Visit Count",
+    "type": "IpdOpdVisitCount",
+    "requiredPrivilege": "app:reports"
+  },
+  "radiology(X-Ray)Count": {
+    "name": "Radiology(X-Ray) Count",
+    "type": "ObsCountByConceptClass",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "conceptClassNames": [
+        "Radiology",
+        "Radiology/Imaging Procedure"
+      ]
+    }
+  },
+  "IPDPatientsReport": {
+    "name": "IPD Patients Report",
+    "type": "ipdPatients",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "addressAttributes": [
+        "address1",
+        "city_village"
+      ],
+      "patientAttributes": [
+        "caste",
+        "education"
+      ],
+      "conceptNames": [
+        "Height (cm)",
+        "Weight (kg)"
+      ],
+      "filterBy": "Date of Discharge"
+    }
+  },
+  "OrderFulfillmentReport": {
+    "name": "Order Fulfillment Report",
+    "type": "OrderFulfillmentReport",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "type": "OrderFulfillmentReport",
+      "orderTypes": [
+        "Order",
+        "Drug Order"
+      ]
+    }
+  },
+  "pivotReportOfVisits": {
+    "name": "Aggregation report for visits",
+    "type": "aggregation",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "report": {
+        "type": "visits",
+        "config": {
+          "forDataAnalysis": true,
+          "patientAttributes": [
+            "caste",
+            "class",
+            "education",
+            "occupation",
+            "primaryContact"
+          ],
+          "visitAttributes": [
+            "Visit Status",
+            "Admission Status"
+          ],
+          "patientAddresses": [
+            "address3",
+            "city_village"
+          ],
+          "applyDateRangeFor": "visitStopDate",
+          "visitTypesToFilter": [
+            "PHARMACY VISIT",
+            "OPD"
+          ]
+        }
+      },
+      "rowGroups": [
+        "Gender"
+      ],
+      "columnGroups": [
+        "Visit Status"
+      ],
+      "distinctGroups": [
+        "Patient Identifier"
+      ]
+    }
+  },
+  "ClinicVisitReport": {
+    "name": "Clinic Visit Report",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/clinicVisits.sql"
+    }
+  },
+  "OPD/EmergencyVisitCount": {
+    "name": "OPD/Emergency Visit Count",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/visitCount.sql"
+    }
+  },
+  "missedAppointmentsReport": {
+    "name": "Missed Appointments Report",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/missedAppointments.sql"
+    }
+  },
+  "followUpReportAppt": {
+    "name": "List of Patients by Appointment",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/followUp.sql"
+    }
+  },
+  "followUpDateReport": {
+    "name": "List of Patients by Follow-up Date",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Follow-up_Patients.sql"
+    }
+  },
+  "RegisteredPatientReport": {
+    "name": "Registered Patient Report",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/registeredPatients.sql"
+    }
+  },
+  "notifiableDiseases": {
+    "name": "Notifiable Diseases",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/notifiableDiseases.sql"
+    }
+  },
+  "DiagnosisCountReport": {
+    "name": "Diagnosis Count Report",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/diagnosisCount.sql"
+    }
+  }
+}

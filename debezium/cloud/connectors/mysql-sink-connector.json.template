@@ -1,0 +1,25 @@
+{
+  "name": "mysql-sink-${TABLE}",
+  "config": {
+    "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+    "tasks.max": "1",
+    "topics": "${KAFKA_TOPICS}",
+    "connection.url": "jdbc:mysql://${REMOTE_MYSQL_HOST}:${REMOTE_MYSQL_PORT}/${REMOTE_MYSQL_DATABASE}?useSSL=${REMOTE_MYSQL_USE_SSL}&allowPublicKeyRetrieval=true",
+    "connection.username": "${REMOTE_MYSQL_USER}",
+    "connection.password": "${REMOTE_MYSQL_PASSWORD}",
+    "table.name": "${REMOTE_TABLE_NAME_FORMAT}",
+    "insert.mode": "upsert",
+    "primary.key.mode": "record_key",
+    "auto.create": "true",
+    "auto.evolve": "true",
+    "delete.enabled": "true",
+    "errors.tolerance": "all",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false"
+  }
+}
+

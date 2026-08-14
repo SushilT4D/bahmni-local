@@ -1,0 +1,5 @@
+Uuid,Void/Retire,Same as mappings,Fully specified name:en,Short name:en,Description:en,Fully specified name:fr,Short name:fr,Description:fr,Data class,Data type,Complex data handler,Answers,Members,Allow decimals,Units,Normal low,Normal high,Absolute low,Absolute high,_version:1,_order:900
+6eb5610e-3727-414f-b39b-84a89c8207f1,,,Document Attachment,Attachment,,,,,Image,Complex,ImageUrlHandler,,,,,,,,,,
+3fd64f3a-f5f5-459a-b2ff-6a2ef945acc2,,,External Origin,External Origin,,,,,Question,Text,,,,,,,,,,,
+17e47141-4c2b-4de4-96ac-754e4efae273,,,Date of document,Document created/generated date,,,,,Finding,Date,,,,,,,,,,,
+20a7219b-cd56-4369-a423-d4523196d2df,,,Document Upload,Document Upload,,,,,Misc,N/A,,,Document Types;Document Attachment;External Origin;Date of document,,,,,,,,

@@ -1,0 +1,30 @@
+{
+  "formJson": {
+    "id": 46,
+    "uuid": "79727d49-824e-4c96-8d54-81838a81c68e",
+    "name": "Hand Notes",
+    "version": "1",
+    "published": true,
+    "resources": [
+      {
+        "value": "{\"name\":\"Hand Notes\",\"id\":46,\"uuid\":\"79727d49-824e-4c96-8d54-81838a81c68e\",\"defaultLocale\":\"en\",\"controls\":[{\"type\":\"obsControl\",\"label\":{\"translationKey\":\"IMAGE_NOTE_1\",\"id\":\"1\",\"units\":\"\",\"type\":\"label\",\"value\":\"Image Note\"},\"properties\":{\"mandatory\":false,\"notes\":false,\"addMore\":false,\"hideLabel\":false,\"controlEvent\":false,\"location\":{\"column\":0,\"row\":0}},\"id\":\"1\",\"concept\":{\"name\":\"Image Note\",\"uuid\":\"2a95cb0d-ad2c-42a9-baa8-b63e12ec0d4d\",\"datatype\":\"Complex\",\"conceptClass\":\"Image\",\"conceptHandler\":\"ImageUrlHandler\",\"answers\":[],\"properties\":{\"allowDecimal\":null}},\"units\":null,\"hiNormal\":null,\"lowNormal\":null,\"hiAbsolute\":null,\"lowAbsolute\":null}],\"events\":{\"onFormSave\":\"\",\"onFormInit\":\"\"},\"translationsUrl\":\"/openmrs/ws/rest/v1/bahmniie/form/translations\",\"referenceVersion\":0,\"referenceFormUuid\":\"79727d49-824e-4c96-8d54-81838a81c68e\"}",
+        "dataType": "org.bahmni.customdatatype.datatype.FileSystemStorageDatatype",
+        "uuid": "6480f992-5cf5-412d-8670-2e3c21fe371e"
+      }
+    ]
+  },
+  "translations": [
+    {
+      "locale": "en",
+      "labels": {},
+      "concepts": {
+        "IMAGE_NOTE_1": "Image Note"
+      },
+      "formName": "Hand Notes",
+      "formUuid": null,
+      "version": "1",
+      "referenceVersion": null,
+      "referenceFormUuid": null
+    }
+  ]
+}

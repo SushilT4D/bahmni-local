@@ -1,0 +1,110 @@
+<link rel="stylesheet" href="/bahmni_config/openmrs/apps/registration/consentFormsLayout/css/print.css"/>
+
+<div>
+    <div class="row space-centre position-relative ">
+        <div class="print-header" align="center">
+            <h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+        </div>
+    </div>
+    <div class="row">
+        <div class="left">
+            <span><img ng-src="{{patient.image}}" style="width: 20mm; height: 13mm;" onerror="this.onerror=null;this.src='../images/blank.jpeg';"/></span>
+        </div>
+        <div class="right" style="text-align: right;">
+            <span class="label">Date:</span>
+            <span>{{today | date:'dd/MM/yyyy'}} </span>
+            <span class="label">Time:</span>
+            <span>{{today | date:'HH:MM'}}</span>
+        </div>
+    </div>
+<div class="row">
+<!-- <font size="3"/> -->
+<div style="clear:both;">
+<table border="0" align="center" style="border:1px solid black; border-collapse: collapse;width:97%">
+<tbody>
+<tr>
+<td>
+            <span class="label">&nbsp;Patient Name:</span>
+            <span class="capitalize"><b>{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</b></span> 
+</td>
+<td>
+<span class="label">&nbsp;Room No.:</span>__________________&nbsp;<span class="label">Surgery:</span>__________________
+</td>
+</tr>
+<tr>
+<td>
+            <span class="label">&nbsp;Registration No:</span>
+            <span>{{patient.primaryIdentifier.identifier}}</span>
+</td>
+<td>
+    <span class="label">&nbsp;Occupation:</span>
+    <span ng-if="patient.occupation">{{patient.occupation.value}}</span>
+</td>
+</tr>
+<tr><td>
+<span class="label">&nbsp;Age/Gender:</span>
+            <span>{{patient.age.years || "0"}}</span>
+            <span ng-show="patient.gender">/ {{patient.gender}}</span>
+
+</td>
+<td>
+    <span class="label">&nbsp;Mobile No:</span>
+    <span>{{patient.phoneNumber}}</span>
+</td>
+</tr>
+<tr><td>
+<span class="label">&nbsp;Address:</span>
+            <span>{{patient.address.address1}}</span>&nbsp;
+            <span>{{patient.address.address2}}</span>
+            <span>&nbsp;{{patient.address.cityVillage}}</span>
+            <span>&nbsp;-&nbsp;{{patient.address.postalCode}}</span></td>
+<td>
+<span class="label">&nbsp;Period Of Stay:</span>__________________&nbsp;<span class="label">to:</span>__________________
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</br>
+<div class="row">
+     <span><h2 style="text-align: center;">Patient Feedback Form</h2></span>
+</div>
+<div class="row">
+<!-- <font size="3"/> -->
+<table border="1" style="border:1px solid white;border-collapse:collapse;">
+<tr><th><b>1.OPD Services</b></th><td>Excellent</td><td>Good</td><td>Average</td><td>Satisfactory</td><td>Poor</td></tr>
+<tr><td>a.Explanation of Registration process, hospital services and charges</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>b.Time taken for admission procedure</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>c. Overall attitude of frontdesk staff</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr><tr><br></tr>
+<tr><th><b>2.Doctors</b></th><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>a.Explanation about your condition,procedure and treatment</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>b.Time taken to attend a problem</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>c.Post-operative education and follow-ups</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>d.Explanation about time of recovery & post discharge care</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>e.Overall attitude of Doctors</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr><tr><br></tr>
+<tr><th><b>3.Nursing Care</b></th><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>a.Nursing care given including medication, administration</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>b.Privacy maintained by your nurse during procedure</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>c.Time taken to attend your problem after calling</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>d.Overall attitude of nursing staff</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>e.Advise at the time pf discharge</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><th><b>4.Hospitality</b></th><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>a.Cleanliness of rooms, wards and corridors</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>b.Cleanliness of bathrooms & toilets</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>c.Behaviour of housekeeping/ward staff</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>d.Promptness of housekeeping/ward staff in attending your needs</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>e.Rate billing/TPA Servicers</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td>f.Rate PRO's/Patient Care Coordinators services</td><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><th><b>5.Rate dietitian Services</b></th><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><th><b>6.Rate our overall quality of Services</b></th><td>5</td><td>4</td><td>3</td><td>2</td><td>1</td></tr>
+<tr><td colspan="7"><b>7.On the basis of present experience at our hospital, in future would you prefer to visit us for other health related issues?&nbsp; [Yes] [No]</b></td></tr>
+<tr><td colspan="7"><b>8.Would you recommend our hospital to your friends and relatives?&nbsp; [Yes] [No]</b></td></tr>
+</table>
+</div>
+<div class=row><p>Name of Cooperative staff:_____________________________ &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Name of Non-cooperative staff:_____________________________</p>
+<p>Suggestions:____________________________________________________________________________________________________</br>______________________________________________________________________________________________________________</br>______________________________________________________________________________________________________________</p>
+</br>
+<p>_________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;_________________________</br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Date&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Sign of P R O&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Patient Sign</p>
+</div>

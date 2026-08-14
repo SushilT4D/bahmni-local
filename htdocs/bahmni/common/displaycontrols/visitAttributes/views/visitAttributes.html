@@ -1,0 +1,16 @@
+<section id="visitAttributes" class="block">
+    <div>
+<!--        <div ng-if="!isDataPresent()">-->
+<!--            <div class="placeholder-text">{{::'NO_VISIT_ATTRIBUTE_DETAILS_MESSAGE' | translate}}</div>-->
+<!--        </div>-->
+        <table class="dashboard-table history-diagnosis">
+            <tbody class="row" ng-repeat="attrType in ::attrTypes">
+            <tr>
+                <td class="value">{{::attrType.name}}</td>
+                <td class="value">{{::attrType.value}}</td>
+            </tr>
+
+            </tbody>
+        </table>
+    </div>
+</section>

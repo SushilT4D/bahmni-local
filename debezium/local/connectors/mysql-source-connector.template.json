@@ -1,0 +1,32 @@
+{
+  "name": "mysql-source-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "${LOCAL_MYSQL_HOST}",
+    "database.port": "${LOCAL_MYSQL_PORT}",
+    "database.user": "${LOCAL_DEBEZIUM_USER}",
+    "database.password": "${LOCAL_DEBEZIUM_PASSWORD}",
+    "database.server.id": "184054",
+    "database.server.name": "${MYSQL_SERVER_NAME}",
+    "topic.prefix": "${MYSQL_SERVER_NAME}",
+    "database.include.list": "${DATABASE_INCLUDE_LIST}",
+    "table.include.list": "${TABLE_INCLUDE_LIST}",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:29092",
+    "schema.history.internal.kafka.topic": "schema-changes.${MYSQL_SERVER_NAME}",
+    "schemas.enable": "true",
+    "snapshot.mode": "when_needed",
+    "snapshot.locking.mode": "minimal",
+    "time.precision.mode": "connect",
+    "decimal.handling.mode": "double",
+    "binary.handling.mode": "base64",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "signal.data.collection": "openmrs.debezium_signal",
+    "signal.enabled.channels": "source",
+    "incremental.snapshot.allow.schema.changes": "true",
+    "schema.history.internal.store.only.captured.tables.ddl": "false"
+  }
+}

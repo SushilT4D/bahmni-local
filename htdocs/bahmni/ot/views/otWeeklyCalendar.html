@@ -1,0 +1,35 @@
+<div on-scroll class="calendar">
+    <div class="calendar-location">
+        <div class="weekly-heading-cell" ng-repeat="index in [0, 1, 2, 3, 4, 5, 6]">
+            <p class="heading-ot">{{weekStartDate | addDays: index | bahmniDateTimeWithFormat: 'ddd'}}</p>
+            <p class="heading-ot heading-ot-date">{{weekStartDate | addDays: index | bahmniDateTimeWithFormat: 'DD'}}</p>
+            <div class="note" ng-if="(!getNotesForDay(weekStartDate, index))" ng-style="styleForBlock(index)" ng-click="showNotesPopup(weekStartDate, index)"></div>
+            <div ng-if="getNotesForDay(weekStartDate, index)" class="notes-text">
+                <div ng-click="showNotesPopupEdit(weekStartDate, index)" title="{{getNotesForDay(weekStartDate, index)}}">
+                    {{getNotesForDay(weekStartDate, index)}}
+                </div>
+                <span ng-click="openDeletePopup(weekStartDate, index)"><i class="fa fa-trash-o" aria-hidden="true"></i></span>
+            </div>
+        </div>
+    </div>
+    <div class="table-block">
+        <div class="calendar-time-container">
+            <div ng-repeat="row in ::rows" class="calendar-time">
+                {{::row.date | bahmniTime}}
+            </div>
+        </div>
+        <div class="ot-block-container">
+            <div class="ot-block-wrapper">
+                <div class="ot-weekly-block" ng-repeat="(blockIndex, blocks) in surgicalBlocksByDate">
+                    <div ng-repeat="row in ::rows" class="weekly-calendar-cell">
+                    </div>
+                    <div class="ot-week-day" ng-repeat="block in blocks | surgicalBlock:filterParams" ng-init="updateBlockedOtsOfTheDay(blockIndex)">
+                        <ot-calendar-surgical-block surgical-block="block" ng-if="!block.voided" blocked-ots-of-the-day="blockedOtsOfTheDay" day-view-start="::dayViewStart" day-view-end="::dayViewEnd" day-view-split="::dayViewSplit" filter-params="filterParams" week-or-day="::weekOrDay" view-date="::weekDates[blockIndex]"></ot-calendar-surgical-block>
+                    </div>
+                    <hr class="current-day-line" ng-if="shouldDisplayCurrentTimeLine()" ng-style="{top : currentTimeLineHeight + 'px'}">
+                </div>
+                <ot-notes/>
+            </div>
+        </div>
+    </div>
+</div>

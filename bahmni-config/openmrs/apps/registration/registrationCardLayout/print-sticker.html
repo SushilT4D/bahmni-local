@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Card</title>
+    <style type="text/css">
+      body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-color: #f4f4f4;
+}
+
+.card {
+    border: 1px solid #000;
+    padding: 0 0.1in 0 0.1in ;
+    width: 3in;
+    height: 2in;
+    background-color: #fff;
+    text-align: center;
+    box-sizing: border-box;
+    margin-top: 0;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 0.3in;
+}
+
+.info {
+    display: flex;
+    justify-content: space-between;
+    margin: 0.1in 0;
+    font-size: 0.15in;  
+    margin-bottom: 0px;
+    margin-top: 0px;
+}
+
+.pid .value{
+    font-weight: bold;
+}
+
+.pid .value{
+    margin-left: 0.05in;
+    font-size: 0.18in;
+
+}
+.pid .label{
+  font-size: 0.12in;
+}
+
+.patient-info {
+  margin-left: 0.13in;
+
+}
+
+.patient-info h2 {
+    margin: 0.05in 0.2in 0px 0;
+    font-size: 0.3in;
+}
+
+.patient-info .name {
+    margin: 0;
+    font-size: 0.15in;
+}
+
+.qrcode img {
+    width: 0.8in;
+    height: 0.8in;
+    margin-right: 0.08in;
+}
+
+.footer {
+  margin-top: 0px;
+    font-size: 0.15in;
+
+}
+.dor {
+  font-size: 0.12in;
+}
+
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <h1>{{ "CLINIC_NAME" | translate}}</h1>
+            <hr width="95%" color="black" size="2" style="margin-top:0;">
+        </div>
+        <div class="info">
+            <div class="pid">
+                <span class="label"><u> PID:</u></span>
+                <span class="value" id="patientId">{{patient.primaryIdentifier.identifier}}</span>
+            </div>
+            <div class="dor">
+                <span class="label"><u> DoR: </u></span>
+                <span class="value">{{patient.registrationDate | bahmniDate}} </span>
+            </div>
+        </div>
+        <div class="info">
+        <div class="patient-info">
+            <h2>{{patient.givenName}} </h2>
+            <h5 class="name">{{patient.middleName}} {{patient.familyName}} </h5>
+            <p>{{patient.age | age}} / {{patient.gender}}</p>
+        </div>
+        <div  id="qrcode" class="qrcode">
+        </div>
+        </div>
+        <div class="footer">
+          <hr width="95%" size="1" color="black" style="margin-top: 0;">
+            <i>Health is Wealth</i>
+        </div>
+    </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script type="text/javascript">
+const a = document.getElementById("patientId").innerText;
+var qrcode = new QRCode(document.getElementById("qrcode"), a);
+</script>
+</body>
+</html>
+
+
+
+
+

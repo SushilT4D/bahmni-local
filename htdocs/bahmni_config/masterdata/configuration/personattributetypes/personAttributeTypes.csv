@@ -1,0 +1,32 @@
+Uuid,Void/Retire,Name,Description,Format,Foreign uuid,Searchable,Edit privilege,_order:1000
+,TRUE,givenNameLocal,Name in local language,java.lang.String,,FALSE,,3
+,TRUE,familyNameLocal,familyNameLocal,java.lang.String,,FALSE,,3
+,TRUE,middleNameLocal,middleNameLocal,java.lang.String,,FALSE,,3
+c1f4239f-3f10-11e4-adec-0800271c1b75,FALSE,Caste,Caste,org.openmrs.Concept,3627,TRUE,,4
+,TRUE,class,Class,org.openmrs.Concept,96,TRUE,,5
+,TRUE,education,Education Details,org.openmrs.Concept,102,TRUE,,6
+c1f7d1f1-3f10-11e4-adec-0800271c1b75,FALSE,occupation,Occupation,org.openmrs.Concept,109,TRUE,,7
+c1f7fd17-3f10-11e4-adec-0800271c1b75,FALSE,Primary Number,Primary Number,java.lang.String,,TRUE,,8
+,TRUE,secondaryContact,Secondary Contact,java.lang.String,,TRUE,,9
+,TRUE,primaryRelative,Father's/Husband's Name,java.lang.String,,TRUE,,10
+,TRUE,secondaryIdentifier,Secondary Identifier,java.lang.String,,TRUE,,11
+,TRUE,landHolding,Land Holding (in acres),java.lang.Integer,,TRUE,,12
+,TRUE,debt,debt (in Rs),java.lang.String,,TRUE,,13
+,TRUE,distanceFromCenter,Distance From Center (in km),java.lang.Float,,TRUE,,14
+,TRUE,isUrban,Urban,java.lang.Boolean,,TRUE,,15
+,TRUE,cluster,cluster,org.openmrs.Concept,1173,TRUE,,16
+,TRUE,RationCard,Ration Card Type,org.openmrs.Concept,1174,TRUE,,17
+,TRUE,familyIncome,Family Income (per month in Rs),org.openmrs.Concept,1175,TRUE,,18
+,TRUE,Father's/Husband's Name,Father's/Husband's Name,java.lang.String,,FALSE,,19
+26ae721f-08b2-4682-af1d-b79234fcec43,FALSE,Mother Name,Mother Name,java.lang.String,,FALSE,,20
+e927727f-6bf5-435c-a2d9-e020eadd2c2b,FALSE,Migrant,Migrant,org.openmrs.Concept,3626,FALSE,,21
+1a95eeea-f005-4d08-a510-b0aa4b9d88eb,FALSE,FileNumber,File number,java.lang.String,,FALSE,,22
+,TRUE,addressCode,addressCode,java.lang.String,,FALSE,,23
+83fc7fc1-a4e4-4c7d-bfec-4e7d29f5d0b4,FALSE,Catchment Area,Catchment Area,org.openmrs.Concept,5959,FALSE,,24
+79f49e5b-0c64-11ef-bbbb-0242c0a8d011,FALSE,email,Email Address,java.lang.String,,TRUE,,
+9af715a5-4991-4343-99e3-a7c4e502e71b,FALSE,File Rack Number,File Rack Number,java.lang.String,,FALSE,,25
+f0f9277c-87a5-4538-82af-d6fdc531ed89,FALSE,Family Number,Family Number,java.lang.String,,FALSE,,27
+e157b404-83f6-4c43-9c78-74ebf8b8dabf,FALSE,Subscription card Numbers,Subscription card Numbers,java.lang.String,,FALSE,,29
+4c7a5bd8-3820-415f-b87e-127d274eb825,FALSE,Location of Visit,Location of Visit,org.openmrs.Concept,61862,FALSE,,26
+4e662c76-a0bc-49b3-8b05-203f3dce6ada,FALSE,Subscription card,Subscription card,org.openmrs.Concept,61996,FALSE,,28
+f2e3ee20-ec8b-4fab-9493-a0d72f01c895,FALSE,Alternate Number,,java.lang.String,,FALSE,,30

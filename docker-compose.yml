@@ -1,0 +1,486 @@
+
+x-default-logging: &default
+  {}
+
+x-loki-logging: &loki
+  driver: loki
+  options:
+    loki-url: ${LOKI_URL:?}
+    mode: non-blocking
+    max-buffer-size: 4m
+    loki-retries: "3"
+
+x-log-config: &log-config
+  # update this value to *loki if needed to see logs in grafana dashboard.
+  <<: *default
+
+services:
+  proxy:
+    profiles: [ "local" ]
+    image: bahmni-local/proxy:${PROXY_IMAGE_TAG}
+    volumes:
+      - ${CERTIFICATE_PATH}:/etc/tls:ro
+      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni:/usr/share/nginx/html/bahmni/:ro"
+      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni_config:/usr/share/nginx/html/bahmni_config/:ro"
+    ports:
+      - '${BAHMNI_PROXY_HTTP_PORT:?}:80'
+      - '${BAHMNI_PROXY_HTTPS_PORT:?}:443'
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+    environment:
+      TZ: ${TZ}
+
+  bahmni-config:
+    image: ${CONFIG_IMAGE_NAME}
+    volumes:
+      - '${BAHMNI_CONFIG_PATH}:/usr/local/bahmni_config'
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  bahmni-lab:
+    profiles: ["lab-lite","emr","local"]
+    image: 'bahmni/bahmni-lab:${BAHMNI_LAB_IMAGE_TAG:?}'
+    logging: *log-config
+    environment:
+      TZ: ${TZ}
+
+  openmrs:
+    profiles: ["emr","local", "bahmni-mart"]
+    image: ${OPENMRS_IMAGE_NAME}
+    environment:
+      TZ: ${TZ}
+      OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
+      OMRS_DB_HOSTNAME: ${BAHMNI_MYSQL_HOST:?}
+      OMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME:?}
+      OMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+      OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
+      OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
+      OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
+      # OMRS_DEV_DEBUG_PORT: ${OMRS_DEV_DEBUG_PORT}
+      OMRS_JAVA_SERVER_OPTS: ${OMRS_JAVA_SERVER_OPTS}
+      OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
+      SEND_MAIL: ${SEND_MAIL}
+      MAIL_TRANSPORT_PROTOCOL: ${MAIL_TRANSPORT_PROTOCOL}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH}
+      MAIL_SMTP_STARTTLS_ENABLE: ${MAIL_SMTP_STARTTLS_ENABLE}
+      MAIL_SMTP_SSL_ENABLE: ${MAIL_SMTP_SSL_ENABLE}
+      MAIL_DEBUG: ${MAIL_DEBUG}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_USER: ${MAIL_USER}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      PHONE_NUMBER: ${PHONE_NUMBER:?}
+      HIBERNATE_SHOW_SQL: ${HIBERNATE_SHOW_SQL}
+      HIBERNATE_FORMAT_SQL: ${HIBERNATE_FORMAT_SQL}
+      OMRS_DOCKER_ENV: ${OPENMRS_DOCKER_ENV}
+      OMRS_C3P0_MAX_SIZE: ${OMRS_C3P0_MAX_SIZE}
+      WEIGHT_CONCEPT_UUID: ${WEIGHT_CONCEPT_UUID}
+      HEIGHT_CONCEPT_UUID: ${HEIGHT_CONCEPT_UUID}
+      OMRS_DB_EXTRA_ARGS: ${OMRS_DB_EXTRA_ARGS}
+      LUCENE_MATCH_TYPE: ${LUCENE_MATCH_TYPE}
+      DOCUMENT_MAX_SIZE_MB: ${DOCUMENT_MAX_SIZE_MB}
+      OPENMRS_RUNTIME_PROPERTIES_hibernate_show_sql: "true"
+      OPENMRS_RUNTIME_PROPERTIES_hibernate_format_sql: "true"
+      OPENMRS_SERVER_PROPERTIES_hibernate_show_sql: "true"
+      OPENMRS_SERVER_PROPERTIES_hibernate_format_sql: "true"
+    #ports:
+      # - ${OMRS_DEV_DEBUG_PORT}:${OMRS_DEV_DEBUG_PORT}
+    volumes:
+      # - "${CONTAINER_DATA_PATH}/bahmni_home:/home/bahmni"
+      - "${CONTAINER_DATA_PATH:?}/bahmni_config:/etc/bahmni_config/:ro"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/home/bahmni/uploaded_results"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/home/bahmni/uploaded-files"
+      # - "${BAHMNI_OPENMRS_MODULES_PATH:?}/:/openmrs/data/modules/"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-patient-images:/home/bahmni/patient_images"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/home/bahmni/document_images"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-clinical-forms:/home/bahmni/clinical_forms"
+      - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
+      - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
+      # - "${CONTAINER_DATA_PATH}/data/sms-token:/openmrs/data/sms-token"
+      # - "${CONTAINER_DATA_PATH}/scripts/openmrs/custom-startup.sh:/openmrs/startup.sh:ro"
+      # - "${CONTAINER_DATA_PATH}/data/openmrs/webapps:/usr/local/tomcat/webapps"
+    # depends_on:
+      # - openmrsdb
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  odoo:
+    profiles: ["odoo","local"]
+    image: '${ODOO_IMAGE_NAME:?[ERROR]}'
+    ports:
+      - '8069:8069'
+    volumes:
+      - "${CONTAINER_DATA_PATH}/data/odoo:/var/lib/odoo"
+      - ${EXTRA_ODOO_ADDONS_PATH}:/mnt/extra-addons
+      - "${CONTAINER_DATA_PATH}/files/odoo:/var/lib/odoo/filestore"
+      - "${CONTAINER_DATA_PATH}/config/odoo:/etc/odoo"
+      # # Uncomment the below volume only when you need to modify existing bahmni-addons. Also make sure to update the .env file variable with bahmni-odoo-modules github repo cloned path.
+      # - ${BAHMNI_ODOO_MODULES_PATH}:/opt/bahmni-erp/bahmni-addons
+    depends_on:
+      bahmni-postgres:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      HOST: ${ODOO_DB_HOST}
+      USER: ${ODOO_DB_USER}
+      PASSWORD: ${ODOO_DB_PASSWORD}
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  bahmni-web:
+#    image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
+    image: infoiplitin/bahmni-iplit-web:1.1.0-107 
+    profiles: ["unused"]
+    volumes:
+      - "/Users/sunshine/Documents/Develop/bahmni/bahmni-local/foo/bahmni_config:/usr/local/apache2/htdocs/bahmni_config/:ro"
+      - "/Users/sunshine/Documents/Develop/bahmni/bahmni-local/foo/bahmni:/usr/local/apache2/htdocs/bahmni/:ro"
+      # - "${CONFIG_BACKUP:?}:/usr/local/apache2/htdocs/bahmni_config_backup/"
+      # - ${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni
+      # - "${BAHMNI_APPS_PATH:?}/ui/node_modules/@bower_components/:/usr/local/apache2/htdocs/bahmni/components"
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  implementer-interface:
+    image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
+    profiles: ["implementer-interface","emr","local"]
+    #volumes:
+    #  - "${IMPLEMENTER_INTERFACE_CODE_PATH:?}/dist:/usr/local/apache2/htdocs/implementer-interface"
+    # depends_on:  add this back when openmrs is ready -- 2025-12-15 sk
+    #   - openmrs
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  systemdate:
+    image: bahmni-local/systemdate:1.0
+    profiles: ["emr","local"]
+    environment:
+      TZ: ${TZ}
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  # #########################################################
+  # Database Containers                                     #
+  # #########################################################
+  bahmni-mysql:
+    image: mysql:8.0
+    platform: linux/arm64
+    restart: always
+    profiles: ["emr","local", "metabase", "bahmni-mart"]
+    command: --character-set-server=utf8 --collation-server=utf8_general_ci --sql-mode=NO_ENGINE_SUBSTITUTION
+    ports:
+      - 3306:3306
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${OPENMRS_DB_NAME:?}
+      MYSQL_USER: ${OPENMRS_DB_USERNAME:?}
+      MYSQL_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+    volumes:
+      - ${CONTAINER_DATA_PATH}/data/mysql:/var/lib/mysql
+      - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums"
+
+    logging: *log-config
+
+  bahmni-postgres:
+    profiles: ["odoo","local"]
+    image: '${ODOO_DB_IMAGE_NAME:?[ERROR]}'
+    volumes:
+      - ${CONTAINER_DATA_PATH}/data/postgresql:/var/lib/postgresql/data
+      - ${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U odoo']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - '5432:5432'
+    environment:
+      TZ: ${TZ}
+      POSTGRES_DB: ${ODOO_DB_NAME:?}
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD}
+      POSTGRES_USER: ${ODOO_DB_USER}
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  patient-documents:
+    image: 'bahmni/patient-documents:${PATIENT_DOCUMENTS_TAG:?}'
+    profiles: ["emr","local"]
+    volumes:
+      - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/usr/share/nginx/html/document_images"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/usr/share/nginx/html/uploaded_results"
+      - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/usr/share/nginx/html/uploaded-files"
+    environment:
+      TZ: ${TZ}
+      OPENMRS_HOST: ${OPENMRS_HOST:?}
+    # depends_on:  add this back when openmrs is ready -- 2025-12-15 sk
+    #   - openmrs
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+
+  atomfeed-console:
+    image: bahmni/atomfeed-console:latest
+    profiles: ["atomfeed-console", "local"]
+    restart: ${RESTART_POLICY}
+    environment:
+      TZ: ${TZ}
+      OPENMRS_DB_HOST: ${BAHMNI_MYSQL_HOST}
+      OPENMRS_DB_NAME: ${OPENMRS_DB_NAME}
+      OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME}
+      OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}
+
+  restore_volumes:
+    image: bash:5.2.15
+    profiles: ["restore"]
+    command: "bash /restore_docker_volumes.sh"
+    volumes:
+        - "${RESTORE_ARTIFACTS_PATH}:/restore-artifacts"
+        - '../backup_restore/restore_docker_volumes.sh:/restore_docker_volumes.sh'
+        - 'bahmni-patient-images:/mounts/bahmni-patient-images'
+        - 'bahmni-document-images:/mounts/bahmni-document-images'
+        - 'bahmni-clinical-forms:/mounts/bahmni-clinical-forms'
+        - 'bahmni-lab-results:/mounts/bahmni-lab-results'
+        - 'bahmni-uploaded-files:/mounts/bahmni-uploaded-files'
+        - 'bahmni-queued-reports:/mounts/bahmni-queued-reports'
+        - 'configuration_checksums:/mounts/configuration_checksums'
+  
+  cdss:
+    profiles: [ "cdss" ]
+    image: bahmni/cdss-reference:${CDSS_IMAGE_TAG:?}
+    environment:
+      JAVA_OPTS: ${CDSS_JAVA_SERVER_OPTS}
+    logging: *log-config
+
+  snowstorm-lite:
+    profiles: [ "snowstorm-lite" ]
+    image: snomedinternational/snowstorm-lite:${SNOWSTORM_LITE_IMAGE_TAG:?}
+    environment:
+      JDK_JAVA_OPTIONS: ${SNOWSTORM_LITE_JAVA_SERVER_OPTS}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/fhir/CodeSystem"]
+      interval: 60s
+      timeout: 15s
+      retries: 10
+    logging: *log-config
+
+  load-snowstorm-lite-data:
+    profiles: [ "snowstorm-lite" ]
+    image: alpine
+    command: "sh /load-snowstorm-data.sh"
+    environment:
+      SNOWSTORM_LITE_ADMIN_PASSWORD: ${SNOWSTORM_LITE_ADMIN_PASSWORD:?}
+    logging: *log-config
+    volumes:
+      - '../snomed-resources/load-snowstorm-data.sh:/load-snowstorm-data.sh'
+    #  - "${SNOWSTORM_RF2_FILE_PATH:?}:/snowstorm-data/snomed-data.zip:ro"
+
+  # #########################################################
+  # Debezium Containers                                        #
+  # #########################################################
+  zookeeper:
+    profiles: [ "debezium" ]
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - "${CONTAINER_DATA_PATH}/data/zookeeper:/var/lib/zookeeper/data"
+      - "${CONTAINER_DATA_PATH}/logs/zookeeper:/var/lib/zookeeper/log"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/commands/ruok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kafka:
+    profiles: [ "debezium" ]
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      # Extended retention for offline buffering (7 days default, increase if needed)
+      KAFKA_LOG_RETENTION_HOURS: ${KAFKA_RETENTION_HOURS:-168}
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      # Increase retention bytes to handle longer offline periods
+      KAFKA_LOG_RETENTION_BYTES: ${KAFKA_RETENTION_BYTES:--1}
+    volumes:
+      - "${CONTAINER_DATA_PATH}/data/kafka:/var/lib/kafka/data"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  schema-registry:
+    profiles: [ "debezium" ]
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      LOG4J_LOGGERS: "io.confluent.rest-utils.requests=WARN"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-connect:
+    profiles: [ "debezium" ]
+    image: quay.io/debezium/connect:3.2.4.Final
+    hostname: kafka-connect
+    container_name: kafka-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_TOPIC: docker-connect-status
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /kafka/connect
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_PORT: 8083
+      LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest.RestServer=WARN,org.apache.kafka.clients.NetworkClient=WARN"
+    volumes:
+      - "${CONTAINER_DATA_PATH}/data/kafka-connect/connectors:/kafka/connect/connectors:ro"
+      - "${CONTAINER_DATA_PATH}/data/kafka-connect:/kafka/connect/data"
+      - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j.properties:/kafka/config/log4j.properties"
+      - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j2.yml:/kafka/config/log4j2.yml"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mirrormaker-connect:
+    profiles: [ "debezium" ]
+    image: confluentinc/cp-kafka-connect:7.7.0
+    hostname: mirrormaker-connect
+    container_name: mirrormaker-connect
+    # depends_on:
+    #   kafka:
+    #     condition: service_healthy
+    ports:
+      - "8084:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:29092
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_HOST_NAME: mirrormaker-connect
+      CONNECT_GROUP_ID: mirrormaker-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: mirrormaker-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_TOPIC: mirrormaker-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: mirrormaker-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.converters.ByteArrayConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.converters.ByteArrayConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      # Enable MirrorMaker connectors
+      CONNECT_REST_ADVERTISED_PORT: 8083
+      REMOTE_KAFKA_BOOTSTRAP_SERVERS: ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
+      REMOTE_KAFKA_USERNAME: ${REMOTE_KAFKA_USERNAME:?}
+      REMOTE_KAFKA_PASSWORD: ${REMOTE_KAFKA_PASSWORD:?}
+      REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD:?}
+      KAFKA_TOPIC_PATTERNS: ${KAFKA_TOPIC_PATTERNS:-.*}
+      # Next line because image has botched location to $base_dir/../config/connect-log4j.properties"
+      KAFKA_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/kafka-connect/log4j.properties"
+      LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest.RestServer=WARN,org.apache.kafka.clients.NetworkClient=WARN"
+    volumes:
+      - "${CONTAINER_DATA_PATH}/certs/kafka/kafka.truststore.p12:/etc/kafka-connect/secrets/kafka.truststore.p12"
+      - "${CONTAINER_DATA_PATH}/data/mirrormaker:/kafka/connect/data"
+      - "${CONTAINER_DATA_PATH}/config/mirrormaker/mm2.properties:/etc/kafka-connect/mm2.properties:ro"
+      - "${CONTAINER_DATA_PATH}/config/mirrormaker/start-mm2.sh:/etc/kafka-connect/start-mm2.sh:ro"
+      - "${CONTAINER_DATA_PATH}/config/mirrormaker/log4j.properties:/etc/kafka-connect/log4j.properties"
+    restart: unless-stopped
+    command: ["/bin/bash", "/etc/kafka-connect/start-mm2.sh"]
+
+  # Optional: Kafka UI for monitoring local setup
+  kafka-ui:
+    profiles: [ "debezium" ]
+    image: provectuslabs/kafka-ui:latest
+    hostname: kafka-ui
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-connect:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_1_NAME: MAD
+      KAFKA_CLUSTERS_1_BOOTSTRAPSERVERS: 13.126.229.17:9092
+      KAFKA_CLUSTERS_1_ZOOKEEPER: 13.126.229.17:2181
+      KAFKA_CLUSTERS_1_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_1_KAFKACONNECT_0_ADDRESS: http://13.126.229.17:8083
+      # Authentication
+      # AUTH_TYPE: "LOGIN_FORM"
+      # SPRING_SECURITY_USER_NAME: "admin"
+      # SPRING_SECURITY_USER_PASSWORD: "admin123"
+
+  # kafka-ui-proxy:
+  #   profiles: [ "debezium" ]
+  #   image: nginx:alpine
+  #   container_name: kafka-ui-proxy
+  #   ports:
+  #     - "8443:443"
+  #   volumes:
+  #     - ${CERTIFICATE_PATH}:/etc/nginx/certs:ro
+  #     - ./kafka-ui-nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - kafka-ui
+  #   restart: ${RESTART_POLICY}
+
+volumes:

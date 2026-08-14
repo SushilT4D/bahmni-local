@@ -1,0 +1,110 @@
+{
+    "id": "bahmni.registration",
+    "instanceOf":"bahmni.template.registration",
+    "description": "Bahmni Patient Registration App",
+    "extensionPoints": [
+        {
+                "id": "org.bahmni.registration.patient.search.result.action",
+                "description": "Bahmni Patient Search Result Action"
+        },
+        {
+            "id": "org.bahmni.registration.identifier",
+            "description": "NDHM HealthID Verification"
+        },
+        {
+                "id": "org.bahmni.registration.patient.next",
+                "description": "After Bahmni Patient Registration, forward url configuration"
+            },
+            {
+                "id": "org.bahmni.registration.navigation",
+                "description": "Navigation within regsitration first and second page"
+            },
+            {
+                "id": "org.bahmni.registration.conceptSetGroup.observations",
+                "description": "Registration Second Page Forms"
+            }
+    ],
+    "contextModel": [
+        "patientUuid",
+        "activeVisitUuid"
+    ],
+    "config" : {
+        "readOnlyFields": ["FileNumber"],
+        "uniquePersonAttribute": "FileNumber",
+        "uniquePersonAttributeErrorText": "Please specify unique File number",
+        "mandatoryPersonAttributes" : ["phoneNumber"],
+        "patientInformation": {},
+        "defaultIdentifierPrefix": "ABC",
+        "showMiddleName": true,
+        "showLastName": true,
+        "defaultVisitType":"OPD",
+        "isLastNameMandatory": true,
+        "patientNameDisplayOrder": ["firstName", "middleName", "lastName"],
+        "showSaveConfirmDialog": false,
+        "showBirthTime": false,
+        "enableDashboardRedirect": true,
+        "dashboardUrl": "/bahmni/clinical/index.html#/default/patient/{{patientUuid}}/dashboard",
+        "registrationMessage": "REGISTRATION_MESSAGE",
+        "enableWhatsAppButton": true,
+        "readOnlyExtraIdentifiers": ["ABHA Number","ABHA Address"],
+        "printOptions": [
+            {
+                "translationKey": "REGISTRATION_PRINT_REG_CARD_KEY",
+                "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/print.html",
+                "shortcutKey": "p"
+            },
+            {
+                "translationKey": "Patient Feedback Form",
+                "templateUrl": "/bahmni_config/openmrs/apps/registration/consentFormsLayout/feedbackForm.html",
+                "shortcutKey": "p"
+            },
+            {
+                "translationKey": "REGISTRATION_PRINT__STICKER_KEY",
+                "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/print-sticker.html",
+                "shortcutKey": "p"
+            },
+            {
+                    "translationKey": "REGISTRATION_PRINT_REG_CARD_LOCAL_KEY",
+                    "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/print_local.html",
+                    "shortcutKey": "l"
+                },
+                {
+                    "translationKey": "REGISTRATION_PRINT_SUPPLEMENTAL_PAPER",
+                    "templateUrl": "/bahmni_config/openmrs/apps/registration/supplementalPaperLayout/print.html",
+                    "shortcutKey": "r"
+                },
+                {
+                    "translationKey": "REGISTRATION_PRINT_WITH_BARCODE",
+                    "templateUrl": "/bahmni_config/openmrs/apps/registration/registrationCardLayout/printWithBarcode.html",
+                    "shortcutKey": "c"
+                }
+        ],
+        "fieldValidation" : {
+            "email" : {"pattern" : "^(?=.{1,40}$)(([^<>()\\[\\]\\\\.,;:\\s@\"]+(\\.[^<>()\\[\\]\\\\.,;:\\s@\"]+)*)|(\".+\"))@(([a-zA-Z\\-0-9]+\\.)+[a-zA-Z]{2,4})$", "errorMessage" : "Should be a valid email address"},
+            "familyName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The last name should contain only alphabets without space."},
+            "givenName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The first name should contain only alphabets without space."},
+            "middleName" : {"pattern" : "[a-zA-Z]{0,}", "errorMessage" : "The Middle name should contain only alphabets without space."},
+            "phoneNumber" : {"pattern" : "^([+]91[1-9]{1}[0-9]{9})$", "errorMessage" : "Phone Number should be 10 digits with prefix +91 eg:+91xxxxxxxxxx"},
+            "alternatePhoneNumber" : {"pattern" : "^([+]91[1-9]{1}[0-9]{9})$", "errorMessage" : "Phone Number should be 10 digits with prefix +91 eg:+91xxxxxxxxxx"},
+            "address2":{"pattern":"^[a-zA-Z0-9\\s,'\\-.\\/]{1,}", "errorMessage":"Only Alphanumerics and following special characters are allowed. Special characters - [ ,'-./]"},
+            "cityVillage":{"pattern":"^[a-zA-Z0-9\\s,'\\-.\\/]{2,}", "errorMessage":"Only Alphanumerics and following special characters are allowed. Special characters - [ ,'-./]"}
+        },
+        "patientSearch": {
+            "customAttributes": {
+                "label": "Phone Number",
+                "placeholder": "Phone Number",
+                "fields": ["phoneNumber","alternatePhoneNumber"]
+            }
+        },
+        "addressHierarchy": {
+            "showAddressFieldsTopDown": false,
+            "strictAutocompleteFromLevel": "postalCode"
+        },
+        "relationshipTypeMap": {
+                "Doctor":"provider",
+                "Parent":"patient"
+            },
+        "getPreviousVisitData": true,
+        "previousVisitConceptNamesToPull": ["Notes"]
+    }
+}

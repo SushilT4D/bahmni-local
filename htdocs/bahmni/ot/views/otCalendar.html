@@ -1,0 +1,46 @@
+<div on-scroll class="calendar" ng-switch="providerToggle">
+    <!-- Please dont remove or alter the below class name -->
+    <div class="calendar-location"><div class="heading-ot-block">
+        <p class="heading-ot">{{viewDate | bahmniDateTimeWithFormat: 'ddd'}}</p>
+        <p class="heading-ot heading-ot-date">{{viewDate | bahmniDateTimeWithFormat: 'DD'}}</p>
+    </div>
+        <div class="notesTab" ng-click="showNotesPopup(viewDate)" style="border: .5px solid lightgrey" ng-if="!noteForTheDay"></div>
+        <div class="notes-text" ng-if="noteForTheDay">
+            <div ng-click="showNotesPopupEdit(viewDate, 0, noteForTheDay)" title="{{noteForTheDay}}">
+                {{noteForTheDay}}
+            </div>
+            <span ng-click="openDeletePopup()"><i class="fa fa-trash-o" aria-hidden="true"></i></span>
+        </div>
+        <div class="provider-location-name" on-horizontal-scroll="ot-block-wrapper">
+            <p ng-switch-default bindonce="locations" class="heading-cell" ng-repeat="location in locations">
+                {{location.name}}
+            </p>
+            <p ng-switch-when="true" bindonce="surgeons" class="heading-cell" ng-repeat="surgeon in surgeons">
+                {{surgeon.person.display}}
+            </p>
+        </div>
+    </div>
+
+    <div class="table-block">
+        <!-- Please dont remove or alter the below class name -->
+        <div class="calendar-time-container" style="top: 110px">
+            <div ng-repeat="row in ::rows" class="calendar-time">
+                {{::row.date | bahmniTime}}
+            </div>
+        </div>
+        <div class="ot-block-container">
+            <div class="ot-block-wrapper" on-horizontal-scroll="provider-location-name" style="top: 110px">
+            <div class="ot-block" ng-repeat="(blockIndex, blocks) in surgicalBlocks">
+                <div ng-repeat="row in ::rows" class="calendar-cell">
+                </div>
+                <div ng-repeat="block in blocks | surgicalBlock:filterParams">
+                    <ot-calendar-surgical-block surgical-block="block" ng-if="!block.voided" day-view-start="::dayViewStart" day-view-end="::dayViewEnd" day-view-split="::dayViewSplit" filter-params="filterParams" week-or-day="::weekOrDay" view-date="::viewDate"></ot-calendar-surgical-block>
+                </div>
+                <hr class="current-day-line" ng-if="shouldDisplayCurrentTimeLine()" ng-style="{top : currentTimeLineHeight + 'px'}">
+            </div>
+            <ot-notes/>
+            </div>
+
+        </div>
+    </div>
+</div>

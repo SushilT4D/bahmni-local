@@ -1,0 +1,648 @@
+{
+    "general":{
+        "translationKey": "DASHBOARD_TAB_GENERAL_KEY",
+        "displayByDefault": true,
+        "printing": {
+            "title": "Bahmni",
+            "header": "Visit",
+            "logo": "../images/visitPrintHeader.png"
+        },
+        "defaultSections": true,
+        "printDiagnosis": true,
+        "defaultSectionsExcludes": ["admissionDetails"],
+        "sections": {
+            "pivotTable":{
+                "type": "pivotTable",
+                "displayOrder": 0,
+                "title": "Vitals Flowsheet",
+                "config": {
+                    "groupBy": "obstime",
+                    "obsConcepts": [
+                        "Pulse",
+                        "Diastolic blood pressure",
+                        "Systolic blood pressure",
+                        "Temperature",
+                        "Respiratory rate",
+                        "Arterial blood oxygen saturation (pulse oximeter)",
+                        "Height (cm)",
+                        "Weight (kg)",
+                        "M/C Days"
+                    ],
+                    "labConcepts": ""
+                }
+            },
+            "conditions": {
+                "title": "Conditions",
+                "type": "conditionsList",
+                "displayOrder": 2,
+                "config": { }
+            },
+            "radiologyOrderControl":  {
+                "type": "order",
+                "title": "Radiology Order",
+                "config": {
+                    "title": "Radiology Order",
+                    "name": "ordersControl",
+                    "orderType": "Radiology Order",
+                    "conceptNames":[ ]
+                }
+            },
+            "prescriptions":{
+                "translationKey":"DASHBOARD_TITLE_PRESCRIPTIONS_KEY",
+                "type":"prescription",
+                "displayOrder":5,
+                "hideVisitDate": true,
+                "config":{
+                    "hideVisitDate": true,
+                    "showFlowSheet":true,
+                    "showListView":true,
+                    "showRoute":true,
+                    "showDrugForm":true,
+                    "numberOfVisits":5,
+                    "showOtherActive":true
+                }
+            }
+        },
+        "encounterContext": {
+            "filterEncounterTypes": [
+                "Consultation"
+            ]
+        }
+    },
+    "patientSummary": {
+        "translationKey": "DASHBOARD_TAB_PATIENT_SUMMARY_KEY",
+        "displayByDefault": true,
+        "printing": {
+            "title": "Bahmni",
+            "header": "Patient Visit Summary",
+            "logo": "../images/visitPrintHeader.png"
+        },
+        "sections": {
+            "Patient Information": {
+                "type": "patientInformation",
+                "displayOrder": 0,
+                "config": {
+                    "translationKey": "VISIT_TITLE_PATIENT_INFORMATION"
+                }
+            },
+             "consultationNotes":{
+                "type":"consultationNotes",
+                "translationKey":"DASHBOARD_TITLE_CONSULTATION_NOTES_KEY",
+                "displayOrder": 2,
+                 "config":{
+                    "conceptNames":[
+                        "History and Examination",
+                        "Chief Complaint Data",
+                        "History of present illness",
+                        "Smoking status",
+                        "Consultation Note"
+                    ],
+                    "scope": "latest",
+                    "numberOfVisits": 1,
+                    "showGroupDateTime": false
+                }
+            },
+            "diagnosis":{
+                "type":"diagnosis",
+                "translationKey":"DASHBOARD_TITLE_DIAGNOSIS_KEY",
+                "displayOrder": 3,
+                    "config":{
+                    "hideVisitDate": true,
+                    "showCertainty": true,
+                   "showOrder":true
+                     }
+
+            },
+            "labOrders": {
+                "type": "labOrders",
+                "displayOrder": 6,
+                "title": "Lab Orders",
+                "config": {
+                    "title": "Lab Orders",
+                    "name": "ordersControl",
+                    "orderType": "Lab Order",
+                    "showChart": true,
+                    "showTable": true,
+                    "showOrders": true,
+                    "showNormalLabResults": false,
+                    "showCommentsExpanded": false,
+                    "showAccessionNotes": true,
+                    "numberOfVisits": 10,
+                    "showDetailsButton": false,
+                    "hideVisitDate": true,
+                    "showGroupDateTime": false
+                }
+            },
+            "radiologyOrderControl":  {
+                "type": "order",
+                "title": "Radiology Order",
+                "displayOrder": 7,
+                "config": {
+                    "title": "Radiology Order",
+                    "name": "ordersControl",
+                    "orderType": "Radiology Order",
+                    "conceptNames":[ ],
+                    "showGroupDateTime": false
+                }
+            },
+            "prescriptions":{
+                "translationKey":"DASHBOARD_TITLE_PRESCRIPTIONS_KEY",
+                "type":"prescription",
+                "displayOrder":5,
+                "hideVisitDate": true,
+                "config":{
+                    "hideVisitDate": true,
+                    "showFlowSheet":true,
+                    "showListView":true,
+                    "showRoute":true,
+                    "showDrugForm":true,
+                    "numberOfVisits":5,
+                    "showOtherActive":true,
+                    "showProvider": false
+                }
+            },
+            "followUp": {
+                "type": "followUp",
+                "translationKey": "DASHBOARD_TITLE_FOLLOWUP_KEY",
+                "displayOrder":8,
+                "config": {
+                    "conceptNames":[
+                        "Return visit date",
+                        "Reason for visit"
+                    ],
+                    "showGroupDateTime": false
+                }
+            }
+        },
+        "encounterContext": {
+            "filterEncounterTypes": [
+                "Consultation"
+            ]
+        }
+    },
+    "dischargeSummary":{
+        "defaultSections": true,
+        "translationKey": "DASHBOARD_TAB_DISCHARGE_SUMMARY_KEY",
+        "printing": {
+            "title": "Bahmni",
+            "header": "Discharge Summary",
+            "logo": "../images/visitPrintHeader.png"
+        },
+        "sections": {
+            "PatientInformation":{
+                "type": "patientInformation",
+                "displayOrder": 0,
+                "config": {
+                    "title": "PatientInformation",
+                    "patientAttributes": ["caste", "class", "education", "occupation", "debt", "distanceFromCenter", "isUrban", "cluster","RationCard", "familyIncome"],
+                    "addressFields": ["address1", "address2", "cityVillage", "countyDistrict"]
+                }
+            },
+            "admissionDetails":{
+                "type": "admissionDetails",
+                "displayOrder": 1,
+                "config": {
+                    "showDetailsButton": true,
+                    "translationKey": "DISCHARGE_SUMMARY_ADMISSION_DETAILS_KEY"
+                }
+            },
+            "weightInitial":{
+                "type": "observation",
+                "displayOrder": 2,
+                "translationKey":"DISCHARGE_SUMMARY_AT_ADMISSION_KEY",
+                "config": {
+                    "conceptNames": ["WEIGHT"],
+                    "scope": "initial"
+                }
+            },
+            "weightLatest": {
+                "type": "observation",
+                "displayOrder": 3,
+                "translationKey":"DISCHARGE_SUMMARY_AT_DISCHARGE_KEY",
+                "config": {
+                    "conceptNames": ["WEIGHT"],
+                    "scope": "latest"
+                }
+            },
+            "DischargeSummary":{
+                "type":"DischargeSummary",
+                "displayOrder": 7,
+                "translationKey":"DASHBOARD_TITLE_DISCHARGE_SUMMARY_KEY",
+                "config": {
+                    "conceptNames": [
+                      "Patient Name",
+                      "Age",
+                      "Sex",
+                      "Date of Admission",
+                      "Date of discharge",
+                      "Date of Operation",
+                      "Provisional Diagnosis",
+                      "Final Diagnosis."
+                      
+                      
+                    ]
+                }
+            },
+            "diagnosis":{
+                "type":"diagnosis",
+                "translationKey":"DASHBOARD_TITLE_DIAGNOSIS_KEY",
+                "displayOrder": 4,
+                "config": {
+                    "showCertainty": true,
+                    "showOrder": true,
+                    "showDetailsButton": true
+                }
+            },
+            "provisionalDiagnosis":{
+                "type":"DSprovisionalDiagnosis",
+                "displayOrder": 9,
+                "translationKey":"DASHBOARD_TITLE_PROVISIONAL_DIAGNOSIS_KEY",
+                "config": {
+                    "conceptNames":[
+                      "Obstetrics History",
+                       "Previous Illness" ,
+                       "C/O"         
+                  ]
+                }
+            },
+            "Investigation":{
+                "type":"DSInvestigation",
+                "displayOrder": 10,
+                "translationKey":"DASHBOARD_TITLE_INVESTIGATION_KEY",
+                "config": {
+                    "conceptNames":[
+                     "Operative Terms",
+                     "Operative Procedure Name",
+                     "GA/SA/UA"        
+                  ]
+                }
+            },
+
+            "column1":{
+                "type":"DischargeSummaryCol1",
+                "displayOrder": 11,
+                "translationKey":"DASHBOARD_TITLE_COLUMN1_KEY",
+                "config": {
+                    "conceptNames":[
+                        "Rx Given"
+                  ]
+                }
+            },
+            "column2":{
+                "type":"DischargeSummaryCol2",
+                "displayOrder": 12,
+                "translationKey":"DASHBOARD_TITLE_COLUMN2_KEY",
+                "config": {
+                    "conceptNames":[
+                        "Rx Adviced"
+                  ]
+                }
+            },
+          
+            "PostOperationNotes":{
+                "type":"DischargeSummary",
+                "displayOrder": 8,
+                "translationKey":"DASHBOARD_TITLE_POST_OPERATION_NOTES_KEY",
+                "config": {
+                    "conceptNames":[
+                      "Follow up Date",
+                      "Operation Details/notes",
+                      "Pulse",
+                      "Urine Output",
+                      "BP"
+                  ]
+                }
+            },
+               "labOrders": {
+                "type": "labOrders",
+                "displayOrder": 13,
+                "title": "Lab Orders",
+                "config": {
+                    "title": "Lab Orders",
+                    "name": "ordersControl",
+                    "orderType": "Lab Order",
+                    "showChart": true,
+                    "showTable": true,
+                    "showOrders": true,
+                    "showNormalLabResults": false,
+                    "showCommentsExpanded": false,
+                    "showAccessionNotes": true,
+                    "numberOfVisits": 10,
+                    "showDetailsButton": false,
+                    "hideVisitDate": true,
+                    "showGroupDateTime": false
+                }
+            },
+            "radiologyOrderControl":  {
+                "type": "order",
+                "title": "Radiology Order",
+                 "displayOrder": 13,
+                "config": {
+                    "title": "Radiology Order",
+                    "name": "ordersControl",
+                    "orderType": "Radiology Order",
+                    "conceptNames":[ ],
+                    "showGroupDateTime": false
+                }
+            },
+                "prescriptions":{
+                "translationKey":"DASHBOARD_TITLE_PRESCRIPTIONS_KEY",
+                "type":"prescription",
+                "displayOrder":14,
+                "hideVisitDate": true,
+                "config":{
+                    "hideVisitDate": true,
+                    "showFlowSheet":true,
+                    "showListView":true,
+                    "showRoute":true,
+                    "showDrugForm":true,
+                    "numberOfVisits":5,
+                    "showOtherActive":true,
+                    "showProvider": false
+                }
+            },
+            "followUp": {
+                "type": "followUp",
+                "translationKey": "DASHBOARD_TITLE_FOLLOWUP_KEY",
+                "displayOrder":15,
+                "config": {
+                    "conceptNames":[
+                        "Return visit date",
+                        "Reason for visit"
+                    ],
+                    "showGroupDateTime": false
+                }
+            },
+       
+            "adviceOnDischarge":{
+                "type": "observation",
+                "displayOrder": 16,
+                "translationKey":"DISCHARGE_SUMMARY_ADVICE_ON_DISCHARGE_KEY",
+                "config": {
+                    "conceptNames": [
+                        "Additional Advice on Discharge",
+                        "Follow up Date",
+                        "Discharge Summary, Plan for follow up"
+                    ],
+                    "scope": "latest"
+
+                }
+            }
+         }
+        
+    },
+    "USG":{
+        "defaultSections": true,
+        "translationKey": "DASHBOARD_TAB_USG_SUMMARY_KEY",
+        "printing": {
+            "title": "Bahmni",
+            "header": "USG Summary",
+            "logo": "../images/visitPrintHeader.png"
+        },
+        "sections": {
+            "PatientInformation":{
+                "type": "patientInformation",
+                "displayOrder": 0,
+                "config": {
+                    "title": "PatientInformation",
+                    "patientAttributes": ["caste", "class", "education", "occupation", "debt", "distanceFromCenter", "isUrban", "cluster","RationCard", "familyIncome"],
+                    "addressFields": ["address1", "address2", "cityVillage", "countyDistrict"]
+                }
+            },
+            "admissionDetails":{
+                "type": "admissionDetails",
+                "displayOrder": 1,
+                "config": {
+                    "showDetailsButton": true,
+                    "translationKey": "DISCHARGE_SUMMARY_ADMISSION_DETAILS_KEY"
+                }
+            },
+            "weightInitial":{
+                "type": "observation",
+                "displayOrder": 2,
+                "translationKey":"DISCHARGE_SUMMARY_AT_ADMISSION_KEY",
+                "config": {
+                    "conceptNames": ["WEIGHT"],
+                    "scope": "initial"
+                }
+            },
+            "USGGyanecreport":{
+                "type": "observation",
+                "displayOrder": 3,
+                "translationKey":"DISCHARGE_SUMMARY_USG_GYANEC_REPORT_KEY",
+                "config": {
+                    "conceptNames": [
+                        "Name Gyanec report",
+                        "Date Gyanec report",
+                        "Age",
+                        "Sex",
+                        "Ulterus",
+                        "Ovaries",
+                        "Special Comments report",
+                        "Final Diagnosis",
+                        "Advice given"
+                    ]
+
+                }
+            },
+            "USGSummary":{
+                "type":"USGSummary",
+                "displayOrder": 5,
+                "translationKey":"DASHBOARD_TITLE_SUMMARY1_KEY",
+                "config": {
+                    "showOrder": true,
+                    "conceptNames": [
+                      "Name",
+                      "Date",
+                      "Date of last menstrual period",
+                      "EDD by Gestation",
+                      "Gestation by dates",
+                      "Number of fetuses",
+                      "Placeental site"
+                    ]
+                }
+            },
+            "diagnosis":{
+                "type":"diagnosis",
+                "translationKey":"DASHBOARD_TITLE_DIAGNOSIS_KEY",
+                "displayOrder": 4,
+                "config": {
+                    "showCertainty": true,
+                    "showOrder": true,
+                    "showDetailsButton": true
+                }
+            },
+            "FETALBIOMETRY":{
+                "type":"USGSummary",
+                "displayOrder": 6,
+                "translationKey":"DASHBOARD_TITLE_FETAL_BIOMETRY_KEY",
+                "config": {
+                    "conceptNames":[
+                      "Crown rump length in mm",
+                      "Biomarietal diameter in mm" ,
+                      "Field circumference in mm",
+                      "abd Circumference in mm",
+                      "Femoral Length in mm"      
+                  ]
+                }
+            },
+            "LiePresentation":{
+                "type":"USGSummary",
+                "displayOrder": 7,
+                "translationKey":"DASHBOARD_TITLE_LIE_PRESENTATION_KEY",
+                "config": {
+                    "conceptNames":[
+                     "Gestational Age By Ultrasound",
+                     "EDD Ultrasound",
+                     "Effective Fetal Weight"        
+                  ]
+                }
+            },
+            "SUMMARY":{
+                "type":"USGSummary",
+                "displayOrder": 8,
+                "translationKey":"DASHBOARD_TITLE_SUMMARY_KEY",
+                "config": {
+                    "conceptNames":[
+                     "Placental Maturity:",
+                     "Nuchal Pad Thickness",
+                     "LIQUor VOLUME AFI" ,
+                     "Advice",
+                     "Special Comments",
+                     "U.S.G OBSTETRICS",
+                     "BPD",
+                     "Head circumference",
+                     "AC",
+                     "FL",
+                     "Foetal weight",
+                     "GA(USG)",
+                     "GA(LMP)",
+                     "EDD(LMP)",
+                     "Impression"
+                  ]
+                }
+            },
+            "DOPPLERFOLLWS:":{
+                "type":"USGSummary",
+                "displayOrder": 9,
+                "translationKey":"DASHBOARD_TITLE_DOPPLER_PARAMETERS_KEY",
+                "config": {
+                    "conceptNames":[
+                     "ARTERY",
+                     "PI",
+                     "S/D" ,
+                     "REMARKS",  
+                     "NOTES"    
+                  ]
+                }
+            },
+          
+            "DetailsFetalAnatomyStudy":{
+                "type":"DischargeSummaryCol1",
+                "displayOrder": 11,
+                "translationKey":"DASHBOARD_TITLE_ANATOMY_STUDY_KEY",
+                "config": {
+                    "conceptNames":[
+                        "Cranium:Normal",
+                        "Intracranial structure:Normal",
+                        "Spine:Normal",
+                        "Heart:Four Chembur view normal",
+                        "Abdominal Wall: Normal",
+                        "Diaphragm:Normal",
+                        "Stomach:Normal"
+                  ]
+                }
+            },
+            "FetalHeartPulsation":{
+                "type":"DischargeSummaryCol2",
+                "displayOrder": 12,
+                "translationKey":"DASHBOARD_TITLE_HEART_PULSATION_KEY",
+                "config": {
+                    "conceptNames":[
+                        "Lateral Ventricles Cerebellum",
+                        "Kidneys:X2 seen",
+                        "Bladder:seen",
+                        "Limbs: X4 seen",
+                        "Face:Good view"
+                  ]
+                }
+            },
+               "labOrders": {
+                "type": "labOrders",
+                "displayOrder": 13,
+                "title": "Lab Orders",
+                "config": {
+                    "title": "Lab Orders",
+                    "name": "ordersControl",
+                    "orderType": "Lab Order",
+                    "showChart": true,
+                    "showTable": true,
+                    "showOrders": true,
+                    "showNormalLabResults": false,
+                    "showCommentsExpanded": false,
+                    "showAccessionNotes": true,
+                    "numberOfVisits": 10,
+                    "showDetailsButton": false,
+                    "hideVisitDate": true,
+                    "showGroupDateTime": false
+                }
+            },
+            "radiologyOrderControl":  {
+                "type": "order",
+                "title": "Radiology Order",
+                 "displayOrder": 13,
+                "config": {
+                    "title": "Radiology Order",
+                    "name": "ordersControl",
+                    "orderType": "Radiology Order",
+                    "conceptNames":[ ],
+                    "showGroupDateTime": false
+                }
+            },
+                "prescriptions":{
+                "translationKey":"DASHBOARD_TITLE_PRESCRIPTIONS_KEY",
+                "type":"prescription",
+                "displayOrder":14,
+                "hideVisitDate": true,
+                "config":{
+                    "hideVisitDate": true,
+                    "showFlowSheet":true,
+                    "showListView":true,
+                    "showRoute":true,
+                    "showDrugForm":true,
+                    "numberOfVisits":5,
+                    "showOtherActive":true,
+                    "showProvider": false
+                }
+            },
+            "followUp": {
+                "type": "followUp",
+                "translationKey": "DASHBOARD_TITLE_FOLLOWUP_KEY",
+                "displayOrder":15,
+                "config": {
+                    "conceptNames":[
+                        "Return visit date",
+                        "Reason for visit"
+                    ],
+                    "showGroupDateTime": false
+                }
+            },
+       
+            "adviceOnDischarge":{
+                "type": "observation",
+                "displayOrder": 16,
+                "translationKey":"DISCHARGE_SUMMARY_ADVICE_ON_DISCHARGE_KEY",
+                "config": {
+                    "conceptNames": [
+                        "Additional Advice on Discharge",
+                        "Follow up Date",
+                        "Discharge Summary, Plan for follow up"
+                    ],
+                    "scope": "latest"
+
+                }
+            }
+         }
+        
+    }
+}

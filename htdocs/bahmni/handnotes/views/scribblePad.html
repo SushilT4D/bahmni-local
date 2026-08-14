@@ -1,0 +1,14 @@
+<div class="ngdialog handnotes-dialog ngdialog-theme-default ng-scope">
+    <header class="template-header">
+        <h5>
+            <i class="fa fa-user"></i>
+            <span>{{patient.name}} {{'(' + patient.identifier + ')'}}</span>
+        </h5>
+        <button class="dialog-close-btn" ng-click="closeDialog()">
+            <i class="fa fa-times" aria-hidden="true"></i>
+        </button>
+    </header>
+    <div class="image-container">
+        <mfe-next-ui-edit-hand-notes host-data="editHostData"/>
+    </div>
+</div>

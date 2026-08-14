@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Patient QR Card</title>
+
+<style>
+
+@page{
+    size:3in 2in;
+    margin:0;
+}
+
+body{
+    margin:0;
+    font-family: Arial, sans-serif;
+}
+
+.card{
+    width:3in;
+    height:2in;
+    box-sizing:border-box;
+    padding:8px;
+    background:#f3f3f3;
+    /* border-radius:12px; */
+    border:1px solid #bbb;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+}
+
+/* Header */
+.header{
+    text-align:center;
+    font-weight:bold;
+    font-size:16px;
+}
+
+/* Row under header */
+.subinfo{
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    border-top:1px solid #ccc;
+    border-bottom:1px solid #ccc;
+    padding:2px 0;
+}
+
+/* Main section */
+.main{
+    display:flex;
+    justify-content:space-between;
+}
+
+/* Left info */
+.patient-info{
+    width:65%;
+    font-size:11px;
+}
+
+.name{
+    font-size:20px;
+    font-weight:bold;
+    margin:2px 0;
+}
+
+.family{
+    font-size:15px;
+    font-weight:bold;
+}
+
+.line{
+    margin:2px 0;
+}
+
+/* QR */
+.qrcode{
+    width:30%;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+}
+
+.qrcode img{
+    width:70px;
+    height:70px;
+}
+
+/* Footer */
+.footer{
+    text-align:center;
+    font-size:10px;
+    border-top:1px solid #ccc;
+    padding-top:2px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+    <div class="header">
+        <span class="visitValue">अमृत क्लिनिक</span>, <span id="loginLocation"></span>
+    </div>
+
+    <div class="subinfo">
+        <div>PID: <b class="patientId">{{patient.primaryIdentifier.identifier}}</b> / <b>{{patient['FileNumber']}}</b></div>
+        <div>पंजीकरण दिनांक: {{patient.registrationDate | bahmniDate}}</div>
+    </div>
+
+    <div class="main">
+
+        <div class="patient-info">
+
+            <div class="name">
+                {{patient.givenName}}
+            </div>
+
+            <div class="family">
+                {{patient.familyName}}
+            </div>
+
+            <div class="line">
+                                {{ patient.age.years > 0 ? patient.age.years + ' वर्ष ' : '' }}
+    {{ patient.age.months > 0 ? patient.age.months + ' महीने' : '' }} / {{ patient.gender === 'M' ? 'पुरुष' : patient.gender === 'F' ? 'महिला' : patient.gender === 'O' ? 'अन्य' : 'अघोषित' }}
+            </div>
+
+            <div class="line">
+                मोबाइल नंबर : {{patient['Primary Number']}} / {{patient['Alternate Number']}}
+            </div>
+
+            <div class="line">
+                पता : {{patient.address.cityVillage}}, {{patient.address.stateProvince}}
+            </div>     
+        </div>
+
+        <div class="qrcode"></div>
+
+    </div>
+
+    <div class="footer">
+        क्लिनिक संपर्क नंबर : <span id="clinicPhone"></span>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<script>
+document.querySelectorAll('.card').forEach(card => {
+
+    const patientId = card.querySelector(".patientId").innerText.trim();
+
+    new QRCode(card.querySelector(".qrcode"),{
+        text: patientId,
+        width:70,
+        height:70
+    });
+
+    /* LOCATION FROM IDENTIFIER PREFIX */
+
+    const prefix = patientId.substring(0,3).toUpperCase();
+
+    const locationMap = {
+        "BED": {name:"बेडावल", phone:"8003696396"},
+        "MAN": {name:"मानपुर", phone:"8003696394"},
+        "GHA": {name:"घाटेड", phone:"8003963222"},
+        "KOJ": {name:"कोजावडा", phone:"8306091022"},
+        "RAW": {name:"रावच", phone:"6377720590"},
+        "MOR": {name:"बागडुंडा", phone:"6377720591"},
+        "BAD": {name:"बागडुंडा", phone:"6377720591"}
+    };
+
+    const clinic = locationMap[prefix];
+
+    if(clinic){
+        document.getElementById("loginLocation").innerText = clinic.name;
+        document.getElementById("clinicPhone").innerText = clinic.phone;
+    }
+
+
+});
+</script>
+
+</body>
+</html>

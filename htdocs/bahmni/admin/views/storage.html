@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Docker Container Storage Graph</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.2/angular.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.5.1/chart.min.js"></script>
+</head>
+<body>
+
+<div class="center">
+    <table class="storage-content">
+        <tr class="storage-label"><td>Consumed Space</td> <td>Total Space</td></tr>
+        <tr class="storage-value"><td>{{ consumedSpaceText }}</td> <td>{{ totalSpaceText }}</td></tr>
+    </table>
+    <div class="progress">
+        <div class="progress-bar progress-bar-info" style="width:{{consumedPercentage}}%"> {{consumedPercentage}}</div>
+    </div>
+    <div>Contact <a href="{{contactURL}}"> {{contactURL}}</a> for further details</div>
+    <div>Contact <a href="{{salesURL}}"> {{salesURL}}</a> for increasing the limit</div>
+</div>
+</body>
+</html>

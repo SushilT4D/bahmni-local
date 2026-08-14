@@ -1,0 +1,672 @@
+x-default-logging: &default
+  {}
+
+x-loki-logging: &loki
+  driver: loki
+  options:
+    loki-url: http://localhost:3100/loki/api/v1/push
+    mode: non-blocking
+    max-buffer-size: 4m
+    loki-retries: "3"
+
+x-log-config: &log-config
+  # update this value to *loki if needed to see logs in grafana dashboard.
+  <<: *default
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/commands/ruok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,SASL_PLAINTEXT://${REMOTE_KAFKA_HOST:-localhost}:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,SASL_PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      # SASL configuration
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      # JAAS configuration (username/password)
+      KAFKA_OPTS: >-
+        -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
+        -Dzookeeper.sasl.client=false
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf:ro
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
+      #test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:29092 --security-protocol SASL_PLAINTEXT --sasl-mechanism PLAIN --sasl-jaas-config 'org.apache.kafka.common.security.plain.PlainLoginModule required username=\"admin\" password=\"y1zhhLPO0LHeXDsWQKLJ\";' || exit 1"]
+
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:29092'
+        #SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: 'SASL_PLAINTEXT'
+        #SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: 'PLAIN'
+        #SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="y1zhhLPO0LHeXDsWQKLJ";'
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-connect:
+    image: quay.io/debezium/connect:3.2.4.Final
+    hostname: kafka-connect
+    container_name: kafka-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+        #CONNECT_SASL_MECHANISM: PLAIN
+        #CONNECT_SECURITY_PROTOCOL: SASL_PLAINTEXT
+        #CONNECT_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="y1zhhLPO0LHeXDsWQKLJ";'
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_TOPIC: docker-connect-status
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /kafka/connect,/usr/share/confluent-hub-components
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_PORT: 8083
+    volumes:
+      - ./connectors:/kafka/connect/connectors:ro
+      - connect-data:/kafka/connect/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  proxy:
+    image: bahmniindiadistro/proxy:${PROXY_IMAGE_TAG:?}
+    # build:
+    #  context: .
+    #  dockerfile: proxy/package/docker/Dockerfile
+    volumes:
+    - ${CERTIFICATE_PATH}/fullchain.pem:/etc/tls/cert.pem
+    - ${CERTIFICATE_PATH}/privkey.pem:/etc/tls/key.pem
+    - "bahmni-patient-images:/home/bahmni/patient_images"
+  #  - "/App/bahmni-std-cloud-package-master/certbot:/usr/local/apache2/htdocs/certbot"
+    - "/App/bahmni-std-cloud-package-master/proxy-config/bahmni-proxy.conf:/usr/local/apache2/conf/bahmni-proxy.conf"
+    ports:
+      - "80:80"
+      - "443:443"
+    logging: *log-config
+    environment:
+      TZ: ${TZ}
+
+  bahmni-config:
+    image: '${CONFIG_IMAGE_NAME:?}:${CONFIG_IMAGE_TAG:?}'
+    build:
+      context: .
+      dockerfile: bahmni-config/package/docker/Dockerfile
+    volumes:
+      - '${CONFIG_VOLUME:?}:/usr/local/bahmni_config'
+    logging: *log-config
+
+  openelis:
+    profiles: ["openelis","bahmni-standard","emr"]
+    image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:?[ERROR]}'
+    volumes:
+      - "${CONFIG_VOLUME:?}:/etc/bahmni_config/:ro"
+      - "bahmni-lab-results:/home/bahmni/uploaded_results"
+      - "bahmni-lab-files:/home/bahmni/uploaded-files/elis"
+    environment:
+      TZ: ${TZ}
+      OPENMRS_HOST: ${OPENMRS_HOST}
+      OPENMRS_PORT: ${OPENMRS_PORT:?}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER:?}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD:?}
+      OPENELIS_DB_SERVER: ${OPENELIS_DB_SERVER}
+    depends_on:
+      openelisdb:
+        condition: service_healthy
+    logging: *log-config
+
+  openelisdb:
+    profiles: ["openelis","bahmni-standard","emr"]
+    image: 'bahmni/openelis-db:${OPENELIS_DB_IMAGE_TAG:?[ERROR]}'
+    volumes:
+      - '${OPENELIS_DB_DUMP_PATH}:/resources/db-dump'
+      - 'openelisdbdata:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      TZ: ${TZ}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    logging: *log-config   
+    
+  openmrs:
+    profiles: ['emr', "bahmni-mart"]
+    image: infoiplitin/openmrs:${OPENMRS_IMAGE_TAG}
+    environment:
+      TZ: ${TZ}
+      OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
+      OMRS_DB_HOSTNAME: ${OPENMRS_DB_HOST:?}
+      OMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME:?}
+      OMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+      OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
+      OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
+      OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
+      # OMRS_DEV_DEBUG_PORT: ${OMRS_DEV_DEBUG_PORT}
+      OMRS_JAVA_SERVER_OPTS: ${OMRS_JAVA_SERVER_OPTS}
+      OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
+      OPENELIS_HOST: ${OPENELIS_HOST:?}
+      OPENELIS_PORT: ${OPENELIS_PORT:?}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER:?}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD:?}
+      #Mail config
+      SEND_MAIL: ${SEND_MAIL}
+      MAIL_TRANSPORT_PROTOCOL: ${MAIL_TRANSPORT_PROTOCOL}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH}
+      MAIL_SMTP_STARTTLS_ENABLE: ${MAIL_SMTP_STARTTLS_ENABLE}
+      MAIL_SMTP_SSL_ENABLE: ${MAIL_SMTP_SSL_ENABLE}
+      MAIL_DEBUG: ${MAIL_DEBUG}
+      MAIL_FROM: ${MAIL_FROM}
+      MAIL_USER: ${MAIL_USER}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      #HIP-OMOD Variables. Refer here https://github.com/BahmniIndiaDistro/openmrs-module-hip/tree/master#docker-setup
+      PHONE_NUMBER: ${PHONE_NUMBER:?}
+      OMRS_DOCKER_ENV: ${OPENMRS_DOCKER_ENV}
+      OMRS_C3P0_MAX_SIZE: ${OMRS_C3P0_MAX_SIZE}
+      OMRS_DB_EXTRA_ARGS: ${OMRS_DB_EXTRA_ARGS}
+      LUCENE_MATCH_TYPE: ${LUCENE_MATCH_TYPE}
+      DOCUMENT_MAX_SIZE_MB: ${DOCUMENT_MAX_SIZE_MB}
+    # ports:
+      # - ${OMRS_DEV_DEBUG_PORT}:${OMRS_DEV_DEBUG_PORT}
+    volumes:
+      # - 'openmrs-data:/openmrs/data/modules'
+      - "bahmni-lab-results:/home/bahmni/uploaded_results"
+      - '${CONFIG_VOLUME:?}:/etc/bahmni_config/:ro'
+      - 'configuration_checksums:/openmrs/data/configuration_checksums'
+      - 'bahmni-patient-images:/home/bahmni/patient_images'
+      - 'bahmni-document-images:/home/bahmni/document_images'
+      - 'bahmni-clinical-forms:/home/bahmni/clinical_forms'
+    depends_on:
+      - openmrsdb
+    logging: *log-config
+
+  openmrsdb:
+    image: ${OPENMRS_DB_IMAGE_NAME:?}
+    restart: always
+    profiles: ["emr", "bahmni-mart"]
+    command: --character-set-server=utf8 --collation-server=utf8_general_ci
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${OPENMRS_DB_NAME:?}
+      MYSQL_USER: ${OPENMRS_DB_USERNAME:?}
+      MYSQL_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+    ports:
+      - '3306:3306'
+    volumes:
+      - 'openmrsdbdata:/var/lib/mysql'
+      - 'configuration_checksums:/configuration_checksums'
+    logging: *log-config
+    
+  metabasedb:
+    image: postgres:${METABASE_POSTGRES_IMAGE_TAG:?}
+    restart: on-failure:[3]
+    profiles: ["metabase", "bahmni-mart"]
+    environment:
+      TZ: ${TZ}
+      POSTGRES_DB: ${METABASE_DB_NAME:?}
+      POSTGRES_USER: ${METABASE_DB_USER:?}
+      POSTGRES_PASSWORD: ${METABASE_DB_PASSWORD:?}
+    volumes:
+      - 'metabase-data:/var/lib/postgresql/data'
+
+
+  metabase:
+    image: bahmni/bahmni-metabase:${METABASE_IMAGE_TAG:?}
+    restart: on-failure:[3]
+    profiles: ["metabase", "bahmni-mart"]
+    environment:
+      TZ: ${TZ}
+      MB_ADMIN_EMAIL: ${METABASE_ADMIN_EMAIL:?}
+      MB_ADMIN_FIRST_NAME: ${METABASE_ADMIN_FIRST_NAME:?}
+      MB_ADMIN_PASSWORD: ${METABASE_ADMIN_PASSWORD:?}
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: ${METABASE_DB_NAME:?}
+      MB_DB_PORT:  ${METABASE_DB_PORT:?}
+      MB_DB_USER: ${METABASE_DB_USER:?}
+      MB_DB_PASS: ${METABASE_DB_PASSWORD:?}
+      MB_DB_HOST: ${METABASE_DB_HOST:?}
+      OPENMRS_DB_HOST: ${OPENMRS_DB_HOST:?}
+      OPENMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
+      OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME:?}
+      OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+      MART_DB_HOST: ${MART_DB_HOST:?}
+      MART_DB_NAME: ${MART_DB_NAME:?}
+      MART_DB_USERNAME: ${MART_DB_USERNAME:?}
+      MART_DB_PASSWORD: ${MART_DB_PASSWORD:?}
+    depends_on:
+     - metabasedb
+
+  martdb:
+    image: postgres:${BAHMNI_MART_DB_IMAGE_TAG:?}
+    profiles: ["metabase","bahmni-mart"]
+    restart: ${RESTART_POLICY}
+    environment:
+      TZ: ${TZ}
+      POSTGRES_DB: ${MART_DB_NAME:?}
+      POSTGRES_USER: ${MART_DB_USERNAME:?}
+      POSTGRES_PASSWORD: ${MART_DB_PASSWORD:?}
+    volumes:
+      - 'mart-data:/var/lib/postgresql/data'
+
+
+  mart:
+    image: bahmni/bahmni-mart:${BAHMNI_MART_IMAGE_TAG:?}
+    profiles: ["metabase","bahmni-mart"]
+    restart: ${RESTART_POLICY}
+    environment:
+      TZ: ${TZ}
+      CRON_TIME: ${MART_CRON_TIME:?}
+      MART_DB_HOST: ${MART_DB_HOST:?}
+      MART_DB_NAME: ${MART_DB_NAME:?}
+      MART_DB_USERNAME: ${MART_DB_USERNAME:?}
+      MART_DB_PASSWORD: ${MART_DB_PASSWORD:?}
+      OPENMRS_DB_HOST: ${OPENMRS_DB_HOST:?}
+      OPENMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
+      OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME:?}
+      OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
+    depends_on:
+     - martdb
+     - openmrsdb
+     - openmrs
+     - reportsdb
+     - reports
+    volumes:
+     - 'bahmni-clinical-forms:/home/bahmni/clinical_forms'
+
+  bahmni-web:
+    image: infoiplitin/bahmni-iplit-web:${BAHMNI_WEB_IMAGE_TAG:?}
+    profiles: ["emr", "bahmni-mart"]
+    # build:
+      # context: .
+      # dockerfile: bahmni-web/package/docker/Dockerfile
+    volumes:
+      #- "${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni"
+      #- "${BAHMNI_APPS_PATH:?}/ui/node_modules/@bower_components/:/usr/local/apache2/htdocs/bahmni/components"
+      - '${CONFIG_VOLUME:?}:/usr/local/apache2/htdocs/bahmni_config/:ro'
+    logging: *log-config
+
+  db:
+    container_name: db
+    image: postgres:${POSTGRES_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+    environment:
+      - POSTGRES_USER=${HIP_DB_USER:?}
+      - POSTGRES_PASSWORD=${HIP_DB_PASSWORD:?}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgresql:/var/lib/postgresql
+      - postgresql_data:/var/lib/postgresql/data
+
+  rabbitmq:
+      image: rabbitmq:${RABBITMQ_IMAGE_TAG:?}
+      profiles: ["abdm", "emr"]
+      container_name: rabbitmq
+      ports:
+        - "5672:5672"
+  otp:
+      image: infoiplitin/otp-service:${OTP_SERVICE_IMAGE_TAG:?}
+      profiles: ["abdm", "emr"]
+      container_name: otp
+      depends_on:
+        - db
+      environment:
+        whitelisted:numbers: ${OTP_WHITELIST_NUMBERS}
+        ConnectionStrings:DefaultConnection: Host=${OTP_DB_HOST:?};Port=${OTP_DB_PORT:?};Username=${OTP_DB_USER:?};Password=${OTP_DB_PASSWORD:?};Database=${OTP_DB_NAME:?};
+
+  hiu-db-setup:
+      image: bahmniindiadistro/hiu-db:${HIU_DB_INITIALIZER_IMAGE_TAG:?}
+      profiles: ["abdm", "emr"]
+      container_name: hiu-db-setup
+      environment:
+        - 'JAVA_TOOL_OPTIONS=-Djdbc.url=${HIU_DB_URL:?} -Djdbc.username=${HIU_DB_USER:?} -Djdbc.password=${HIU_DB_PASSWORD:?} -Djdbc.database=${HIU_DB_NAME:?}'
+
+  hip:
+    container_name: hip
+    image: infoiplitin/hip:${HIP_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+    ports:
+      - "8000:80"
+    depends_on:
+      - db
+      - otp
+      - rabbitmq
+    environment:
+      Gateway:clientSecret: ${ABDM_GATEWAY_CLIENT_SECRET:?}
+      Gateway:clientId: ${ABDM_GATEWAY_CLIENT_ID:?}
+      Gateway:url: ${ABDM_GATEWAY_URL:?}
+      OpenMrs:url: ${OPENMRS_URL:?}
+      OpenMrs:password: ${OPENMRS_PASSWORD:?}
+      OpenMrs:phoneNumber: ${PHONE_NUMBER:?}
+      Gateway:cmSuffix: ${ABDM_CONSENT_MANAGEMENT_SUFFIX:?}
+      OtpService:BaseUrl: ${HIP_OTP_SERVICE_URL:?}
+      hip:url: ${HIP_URL:?}
+      HEALTH_CHECK_DURATION: ${HIP_OPENMRS_HEALTH_CHECK_DURATION:?}
+      Cors:allowedOrigins: ${HIP_CORS_ALLOWED_ORIGIN:?}
+      Bahmni:Id: ${HIP_ID:?}
+      Bahmni:Name: ${HIP_NAME:?}
+      rabbit:HostName: ${RABBITMQ_HOST:?}
+      rabbit:UserName: ${RABBITMQ_USERNAME:?}
+      rabbit:Password: ${RABBITMQ_PASSWORD:?}
+      ConnectionStrings:DefaultConnection: Host=${HIP_DB_HOST:?};Port=${HIP_DB_PORT:?};Username=${HIP_DB_USER:?};Password=${HIP_DB_PASSWORD:?};Database=${HIP_DB_NAME:?};
+
+  hiu:
+    image: infoiplitin/hiu:${HIU_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+    container_name: hiu
+    environment:
+      HIU_ID: ${HIU_ID:?}
+      HIU_NAME: ${HIU_NAME:?}
+      IDENTITY_JWK_URL: ${ABDM_IDENTITY_JWK_URL:?}
+      DATA_PUSH_URL: ${HIU_DATA_PUSH_URL:?}
+      CONSENT_NOTIFICATION_URL: ${ABDM_CONSENT_NOTIFICATION_URL:?}
+      CONSENT_MANAGEMENT_SUFFIX:  ${HIU_ABDM_CONSENT_MANAGEMENT_SUFFIX:?}
+      CONSENT_MANAGEMENT_URL: ${ABDM_CONSENT_MANAGEMENT_URL:?}
+      DEFAULT_PAGE_SIZE: ${HIU_DEFAULT_PAGE_SIZE:?}
+      MAX_PAGE_SIZE: ${HIU_MAX_PAGE_SIZE:?}
+      LOCAL_STORAGE_PATH: ${HIU_LOCAL_STORAGE_PATH}
+      HIU_CLIENT_ID: ${ABDM_GATEWAY_CLIENT_ID:?}
+      HIU_CLIENT_SECRET: ${ABDM_GATEWAY_CLIENT_SECRET:?}
+      CONSENT_MANAGER_DB_NAME: ${HIU_DB_NAME:?}
+      POSTGRES_HOST: ${HIU_DB_HOST:?}
+      POSTGRES_PORT: ${HIU_DB_PORT}
+      POSTGRES_USER: ${HIU_DB_USER:?}
+      POSTGRES_PASSWORD: ${HIU_DB_PASSWORD:?}
+      DB_CONNECTION_POOL_SIZE: ${HIU_DB_CONNECTION_POOL_SIZE:?}
+      OFFSET_IN_DAYS: ${HIU_OFFSET_IN_DAYS:?}
+      USING_GATEWAY: ${HIU_USING_GATEWAY:?}
+      GATEWAY_BASE_URL: ${ABDM_GATEWAY_BASE_URL:?}
+      GATEWAY_REQUEST_TIMEOUT: ${HIU_GATEWAY_REQUEST_TIMEOUT:?}
+      GATEWAY_JWK_URL: ${ABDM_GATEWAY_JWK_URL:?}
+      HFR_AFFINITY_DOMAINS: ${ABDM_HFR_AFFINITY_DOMAINS:?}
+      RABBITMQ_HOST: ${HIU_RABBITMQ_HOST:?}
+      RABBITMQ_PORT: ${HIU_RABBITMQ_PORT:?}
+      RABBITMQ_USERNAME: ${HIU_RABBITMQ_USERNAME:?}
+      RABBITMQ_PASSWORD: ${HIU_RABBITMQ_PASSWORD:?}
+      MAX_IN_MEMORY_SIZE: ${HIU_MAX_IN_MEMORY_SIZE:?}
+      DATA_FLOW_CONSENT_REQUEST_WAIT_TIME: ${HIU_DATA_FLOW_CONSENT_REQUEST_WAIT_TIME:?}
+      DATA_FLOW_CONSENT_ARTEFACT_WAIT_TIME: ${HIU_DATA_FLOW_CONSENT_ARTEFACT_WAIT_TIME:?}
+      DATA_FLOW_PART_WAIT_TIME: ${HIU_DATA_FLOW_PART_WAIT_TIME:?}
+    ports:
+      - "9053:8003"
+
+  hiu-ui:
+    image: infoiplitin/hiu-ui:${HIU_UI_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+    container_name: hiu-ui
+    environment:
+      BACKEND_BASE_URL: ${HIU_BACKEND_BASE_URL:?}
+      BASE_NAME: ${HIU_UI_BASE_NAME:?}
+      TIMEZONE_OFFSET: ${TIMEZONE_OFFSET:?}
+      TITLE: "HIU"
+    ports:
+      - "5000:5000"
+
+  hip-atomfeed-listener:
+    container_name: hip-atomfeed-listener
+    image: bahmniindiadistro/hip-atomfeed:${HIP_ATOMFEED_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+    environment:
+      DATABASE_URL: ${HIP_ATOMFEED_DB_URL:?}
+      DATABASE_NAME: ${HIP_ATOMFEED_DB_NAME:?}
+      DATABASE_USERNAME: ${HIP_DB_USER:?}
+      DATABASE_PASSWORD: ${HIP_DB_PASSWORD:?}
+      OPENMRS_URL: ${OPENMRS_SESSION_URL:?}
+      OPENMRS_ENCOUNTER_FEED_URL: ${OPENMRS_ENCOUNTER_FEED_URL:?}
+      OPENMRS_USERNAME: ${OPENMRS_USERNAME:?}
+      OPENMRS_PASSWORD: ${OPENMRS_PASSWORD:?}
+      HIP_URL: ${HIP_URL:?}
+      PHONE_NUMBER: ${PHONE_NUMBER:?}
+    depends_on:
+      - db
+
+  reports:
+    image: bahmni/reports:${REPORTS_IMAGE_TAG:?}
+    profiles: [ "reports", "emr", "bahmni-mart"]
+    environment:
+      TZ: ${TZ}
+      OPENMRS_DB_HOST: ${OPENMRS_DB_HOST:?}
+      OPENMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
+      OPENMRS_DB_USERNAME: ${MYSQL_ROOT_USERNAME:?}
+      OPENMRS_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      OPENMRS_HOST: ${OPENMRS_HOST:?}
+      OPENMRS_PORT: ${OPENMRS_PORT:?}
+      OPENELIS_DB_SERVER: openelisdb
+      REPORTS_DB_SERVER: reportsdb
+      REPORTS_DB_NAME: ${REPORTS_DB_NAME:?}
+      REPORTS_DB_USERNAME: ${REPORTS_DB_USERNAME:?}
+      REPORTS_DB_PASSWORD: ${REPORTS_DB_PASSWORD:?}
+      ODOO_DB_SERVER: odoodb
+      ODOO_DB_USERNAME: ${ODOO_DB_USER:?}
+      ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD:?}
+    volumes:
+      - '${CONFIG_VOLUME:?}:/etc/bahmni_config/:ro'
+    depends_on:
+      - reportsdb
+      - openmrsdb
+      - bahmni-web
+    logging: *log-config
+
+  reportsdb:
+    image: mysql:5.6
+    profiles: ["reports", "emr", "bahmni-mart"]
+    environment:
+      TZ: ${TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ${REPORTS_DB_NAME:?}
+      MYSQL_USER: ${REPORTS_DB_USERNAME:?}
+      MYSQL_PASSWORD: ${REPORTS_DB_PASSWORD:?}
+    logging: *log-config
+
+  patient-documents:
+    image: 'bahmni/patient-documents:${PATIENT_DOCUMENTS_TAG:?}'
+    ports:
+      - '8099:80'
+    profiles: ["emr"]
+    volumes:
+      - 'bahmni-document-images:/usr/share/nginx/html/document_images'
+    environment:
+      TZ: ${TZ}
+      OPENMRS_HOST: ${OPENMRS_HOST:?}
+    logging: *log-config
+
+  appointments:
+    image: bahmni/appointments:${APPOINTMENTS_IMAGE_TAG:?}
+    profiles: ["emr","appointments"]
+#    volumes:
+#      - "${APPOINTMENTS_PATH:?}/dist/:/usr/local/apache2/htdocs/appointments"
+
+  implementer-interface:
+    image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
+    profiles: ["emr","implementer-interface"]
+    #volumes:
+    #  - "${IMPLEMENTER_INTERFACE_CODE_PATH:?}/dist:/usr/local/apache2/htdocs/implementer_interface"
+    depends_on:
+      - openmrs
+
+  abha-verification:
+    image: infoiplitin/abha-verification:${ABHA_VERIFICATION_IMAGE_TAG:?}
+    profiles: ["abdm", "emr"]
+
+  odoo:
+    profiles: ["odoo","emr"]
+    image: 'bahmni/odoo-10:${ODOO_IMAGE_TAG:?[ERROR]}'
+    ports:
+      - '8069:8069'
+    volumes:
+      - odooappdata:/var/lib/odoo
+      - ${EXTRA_ADDONS_PATH}:/mnt/extra-addons
+      # # Uncomment the below volume only when you need to modify existing bahmni-addons. Also make sure to update the .env file variable with odoo-modules github repo cloned path.
+      - ${BAHMNI_ODOO_MODULES_PATH}:/opt/bahmni-erp/bahmni-addons
+    depends_on:
+      odoodb:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ}
+      HOST: odoodb
+      USER: ${ODOO_DB_USER}
+      PASSWORD: ${ODOO_DB_PASSWORD}
+    logging: *log-config
+
+  odoodb:
+    profiles: ["odoo","emr"]
+    image: 'bahmni/odoo-10-db:${ODOO_DB_IMAGE_TAG:?[ERROR]}'
+    ports:
+      - '5431:5432'
+    volumes:
+      - '${ODOO_DB_DUMP_PATH}:/resources/db-dump'
+      - 'odoodbdata:/var/lib/postgresql/data'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h localhost -U odoo']
+      interval: 10s
+      timeout: 5s
+    environment:
+      TZ: ${TZ}
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD}
+      POSTGRES_USER: ${ODOO_DB_USER}
+    logging: *log-config
+
+  odoo-connect:
+    profiles: ["odoo","emr"]
+    image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG:?[ERROR]}'
+    environment:
+      ODOO_DB_SERVER: odoodb
+      ODOO_DB_USERNAME: ${ODOO_DB_USER:?}
+      ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD:?}
+      OPENMRS_HOST: ${OPENMRS_HOST:?}
+      OPENMRS_PORT: ${OPENMRS_PORT:?}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER:?}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD:?}
+      OPENELIS_HOST: ${OPENELIS_HOST:?}
+      OPENELIS_PORT: ${OPENELIS_PORT:?}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER:?}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD:?}
+      ODOO_HOST: ${ODOO_HOST:?}
+      ODOO_PORT: ${ODOO_PORT:?}
+      ODOO_ATOMFEED_USER: ${ODOO_ATOMFEED_USER:?}
+      ODOO_ATOMFEED_PASSWORD: ${ODOO_ATOMFEED_PASSWORD:?}
+    depends_on:
+      odoodb:
+        condition: service_healthy
+    logging: *log-config
+
+  atomfeed-console:
+    image: bahmni/atomfeed-console:latest
+    profiles: ["emr","atomfeed-console"]
+    environment:
+      TZ: ${TZ}
+      OPENMRS_DB_HOST: ${OPENMRS_DB_HOST}
+      OPENMRS_DB_NAME: ${OPENMRS_DB_NAME}
+      OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME}
+      OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}
+      ODOO_DB_HOST: ${ODOO_DB_HOST}
+      ODOO_DB_NAME: ${ODOO_DB_NAME}
+      ODOO_DB_USER: ${ODOO_DB_USER}
+      ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD}
+      OPENELIS_DB_HOST: ${OPENELIS_DB_HOST}
+      OPENELIS_DB_USER: ${OPENELIS_DB_USER}
+      OPENELIS_DB_PASSWORD: ${OPENELIS_DB_PASSWORD}
+      # PACS_INTEGRATION_DB_HOST: ${PACS_DB_HOST}
+      # PACS_INTEGRATION_DB_NAME: ${PACS_INTEGRATION_DB_NAME}
+      # PACS_INTEGRATION_DB_USERNAME: ${PACS_INTEGRATION_DB_USERNAME}
+      # PACS_INTEGRATION_DB_PASSWORD: ${PACS_INTEGRATION_DB_PASSWORD}
+
+volumes:
+  openmrs-data:
+  openelisdbdata:
+  odoodbdata:
+  odooappdata:
+  openmrsdbdata:
+  bahmni-patient-images:
+  bahmni-document-images:
+  postgresql:
+  postgresql_data:
+  bahmni-config:
+  configuration_checksums:
+  mart-data:
+  metabase-data:
+  bahmni-clinical-forms:
+  bahmni-lab-results:
+  bahmni-lab-files:
+  zookeeper-data:
+  zookeeper-logs:
+  kafka-data:
+  connect-data:

@@ -1,0 +1,33 @@
+<style>
+    .container {
+      border: 1px solid red;
+      position: relative;
+      margin: 0 auto 0 auto;
+      height: 100%;
+    }
+
+    .container .signature {
+      border: 1px solid orange;
+      margin: 0 auto;
+      cursor: pointer;
+    }
+
+    .container .signature canvas {
+      border: 1px solid #999;
+      margin: 0 auto;
+      cursor: pointer;
+    }
+
+  </style>
+<div class="container">
+    <div class="ngdialog-close"></div>
+    <signature-pad accept="accept" clear="clear" height="720" width="720" dataurl="dataurl"></signature-pad>
+
+    <div class="buttons">
+        <button ng-click="clear()">Clear</button>
+        <button ng-click="signature = accept()">Save</button>
+        <button ng-click="closeThisDialog()">Cancel</button>
+    </div>
+
+  <div>  {{signature}}</div>
+</div>

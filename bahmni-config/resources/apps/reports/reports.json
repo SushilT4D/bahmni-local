@@ -1,0 +1,622 @@
+{
+"Manpur Registration_report": {
+        "name": "Manpur Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "Manpur-BHS",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Manpur-registrtaion.sql"
+        }
+    },
+
+"Ghated Registration_report": {
+        "name": "Ghated Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/ghated_registrtaion.sql"
+        }
+    },
+
+"Rawach Registration_report": {
+        "name": "Rawach Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/rawach_registrtaion.sql"
+        }
+    },
+"Bedawal Registration_report": {
+        "name": "Bedawal Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/bedawal_registrtaion.sql"
+        }
+    },
+    "kojawada Registration_report": {
+        "name": "Kojawada Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/kojawada_registrtaion.sql"
+        }
+    },
+    "Morwal Registration_report": {
+        "name": "Morwal Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/morwal_registrtaion.sql"
+        }
+    },
+
+    "Bagdunga Registration_report": {
+        "name": "Bagdunga Patient Registration list",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Bagdunga_Registration_report.sql"
+        }
+    },
+    "visitReport10": {
+    "name": "Visit Report",
+    "type": "MRSGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/visit_report.sql"
+    }
+},
+
+    "ManpurMonthlyReport": {
+        "name": "Manpur Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Manpur Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/manpur_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Manpur Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/manpur_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+
+    "GhatedMonthlyReport": {
+        "name": "Ghated Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Ghated Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/ghated_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Ghated Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/ghated_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+
+    "RawachMonthlyReport": {
+        "name": "Rawach Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Rawach Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/rawach_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Rawach Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/rawach_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+
+    "BedawalMonthlyReport": {
+        "name": "Bedawal Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Bedawal Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/bedawal_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Bedawal Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/bedawal_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+    
+    "KojawadaMonthlyReport": {
+        "name": "Kojawada Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Kojawada Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/kojawada_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Kojawada Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/kojawada_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+
+    "MorwalMonthlyReport": {
+        "name": "Morwal Monthly Report",
+        "type": "concatenated",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "reports": [
+                {
+                   
+            "name": "Morwal Monthly Report - Demographic and quality",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/morwal_monthly_report.sql"
+            }
+        },
+            
+                {
+                     "name": "Morwal Monthly Report - Child and Adult",
+            "type": "MRSGeneric",
+            "requiredPrivilege": "app:reports",
+            "config": {
+                "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/morwal_monthly_report2.sql"
+            }
+                }
+            ]
+        }
+    },
+ "adultcasesheetnew": {
+        "name": "Adult Case Sheet Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/adultcasesheetnew.sql"
+        }
+    },
+    "childcasesheetnew": {
+        "name": "Child Case Sheet Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/childcasesheetnew.sql"
+        }
+    },
+    "labourformnew": {
+        "name": "Labour Form Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/labourformnew.sql"
+        }
+    },
+    "medicationformnew": {
+        "name": "Medication Form Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/MedicationFormReports.sql"
+        }
+    },
+    "ancformnew": {
+        "name": "ANC Form Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/ancformnew.sql"
+        }
+    },
+    "tbintakenew": {
+        "name": "TB Intake Form Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/tbintakenew.sql"
+        }
+    },
+    "tbfollowupnew": {
+        "name": "TB FollowUP Form Report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/tbfollowupnew.sql"
+        }
+    },
+    "pncformreportnew": {
+        "name": "PNC Form report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/pncformreport.sql"
+        }
+    },
+    "Treatment_Form": {
+        "name": "Treatment Form",
+        "type": "obsTemplate",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "templateName": "Treatment_Form",
+            "patientAttributes": [
+                "caste",
+                "education"
+            ],
+            "applyDateRangeFor": "obsDate"
+        }
+    },
+     "Manpur_TB_tabuler_monthly_report": {
+        "name": "Manpur TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Manpur_TB_Tabuler_monthly_report.sql"
+        }
+    },
+    "Ghated_TB_tabuler_monthly_report": {
+        "name": "Ghated TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Ghated_TB_Tabuler_monthly_report.sql"
+        }
+    },
+    "Rawach_TB_tabuler_monthly_report": {
+        "name": "Rawach TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Rawach_TB_Tabuler_monthly_report.sql"
+        }
+    },
+     "Bedawal_TB_tabuler_monthly_report": {
+        "name": "Bedawal TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Bedawal_TB_Tabuler_monthly_report.sql"
+        }
+    },
+    "Kojawada_TB_tabuler_monthly_report": {
+        "name": "Kojawada TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Kojawada_TB_Tabuler_monthly_report.sql"
+        }
+    },
+    "Morwal_TB_tabuler_monthly_report": {
+        "name": "Morwal TB Tabular monthly report",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Morwal_TB_Tabuler_monthly_report.sql"
+        }
+    },
+    "OpenERP_Manpur_indent_issue": {
+    "name": "OpenERP Manpur Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/manpur_indent_issue.sql"
+    }
+},
+"OpenERP_Ghated_indent_issue": {
+    "name": "OpenERP Ghated Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/ghated_indent_issue.sql"
+    }
+},
+"OpenERP_Bedawal_indent_issue": {
+    "name": "OpenERP Bedawal Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/bedawal_indent_issue.sql"
+    }
+},
+"OpenERP_Morwal_indent_issue": {
+    "name": "OpenERP Morwal Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/morwal_indent_issue.sql"
+    }
+},
+
+"OpenERP_Rawach_indent_issue": {
+    "name": "OpenERP Rawach Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/rawach_indent_issue.sql"
+    }
+},
+
+"OpenERP_phc_nithauwa_indent_issue": {
+    "name": "OpenERP PHC Nithauwa Indent Issue",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/phc_nithauwa_indent_issue.sql"
+    }
+},
+
+"OpenERP_Purchase_Order_Report": {
+    "name": "OpenERP Purchase Order Report",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Purchase_Order.sql"
+    }
+},
+
+"OpenERP_Quotation_And_Sale_Orders_report": {
+    "name": "OpenERP Quotation And Sale Orders report",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Quotation_And_Sale_Orders_report.sql"
+    }
+},
+
+"Indent_Required_VS_Send_Report": {
+    "name": "OpenERP Indent Required VS Send Report",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Indent Required VS Send Report.sql"
+    }
+},
+
+"Near_Expire_Medicine_Report": {
+    "name": "OpenERP Near Expire Medicine Report",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Near Expire Medicine Report.sql"
+    }
+},
+
+"Stock_By_Location_Wise": {
+    "name": "OpenERP Stock By Location Wise",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Stock By Location Wise.sql"
+    }
+},
+
+"Stock_Opening_And_Closing_Report": {
+    "name": "OpenERP Stock Opening And Closing Report",
+    "type": "ERPGeneric",
+    "requiredPrivilege": "app:reports",
+    "config": {
+      "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/Odoo_new_reports/Stock Opening And Closing Report.sql"
+    }
+},
+
+
+
+"Adult_case_sheet": {
+        "name": "Adult Case Sheet Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/adult_case_sheet.sql"
+        }
+    },
+
+"Adult Follow Up": {
+        "name": "Adult Follow Up Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/adult_followup_sheet.sql"
+        }
+    },
+"ANC Observation form Report": {
+        "name": "ANC Observation form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/anc_form.sql"
+        }
+    },
+"Admission Form Report": {
+        "name": "Admission Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/admission_form.sql"
+        }
+    },
+"Child Under 2 Months Case Sheet Report": {
+        "name": "Child Under 2 Months Case Sheet Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/child_under_2_months_case_sheet.sql"
+        }
+    },
+"Child 2 Months to 5 Years Case Sheet Report": {
+        "name": "Child 2 Months to 5 Years Case Sheet Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/child_2_Months_to_5_Years_Case.sql"
+        }
+    },
+
+"Immunization Form Report": {
+        "name": "Immunization Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/immunization_form.sql"
+        }
+    },
+"MTP Intake Form Report": {
+        "name": "MTP Intake Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/mtp_intake_form.sql"
+        }
+    },
+"MTP FollowUP Form Report": {
+        "name": "MTP FollowUP Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/mtp_followup_form.sql"
+        }
+    },
+
+
+ "PNC Form Report":{
+    "name": "PNC Form Report Old",
+    "type": "formBuilder",
+    "requiredPrivilege": "app:reports",
+     "config": {
+        "patientAttributes": ["File number"],
+        "patientAddresses": [],
+        "visitAttributes": ["Visit Status"],
+        "showVisitInfo": true,
+        "showProvider": false,
+        "formNamesToFilter": ["PNC Form"],
+        "preferredColumns": ["Patient Identifier","File number"],
+       "conceptNameDisplayFormat": "shortNamePreferred",
+        "locationTagsToFilter": [],
+        "programsToFilter": [],
+        "applyDateRangeFor": "obsDate",
+        "visitTypesToFilter": []
+    }
+},
+
+"PNC Form Report Migrated ": {
+        "name": "PNC Form Report - Migrated",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/pnc_form.sql"
+        }
+},
+"Referral Form Report": {
+        "name": "Referral Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/referral_form.sql"
+        }
+    },
+
+"SAM Form Report": {
+        "name": "SAM Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/sam_form.sql"
+        }
+    },
+"TB Intake Form": {
+        "name": "TB Intake Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/tb_intake.sql"
+        }
+    },
+"TB FollowUP Form Report": {
+        "name": "TB FollowUP Form Report Old",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/obsformsql/tb_followup.sql"
+        }
+    },
+
+"Diagnosis Report": {
+        "name": "Subscription Card Data",
+        "type": "MRSGeneric",
+        "requiredPrivilege": "app:reports",
+        "config": {
+            "sqlPath": "/etc/bahmni_config/openmrs/apps/reports/sql/newobsformsql/Subscription_report.sql"
+        }
+    }
+
+
+    
+    
+
+
+
+}

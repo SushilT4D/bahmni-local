@@ -1,0 +1,411 @@
+<link id="print-certificate-styles" rel="stylesheet"
+      href="/bahmni_config/openmrs/apps/customDisplayControl/styles/print.css"/>
+
+<section class="app-dashboard-integration">
+    <h2 class="section-title"><span class="section-border">{{ section.title | titleTranslate}}</span>
+    </h2>
+
+    <ul class="display-title-container">
+        <li class="display-title">
+            <span class="pl-1"> {{::"UNDER_TREATMENT_CERTIFICATE" | translate}} </span>
+            <button ng-click="printCertificate('under-treatment')" class="print-button"
+                    ng-disabled="printControl['Under Treatment and Fitness Certificate']">{{::"PRINT_BUTTON" | translate}}
+            </button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_UNDER_TREATMENT_CERTIFICATE_FORM" | translate}}</li>
+        </ul>
+    </ul>
+    <ul class="display-title-container">
+        <li class="display-title">
+            <span class="pl-1"> {{::"FITNESS_CERTIFICATE" | translate}} </span>
+            <button ng-click="printCertificate('fitness-certificate')" class="print-button"  ng-disabled="printControl['Under Treatment and Fitness Certificate']">{{::"PRINT_BUTTON" | translate}}</button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_UNDER_TREATMENT_CERTIFICATE_FORM" | translate}}</li>
+        </ul>
+    </ul>
+    <hr class="break-line">
+    <ul class="display-title-container">
+        <li class="display-title">
+            <span class="pl-1"> {{::"ADMISSION_LETTER" | translate}} </span>
+            <button ng-click="printCertificate('admission-certificate')" class="print-button" ng-disabled="printControl['Admission Letter']">{{::"PRINT_BUTTON" | translate}}
+            </button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_ADMISSION_LETTER_FORM" | translate}}</li>
+        </ul>
+    </ul>
+    <hr class="break-line">
+    <ul style="font-size: 14px;color: #000000">
+        <li class="display-title">
+            <span style="padding-left: 10px"> {{::"REFERRAL_LETTER" | translate}} </span>
+            <button ng-click="printCertificate('referral-letter')" class="print-button"
+                    ng-disabled="printControl['Referral letter']">{{::"PRINT_BUTTON" | translate}}
+            </button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_REFERRAL_LETTER_FORM" | translate}}</li>
+        </ul>
+    </ul>	
+	<hr class="break-line">
+    <ul style="font-size: 14px;color: #000000">
+        <li class="display-title">
+            <span style="padding-left: 10px"> {{::"MTP_CERTIFICATE" | translate}} </span>
+            <button ng-click="printCertificate('mtp-certificate')" class="print-button"
+                    ng-disabled="printControl['Mtp letter']">{{::"PRINT_BUTTON" | translate}}
+            </button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_MTP_LETTER_FORM" | translate}}</li>
+        </ul>
+    </ul>
+    <hr class="break-line">
+    <ul style="font-size: 14px;color: #000000">
+        <li class="display-title">
+            <span style="padding-left: 10px"> {{::"Form l and Form C" | translate}} </span>
+            <button ng-click="printCertificate('Form l_and_Form C')" class="print-button"
+                    ng-disabled="printControl['Form l and Form C letter']">{{::"PRINT_BUTTON" | translate}}
+            </button>
+        </li>
+        <ul  class="form-field">
+            <li>{{::"NAVIGATE_TO_MTP_Form l and Form C letter_form" | translate}}</li>
+        </ul>
+    </ul>
+</section>
+
+<div id="under-treatment" class="no-print">
+    <div class="row space-centre position-relative ">
+        <div class="print-header" align="center">
+			<h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+        </div>
+    </div>
+    <hr>
+    <div style="clear: both;">
+        <span class="label"><h3 class="text-center large-font">{{::"UNDER_TREATMENT_CERTIFICATE" | translate}}</h3></span>
+    </div>
+    <div>
+        <div class="text-left">
+            <span class="label">{{::"DATE_LABEL" | translate}}</span>
+            <span>{{today | date:'dd/MM/yyyy'}} </span> </br>
+            <span class="label">{{::"PATIENT_REGISTRATION_NO_LABEL" | translate}}</span>
+            <span>{{patient.identifier}}</span>
+        </div>
+        <div>
+            <font size="3">
+                <h3 class="text-center mb-2" >{{::"CERTIFICATE_SUBJECT_1" | translate}}</h3>
+                <p class="text-justify"  translate="UNDER_TREATMENT_CERTIFICATE_BODY_CONTENT" translate-values="{patient:{{patient}}, treatment: formFieldValues[0]['Treatment plan'], restDuration : formFieldValues[0]['Rest duration']}">
+                </p>
+                <p class="signature mt-2">{{::"REGARDS_LABEL" | translate}}</p>
+                <p class="signature"><b>Dr.&nbsp;{{doctorName}},</b></p>
+                <p class="signature">{{::"REG_NO_LABEL" | translate}} {{registrationNumber}}. </p>
+                <p class="signature">{{printCertificateLine1}}</p>
+                <p class="signature">{{printCertificateLine2}}</p>
+            </font>
+        </div>
+    </div>
+</div>
+
+<div id="fitness-certificate" class="no-print">
+    <div class="row space-centre position-relative">
+        <div class="print-header" align="center">
+            <h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+        </div>
+    </div>
+    <hr>
+    <div style="clear: both;">
+        <span class="label"><h3 class="text-center">{{::"FITNESS_CERTIFICATE" | translate}}</h3></span>
+    </div>
+    <div>
+        <div class="text-left">
+            <span class="label">{{::"DATE_LABEL" | translate}}</span>
+            <span>{{today | date:'dd/MM/yyyy'}} </span> </br>
+            <span class="label">{{::"PATIENT_REGISTRATION_NO_LABEL" | translate}}</span>
+            <span>{{patient.identifier}}</span>
+        </div>
+        <div class="content-body">
+            <font size="3">
+                <h3 class="text-center">{{::"CERTIFICATE_SUBJECT_1" | translate}}</h3>
+                <p class="text-justify" translate="FITNESS_CERTIFICATE_BODY_CONTENT" translate-values="{patient:{{patient}}, treatment: formFieldValues[0]['Treatment plan']}"></p>
+                <p class="signature mt-2" >{{::"REGARDS_LABEL" | translate}}</p>
+                <p class="signature"><b>Dr.&nbsp;{{doctorName}},</b></p>
+                <p class="signature">{{::"REG_NO_LABEL" | translate}} {{registrationNumber}}. </p>
+                <p class="signature">{{printCertificateLine1}}</p>
+                <p class="signature">{{printCertificateLine2}}</p>
+            </font>
+        </div>
+    </div>
+
+    <div id="admission-certificate" class="no-print">
+        <div class="row space-centre position-relative">
+            <div class="print-header" align="center">
+				<h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+            </div>
+        </div>
+        <hr>
+        <div style="clear: both;">
+            <span class="label"><h3 class="text-center">{{::"ADMISSION_LETTER" | translate}}</h3></span>
+        </div>
+        <div>
+            <div class="text-right">
+                <span class="label">{{::"DATE_LABEL" | translate}}</span>
+                <span>{{today | date:'dd/MM/yyyy'}} </span> </br>
+                <span class="label">{{::"PATIENT_REGISTRATION_NO_LABEL" | translate}}</span>
+                <span>{{patient.identifier}}</span>
+            </div>
+            <div>
+                <font size="3">
+                    <p class="text-justify" translate="ADMISSION_CERTIFICATE_BODY_CONTENT" translate-values="{patient:{{patient}},ReferredtoDoctor: formFieldValues[1]['Referred to Doctor'], referredToHospital: formFieldValues[1]['Referring to Hospital'], comments: formFieldValues[1]['Comments']}"></p>
+                    <p class="mt-2">{{::"THANKYOU_LABEL" | translate}}</p>
+                    <p class="signature"><b>Dr.&nbsp;{{doctorName}},</b></p>
+                    <p class="signature">{{::"REG_NO_LABEL" | translate}} {{registrationNumber}}. </p>
+                    <p class="signature">{{printCertificateLine1}}</p>
+                    <p class="signature">{{printCertificateLine2}}</p>
+                </font>
+            </div>
+        </div>
+    </div>
+
+    <!----referral letter--->
+	<div id="referral-letter" class="no-print">
+        <div class="row space-centre position-relative ">
+            <div class="print-header" align="center">
+				<h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+            </div>
+        </div>
+        <hr>
+        <div style="clear: both;">
+            <span class="label"><h3 class="text-center">{{::"REFERRAL_LETTER" | translate}}</h3></span>
+        </div>
+        <div style="float: right;" class="right">
+            <span  class="label">{{::"DATE_LABEL" | translate}}</span>
+            <span >{{today | date:'dd/MM/yyyy'}} </span>
+        </div>
+        <div class="left">
+            <span class="label"><p
+                    class="text-left" style="white-space: pre-wrap;"><b>{{::"REFERRAL_LETTER_REFERRAL_TO" | translate}}</b> <br>{{::getReferredTo()}} </p></span>
+        </div>
+        <!-- <p class="text-left">{{::"REFERRAL_LETTER_NAME_OF_PATIENT" | translate}} {{patient.givenName}} {{patient.middleName}} {{patient.familyName}} {{::"REFERRAL_LETTER_AGE" | translate}} {{patient.age || '0'}} {{::"REFERRAL_LETTER_YEARS" | translate}} </p>
+ -->
+        <div class="text-left">
+            <span class="label">
+               <div class='row w-100 container space-between'>
+               <!-- <div class='row'><div>{{::"REFERRAL_ADDRESS_LABEL" | translate}}&nbsp </div> <div> {{patientAddress.line1}},<br>{{patientAddress.line2}}.</div></div>
+                <span
+                    class='align-top'> {{:: "REFERRAL_TEL_NO_LABEL" | translate}} {{patient.phoneNumber.value}}</span></div> -->
+                </span>
+        </div>
+        <div class="left">
+            <span class="label"><p class="text-left">{{::"REFERRAL_LETTER_NAME_OF_PATIENT" | translate}} {{patient.givenName}} {{patient.middleName}} {{patient.familyName}} {{::"REFERRAL_LETTER_AGE" | translate}} {{patient.age || '0'}} {{::"REFERRAL_LETTER_YEARS" | translate}} </p>
+</span>
+        </div>
+        <div class="left">
+            <span class="label"><p
+                    class="text-left">{{::"REFERRAL_LETTER_REASON_FOR_REFERRAL" | translate}} {{formFieldValues[2]['Reason for referral (text)']}}</p></span>
+        </div>
+        <div class="left">
+            <span class="label"><p
+                    class="text-left">{{::"REFERRAL_LETTER_C/o_(Remarks)" | translate}} {{formFieldValues[2]['C/o (Remarks)']}}</p></span>
+        </div>
+        <div class="left" ng-if="formFieldValues[2]['Relevant clinical history']!=null">
+            <p class="text-left">{{::"REFERRAL_LETTER_RELEVANT_CLINICAL_HISTORY" | translate}} <span>{{formFieldValues[2]['Relevant clinical history']}}</span>
+            </p>
+        </div> 
+         <div class="left"  ng-if="formFieldValues[2]['Treatment provided']!=null">
+            <p class="text-left">{{::"REFERRAL_LETTER_TREATMENT" | translate}} <span>{{formFieldValues[2]['Treatment provided']}}</span></p>
+        </div> 
+        <div class="right">
+            <span class="label"><p class="text-right">{{::"REFERRAL_SIGNATURE" | translate}}<span
+                    class='fill_in_blank'></span></p></span>
+        </div>
+        <div class="float-right" style="clear: both;">
+	        <div class="left">
+	            <span class="signature"><span class="text-right"><b>Dr. &nbsp;{{doctorName}}</b></span></span>
+	        </div>
+	        <div class="left">
+	           <p class="signature"><span class="text-right">{{::"REG_NO_LABEL" | translate}} {{registrationNumber}}</span></p>
+	        </div>
+	        <div class="left">
+	            <span class="label"><span class="text-right">{{printCertificateLine1}}</span></span>
+	        </div>
+	        <div class="right">
+	            <span class="label"><span class="text-right">{{printCertificateLine2}}</span></span>
+	        </div>
+        </div>
+    </div>
+</div>
+
+ <!----mtp certificate--->
+<div id="mtp-certificate" class="no-print">
+    <style>
+
+    </style>
+   <!--  <div class="row"> -->
+<div class="row space-centre position-relative ">
+            <div class="print-header" align="center">
+                <h1><img src="../images/visitPrintHeader.png" width="100%"
+                       class="logo"/></h1>
+            </div> </div>
+  <br>
+        <div class="center">
+         
+          <span class="label"><h3 style="text-align: center;">Consent For Medical Method of Termination of Pregnancy</h3></span>
+        
+         <!--  </div> -->
+    <!--   </div> -->
+   </div> 
+<br>
+<div class="row">
+         <div class="center">
+        <div class="left">
+            <span class="label"><b>Registration No:</b></span>
+            <span>{{patient.primaryIdentifier.identifier}}</span> 
+        </div>
+        <div class="left">
+            <span class="label"><b>Patient Name:</b></span>
+            <span>{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</span> &emsp; <br>
+            <span class="label"><b>Age/Gender:</b></span>
+            <span>{{patient.age.years || "0"}}</span>  
+            <span ng-show="patient.gender">/ {{patient.gender}}</span>
+        </div>
+        <div class="right">
+            <span class="label"><b>Address:</b></span>
+            <span>{{patient.address.address1}}</span>&nbsp;
+           <span>{{patient.address.address2}}</span>
+           <span>&nbsp;{{patient.address.cityVillage}}</span>
+           <span>&nbsp;&nbsp;{{patient.address.postalCode}}</span>
+        </div>
+        <div class="right">
+            <span class="label"><b>Mobile No:</b></span>
+            <span>{{patient.mobileNo}}</span>&nbsp;    
+        </div>
+    </div>
+    </div>  
+<!-- <div> -->
+<br>
+<p>I authorize Dr. REKHA SANDIP THOTE and Associates of her, choice to perform the following pocedure/procedures ________________________________________________</p>
+<p style="text-align: justify;"> The Nature and Purpose of the procedure have been explained to me and I fully understand  them.</p>
+<p style="text-align: justify;"> The risks of pain, bleeding for a longer time, excessive bleeding, incomplete  abortion and need for surgical evacuation and failure rate have been explained to me and I fully understand them.</p>
+<p style="text-align: justify;"> In case a surgical evacuation is needed that will be considered as a separate procedure.</p>
+<p style="text-align: justify;"> My questions about the procedure/procedures have been explained to me  satisfactorily in a language that I understand.</p>
+<p style="text-align: justify;"> I have read and understood this document and request the proposed care in spite of the  risks involved.</p>
+<p>&nbsp;</p>
+<br>
+<br>
+<table style="width: 700px;">
+<!-- <tbody> -->
+<tr>
+<td style="width: 266px;">
+Relationship to patient in
+</td>
+<td style="width: 329px;">
+Patient Signature/
+</td>
+<td style="width: 329px;">
+Signature/Thumb
+</td>
+</tr>
+<tr>
+<td style="width: 266px;">
+Case of parent/guardian
+</td>
+<td style="width: 329px;">
+Thumb impression
+</td>
+<td style="width: 329px;">
+impression of parent/
+</td>
+</tr>
+<tr>
+<td style="width: 266px;">
+</td>
+<td style="width: 329px;">
+</td>
+<td style="width: 329px;">
+gaurdian (to be used
+</td>
+</tr>
+<tr>
+<td style="width: 266px;">
+</td>
+<td style="width: 329px;">
+</td>
+<td style="width: 329px;">
+only if patient is a
+</td>
+</tr>
+<tr>
+<td style="width: 266px;">
+</td>
+<td style="width: 329px;">
+</td>
+<td style="width: 329px;">
+minor or is unable to sign)
+</td>
+</tr>
+</table>
+</div>
+
+<!-- form I and Form C -->
+<div id="Form l_and_Form C" class="no-print">
+<p><h1 style="text-align: center;">Form - I</p></h1>
+<p><h3 style="text-align: center;">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (See Regulation 3) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (SECRET)</h3></p>
+<p>Name and Qualification of the Registered Medical Practitioner (in Block letters):</p>
+<p>DR.REKHA THOTE (MBBS, D.G.O.), Reg. No.:80265.</p>
+<p>Address: Shree Clinic, G-1/12, Brahmand Phase 5, Thane (West)- 400607. Phone: 9920898930.</p>
+<p>* I / We hereby certify that I / We am / are of the opinion, formed in good faith, that it is</p>
+<p>necessary to terminate pregnancy of &nbsp;<b> <span>{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</span> </b></p>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; (Full name of pregnant patient in Block Letters)</p>
+<p>Full address:</p>
+<p>For the reasons** given below (**)</p>
+<p>* I / We hereby give information that I / We terminated the pregnancy of the women referred to above who bears the SR.No ____________ &nbsp;in the admission register of the hospital / approved. The pregnancy was terminated at ________________ and this report is within 3 hours of such termination.</p>
+<p>Date:</p>
+<p>Place:</p>
+<p>Signature(s) of Registered Medical Practitioner(s)</p>
+<p>&nbsp;</p>
+<p>(*) Strike out whichever is not applicable.</p>
+<p>(**) of the reasons specified in items (i) to (v), write which is appropriate:</p>
+<p>&nbsp;</p>
+<ol type="i">
+<li>In order to save the life of pregnant woman.</li>
+<li>In order to prevent grave injury to physical and mental health of Pregnant Woman.</li>
+<li>In view of substantial risk that if the child was born it would suffer from such physical or mental abnormalities as to be seriously handicapped.</li>
+<li>As the pregnancy is alleged by pregnant woman to have caused by rape.</li>
+<li>As the pregnancy has occurred as a result of failure of any contraceptive device or method used by the married woman or her husband for the purpose of limiting the number of children.</li>
+</ol>
+<p>&nbsp;</p>
+<p>Note: Account may be taken of the pregnant women actual or reasonably of a pregnancy would involve grave injury to her physical or mental health.</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p><h1 style="text-align: center;page-break-before:always; ">FORM C</p></h1>
+<p><h4 style="text-align: center;">(See rule 8)</h4></p>
+<p>I, &nbsp; <span>{{patient.givenName}} {{patient.middleName}} {{patient.familyName}}</span> , daughter / wife of <span>{{patient.primaryRelative}} </span> ________________________________________________________ Age <span>{{patient.age.years || "0"}}</span> &nbsp; Yrs. permanent address ________________________________________________________ 
+
+</p>
+<p>At present residing at            <span>{{patient.address.address1}}</span>&nbsp;
+           <span>{{patient.address.address2}}</span>
+           <span>&nbsp;{{patient.address.cityVillage}}</span>
+           <span>&nbsp;-&nbsp;{{patient.address.postalCode}}</span>
+</p>
+<p>Do hereby give consent to the termination of my pregnancy at Shree Clinic,  G-1/12, Brahmand Phase 5, Thane (West)- 400607. Phone: 9920898930</p>
+<p>Place:</p>
+<p>State:</p>
+<p>Date:</p>
+<p>LHTI / Signature of Patient</p>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p>(To be filled in by guardian where the women is a lunatic or minor)</p>
+<p>I __________________________________________________________ daughter / wife of ______________________________________________ Age ________ Yrs. permanent address ____________________________________________</p>
+<p>At present residing at ___________________________________________</p>
+<p>Do hereby give consent to the termination of my ward ______________________</p>
+<p>Who is a minor / Mentally ill person, at Shree Clinic, G-1/12, Brahmand Phase 5, Thane (West)- 400607. Phone: 9920898930</p>
+<p>Place:</p>
+<p>State:</p>
+<p>Date:</p>
+<p>LHTI / Signature of Patient</p>
+<p>&nbsp;</p>
+</div>
