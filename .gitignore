@@ -9,3 +9,6 @@ certs/
 *.tgz
 *.zip
 *.gz
+
+# moved-aside PG14 datadirs from the PG15 bump (Module 28)
+data/postgresql.pg14*

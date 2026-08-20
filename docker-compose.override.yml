@@ -48,6 +48,12 @@ services:
   # both recorded as BL-052: two logical-replication slots on one instance, and
   # a version skew against upstream's own openelis-db image.
   bahmni-postgres:
+    # PG15 (overriding Sushil's ODOO_DB_IMAGE_NAME=postgres:14): publication row
+    # filters (WHERE id%10=residue) are PG15+ and are how Module 28 enforces per-row
+    # single-writer (L-001 at row granularity) WITHOUT a scripting SMT — the shared
+    # Connect workers have no JSR223 engine, and adding one would disrupt the live
+    # MySQL sync on restart. This instance is disposable (clinlims only; Odoo unused).
+    image: postgres:15
     # Also joins the `openelis` profile: it now hosts the clinlims database too, so
     # `up -d openelis` must be able to bring its own dependency up.
     profiles: ["odoo", "local", "openelis"]
