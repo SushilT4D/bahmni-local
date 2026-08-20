@@ -1,0 +1,32 @@
+{
+  "name": "clinlims-cloud-sink",
+  "config": {
+    "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+    "tasks.max": "1",
+    "topics": "source.bahmni-local.clinlims.sample,source.bahmni-local.clinlims.sample_item,source.bahmni-local.clinlims.analysis,source.bahmni-local.clinlims.result",
+    "connection.url": "jdbc:postgresql://openelisdb:5432/openelis",
+    "connection.username": "clinlims",
+    "connection.password": "__ELISPW__",
+
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": "source\\.bahmni-local\\.clinlims\\.(.*)",
+    "transforms.route.replacement": "$1",
+    "table.name.format": "clinlims.${topic}",
+
+    "insert.mode": "upsert",
+    "primary.key.mode": "record_key",
+    "delete.enabled": "false",
+    "schema.evolution": "none",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+
+    "connection.restart.on.errors": "true",
+    "errors.retry.timeout": "-1",
+    "errors.retry.delay.max.ms": "60000",
+    "flush.max.retries": "10"
+  }
+}
