@@ -94,3 +94,20 @@ services:
       bahmni-postgres:
         condition: service_healthy
     restart: ${RESTART_POLICY}
+
+  # Mount an nginx conf that adds the /openelis route. Sushil's proxy/bahmni-nginx.conf
+  # is baked into the image and left untouched; this is a copy plus one location block.
+  proxy:
+    volumes:
+      - './proxy/bahmni-nginx.openelis.conf:/etc/nginx/nginx.conf:ro'
+
+  # Sushil's `openmrs` service forwards NO OPENELIS_* variables, so
+  # bahmnicore.properties.template and update_elis_host_port.sh — both of which
+  # interpolate ${OPENELIS_HOST}/${OPENELIS_PORT} — could only ever render
+  # "http://:/" no matter what .env said. That is the real shape of BL-048.
+  openmrs:
+    environment:
+      OPENELIS_HOST: ${OPENELIS_HOST}
+      OPENELIS_PORT: ${OPENELIS_PORT}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
