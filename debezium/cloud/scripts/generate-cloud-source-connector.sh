@@ -22,7 +22,7 @@ done
 TABLE_INCLUDE_LIST="$("${ROOT}/scripts/generate-table-config.sh" cloud | grep '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
 [[ -n "$TABLE_INCLUDE_LIST" ]] || { echo "empty TABLE_INCLUDE_LIST — refusing to emit a source that captures EVERYTHING (loop risk)" >&2; exit 1; }
 
-export TEMPLATE TABLE_INCLUDE_LIST
+export ROOT TEMPLATE TABLE_INCLUDE_LIST
 export CLOUD_MYSQL_HOST="${CLOUD_MYSQL_HOST:-openmrsdb}"
 export CLOUD_MYSQL_PORT="${CLOUD_MYSQL_PORT:-3306}"
 export CLOUD_MYSQL_DATABASE="${CLOUD_MYSQL_DATABASE:-openmrs}"
@@ -48,6 +48,30 @@ if left: sys.exit(f"unsubstituted placeholder(s): {left}")
 inc = doc['config']['table.include.list']
 if not inc or '*' in inc:
     sys.exit("LOOP GUARD: table.include.list must be an explicit cloud-owned list")
+
+# LOOP GUARD, the one that matters. The cloud's binlog also records every
+# UP-direction sink write. If any clinic-owned table appears in this whitelist, the
+# cloud captures rows that just arrived FROM a clinic and MirrorMaker sends them
+# straight back down -- an infinite loop and an L-001 violation.
+# This is not hypothetical: on 2026-08-20 debezium/cloud/tables.conf on the cloud host
+# had been extended from 7 to 19 tables (its header still said "Cloud -> local sync"),
+# so this generator produced a whitelist containing person/patient/visit/encounter.
+# A comment cannot prevent that. A computed intersection can.
+root = os.environ['ROOT']
+up = set()
+with open(os.path.join(root, 'debezium', 'local', 'tables.conf')) as fh:
+    for line in fh:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            up.add(line.split()[0].split(':')[0])
+down = {t.split('.')[-1] for t in inc.split(',')}
+clash = sorted(down & up)
+if clash:
+    sys.exit(
+        "LOOP GUARD TRIPPED: these tables are clinic-owned (debezium/local/tables.conf) "
+        f"and must never be captured by the cloud source: {clash}\n"
+        "  Capturing them would re-send clinic data back down to the clinics.\n"
+        "  Fix debezium/cloud/tables.conf so it lists ONLY cloud-owned tables.")
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")
 PYEOF

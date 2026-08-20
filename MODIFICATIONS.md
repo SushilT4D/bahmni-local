@@ -102,3 +102,33 @@ non-zero when any task is not RUNNING, and can `--restart` failed tasks. It also
 that a task with nothing to write cannot prove its connection is alive.
 
 This is an **addition**, not an edit — `check-sink-connectors.sh` is untouched.
+
+## MODIFIED: `debezium/cloud/connectors/mysql-sink-connector.json.template`
+
+**Date:** 2026-08-20 · **Reason:** BL-039
+
+Added `connection.restart.on.errors=true`, `errors.retry.timeout=-1`,
+`errors.retry.delay.max.ms=60000`, `flush.max.retries=10`.
+
+Debezium ships `connection.restart.on.errors` defaulted to **false**, which makes any
+connection-level error unrecoverable: the task dies permanently while the connector still
+reports RUNNING. Observed twice on 2026-08-20 — once from overnight idle exceeding MySQL's
+8h `wait_timeout`, once from the cloud MySQL restart — each time killing exactly the seven
+registration-path sinks with no alert. Also applied to the 19 live connectors via
+`PUT /connectors/<name>/config`.
+
+Upstream caveat honoured: the doc warns this can risk inconsistency where the sink DB uses
+**asynchronous replication**. Both sink databases here are single instances.
+
+## ADDED: down-direction (cloud → clinic) connectors and tooling
+
+**Date:** 2026-08-20 · Files:
+`debezium/cloud/connectors/mysql-cloud-source-connector.json.template`,
+`debezium/cloud/scripts/generate-cloud-source-connector.sh`,
+`debezium/local/connectors/mysql-local-sink-connector.json.template`,
+`scripts/generate-local-sink-connectors.sh`,
+`scripts/register-local-sink-connectors.sh`,
+`config/mirrormaker/mm2.properties` (`remote->source` flow).
+
+BL-033 recorded that the down direction was designed and partly tooled but its connector
+configs were absent. These are those configs.

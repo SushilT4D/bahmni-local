@@ -39,6 +39,10 @@
     "insert.mode": "upsert",
     "primary.key.mode": "record_key",
 
+    "//keys0": "record_key, NOT record_value: delete.enabled REQUIRES record_key, because",
+    "//keys00": "a delete carries after=null and the PK can only come from the key. The up",
+    "//keys000": "direction uses record_value + delete.enabled=false; this direction must",
+    "//keys0000": "propagate deletes, so it uses the key.",
     "//keys": "record_key carries whatever the source PK was, composite included --",
     "//keys2": "user_property(user_id,property), role_privilege(role,privilege),",
     "//keys3": "role_role(parent_role,child_role). No striding is needed in this",
@@ -62,9 +66,12 @@
     "//errors4": "include.messages stays FALSE: these payloads are user/provider records.",
     "errors.log.include.messages": "false",
 
+    "//converters": "true on BOTH, matching the source. The JDBC sink needs the schema:",
+    "//converters2": "with schemas.enable=false every task dies on",
+    "//converters3": "'Configured primary key mode record_key cannot have null schema'.",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable": "false",
+    "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "false"
+    "value.converter.schemas.enable": "true"
   }
 }

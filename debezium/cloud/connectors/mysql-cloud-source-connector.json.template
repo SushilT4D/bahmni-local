@@ -30,12 +30,15 @@
     "snapshot.mode": "initial",
     "snapshot.locking.mode": "minimal",
 
-    "//converters": "MUST match the sink side. Mismatched schemas.enable was BL-031",
-    "//converters2": "(NullPointerException: payload is null).",
+    "//converters": "schemas.enable MUST be true on BOTH sides. BL-031 recorded this as",
+    "//converters2": "'they must match' -- necessary but NOT sufficient. The Debezium JDBC sink",
+    "//converters3": "needs the SCHEMA to build its upsert; matched-but-false fails with",
+    "//converters4": "'Configured primary key mode record_key cannot have null schema'.",
+    "//converters5": "The working up direction runs true/true; this now matches it.",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable": "false",
+    "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "true",
 
     "tombstones.on.delete": "true"
   }
