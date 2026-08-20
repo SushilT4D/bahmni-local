@@ -11,8 +11,13 @@ TEMPLATE="${ROOT}/debezium/cloud/connectors/mysql-cloud-source-connector.json.te
 OUT="${1:-${ROOT}/debezium/cloud/connectors/generated/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
+# Env: repo root first, then the cloud deployment's own .env (which wins).
+# The cloud stack is deployed from debezium/cloud/, so DEBEZIUM_DB_PASSWORD and the
+# other cloud-side values live in debezium/cloud/.env, not at the repo root.
 # shellcheck disable=SC1091
-[[ -f "${ROOT}/.env" ]] && set -a && source "${ROOT}/.env" && set +a
+for envf in "${ROOT}/.env" "${ROOT}/debezium/cloud/.env"; do
+  [[ -f "$envf" ]] && set -a && source "$envf" && set +a
+done
 
 TABLE_INCLUDE_LIST="$("${ROOT}/scripts/generate-table-config.sh" cloud | grep '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
 [[ -n "$TABLE_INCLUDE_LIST" ]] || { echo "empty TABLE_INCLUDE_LIST — refusing to emit a source that captures EVERYTHING (loop risk)" >&2; exit 1; }
