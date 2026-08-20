@@ -166,3 +166,58 @@ command-line flag**: a stale `mysqld-auto.cnf` pinned offset=1 while the compose
 said 4. Cleared with `RESET PERSIST`.
 
 Verified: a patient registered after the change got `person_id = 230144` (residue 4).
+
+## ADDED: OpenELIS at the clinic (Module 28 implementation)
+
+**Date:** 2026-08-20 · Files: `docker-compose.override.yml` (two new blocks + a
+`bahmni-postgres` block), `openelis/start-no-migrate.sh` (new), `.env` (new keys).
+**Sushil's `docker-compose.yml` is untouched.**
+
+The clinic stack has never had OpenELIS — `bahmni-lab` is Lab Lite, a static nginx
+bundle, so there was no lab database at all. This adds one.
+
+| # | What | Why |
+|---|---|---|
+| G1 | `clinlims` restored into the existing **`bahmni-postgres`** container as database `openelis` | Module 28 decision (i): reuse the clinic's Postgres rather than add a third. Consequences recorded as BL-052. |
+| G2 | `bahmni-postgres` joins the `openelis` profile; published on **127.0.0.1:5433** | 5432 belongs to the host Homebrew Postgres (`bahmni_dev`, `memory_db`) and must never be taken. |
+| G3 | `bahmni-postgres` command → `wal_level=logical`, `max_replication_slots=10`, `max_wal_senders=10` | Debezium `pgoutput` needs logical decoding; the base image ships `wal_level=replica`. |
+| G4 | New `openelis` service, profile `openelis`, `bahmni/openelis:1.1.0-111`, **127.0.0.1:8052** | Net-new; not in Sushil's compose. Profile-gated so it never starts by accident. |
+| G5 | `.env` gains `OPENELIS_{HOST,PORT,DB_*,ATOMFEED_*}` and `OPENMRS_{PORT,ATOMFEED_*}` | **Closes BL-048** — these were interpolated by two boot scripts but defined nowhere. |
+| G6 | All **115** `clinlims` sequences strided: `INCREMENT BY 10`, residue **4** (Rawach), each restarted *above* its own seed range | Postgres analogue of the MySQL striding. Verified: consecutive sample ids 94, 104, 114 vs. seed max 81. |
+
+### ⚠️ G7 — `start.sh` replaced by `openelis/start-no-migrate.sh`
+
+**The upstream image cannot complete its own boot migration against PostgreSQL.**
+Liquibase 1.9.5 never detects `clinlims.databasechangeloglock`, so `waitForLock` issues
+`CREATE TABLE` on every retry — succeeding once, then failing `already exists` until it
+gives up and `start.sh`'s `set -e` kills the container. Observed as a permanent restart
+loop (RestartCount 10).
+
+**This is not our configuration and not a version skew.** Reproduced identically on
+**PostgreSQL 14** and on a throwaway **PostgreSQL 9.6.24** — the exact version the dump
+was taken from — with the same image and the same dump. It also fails with the lock table
+*absent*, so it is not simply "the dump already has it".
+
+`start-no-migrate.sh` replicates `start.sh` exactly except the two liquibase steps. Safe
+here because the dump is already migrated (`databasechangelog` carries 142 changesets);
+the risk it accepts is a changeset newer than the dump, which would surface at runtime.
+
+**Possible explanation for a long-standing mystery.** Module 06 recorded that BHS
+production runs `…-openelisdb-1` **with no OpenELIS application container** — "a database
+with nothing apparently in front of it." An app that cannot finish its boot migration is a
+mechanical explanation for exactly that.
+
+### ⚠️ G8 — the image prints the database password on every boot
+`migrateDb.sh` runs under `set -e -x`, so it echoes the full liquibase command line —
+including `--password=…` — to stdout, which the compose ships to **loki**. The clinic
+password was rotated after this was noticed. `start-no-migrate.sh` does not run that
+script, so the leak is gone locally, but it is present in any stock deployment.
+
+### Verified after boot
+- OpenELIS serves its login page on `127.0.0.1:8052/openelis/` (HTTP 302 → login form).
+- `clinlims` **triggers = 0** and trigger-returning functions = 0 *after* the app booted —
+  this is **BL-051 resolved with runtime evidence**, and it is what makes Module 28's
+  Gate 2 (sink writes bypass the app, so no feed event is born) hold.
+- ATOM bookmarks rewritten to `http://openmrs:8080/openmrs/ws/atomfeed/{patient,encounter,lab}/recent`;
+  OpenELIS reaches the OpenMRS patient feed (HTTP 200).
+- Tripwire baseline: `clinlims.event_records` MAX(id) = **80**, unmoved by boot.

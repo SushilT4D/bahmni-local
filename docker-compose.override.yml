@@ -42,3 +42,55 @@ services:
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
       --auto-increment-increment=10 --auto-increment-offset=4
+
+  # OpenELIS lands in THIS container as a second database (`openelis`, schema
+  # `clinlims`) alongside odoo — Module 28 §3.1, decision (i). Two consequences,
+  # both recorded as BL-052: two logical-replication slots on one instance, and
+  # a version skew against upstream's own openelis-db image.
+  bahmni-postgres:
+    # Also joins the `openelis` profile: it now hosts the clinlims database too, so
+    # `up -d openelis` must be able to bring its own dependency up.
+    profiles: ["odoo", "local", "openelis"]
+    # 5432 belongs to the host Homebrew Postgres (bahmni_dev / memory_db). Never take it.
+    ports: !override
+      - '127.0.0.1:5433:5432'
+    # Debezium's pgoutput needs logical decoding; the base image ships wal_level=replica.
+    # Two slots (odoo + openelis), so headroom above the default 10 is unnecessary but
+    # explicit values keep this readable.
+    command: >-
+      postgres
+      -c wal_level=logical
+      -c max_replication_slots=10
+      -c max_wal_senders=10
+
+  # NEW SERVICE (not in Sushil's compose — the clinic side has never had OpenELIS).
+  # Module 28 §3.1. Profile-gated so it never starts by accident; start it by name.
+  openelis:
+    profiles: ["openelis"]
+    image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:-1.1.0-111}'
+    ports:
+      - '127.0.0.1:8052:8052'
+    # Upstream start.sh dies in liquibase (see openelis/start-no-migrate.sh header).
+    command: ['/start-no-migrate.sh']
+    volumes:
+      # start.sh symlinks /etc/bahmni_config/openelis -> /var/www/bahmni_config/openelis
+      # and runs the implementation liquibase from it.
+      - './bahmni-config:/etc/bahmni_config:ro'
+      - './openelis/start-no-migrate.sh:/start-no-migrate.sh:ro'
+    environment:
+      TZ: ${TZ}
+      # start.sh reads OPENELIS_DB_USERNAME; .env carries OPENELIS_DB_USER.
+      OPENELIS_DB_SERVER: ${OPENELIS_DB_SERVER}
+      OPENELIS_DB_PORT: ${OPENELIS_DB_PORT}
+      OPENELIS_DB_NAME: ${OPENELIS_DB_NAME}
+      OPENELIS_DB_USERNAME: ${OPENELIS_DB_USER}
+      OPENELIS_DB_PASSWORD: ${OPENELIS_DB_PASSWORD}
+      # update_openmrs_host_port.sh rewrites the ELIS-side feed bookmarks to this host.
+      OPENMRS_HOST: ${OPENMRS_HOST}
+      OPENMRS_PORT: ${OPENMRS_PORT}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD}
+    depends_on:
+      bahmni-postgres:
+        condition: service_healthy
+    restart: ${RESTART_POLICY}
