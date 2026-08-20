@@ -132,3 +132,20 @@ Upstream caveat honoured: the doc warns this can risk inconsistency where the si
 
 BL-033 recorded that the down direction was designed and partly tooled but its connector
 configs were absent. These are those configs.
+
+## SCHEMA CHANGE (both sides): `patient_identifier.location_id` DROP DEFAULT
+
+**Date:** 2026-08-20 · **Reason:** BL-044 · **Applied to clinic AND cloud (lockstep, L-005)**
+
+```sql
+ALTER TABLE patient_identifier ALTER COLUMN location_id DROP DEFAULT;
+UPDATE patient_identifier SET location_id = NULL WHERE location_id = 0;  -- cloud only, repair
+```
+
+The column is nullable but carried `DEFAULT 0`. Debezium copies a column's default into the
+Kafka Connect schema, and `Struct.get()` substitutes the schema default whenever the stored
+value is null — so every NULL `location_id` was published as `0`, an invalid location, making
+121,643 synced patients unreadable through the cloud API. Dropping the default leaves type,
+nullability and data untouched; it only stops the schema from lying.
+
+**Reversible:** `ALTER TABLE patient_identifier ALTER COLUMN location_id SET DEFAULT 0;`
