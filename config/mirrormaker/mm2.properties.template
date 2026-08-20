@@ -2,36 +2,36 @@
 # This file is used by MirrorMaker Connect to replicate topics from local to remote Kafka
 
 # Cluster definitions
-clusters = local, remote
+clusters = source, remote
 
 # Local cluster (source)
-local.bootstrap.servers = kafka:29092
+source.bootstrap.servers = kafka:29092
 
 # Remote cluster (target) - configured via environment variable
-remote.bootstrap.servers = samyogas-mac-mini.tailca2651.ts.net:9092
+remote.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 
 # Enable replication from local to remote
-local->remote.enabled = true
+source->remote.enabled = true
+source->remote.topics = ${KAFKA_TOPIC_PATTERNS}
 
 # Topics to replicate (regex pattern)
 # Generated from tables.conf - use specific topics for better control
 # Format: server-name.database.table1,server-name.database.table2
 # Example: bahmni-local\.openmrs\.(person|patient|visit)
-local->remote.topics = ${KAFKA_TOPIC_PATTERNS:-.*}
 
 # Consumer configuration (reads from local Kafka)
-local.consumer.bootstrap.servers = kafka:29092
-local.consumer.group.id = mirrormaker-consumer-group-h1
-local.consumer.key.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
-local.consumer.value.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
-local.consumer.auto.offset.reset = earliest
-local.consumer.enable.auto.commit = true
+source.consumer.bootstrap.servers = kafka:29092
+source.consumer.group.id = ${MIRRORMAKER_CONSUMER_GROUP_ID}
+source.consumer.key.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+source.consumer.value.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+source.consumer.auto.offset.reset = earliest
+source.consumer.enable.auto.commit = true
 # Buffer size for offline scenarios
-local.consumer.fetch.min.bytes = 1
-local.consumer.fetch.max.wait.ms = 500
+source.consumer.fetch.min.bytes = 1
+source.consumer.fetch.max.wait.ms = 500
 
 # Producer configuration (writes to remote Kafka)
-remote.producer.bootstrap.servers = samyogas-mac-mini.tailca2651.ts.net:9092
+remote.producer.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 remote.producer.key.serializer = org.apache.kafka.common.serialization.ByteArraySerializer
 remote.producer.value.serializer = org.apache.kafka.common.serialization.ByteArraySerializer
 remote.producer.acks = 1
@@ -59,3 +59,13 @@ checkpoints.topic.replication.factor = 1
 # Replication factor for internal topics
 replication.factor = 1
 
+
+# ---- topics (rendered by setup-mirrormaker.sh) ----
+
+# ---- single-broker internal topics ----
+source.offset.storage.replication.factor = 1
+source.config.storage.replication.factor = 1
+source.status.storage.replication.factor = 1
+remote.offset.storage.replication.factor = 1
+remote.config.storage.replication.factor = 1
+remote.status.storage.replication.factor = 1

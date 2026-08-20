@@ -1,0 +1,32 @@
+{
+  "name": "mysql-source-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "bahmni-mysql",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "${DEBEZIUM_DB_PASSWORD}",
+    "database.server.id": "184054",
+    "database.server.name": "bahmni-local",
+    "topic.prefix": "bahmni-local",
+    "database.include.list": "openmrs",
+    "table.include.list": "openmrs.encounter,openmrs.encounter_provider,openmrs.encounter_type,openmrs.patient,openmrs.patient_identifier,openmrs.person,openmrs.person_address,openmrs.person_attribute,openmrs.person_name,openmrs.visit,openmrs.visit_attribute,openmrs.idgen_seq_id_gen",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:29092",
+    "schema.history.internal.kafka.topic": "schema-changes.bahmni-local",
+    "schemas.enable": "true",
+    "snapshot.mode": "when_needed",
+    "snapshot.locking.mode": "minimal",
+    "time.precision.mode": "connect",
+    "decimal.handling.mode": "double",
+    "binary.handling.mode": "base64",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "signal.data.collection": "openmrs.debezium_signal",
+    "signal.enabled.channels": "source",
+    "incremental.snapshot.allow.schema.changes": "true",
+    "schema.history.internal.store.only.captured.tables.ddl": "false"
+  }
+}

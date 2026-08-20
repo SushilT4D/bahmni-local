@@ -484,10 +484,3 @@ services:
   #   restart: ${RESTART_POLICY}
 
 volumes:
-  bahmni-patient-images:
-  bahmni-document-images:
-  bahmni-clinical-forms:
-  bahmni-lab-results:
-  bahmni-uploaded-files:
-  bahmni-queued-reports:
-  configuration_checksums:

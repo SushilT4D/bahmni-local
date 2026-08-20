@@ -1,0 +1,32 @@
+# Host-side deviations for the MacBook hospital node (authored by us, NOT Sushil's file).
+# Compose auto-merges docker-compose.override.yml. `!override` REPLACES the list —
+# a plain merge would append and keep his original binding.
+services:
+  # 8081 is taken by our proxy (BAHMNI_PROXY_HTTP_PORT); 8082 is free on this Mac.
+  schema-registry:
+    ports: !override
+      - '127.0.0.1:8082:8081'
+  # Keep the sync layer loopback-only: nothing here should be on the LAN.
+  kafka-connect:
+    ports: !override
+      - '127.0.0.1:8083:8083'
+  mirrormaker-connect:
+    ports: !override
+      - '127.0.0.1:8084:8083'
+  kafka:
+    ports: !override
+      - '127.0.0.1:9092:9092'
+  zookeeper:
+    ports: !override
+      - '127.0.0.1:2181:2181'
+  kafka-ui:
+    ports: !override
+      - '127.0.0.1:8086:8080'
+
+  # Its entrypoint REWRITES whatever tree is mounted at /usr/local/bahmni_config.
+  # With our [GUESS] CONFIG_IMAGE_NAME (bahmni/default-config) that overwrote BHS's
+  # Amrit Clinics config with Bahmni defaults. Point it at a scratch dir so it can
+  # never touch bahmni_config/ again. (Service has no profile → always starts.)
+  bahmni-config:
+    volumes: !override
+      - './.local-config-scratch:/usr/local/bahmni_config'

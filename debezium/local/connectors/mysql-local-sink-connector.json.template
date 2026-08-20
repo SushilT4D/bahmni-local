@@ -1,0 +1,70 @@
+{
+  "name": "mysql-local-sink-${TABLE}",
+  "config": {
+    "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+    "tasks.max": "1",
+
+    "//topics": "MirrorMaker's DefaultReplicationPolicy prefixes a mirrored topic with the",
+    "//topics2": "alias of the cluster it came FROM. For remote->source that alias is 'remote',",
+    "//topics3": "so the cloud's bahmni-cloud.openmrs.users arrives here as",
+    "//topics4": "remote.bahmni-cloud.openmrs.users.",
+    "topics": "${KAFKA_TOPICS}",
+
+    "connection.url": "jdbc:mysql://${LOCAL_MYSQL_HOST}:${LOCAL_MYSQL_PORT}/${LOCAL_MYSQL_DATABASE}?useSSL=${LOCAL_MYSQL_USE_SSL}&allowPublicKeyRetrieval=true",
+    "connection.username": "${LOCAL_MYSQL_USER}",
+    "connection.password": "${LOCAL_MYSQL_PASSWORD}",
+
+    "//BL-039": "THE FIX. Default is false: a connection-level error (e.g. MySQL's 8h",
+    "//BL-039b": "wait_timeout closing an idle pooled connection overnight) is treated as",
+    "//BL-039c": "UNRECOVERABLE and kills the task permanently, while the connector still",
+    "//BL-039d": "reports RUNNING. This direction is the MORE exposed one: users/roles change",
+    "//BL-039e": "every few days, so its pools idle far longer than the up direction's.",
+    "//BL-039f": "Safe here because each sink DB is a single instance; the upstream caveat",
+    "//BL-039g": "about async-replica failover does not apply.",
+    "connection.restart.on.errors": "true",
+    "errors.retry.timeout": "-1",
+    "errors.retry.delay.max.ms": "60000",
+    "flush.max.retries": "10",
+    "flush.retry.delay.ms": "2000",
+
+    "//strip": "Strip the mirror + server prefix so rows land in the bare table name.",
+    "//strip2": "The replacement MUST be a literal $1 -- BL-030 was this value arriving",
+    "//strip3": "empty because the generator used an UNQUOTED heredoc and the shell ate it.",
+    "transforms": "dropPrefix",
+    "transforms.dropPrefix.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.dropPrefix.regex": "${TOPIC_PREFIX_REGEX}",
+    "transforms.dropPrefix.replacement": "$1",
+
+    "table.name.format": "${TABLE}",
+    "insert.mode": "upsert",
+    "primary.key.mode": "record_key",
+
+    "//keys": "record_key carries whatever the source PK was, composite included --",
+    "//keys2": "user_property(user_id,property), role_privilege(role,privilege),",
+    "//keys3": "role_role(parent_role,child_role). No striding is needed in this",
+    "//keys4": "direction: the cloud is the sole writer of these tables (L-001).",
+
+    "//delete": "Deletes MUST propagate. This is how a REVOKED user or role reaches a",
+    "//delete2": "clinic; dropping deletes would leave revoked staff able to log in (L-006).",
+    "delete.enabled": "true",
+
+    "//auto": "auto.create/auto.evolve are OFF by design here. These tables already exist",
+    "//auto2": "in the clinic's OpenMRS schema; silently creating or altering one would mask",
+    "//auto3": "a genuine schema mismatch instead of surfacing it (L-005).",
+    "auto.create": "false",
+    "auto.evolve": "false",
+
+    "//errors": "NOT errors.tolerance=all. BL-005: 'all' silently DROPS a failing record and",
+    "//errors2": "moves on, so an FK-ordering miss becomes a permanently missing row with only",
+    "//errors3": "a log line. Retry instead, and let a genuine failure be loud (L-004).",
+    "errors.tolerance": "none",
+    "errors.log.enable": "true",
+    "//errors4": "include.messages stays FALSE: these payloads are user/provider records.",
+    "errors.log.include.messages": "false",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

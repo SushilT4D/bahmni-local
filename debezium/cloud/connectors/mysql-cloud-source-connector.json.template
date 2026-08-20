@@ -1,0 +1,42 @@
+{
+  "name": "mysql-cloud-source-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "${CLOUD_MYSQL_HOST}",
+    "database.port": "${CLOUD_MYSQL_PORT}",
+    "database.user": "${DEBEZIUM_DB_USER}",
+    "database.password": "${DEBEZIUM_DB_PASSWORD}",
+
+    "//": "REPLICA id presented to cloud MySQL. Must differ from the clinic source (184054).",
+    "database.server.id": "${CLOUD_DEBEZIUM_SERVER_ID}",
+
+    "//topic-prefix": "down topics are bahmni-cloud.openmrs.* -- deliberately distinct from the",
+    "//topic-prefix2": "clinic's bahmni-local.* so the two directions can never alias each other.",
+    "topic.prefix": "${CLOUD_MYSQL_SERVER_NAME}",
+
+    "database.include.list": "${CLOUD_MYSQL_DATABASE}",
+
+    "//whitelist": "THE LOOP GUARD. The cloud binlog also records every UP-direction sink",
+    "//whitelist2": "write (121k patients). Capturing those here would send clinic data straight",
+    "//whitelist3": "back down = an infinite loop. Only cloud-OWNED tables may appear (L-001).",
+    "table.include.list": "${TABLE_INCLUDE_LIST}",
+
+    "schema.history.internal.kafka.bootstrap.servers": "${CLOUD_KAFKA_BOOTSTRAP}",
+    "schema.history.internal.kafka.topic": "schema-changes.${CLOUD_MYSQL_SERVER_NAME}",
+    "schema.history.internal.store.only.captured.tables.ddl": "true",
+
+    "snapshot.mode": "initial",
+    "snapshot.locking.mode": "minimal",
+
+    "//converters": "MUST match the sink side. Mismatched schemas.enable was BL-031",
+    "//converters2": "(NullPointerException: payload is null).",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "tombstones.on.delete": "true"
+  }
+}
