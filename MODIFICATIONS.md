@@ -149,3 +149,20 @@ value is null — so every NULL `location_id` was published as `0`, an invalid l
 nullability and data untouched; it only stops the schema from lying.
 
 **Reversible:** `ALTER TABLE patient_identifier ALTER COLUMN location_id SET DEFAULT 0;`
+
+## STRIDING as server flags (both nodes) — not `SET PERSIST`
+
+**Date:** 2026-08-20 · **Reason:** BL-045 · clinic `docker-compose.override.yml`, cloud likewise
+
+```
+clinic (Rawach): --auto-increment-increment=10 --auto-increment-offset=4
+cloud:           --auto-increment-increment=10 --auto-increment-offset=10   → ids ≡ 0 (mod 10)
+```
+
+Per Sushil's map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4, Bagdunda 5, Kojawada 6; cloud 10).
+Server flags rather than `SET PERSIST` because PERSIST does not exist on MySQL 5.6 (the cloud),
+is lost when the datadir is recreated, and — demonstrated live — **silently overrides the
+command-line flag**: a stale `mysqld-auto.cnf` pinned offset=1 while the compose file plainly
+said 4. Cleared with `RESET PERSIST`.
+
+Verified: a patient registered after the change got `person_id = 230144` (residue 4).

@@ -30,3 +30,15 @@ services:
   bahmni-config:
     volumes: !override
       - './.local-config-scratch:/usr/local/bahmni_config'
+  bahmni-mysql:
+    # BL-045: striding as SERVER FLAGS, not `SET PERSIST`.
+    #   • SET PERSIST is MySQL 8.0+ only and fails on the cloud (5.6.51, ERROR 1193)
+    #   • SET PERSIST writes mysqld-auto.cnf into the DATADIR, so it is lost on a volume
+    #     rebuild and the node silently reverts to increment 1
+    # Base command is charset/sql-mode only and MUST be repeated: compose REPLACES `command`.
+    # Offset 4 = Rawach, per Sushil's clinic map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4,
+    # Bagdunda 5, Kojawada 6; cloud 10). This lab clinic is Rawach (RAW prefix, Location-15).
+    command: >-
+      --character-set-server=utf8 --collation-server=utf8_general_ci
+      --sql-mode=NO_ENGINE_SUBSTITUTION
+      --auto-increment-increment=10 --auto-increment-offset=4

@@ -9,13 +9,22 @@
 #
 # Exit codes:  0 = all tasks RUNNING   1 = at least one task not RUNNING   2 = unreachable
 #
-# Usage: ./check-sink-tasks.sh [host] [--restart]
-#        --restart  restart any FAILED task after reporting (see BL-039: Connect does
-#                   NOT auto-restart failed tasks; recovery is manual by default)
+# Usage: ./check-sink-tasks.sh [host] [--restart|--restart-all]
+#        --restart      restart any FAILED task after reporting (BL-039: Connect does
+#                       NOT auto-restart failed tasks; recovery is manual by default)
+#        --restart-all  restart EVERY task, healthy-looking ones included. Use this after
+#                       any database restart: a task with nothing to write cannot discover
+#                       that its pooled connection is dead, so it reports RUNNING and then
+#                       dies on its FIRST record. They fail one at a time, which looks like
+#                       an intermittent sync bug and is really one stale pool.
 
 HOST="${1:-localhost}"; [ "$1" = "--restart" ] && HOST=localhost
 URL="http://${HOST}:8083"
-RESTART=false; for a in "$@"; do [ "$a" = "--restart" ] && RESTART=true; done
+RESTART=false; RESTART_ALL=false
+for a in "$@"; do
+  [ "$a" = "--restart" ] && RESTART=true
+  [ "$a" = "--restart-all" ] && { RESTART=true; RESTART_ALL=true; }
+done
 
 CONNECTORS=$(curl -s --connect-timeout 5 "${URL}/connectors" | tr ',' '\n' | tr -d '[]"')
 if [ -z "$CONNECTORS" ]; then
@@ -34,7 +43,7 @@ for c in $CONNECTORS; do
     if echo "$tasks" | grep -qvE '^(RUNNING )+$'; then mark="✗"; bad=$((bad+1)); fi
     printf '%s %-42s %-10s %s\n' "$mark" "$c" "$conn" "$tasks"
 
-    if [ "$mark" = "✗" ] && [ "$RESTART" = true ]; then
+    if { [ "$mark" = "✗" ] || [ "$RESTART_ALL" = true ]; } && [ "$RESTART" = true ]; then
         code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${URL}/connectors/${c}/tasks/0/restart")
         echo "    → restart requested (HTTP $code)"
     fi
