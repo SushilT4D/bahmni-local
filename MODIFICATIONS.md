@@ -221,3 +221,24 @@ script, so the leak is gone locally, but it is present in any stock deployment.
 - ATOM bookmarks rewritten to `http://openmrs:8080/openmrs/ws/atomfeed/{patient,encounter,lab}/recent`;
   OpenELIS reaches the OpenMRS patient feed (HTTP 200).
 - Tripwire baseline: `clinlims.event_records` MAX(id) = **80**, unmoved by boot.
+
+## ADDED: bidirectional clinlims CDC sync (Module 28 §9) — 2026-08-21
+
+Builds on the OpenELIS-at-clinic section above. Both nodes now sync lab data both ways.
+
+| # | What | Why |
+|---|---|---|
+| S1 | **`bahmni-postgres` bumped 14→15** (`docker-compose.override.yml`); old datadirs at `data/postgresql.pg14*` (gitignored) | PG15 publication row filters are the loop-prevention mechanism (S3). Disposable instance: clinlims only, Odoo unused. |
+| S2 | `openelis/setup-clinlims-sync.sql` — strides 115 sequences (residue via GUC), `REPLICA IDENTITY FULL` on synced tables, creates the filtered publication | one script, both nodes (residue 4 clinic / 0 cloud) |
+| S3 | **Publication `dbz_clinlims_owned` `FOR TABLE … WHERE (id%10=residue)`** over sample/sample_item/analysis/result | per-row single-writer (L-001 at row granularity) enforced by the DB — a sink-written row carries the other residue and is never re-captured. No scripting SMT (the Connect workers have no JSR223 engine; adding one risks the live MySQL sync). Feed tables NEVER in it (Gate 1). |
+| S4 | `connectors/clinlims-source-connector.json` (clinic 8083) — Debezium PostgresConnector, `publication.autocreate.mode=disabled`, slot `dbz_clinlims_up` | needs `clinlims` role `WITH REPLICATION` |
+| S5 | `connectors/clinlims-clinic-sink.json` (clinic 8083) — JDBC sink, consumes `remote.bahmni-cloud.clinlims.*`, writes DIRECT to Postgres (Gate 2) | down direction |
+| S6 | cloud `clinlims-cloud-source` + `clinlims-cloud-sink` (mini 8083) | up sink + down source; live configs on the mini with password injected at POST |
+| S7 | `config/mirrormaker/mm2.properties` — both topic allowlists extended with `clinlims.(sample\|sample_item\|analysis\|result)` | MM2 carries the new topics both ways. **It only discovers new topics on restart / refresh interval.** |
+
+**Connector config files carry placeholder passwords** (`__ELISPW__`); the live connectors
+inject from `.env` (clinic) or the mini at POST time. Never commit the real password.
+
+**Verified** (Module 28 §9.3): RAW-SYNC-TEST-1 clinic→cloud and CLOUD-SYNC-TEST-1 cloud→clinic,
+each exactly once, no loop; both clinlims.event_records=80, cloud OpenMRS event_records=951145.
+The live 121k-patient MySQL sync recovered to 10/10 tasks after the MM2 restarts.
