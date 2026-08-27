@@ -7,7 +7,22 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
-TABLES_CONF="${PROJECT_DIR}/tables.conf"
+
+# These sinks apply UP-direction data: they consume source.<clinic>.openmrs.* topics
+# and write clinic-authored rows into the cloud. So the table list is the CLINIC's
+# (debezium/local/tables.conf), NOT this directory's tables.conf -- which lists the
+# seven CLOUD-OWNED tables that flow the other way.
+#
+# Until 2026-08-27 this defaulted to ${PROJECT_DIR}/tables.conf, so it generated
+# up-direction sinks for users/role/role_privilege/role_role/user_property/user_role/
+# provider. Those seven sinks are live on the cloud today, subscribed to
+# source.bahmni-local.openmrs.<table> topics that the clinic never publishes: all seven
+# measured 0 messages on 2026-08-27, while person/patient/visit carried 122k/122k/478k.
+# Inert, but they report RUNNING and inflate any "all sinks green" check -- and if those
+# tables are ever added to the clinic whitelist they would begin writing clinic-origin
+# rows into cloud-owned tables, which no striding residue guards (L-008).
+TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../local/tables.conf}"
+DOWN_TABLES_CONF="${PROJECT_DIR}/tables.conf"
 ENV_FILE="${PROJECT_DIR}/.env"
 CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 
@@ -57,6 +72,14 @@ while IFS= read -r line || [ -n "$line" ]; do
         table="${BASH_REMATCH[1]}"
         pk="${BASH_REMATCH[2]}"
         
+        # L-008 ownership guard: a cloud-OWNED table must never get an up-direction
+        # sink, or the cloud would apply clinic-origin rows to a table it authors.
+        if [ -f "${DOWN_TABLES_CONF}" ] && grep -qE "^[[:space:]]*${table}:" "${DOWN_TABLES_CONF}"; then
+            echo "REFUSING ${table}: it is cloud-owned (listed in ${DOWN_TABLES_CONF})." >&2
+            echo "  An up-direction sink for it would write clinic rows into a cloud-owned table." >&2
+            exit 1
+        fi
+
         topic="${SERVER_NAME}.${DATABASE_NAME}.${table}"
         connector_name="mysql-sink-${table}"
         config_file="${CONNECTORS_DIR}/${connector_name}.json"
