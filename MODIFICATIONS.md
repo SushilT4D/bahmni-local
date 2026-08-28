@@ -346,3 +346,89 @@ reporting on every task; `register-local-sink-connectors.sh` strips the port fro
 mid-loop `exit 1`; the up sink shape is defined twice (heredoc + template) — the exact
 split that caused the 2026-08-27 six-sink failure; and `start-mm2.sh` leaves SASL
 credentials in `/tmp/mm2-runtime.properties` with default permissions.
+
+## MODIFIED: BL-039 durable fix — idle no longer kills sink tasks — 2026-08-28
+
+Recovery from the 2026-08-28 outage restarted the dead tasks but changed nothing about the
+cause. This is the cause. Two layers, one of which turned out not to work.
+
+### Layer 1 (primary): `wait_timeout` was never a decision
+
+Both nodes ran MySQL's stock `wait_timeout = 28800` (8h). The container command lines set
+charset, binlog, server-id, log expiry and the striding flags — and said nothing about
+timeouts. So the value that killed the registration path every morning was simply the
+default nobody had looked at. Raised to **604800 (7 days)**, which outlives any realistic
+idle window including a long weekend.
+
+| Where | Change |
+|---|---|
+| both nodes, live | `SET GLOBAL wait_timeout = 604800; SET GLOBAL interactive_timeout = 604800` — takes effect for NEW connections, so no database restart was needed |
+| `docker-compose.override.yml` (clinic) | `--wait-timeout=604800 --interactive-timeout=604800` appended to `bahmni-mysql` `command:` |
+| `debezium/cloud/docker-compose.override.yml` (mini) | same two flags appended to `openmrsdb` `command:` (backup at `.bak-2026-08-28`) |
+
+Verified: `@@GLOBAL.wait_timeout = 604800` on both, and a fresh session inherits it. Both
+compose files re-rendered with `docker compose config` and checked to confirm the existing
+flags survived — an override **replaces** `command`, it does not merge, so every pre-existing
+flag (striding, binlog, server-id) had to still be there afterwards. They are.
+
+Headroom checked before the change: `max_connections = 151` on both, with 68 in use on the
+cloud (60 of them `sink`) and 46 on the clinic. A long timeout means a leaked connection
+persists, so this is worth re-checking if sink counts grow.
+
+### Layer 2 (secondary, unproven): pool lifetime
+
+`connection.pool.timeout: 300` applied to all 21 sinks (13 cloud, 8 clinic) live via
+GET → merge → PUT, and added to every file that authors sink config:
+`debezium/cloud/scripts/generate-sink-connectors.sh`,
+`debezium/cloud/connectors/mysql-sink-connector.json.template`,
+`debezium/local/connectors/mysql-local-sink-connector.json.template`,
+`connectors/clinlims-{clinic,cloud}-sink.json`.
+
+**Treat this as unproven.** The shipped default is already 1800, and it did not prevent the
+45,376,505 ms (12h36m) stale connection that caused the outage — so the key may not be wired
+through to the pool at all. It is layer 2 precisely because layer 1 is the one with evidence.
+
+### ⚠️ `connection.pool.min_size=0` DOES NOT WORK — do not retry it
+
+The plan was `min_size=0` so idle pools drain completely. Applied to all 21 sinks, and
+**4 of 13 cloud sinks died on boot**:
+
+```
+org.hibernate.service.spi.ServiceException: Unable to create requested service
+  [org.hibernate.engine.jdbc.env.spi.JdbcEnvironment]
+Caused by: Unable to determine Dialect without JDBC metadata
+```
+
+Hibernate needs a live connection at startup to probe the database dialect; an empty pool
+has none. It failed on only 4 of 13 because it is a startup race — which makes it worse than
+a clean failure, not better. Reverted to the default `min_size=5` on all 21 sinks; all
+15 cloud and 10 clinic connectors returned to RUNNING tasks. The comment blocks in the
+generator and both templates record this so nobody tries it again.
+
+**Consequence:** each sink still holds 5 idle connections indefinitely (60 on the cloud,
+35 on the clinic). Those connections are no longer reaped at 8h, so the failure is prevented
+rather than merely made rarer — but the pool is not shrinking, and the only thing standing
+between us and a repeat is the server-side timeout.
+
+### Layer 2 MEASURED — it does nothing
+
+Two samples, 317 seconds apart, no traffic in between:
+
+| | cloud | clinic |
+|---|---|---|
+| T0 15:33:39 | 60 conns, idle 512–517s | — |
+| T1 15:38:56 | 60 conns, idle 829–834s | 35 conns, idle 836–839s |
+
+Connection ages advanced 1:1 with wall-clock and **not one connection was recycled**, at
+idle ages already 2.8x the configured 300s. `connection.pool.timeout` does not expire idle
+connections at `min_size` — whatever it maps to, it is not an idle reaper. Combined with
+`min_size=0` being unusable, **the pool cannot be made to cycle through this connector's
+config at all.**
+
+So there is no second layer. `wait_timeout=604800` is the entire fix, and the sinks will go
+on holding 60 (cloud) and 35 (clinic) connections indefinitely — now simply never reaped.
+The key and its comment blocks are kept as the record of the experiment, explicitly marked
+inert so nobody counts it as protection.
+
+### Still open Also still unmonitored: nothing alarms
+on task state, so the next occurrence of anything in this class is found by a human noticing.

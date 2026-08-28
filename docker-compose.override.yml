@@ -38,10 +38,21 @@ services:
     # Base command is charset/sql-mode only and MUST be repeated: compose REPLACES `command`.
     # Offset 4 = Rawach, per Sushil's clinic map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4,
     # Bagdunda 5, Kojawada 6; cloud 10). This lab clinic is Rawach (RAW prefix, Location-15).
+    #
+    # BL-039 durable fix (2026-08-28): wait_timeout was MySQL's stock 28800 (8h) on both
+    # nodes — never a decision, just the default. The JDBC sinks hold pooled connections
+    # between writes and validate nothing on checkout, so any idle gap longer than 8h left
+    # them holding a dead socket; the next write got `Broken pipe`, Debezium wrapped it as
+    # a non-retriable ConnectException, and Connect killed the task permanently while the
+    # connector still read RUNNING. At BHS an overnight gap is normal operation, so this
+    # fired roughly every morning. 7 days outlives any realistic idle window including a
+    # long weekend. Applied live with SET GLOBAL on both nodes the same day; this line is
+    # what makes it survive a container restart.
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
       --auto-increment-increment=10 --auto-increment-offset=4
+      --wait-timeout=604800 --interactive-timeout=604800
 
   # OpenELIS lands in THIS container as a second database (`openelis`, schema
   # `clinlims`) alongside odoo — Module 28 §3.1, decision (i). Two consequences,
