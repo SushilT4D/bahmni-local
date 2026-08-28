@@ -167,18 +167,16 @@ EOF
 
         # Fail loudly rather than emit a config that cannot work (the pre-2026-08-27
         # failure mode was silent: three bugs, valid-looking output, dead pipeline).
-        python3 -c "
-import json,sys
-c = json.load(open('${config_file}'))['config']
-errs = []
-if c['topics'].count('${DATABASE_NAME}') > 1: errs.append('doubled topic prefix: ' + c['topics'])
-if not c['transforms.dropPrefix.replacement']: errs.append('empty RegexRouter replacement (bare \$1 was expanded by bash)')
-if c.get('errors.tolerance') == 'all': errs.append('errors.tolerance=all silently drops records (BL-005)')
-if c.get('connection.restart.on.errors') != 'true': errs.append('missing BL-039 connection.restart.on.errors')
-if not c.get('primary.key.fields'): errs.append('empty primary.key.fields')
-if errs:
-    sys.exit('INVALID CONFIG ${config_file}:\n  - ' + '\n  - '.join(errs))
-" || exit 1
+        #
+        # The checks now live in validate-sink-config.py, which also DIFFS this
+        # config against known-good.json - making the "SHAPE IS AUTHORITATIVE"
+        # claim above executable instead of advisory. It is a separate file
+        # because validator source has to contain $, backslashes and quotes, and
+        # this script's heredoc is unquoted: exactly the blast radius that
+        # produced the three silent bugs documented above.
+        python3 "${SCRIPT_DIR}/validate-sink-config.py" "${config_file}" \
+            --known-good "${CONNECTORS_DIR}/known-good.json" \
+            --database-name "${DATABASE_NAME}" || exit 1
         
         echo "Generated: ${config_file} (table: ${table}, topic: ${topic}, pk: ${pk})"
         connector_count=$((connector_count + 1))
