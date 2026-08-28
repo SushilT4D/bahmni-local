@@ -133,3 +133,29 @@ services:
       OPENELIS_PORT: ${OPENELIS_PORT}
       OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
       OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
+    # Form definitions live on DISK; form_resource stores only the PATH. The
+    # restored production DB references 133 files under /home/bahmni/clinical_forms
+    # while the stock image ships 21, so opening a patient's Observations tab threw
+    #   "Unable to read from the file with name
+    #    /home/bahmni/clinical_forms/<uuid>.json (No such file or directory)"
+    # for Adult Case Sheet and 131 others (observed 2026-08-28).
+    #
+    # docker-compose.yml:90 carries the mount that would supply them, commented out.
+    # Mounting bahmni_home/clinical_forms ONLY, never the whole bahmni_home: the
+    # container also has uploaded-files/ and uploaded_results/ under /home/bahmni
+    # which the repo tree lacks, and a whole-directory mount would shadow them.
+    #
+    # Scope, measured: of the 136 references, 111 belong to RETIRED forms using
+    # the pre-UUID naming convention (…/Adult_Case_Sheet_1.json). Those files
+    # exist nowhere — not here, not in the repo, and not on the IPlet staging box
+    # bhs-sandbox.bahmni.in, checked directly (381 form files there, a superset of
+    # this repo's 370). Retired forms are never rendered, so that is correct, not
+    # a gap. All 25 references belonging to ACTIVE forms now resolve: 25/25
+    # present, 0 missing.
+    #
+    # Read-write on purpose: the implementer-interface writes new and edited forms
+    # here, so authored forms land in the repo working tree (and show up in
+    # `git status`) instead of vanishing with the container. :ro would break form
+    # authoring.
+    volumes:
+      - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms:/home/bahmni/clinical_forms"
