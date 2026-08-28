@@ -133,8 +133,14 @@ services:
     image: infoiplitin/bahmni-iplit-web:1.1.0-107 
     profiles: ["unused"]
     volumes:
-      - "/Users/sunshine/Documents/Develop/bahmni/bahmni-local/foo/bahmni_config:/usr/local/apache2/htdocs/bahmni_config/:ro"
-      - "/Users/sunshine/Documents/Develop/bahmni/bahmni-local/foo/bahmni:/usr/local/apache2/htdocs/bahmni/:ro"
+      # Were absolute paths into /Users/sunshine/.../bahmni-local/foo/ - a
+      # directory on one developer's laptop that exists on no other machine, and
+      # not in this repo. Inert only because this service is profiles:["unused"];
+      # anyone who enabled it got two empty read-only mounts and a blank UI.
+      # Repointed 2026-08-28 at the same trees the proxy already serves
+      # (see the proxy service's htdocs/bahmni and htdocs/bahmni_config mounts).
+      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni_config:/usr/local/apache2/htdocs/bahmni_config/:ro"
+      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni:/usr/local/apache2/htdocs/bahmni/:ro"
       # - "${CONFIG_BACKUP:?}:/usr/local/apache2/htdocs/bahmni_config_backup/"
       # - ${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni
       # - "${BAHMNI_APPS_PATH:?}/ui/node_modules/@bower_components/:/usr/local/apache2/htdocs/bahmni/components"
