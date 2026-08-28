@@ -242,3 +242,46 @@ inject from `.env` (clinic) or the mini at POST time. Never commit the real pass
 **Verified** (Module 28 §9.3): RAW-SYNC-TEST-1 clinic→cloud and CLOUD-SYNC-TEST-1 cloud→clinic,
 each exactly once, no loop; both clinlims.event_records=80, cloud OpenMRS event_records=951145.
 The live 121k-patient MySQL sync recovered to 10/10 tasks after the MM2 restarts.
+
+## MODIFIED: two review fixes to our own tooling — 2026-08-28
+
+Found by a review of this branch against `339dd91`, prompted by a live incident: seven
+cloud sink tasks were FAILED under `RUNNING` connectors (BL-039 again), two patient
+registrations never reached the cloud, and the cloud RAW counter had diverged from the
+clinic's — arming a duplicate MRN (BL-071). Both files below are **ours**, not Sushil's.
+
+| # | What | Why |
+|---|---|---|
+| R1 | `scripts/check-sink-tasks.sh` — order-independent argument parsing: the host is the one positional, `--restart` / `--restart-all` / `--help` are flags, and an unknown `--flag` exits 2 instead of becoming a hostname | `HOST="${1:-localhost}"` special-cased only the literal `--restart`, so `check-sink-tasks.sh --restart-all` — the form this script's own usage block recommends after a database restart — took the flag as the host and died with `cannot reach Kafka Connect at http://--restart-all:8083`, restarting nothing. The recovery command most likely to be typed during an outage was the one that silently did nothing. |
+| R2 | `scripts/generate-local-sink-connectors.sh` — **L-008 ownership guard**, the mirror of the one already in `debezium/cloud/scripts/generate-sink-connectors.sh`: refuses to emit a down-direction sink for any table listed in `debezium/local/tables.conf` | The guard existed in the up direction only. A table added to `debezium/cloud/tables.conf` that the clinic also authors would get a sink writing cloud rows into a clinic-authored table; the clinic captures that table and these sinks write straight to MySQL with no `sql_log_bin` guard, so the write re-enters the binlog, ships up, is applied, and comes back down — an **unbounded loop**, with no MySQL equivalent of the clinlims publication row filter to break it. One line in the wrong `tables.conf` was all it took. |
+
+**R2 detail.** The table list is now read once into an array and the whole list is
+validated *before* any file is written, so a refusal leaves nothing behind. That is
+deliberately stricter than the up-direction guard, which `exit 1`s mid-loop and can leave
+a half-regenerated `connectors/` directory (still open — see below). The read loop also
+gained the `|| [[ -n "$line" ]]` fallback the up generator already had; without it a
+`tables.conf` saved with no trailing newline silently drops the last table's sink while
+the run still reports success. `TABLES_CONF` / `UP_TABLES_CONF` are now overridable so
+the guard can be exercised without editing a live config.
+
+**Verified 2026-08-28:**
+- `bash -n` clean on both.
+- R1: `check-sink-tasks.sh badhost.invalid --restart-all` now reports `badhost.invalid`
+  (flag no longer consumed as the host); `--bogus` exits 2 with `unknown option`; the
+  no-argument sweep still lists all 10 clinic connectors.
+- R2 positive: still generates **7** connectors, and `diff -r` against the output of the
+  pre-change script (run from `git show HEAD:`) is **identical** — no happy-path change.
+- R2 negative: a `tables.conf` containing `person:person_id` is refused by name, with
+  **0 files written**.
+
+**Not fixed, still open** (from the same review, in rough severity order): the cloud sink
+generator no longer reproduces the live working configs (`table.name.format.default` is
+`openmrs.person` live vs `person` generated; live has `auto.create`/`auto.evolve` where
+the generator emits `schema.evolution`), so regenerating would regress production sinks;
+`openelis/setup-clinlims-sync.sql` is labelled idempotent but `DROP PUBLICATION` on a live
+node opens a silent capture gap; `check-sink-tasks.sh` restarts only `tasks/0` while
+reporting on every task; `register-local-sink-connectors.sh` strips the port from
+`LOCAL_CONNECT_URL` before handing the host to the verifier; the up-direction guard's
+mid-loop `exit 1`; the up sink shape is defined twice (heredoc + template) — the exact
+split that caused the 2026-08-27 six-sink failure; and `start-mm2.sh` leaves SASL
+credentials in `/tmp/mm2-runtime.properties` with default permissions.

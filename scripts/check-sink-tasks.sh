@@ -18,13 +18,27 @@
 #                       dies on its FIRST record. They fail one at a time, which looks like
 #                       an intermittent sync bug and is really one stale pool.
 
-HOST="${1:-localhost}"; [ "$1" = "--restart" ] && HOST=localhost
-URL="http://${HOST}:8083"
+# Arguments are order-independent: the host is the one positional, flags are flags.
+# The previous version read the host as "$1" and only special-cased the literal
+# "--restart", so `check-sink-tasks.sh --restart-all` — the form this script's own
+# usage block recommends after a database restart — took the flag as the hostname and
+# died with "cannot reach Kafka Connect at http://--restart-all:8083" without
+# restarting anything. An unknown flag now fails loudly rather than becoming a host.
+HOST=""
 RESTART=false; RESTART_ALL=false
 for a in "$@"; do
-  [ "$a" = "--restart" ] && RESTART=true
-  [ "$a" = "--restart-all" ] && { RESTART=true; RESTART_ALL=true; }
+  case "$a" in
+    --restart)      RESTART=true ;;
+    --restart-all)  RESTART=true; RESTART_ALL=true ;;
+    -h|--help)      sed -n '2,19p' "$0"; exit 0 ;;
+    --*)            echo "unknown option: $a  (see --help)" >&2; exit 2 ;;
+    *)
+      if [ -z "$HOST" ]; then HOST="$a"
+      else echo "unexpected extra argument: $a  (see --help)" >&2; exit 2; fi ;;
+  esac
 done
+HOST="${HOST:-localhost}"
+URL="http://${HOST}:8083"
 
 CONNECTORS=$(curl -s --connect-timeout 5 "${URL}/connectors" | tr ',' '\n' | tr -d '[]"')
 if [ -z "$CONNECTORS" ]; then

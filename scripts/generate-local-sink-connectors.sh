@@ -20,7 +20,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-${ROOT}/debezium/local/connectors/generated}"
 TEMPLATE="${ROOT}/debezium/local/connectors/mysql-local-sink-connector.json.template"
-TABLES_CONF="${ROOT}/debezium/cloud/tables.conf"
+TABLES_CONF="${TABLES_CONF:-${ROOT}/debezium/cloud/tables.conf}"
+# The clinic's OWN capture list. Read only to refuse overlap — see the L-008 guard below.
+UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/debezium/local/tables.conf}"
 
 [[ -f "$TEMPLATE"    ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
 [[ -f "$TABLES_CONF" ]] || { echo "missing table list: $TABLES_CONF" >&2; exit 1; }
@@ -44,12 +46,52 @@ LOCAL_MYSQL_PASSWORD="${LOCAL_MYSQL_PASSWORD:-${SINK_DB_PASSWORD:-}}"
 SRC_PREFIX="${MM2_REMOTE_ALIAS}.${CLOUD_SERVER_NAME}.${CLOUD_DB}."
 PREFIX_REGEX="^$(printf '%s' "$SRC_PREFIX" | sed 's/\./\\\\./g')(.*)\$"
 
+# ---------------------------------------------------------------------------
+# Read the table list ONCE, then validate the whole list before writing anything.
+#
+# `read` needs the `|| [[ -n "$line" ]]` fallback or a final line with no trailing
+# newline is silently dropped — one table would lose its sink while the run still
+# reported success. The up-direction generator already guards this; this one did not.
+# ---------------------------------------------------------------------------
+TABLES=()
+while read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    t="$(printf '%s' "$line" | awk '{print $1}' | cut -d: -f1)"
+    [[ -n "$t" ]] && TABLES+=("$t")
+done < "$TABLES_CONF"
+
+(( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
+
+# L-008 ownership guard — the mirror image of the one in
+# debezium/cloud/scripts/generate-sink-connectors.sh, which refuses to give a
+# CLOUD-owned table an up-direction sink. Same rule, other direction: a table the
+# CLINIC authors must never get a down-direction sink.
+#
+# Why this is worse than a plain ownership violation. The clinic captures its own
+# tables, and these sinks write straight to MySQL with no sql_log_bin guard, so a
+# sink write re-enters the clinic binlog, ships up to the cloud, is applied there,
+# and — because the table would now be in BOTH capture lists — comes straight back
+# down. That is an unbounded loop, and unlike clinlims on Postgres there is no
+# publication row filter on MySQL to break it. One line added to the wrong
+# tables.conf is all it takes, so the check runs BEFORE any file is written.
+if [[ -f "$UP_TABLES_CONF" ]]; then
+    for t in "${TABLES[@]}"; do
+        if grep -qE "^[[:space:]]*${t}:" "$UP_TABLES_CONF"; then
+            {
+              echo "REFUSING ${t}: it is clinic-owned (listed in ${UP_TABLES_CONF})."
+              echo "  A down-direction sink would write cloud rows into a table the clinic authors."
+              echo "  The clinic also captures that table, so the write would re-enter the binlog and"
+              echo "  loop back through the cloud — with no MySQL row filter to stop it (L-008/L-009)."
+              echo "  Nothing was generated."
+            } >&2
+            exit 1
+        fi
+    done
+fi
+
 mkdir -p "$OUT"
 count=0
-while read -r line; do
-    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    TABLE="$(printf '%s' "$line" | awk '{print $1}' | cut -d: -f1)"
-    [[ -n "$TABLE" ]] || continue
+for TABLE in "${TABLES[@]}"; do
     TOPIC="${SRC_PREFIX}${TABLE}"
 
     TEMPLATE="$TEMPLATE" TABLE="$TABLE" KAFKA_TOPICS="$TOPIC" \
@@ -79,7 +121,7 @@ json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 PYEOF
     echo "  ✓ $(basename "$OUT")/mysql-local-sink-${TABLE}.json   ← ${TOPIC}"
     count=$((count+1))
-done < "$TABLES_CONF"
+done
 
 echo
 echo "generated ${count} DOWN-direction sink connector(s) in ${OUT}"
