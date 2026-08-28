@@ -15,3 +15,18 @@ data/postgresql.pg14*
 
 # generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
 debezium/local/connectors/generated/
+
+# Same rule, CLOUD side (F-010). generate-sink-connectors.sh writes
+# mysql-sink-<table>.json straight into debezium/cloud/connectors/ - NOT into a
+# generated/ subdir - with connection.password already substituted. On the mini
+# that is 19 files carrying the live sink DB password, in a tracked directory,
+# in a repo whose origin is public. A single `git add -A` there publishes them.
+# The *.json.template and known-good.json files do NOT match this pattern.
+debezium/cloud/connectors/mysql-sink-*.json
+debezium/cloud/connectors/generated/
+
+# The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
+# /usr/local/bahmni_config. docker-compose.override.yml points it here so it can
+# never touch bahmni_config/ again - so this tree is churn the service owns,
+# regenerated on every boot, and must never be committed.
+.local-config-scratch/
