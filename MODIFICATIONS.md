@@ -207,6 +207,67 @@ production runs `…-openelisdb-1` **with no OpenELIS application container** �
 with nothing apparently in front of it." An app that cannot finish its boot migration is a
 mechanical explanation for exactly that.
 
+### G9 — the proxy turned every upstream 500 into a 404
+
+**Date:** 2026-08-28 · Files: `proxy/bahmni-nginx.openelis.conf`,
+`proxy/htdocs/internalError.html` (new), `docker-compose.override.yml` (proxy mount).
+
+`error_page 500 501 502 = /internalError.html;` used the **bare `=`**, which takes the
+response status from the target — and `internalError.html` did not exist in the image. So
+`proxy_intercept_errors on` caught each upstream 500 and served the client a **404**.
+
+That is not cosmetic. It made one OpenELIS defect read as two different faults: the clinic
+reported "missing page" while the cloud, which is not behind this proxy, reported "server
+error" for the identical request. It also disguises an application error as a routing
+error, which is the wrong place to start debugging.
+
+Fixed by pinning the status and shipping the page:
+
+```nginx
+error_page 500 501 502 =500 /internalError.html;
+```
+
+Verified against a genuinely-500ing route
+(`/openelis/ajaxQueryXML?provider=SampleEntryTestsForTypeProvider&…`): **404 → 500**, with
+the upstream confirmed at 500 by querying the container directly on `:8052`.
+
+**Sushil's `proxy/bahmni-nginx.conf` has the same two lines** (47–48) and is baked into the
+image, so any stock deployment masks 500s the same way. Not edited here — ours is the
+mounted copy and the only one in force. Worth reporting upstream.
+
+### G10 — the home page's Lab tile pointed at the wrong origin
+
+**Date:** 2026-08-28 · File: `proxy/bahmni-nginx.openelis.conf` (`location /lab`).
+
+`/lab` answered `301 → http://localhost/lab/` — port dropped, scheme downgraded — so the
+Lab tile on the Bahmni home dashboard led nowhere. The config link itself was never wrong:
+`extension.json` has `"url": "/lab"`, correctly root-relative.
+
+Two independent causes, and fixing only one leaves it broken:
+
+1. **The upstream builds an absolute redirect and drops the port itself.** Confirmed by
+   calling `bahmni-lab` directly: `Host: localhost:9443` still returns
+   `Location: http://localhost/lab/`. So `proxy_set_header Host` alone does **not** fix it.
+   Handled with `proxy_redirect ~^https?://[^/]+(/lab.*)$ $1;`, which also corrects scheme.
+2. **nginx then re-absolutises the relative Location** using the port it *listens* on
+   (443). This container is published to the host on **9443**, which nginx cannot know, so
+   443 is treated as the https default and omitted — reproducing the bug. Handled with
+   `absolute_redirect off;` scoped to the location.
+
+Cause 2 is invisible whenever the published and listening ports match, which is exactly why
+an isolated test on `8099:8099` passed while the real proxy still failed. **Any
+published-port ≠ listen-port mapping hits this**, so it is worth checking the other proxied
+routes that issue redirects.
+
+Verified: `Location: /lab/` (relative), following it gives **200** at
+`https://localhost:9443/lab/`. `/openelis/`, `/bahmni/home`, `/implementer-interface`
+unchanged. (`/atomfeed-console` still returns 000 — that is BL-008, pre-existing.)
+
+No URL is templated from `.env` for any of this, deliberately: root-relative links plus
+relative redirects are correct on localhost, on the tailnet host and in production without
+knowing the origin, whereas an env-substituted absolute URL would bake one in per node —
+the failure class BL-048 already recorded.
+
 ### ⚠️ G8 — the image prints the database password on every boot
 `migrateDb.sh` runs under `set -e -x`, so it echoes the full liquibase command line —
 including `--password=…` — to stdout, which the compose ships to **loki**. The clinic
