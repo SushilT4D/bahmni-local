@@ -12,3 +12,6 @@ certs/
 
 # moved-aside PG14 datadirs from the PG15 bump (Module 28)
 data/postgresql.pg14*
+
+# generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
+debezium/local/connectors/generated/
