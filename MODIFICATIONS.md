@@ -432,3 +432,101 @@ inert so nobody counts it as protection.
 
 ### Still open Also still unmonitored: nothing alarms
 on task state, so the next occurrence of anything in this class is found by a human noticing.
+
+### G12 — every directory redirect dropped the published port (`absolute_redirect`)
+
+**Symptom (reported 2026-08-31):** clicking the **Clinical** tile on the clinic home page
+navigated to `https://localhost/bahmni/home/` — no `:9443` — which serves nothing.
+
+**Not app-specific.** Every path that triggers nginx's directory redirect lost the port:
+
+    GET /bahmni/clinical      301  location: https://localhost/bahmni/clinical/
+    GET /bahmni/registration  301  location: https://localhost/bahmni/registration/
+    GET /bahmni/clinical/     200                      (works with the trailing slash)
+
+**Root cause.** nginx builds absolute `Location` headers from the port it *listens* on
+(443). This container is published on the host as **9443**, which nginx cannot know, so
+443 is omitted as "the default for https" and the port disappears. `location /bahmni` is
+commented out in this conf, so those apps are served straight off the server-level `root`
+— which is why the existing `/lab` fix did not cover them.
+
+**This was already known.** G9's `/lab` block carries `absolute_redirect off;` with a
+comment describing this exact mechanism ("Any published-port != listen-port mapping hits
+this"). The directive was scoped to that one location, so every other path stayed broken.
+
+**Change.** One line at **server** level in `proxy/bahmni-nginx.openelis.conf` (the file
+actually bind-mounted to `/etc/nginx/nginx.conf` — *not* `proxy/bahmni-nginx.conf`, which
+is unmounted), beside `root /usr/share/nginx/html;`:
+
+    absolute_redirect off;
+
+nginx then emits relative Locations and the browser keeps scheme, host and port. The
+`/lab` block's own copy is now redundant but harmless, and was left in place.
+
+**Verified** after `nginx -s reload` — all five follow to a 200 with the port intact:
+`/bahmni/home`, `/bahmni/clinical`, `/bahmni/registration`, `/lab`, `/openelis`
+→ `https://localhost:9443/…`.
+
+**Correct in production too:** production serves 443 on 443, where relative Locations
+behave identically. Nothing is templated from `.env`.
+
+**Cloud had the same class of defect — FIXED the same day.** `bahmni.xoyo.ad` returned
+`301 Location: http://bahmni.xoyo.ad/...`: the **scheme** downgraded rather than the port
+dropped, and plain http on that host answers **000**, so the link was equally dead. Cause
+is `ProxyPassReverse` (bahmni-proxy.conf:41) rebuilding `bahmni-web`'s DirectorySlash 301
+against this server but with the wrong scheme — reproduced with no tailscale in the path
+(`https://localhost:8444/bahmni/clinical` → `Location: http://localhost:8444/...`).
+
+Fix: `Header edit Location "^https?://[^/]+/" "/"` — path-only Locations, so the browser
+keeps its own scheme/host/port, exactly as `absolute_redirect off` does here.
+
+**The `always` keyword alone does not work, and that cost two failed attempts.**
+`Header always edit` writes to `err_headers_out`; a proxy 301's `Location` lives in
+`headers_out`. **Both** forms are needed — the plain one is the one that fires. A restart
+with only `always` present left the header unchanged and looked like the fix was wrong.
+
+Made durable on the mini as `debezium/cloud/proxy-config/bahmni-proxy.conf`, bind-mounted
+`:ro` over the image's copy (backup `docker-compose.override.yml.bak-20260831-proxyredirect`,
+pristine image copy kept as `bahmni-proxy.conf.orig` for diffing against future images).
+Re-introducing a proxy-conf mount reverses MM-13, which had dropped one because that path
+was prod-only; this one lives in the repo. Verified after `--force-recreate`: `/bahmni/home`,
+`/bahmni/clinical`, `/bahmni/registration`, `/openelis` all 200 on `https://bahmni.xoyo.ad`,
+plus `https://elis.xoyo.ad/openelis`. The file carries no credentials (checked), so F-010's
+constraint is untouched — but the override it is mounted from remains untracked.
+
+## ADDED: ADR-003 origin guard + three-node relay — 2026-08-31
+
+**The lab is deliberately left in this state.** It differs from a stock clinic node; do not
+assume the repo describes what is running.
+
+Clinic 2 (**Ghated**, residue 3, podman, `ssh ghated`) joined the fleet, and sync-core ADR-003's
+write-origin guard was deployed on all three nodes so a patient registered at one clinic reaches
+the other via the cloud. Measured 2026-08-31: Ghated → Rawach in ~15 s, origin stamp intact, and
+Rawach did **not** republish (offsets flat for 90 s).
+
+**Changed on THIS node (clinic 1 / Rawach):**
+- `openmrs.person` gained a nullable `sync_origin VARCHAR(16)`, plus triggers
+  `person_origin_ins` / `person_origin_upd` stamping `'rawach'` on every write **except** the
+  `sink` user's. The trigger uses `USER()` — `CURRENT_USER()` returns the trigger's *definer*
+  and would silently stamp everything the same way.
+- `mysql-source-connector` gained a `filterOrigin` Filter SMT (jsr223.groovy): publish only
+  rows whose `sync_origin` is `'rawach'`.
+- New connector `mysql-local-sink-person` consuming `remote.bahmni-cloud.openmrs.person`, with a
+  filter that **drops rows this node authored** (the hub relays everything, including our echo).
+- `sink`@`%` granted SELECT/INSERT/UPDATE/DELETE on `openmrs.person`.
+- **`config/mirrormaker/mm2.properties` (tracked file):** `bahmni-cloud\.openmrs\.person` added to
+  `remote->source.topics`. This is the only tracked-file edit; it contains no credentials.
+- Groovy 4.0.22 + `debezium-scripting` copied into **both** `/kafka/connect/debezium-connector-mysql/`
+  **and** `/kafka/connect/debezium-connector-jdbc/` — each Connect plugin has its own classloader.
+
+**Changed on the cloud:** `openmrs.person` added to `table.include.list` with
+`snapshot.mode=recovery` + a fresh schema-history topic (no data re-dump). The hub gets **no**
+origin filter — it must relay rows it did not write. 12 `mysql-sink-ghated-*` connectors added.
+
+**The filter condition must tolerate records that predate the column.** Debezium replays
+pre-`ALTER` binlog events with their historical schema and a Struct throws on a missing field;
+12 of 30 live records had none. Guard `r.schema().field('sync_origin') == null` first.
+
+Rollback: connector configs and the original `mm2.properties` are snapshotted in the session
+scratchpad. Evidence: `docs/sync-core/reviews/2026-08-31-option-a-origin-filtered-sync.html`,
+sync-core **ADR-003**, sync-core **F-012**.
