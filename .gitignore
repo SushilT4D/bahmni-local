@@ -9,3 +9,22 @@ certs/
 *.tgz
 *.zip
 *.gz
+
+# Generated cloud sink/source connector configs carry an injected connection.password.
+# The clinic side already ignores its generated/ dir; the cloud side never got the
+# equivalent, so `git add -A` here would commit live credentials to a PUBLIC remote.
+# (sync-core F-010, second trap.)
+debezium/cloud/connectors/*.json
+debezium/cloud/connectors/generated/
+
+# --- cloud node, 2026-09-02 ---
+# The live override carries three literal passwords (POSTGRES_PASSWORD,
+# OPENELIS_DB_PASSWORD, OPENMRS_ATOMFEED_PASSWORD) and this remote is PUBLIC.
+# The committed .example beside it enumerates every key with ${VAR} placeholders.
+debezium/cloud/docker-compose.override.yml
+# Hand-rolled version control from before this repo was used properly.
+*.bak-*
+# 10 MB OpenELIS seed dump (carries credential hashes) and 54 MB of built
+# front-end assets -- neither belongs in git; both are reproducible.
+debezium/cloud/openelis-starter.sql
+debezium/cloud/htdocs/

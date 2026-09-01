@@ -13,7 +13,7 @@
     "auto.create": "true",
     "auto.evolve": "true",
     "delete.enabled": "true",
-    "errors.tolerance": "all",
+    "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",

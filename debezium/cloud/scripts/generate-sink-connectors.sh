@@ -84,7 +84,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     "delete.enabled": "false",
     "auto.create": "true",
     "auto.evolve": "true",
-    "errors.tolerance": "all",
+    "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",

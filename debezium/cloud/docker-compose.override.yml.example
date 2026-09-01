@@ -1,0 +1,170 @@
+# MM-03 — authored by the mini session (NOT Sushil's file; compose auto-merges
+# docker-compose.override.yml). Two purposes:
+#   1. Loopback-only publishing: ground rule 2 (tailnet-only) — the tailnet
+#      reaches these via `tailscale serve`, never the LAN. His compose binds
+#      0.0.0.0.
+#   2. Host-port conflicts on this Mac: 80 belongs to the Frappe nginx;
+#      proxy moves to 8081/8444 (the established remap on this machine).
+# `!override` replaces the list; plain merge would APPEND and keep 0.0.0.0.
+services:
+  zookeeper:
+    ports: !override
+      - '127.0.0.1:2181:2181'
+  kafka:
+    ports: !override
+      - '127.0.0.1:9092:9092'
+      - '127.0.0.1:9093:9093'
+    # MM-07: cp-kafka's preflight (cub zk-ready) sees the JAAS file in
+    # KAFKA_OPTS and then demands a SASL zookeeper — but his zookeeper is
+    # plain, so the probe times out even though the session establishes.
+    # This env tells the probe zookeeper SASL is off. Broker config unchanged.
+    environment:
+      ZOOKEEPER_SASL_ENABLED: "FALSE"
+  schema-registry:
+    ports: !override
+      - '127.0.0.1:8082:8081'   # host 8081 is the cloud proxy's HTTP remap
+  kafka-connect:
+    ports: !override
+      - '127.0.0.1:8083:8083'
+  openmrsdb:
+    ports: !override
+      - '127.0.0.1:3306:3306'
+    # DOWN-SYNC (cloud -> clinic) needs Debezium to read this server's binlog.
+    # Base command is charset-only, so it MUST be repeated here: compose REPLACES
+    # `command`, it does not merge. binlog_format=ROW is a Debezium requirement
+    # (the default here was STATEMENT); server-id must be non-zero and unique.
+    # expire-logs-days bounds growth -- note the binlog also records every UP-sync
+    # sink write, so it is not just the 1,667 admin rows.
+    #
+    # STRIDING (BL-045): offset 10 with increment 10 => cloud-authored ids are ≡ 0 (mod 10),
+    # per Sushil's map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4, Bagdunda 5, Kojawada 6).
+    # This node is MySQL 5.6, where `SET PERSIST` does not exist at all -- server flags are
+    # the ONLY way to set this so it survives a restart. They are also immune to the
+    # mysqld-auto.cnf override that silently defeated the flag on the 8.0 clinic.
+    command: >-
+      --character-set-server=utf8 --collation-server=utf8_general_ci
+      --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL
+      --server-id=2 --expire-logs-days=3
+      --auto-increment-increment=10 --auto-increment-offset=10
+      --wait-timeout=604800 --interactive-timeout=604800
+      # Each JDBC sink holds connection.pool.min_size=5 and F-007 measured the pool
+      # as never recycling, so cost is 5 x (12 tables) per CLINIC, permanently.
+      # Two clinics = 120 of the stock 151, which starved the app tier on
+      # 2026-09-01 (Too many connections -> OpenMRS 500s). Seven clinics needs ~450.
+      --max-connections=500
+    # MM-17: mysql:5.6 has NO arm64 manifest entry; cold pull needs the pin
+    platform: linux/amd64
+  odoodb:
+    ports: !override
+      - '127.0.0.1:5431:5432'
+  odoo:
+    ports: !override
+      - '127.0.0.1:8069:8069'
+    # bahmni/odoo-10 is a manifest list with no arm64 entry (same disease as
+    # odoo-16): docker refuses auto-fallback, needs the explicit pin.
+    platform: linux/amd64
+    # MM-12: real empty dir for extra-addons (a /dev/null placeholder cannot
+    # be dir-mounted), and DROP his bahmni-addons dev overlay — an empty
+    # host dir there would shadow the addons shipped inside the image.
+    volumes: !override
+      - 'odooappdata:/var/lib/odoo'
+      - '/Users/samyoga/Documents/Claude/Projects/general/bahmni-local/.local-empty/extra-addons:/mnt/extra-addons'
+  odoo-connect:
+    platform: linux/amd64
+  atomfeed-console:
+    platform: linux/amd64
+  patient-documents:
+    ports: !override
+      - '127.0.0.1:8099:80'
+  proxy:
+    ports: !override
+      - '127.0.0.1:8081:80'
+      - '127.0.0.1:8444:443'
+    # MM-13: his compose bind-mounts /App/bahmni-std-cloud-package-master/
+    # proxy-config/bahmni-proxy.conf — a PROD-ONLY path, the file is not in
+    # the repo (M-016). Drop it and rely on the image's own config.
+    volumes: !override
+      - '${CERTIFICATE_PATH}/fullchain.pem:/etc/tls/cert.pem'
+      - '${CERTIFICATE_PATH}/privkey.pem:/etc/tls/key.pem'
+      - 'bahmni-patient-images:/home/bahmni/patient_images'
+      # 2026-08-31: re-introduce a bahmni-proxy.conf mount -- but from THIS repo, not
+      # the prod-only path MM-13 dropped. proxy-config/bahmni-proxy.conf is the image's
+      # own file plus one addition: relative Location headers. ProxyPassReverse rebuilt
+      # the upstream 301 with the wrong scheme (an https request got Location: http://...),
+      # which behind tailscale serve became http://bahmni.xoyo.ad/... where nothing
+      # listens -- so every tile that redirects was a dead link. .orig kept alongside for
+      # diffing against a future image build. Clinic equivalent: nginx G12.
+      - './proxy-config/bahmni-proxy.conf:/usr/local/apache2/conf/bahmni-proxy.conf:ro'
+
+  # ── OpenELIS on the cloud (Module 28) — the receiving side of bidirectional lab sync.
+  # A dedicated postgres:14 (NOT bahmni/openelis-db): matching the clinic's engine
+  # removes BL-052's version-skew half entirely. Loopback-only, tailnet ground rule.
+  openelisdb:
+    image: postgres:15
+    command: >-
+      postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+      TZ: Asia/Kolkata
+    ports:
+      - '127.0.0.1:5433:5432'
+    volumes:
+      - openelisdbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  openelis:
+    image: 'bahmni/openelis:1.1.0-111'
+    command: ['/start-no-migrate.sh']   # BL-053: upstream liquibase can't finish on PG
+    ports:
+      - '127.0.0.1:8052:8052'
+    volumes:
+      - './start-no-migrate.sh:/start-no-migrate.sh:ro'
+    environment:
+      TZ: Asia/Kolkata
+      OPENELIS_DB_SERVER: openelisdb
+      OPENELIS_DB_PORT: '5432'
+      OPENELIS_DB_NAME: openelis
+      OPENELIS_DB_USERNAME: clinlims
+      OPENELIS_DB_PASSWORD: \${OPENELIS_DB_PASSWORD}
+      OPENMRS_HOST: openmrs
+      OPENMRS_PORT: '8080'
+      OPENMRS_ATOMFEED_USER: superman
+      OPENMRS_ATOMFEED_PASSWORD: \${OPENMRS_ATOMFEED_PASSWORD}
+    depends_on:
+      openelisdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── STAGING PARITY (2026-08-28, revised). The 2026-08-28 morning fix bind-mounted the
+  # CLINIC's tree over this image because we had no better reference. bhs-sandbox then gave us
+  # the real one: BHS production runs bahmni-iplit-web:bhs-0.0.27 and
+  # clinic-config-indiadistro:bhs-0.0.19 (both confirmed pullable, both linux/amd64 ONLY, so the
+  # platform pins below are required on this arm64 host). The bind-mounts are GONE and we now run
+  # the same images production runs -- exact parity instead of near-parity, and it closes the six
+  # missing stylesheets in components/openmrs-uicommons.
+  # Verified: bhs-0.0.27 carries 1227 files, home/index.html md5
+  # 6227f7c0f53ea5313de9cedef730885d, byte-identical to staging.
+  #
+  # NOTE the config image ships 362 files; staging SERVES 384. The extra 22 are un-versioned
+  # server-side edits -- the whole offline/ Bahmni Connect config (10) and 12 clinic report SQLs
+  # (one of them a file literally named `m`, someone's shell typo). They are overlaid onto the
+  # volume after bahmni-config runs; see handover notes.
+  #
+  # bahmni-config is declared here ONLY to pin its platform. It is the one-shot container that
+  # populates the config volume; it carries NO compose profile, so a start by explicit service
+  # name SKIPS it -- which is exactly how the volume ended up empty and login landed on a blank
+  # dashboard on 2026-08-28. It must be named explicitly when bringing this stack up.
+  bahmni-config:
+    platform: linux/amd64
+  bahmni-web:
+    platform: linux/amd64
+
+volumes:
+  openelisdbdata:
