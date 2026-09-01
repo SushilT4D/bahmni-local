@@ -53,6 +53,14 @@ services:
       --sql-mode=NO_ENGINE_SUBSTITUTION
       --auto-increment-increment=10 --auto-increment-offset=4
       --wait-timeout=604800 --interactive-timeout=604800
+    # ⚠ 2026-09-02: THIS LINE IS NOT RE-READ ON RESTART. The running container was
+    #   created 2026-08-20, before the line was added, so `docker compose restart`
+    #   (and a machine reboot) kept the OLD command and Rawach was still on the stock
+    #   28800 two weeks later -- the sinks died again after a 13h overnight gap.
+    #   `docker inspect <c> --format '{{.Config.Cmd}}' is the only truthful check;
+    #   the file agreeing with intent proves nothing. Requires `up -d --force-recreate
+    #   bahmni-mysql` to take effect. Applied live with SET GLOBAL in the meantime.
+    #   The durable defence is now client-side: hibernate.c3p0.* on every JDBC sink.
 
   # OpenELIS lands in THIS container as a second database (`openelis`, schema
   # `clinlims`) alongside odoo — Module 28 §3.1, decision (i). Two consequences,

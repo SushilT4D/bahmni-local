@@ -530,3 +530,67 @@ pre-`ALTER` binlog events with their historical schema and a Struct throws on a 
 Rollback: connector configs and the original `mm2.properties` are snapshotted in the session
 scratchpad. Evidence: `docs/sync-core/reviews/2026-08-31-option-a-origin-filtered-sync.html`,
 sync-core **ADR-003**, sync-core **F-012**.
+
+## MODIFIED: F-007 — the stale-connection fix that actually holds — 2026-09-02
+
+The 2026-08-28 BL-039 fix above is recorded as done. **It was not in force on 2026-09-02**, and the
+sinks died again after a 13-hour overnight gap. Two independent reasons, both silent:
+
+### 1. `wait_timeout=604800` was written to compose but never reached the container
+
+`docker-compose.override.yml` has carried `--wait-timeout=604800` since 2026-08-28. The running
+MySQL reported the stock **28800**. The container was *created* 2026-08-20; `docker compose restart`
+and a host reboot both reuse the existing container's `Config.Cmd` and never re-read compose. So the
+file and the runtime disagreed for two weeks with nothing reporting it.
+
+Measured 2026-09-02: Rawach **28800**, cloud **28800**, Ghated **604800** (Ghated's container was
+created after the change, which is the only reason it had it).
+
+    docker inspect <container> --format '{{.Config.Cmd}}'   # the only truthful check
+
+Applied live with `SET GLOBAL` on Rawach and the cloud. Durable only after
+`up -d --force-recreate bahmni-mysql`, which has NOT been done (it takes the clinic down).
+
+### 2. `connection.pool.timeout` is inert — confirmed from the bytecode, not inferred
+
+The 2026-08-28 note called it "MEASURED INERT" from connection ages. That was right, and here is why.
+In `debezium-connector-jdbc-3.2.4.Final.jar`, `JdbcSinkConnectorConfig.class` contains these string
+literals:
+
+    hibernate.c3p0.min_size            <- connection.pool.min_size maps here
+    hibernate.c3p0.max_size            <- connection.pool.max_size maps here
+    hibernate.c3p0.acquire_increment   <- connection.pool.acquire_increment maps here
+    (no hibernate.c3p0.timeout literal) <- connection.pool.timeout maps NOWHERE
+
+It is parsed, accepted, and dropped. It has never expired anything.
+
+### The fix: four keys via the `hibernate.*` passthrough
+
+The same class carries a bare `hibernate.` prefix constant — arbitrary `hibernate.*` connector
+properties are forwarded to Hibernate. Applied to **all 41 JDBC sinks** (Rawach 9, Ghated 7,
+cloud 25):
+
+    "hibernate.c3p0.timeout":                 "1800"   # real maxIdleTime
+    "hibernate.c3p0.idle_test_period":        "300"    # probe idle conns every 5 min
+    "hibernate.c3p0.preferredTestQuery":      "SELECT 1"  # cheap probe, not DatabaseMetaData
+    "hibernate.c3p0.testConnectionOnCheckout":"true"   # never hand out an unproven connection
+
+This is **client-side**, so unlike `wait_timeout` it survives a MySQL restart, a container
+recreation and a host reboot.
+
+### Proven twice, not asserted
+
+**Natural A/B (unforced).** A cloud write hit `mysql-local-sink-person` (fixed) and
+`mysql-local-sink-person_name` (not yet fixed) in the same batch on the same node at the same
+instant. `person` landed; `person_name` FAILED with `Broken pipe` after 50,621,983 ms idle. The only
+difference was these four keys.
+
+**Forced kill.** All 45 pooled `sink` connections on Rawach were killed server-side
+(`KILL <id>` from `information_schema.processlist`), reproducing the overnight condition in one
+second. The next cloud write landed at **both** tables in ~5 s with every task still RUNNING.
+
+### Still open
+
+Nothing alarms on a FAILED task. `connector.state` reads RUNNING over a FAILED task (BL-039), so
+every dashboard was green while sync was dead for 13 hours. This remains the highest-value item on
+ADR-003 phase 0.
