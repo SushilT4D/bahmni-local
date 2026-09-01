@@ -1,3 +1,22 @@
+
+# ============================================================================
+# TRAP, found 2026-09-02: NEVER put a "#" comment INSIDE a folded block scalar.
+#
+# YAML does NOT strip comments inside  command: >-  . Every indented line, "#"
+# lines included, is folded into the string. Four comment lines were added
+# inside openmrsdb.command on 2026-09-01 to document --max-connections=500, and
+# from that moment  failed with:
+#     decoding failed due to the following error(s):
+#     services[openmrsdb].command invalid command line string
+# which means NO  could run on this node at all. It went
+# unnoticed for a day because the running containers predated the edit, so
+# nothing visibly broke -- the file and the runtime had diverged silently, the
+# same class as the wait_timeout finding in F-007.
+#
+# Put explanatory comments ABOVE the  key, never between it and its
+# continuation lines. And run  after editing this file:
+# it is the only thing that proves the file is still usable.
+# ============================================================================
 # MM-03 — authored by the mini session (NOT Sushil's file; compose auto-merges
 # docker-compose.override.yml). Two purposes:
 #   1. Loopback-only publishing: ground rule 2 (tailnet-only) — the tailnet
