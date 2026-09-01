@@ -1,0 +1,101 @@
+# Reusable fragment: Odoo 10 at a CLINIC node, matching the cloud.
+# Append into a clinic's docker-compose.override.yml, then:
+#   docker-compose --profile odoo up -d odoodb odoo odoo-connect
+#
+# Requires in .env: ODOO_IMAGE_TAG=latest, ODOO_DB_IMAGE_TAG=demo-latest,
+# ODOO_CONNECT_IMAGE_TAG=latest, ODOO_HOST=odoo, ODOO_PORT=8069,
+# ODOO_ATOMFEED_USER/PASSWORD, plus the OPENMRS_* and OPENELIS_* atomfeed vars
+# the clinic already carries.
+#
+# TWO TRAPS, both hit while first applying this on Ghated 2026-09-02:
+#   1. `logging: *log-config` CANNOT be used here. YAML anchors do not cross
+#      compose files, and the override fails with "unknown anchor 'log-config'".
+#      The anchor is defined in the base compose only.
+#   2. The images are amd64-only manifests, so `platform: linux/amd64` is
+#      mandatory on Apple Silicon or the pull fails outright.
+#
+# Verified: applied to Ghated 2026-09-02; `docker-compose --profile odoo config`
+# parses and resolves bahmni/odoo-10:latest, bahmni/odoo-10-db:demo-latest,
+# bahmni/odoo-connect:latest — the tags BHS staging actually runs.
+  # ODOO — ADDED 2026-09-02 (operator decision: "replicate cloud odoo as same
+  # to clinic ... use same pipeline we used to sync mrs and elis").
+  #
+  # WHY THIS OVERRIDES THE BASE COMPOSE RATHER THAN USING IT AS SHIPPED:
+  # the base clinic compose runs bahmni/odoo-16 against the SHARED
+  # bahmni-postgres. BHS production and our cloud both run **Odoo 10**
+  # (verified 2026-09-02: bhs-sandbox runs bahmni/odoo-10:latest, base module
+  # 10.0.1.3). Odoo 10 and 16 schemas are not remotely compatible, so a clinic
+  # on 16 could never sync with a cloud on 10. Aligning on 10 = production.
+  #
+  # It also gets its OWN odoodb rather than sharing bahmni-postgres, again to
+  # match the cloud: the sync design needs Odoo's tables in a database whose
+  # publication/slot we control independently of OpenELIS's.
+  #
+  # Images are amd64-only manifests, so the platform pin is required on arm64
+  # (they run emulated). Same disease as bahmni/odoo-16 and mysql:5.6.
+  # ==========================================================================
+  odoodb:
+    profiles: ["odoo","local"]
+    image: 'bahmni/odoo-10-db:${ODOO_DB_IMAGE_TAG}'
+    platform: linux/amd64
+    environment:
+      POSTGRES_USER: ${ODOO_DB_USER}
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - 'odoodb-data:/var/lib/postgresql/data'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ODOO_DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: ${RESTART_POLICY}
+
+  odoo:
+    image: 'bahmni/odoo-10:${ODOO_IMAGE_TAG}'
+    platform: linux/amd64
+    # Base compose points HOST at bahmni-postgres and mounts odoo-16-shaped
+    # volumes; both are replaced, not merged.
+    environment:
+      TZ: ${TZ}
+      HOST: odoodb
+      USER: ${ODOO_DB_USER}
+      PASSWORD: ${ODOO_DB_PASSWORD}
+    volumes: !override
+      - 'odooapp-data:/var/lib/odoo'
+    depends_on: !override
+      odoodb:
+        condition: service_healthy
+    restart: ${RESTART_POLICY}
+
+  odoo-connect:
+    profiles: ["odoo","local"]
+    image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
+    platform: linux/amd64
+    # Reads THIS clinic's own feeds over the container network. Nothing here
+    # crosses a node boundary, which is what keeps the clinic working with the
+    # uplink cut (draft policy P-05).
+    environment:
+      ODOO_DB_SERVER: odoodb
+      ODOO_DB_USERNAME: ${ODOO_DB_USER}
+      ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD}
+      OPENMRS_HOST: ${OPENMRS_HOST}
+      OPENMRS_PORT: ${OPENMRS_PORT}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD}
+      OPENELIS_HOST: ${OPENELIS_HOST}
+      OPENELIS_PORT: ${OPENELIS_PORT}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
+      ODOO_HOST: ${ODOO_HOST}
+      ODOO_PORT: ${ODOO_PORT}
+      ODOO_ATOMFEED_USER: ${ODOO_ATOMFEED_USER}
+      ODOO_ATOMFEED_PASSWORD: ${ODOO_ATOMFEED_PASSWORD}
+    depends_on:
+      odoodb:
+        condition: service_healthy
+    restart: ${RESTART_POLICY}
+
+volumes:
+  odoodb-data:
+  odooapp-data:
