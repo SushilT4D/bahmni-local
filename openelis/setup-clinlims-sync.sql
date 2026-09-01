@@ -49,10 +49,10 @@ ALTER TABLE clinlims.result        REPLICA IDENTITY FULL;
 -- the ownership signal.
 DROP PUBLICATION IF EXISTS dbz_clinlims_owned;
 CREATE PUBLICATION dbz_clinlims_owned
-  FOR TABLE clinlims.sample      WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-            clinlims.sample_item WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-            clinlims.analysis    WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-            clinlims.result      WHERE (sync_origin IS NULL OR sync_origin = :'node');
+  FOR TABLE clinlims.sample      WHERE (sync_origin = :'node'),
+            clinlims.sample_item WHERE (sync_origin = :'node'),
+            clinlims.analysis    WHERE (sync_origin = :'node'),
+            clinlims.result      WHERE (sync_origin = :'node');
 
 -- 4. Report
 SELECT 'publication ' || pubname AS created FROM pg_publication WHERE pubname='dbz_clinlims_owned';

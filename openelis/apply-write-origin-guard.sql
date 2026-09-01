@@ -52,13 +52,35 @@ CREATE TRIGGER analysis_origin    BEFORE INSERT OR UPDATE ON clinlims.analysis
 CREATE TRIGGER result_origin      BEFORE INSERT OR UPDATE ON clinlims.result
   FOR EACH ROW EXECUTE FUNCTION clinlims.stamp_sync_origin(:'node');
 
--- Publish only our own writes. NULL passes, matching the MySQL rule (o == null ||
--- o == node): rows that predate the column are unattributable, and on any UPDATE the
--- trigger stamps them, so NULL is a snapshot-only state and cannot cause a loop.
+-- CORRECTED 2026-09-02, same day. The first version of this block read
+--   WHERE (sync_origin IS NULL OR sync_origin = :'node')
+-- copied from the MySQL rule, with the comment "NULL is a snapshot-only state and
+-- cannot cause a loop". THAT WAS WRONG AND IT CAUSED ONE. With every node allowing
+-- NULL on both the publish and the accept side, an unstamped row is published by
+-- everyone and accepted by everyone, so it circulates forever. Measured on Ghated:
+-- 341,175 messages on bahmni-ghated.clinlims.sample for a 9-row table; the looping
+-- records were op=u, id=80 and id=120, sync_origin=None.
+--
+-- Two-part fix. First backfill every NULL stamp from the RESIDUE -- which is precisely
+-- what residue was good for: attributing rows created before the new signal existed.
+-- Apply the SAME rule on every node so they agree on who owns each legacy row.
+DO $bf$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['sample','sample_item','analysis','result'] LOOP
+    EXECUTE format($f$
+      UPDATE clinlims.%I SET sync_origin = CASE (id %% 10)
+        WHEN 0 THEN 'cloud' WHEN 3 THEN 'ghated' WHEN 4 THEN 'rawach'
+        ELSE 'rawach' END
+      WHERE sync_origin IS NULL $f$, t);
+  END LOOP;
+END $bf$;
+
+-- Then publish STRICTLY. An unstamped row is now published by nobody, so it cannot loop.
 ALTER PUBLICATION dbz_clinlims_owned SET TABLE
-  clinlims.sample      WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-  clinlims.sample_item WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-  clinlims.analysis    WHERE (sync_origin IS NULL OR sync_origin = :'node'),
-  clinlims.result      WHERE (sync_origin IS NULL OR sync_origin = :'node');
+  clinlims.sample      WHERE (sync_origin = :'node'),
+  clinlims.sample_item WHERE (sync_origin = :'node'),
+  clinlims.analysis    WHERE (sync_origin = :'node'),
+  clinlims.result      WHERE (sync_origin = :'node');
 
 COMMIT;
