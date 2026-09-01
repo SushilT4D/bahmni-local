@@ -1,0 +1,64 @@
+-- ADDED 2026-09-02 (sync-core F-015). Moves the OpenELIS/clinlims lab path off
+-- creator-residue (id % 10) onto ADR-003 write-origin, matching the OpenMRS side.
+--
+-- WHY: residue is fixed at INSERT, so it can only say "this row belongs to one node
+-- forever". BHS's workflow has handoffs -- a sample taken at a clinic and resulted at
+-- the cloud. Under residue the cloud publishes only rows ending in 0, so that result
+-- was silently never delivered: saved locally, every connector RUNNING, no error.
+--
+-- THE PREREQUISITE that blocked this until now: the MySQL guard works because the sink
+-- connects as a distinct user and the trigger branches on USER(). The clinlims sink
+-- connected as `clinlims`, the SAME role the OpenELIS application uses, so no trigger
+-- could tell a replicated write from a local one. Fixed by a dedicated `clinlims_sink`
+-- login role (password in the gitignored .env as OPENELIS_SINK_PASSWORD).
+--
+-- session_user, NOT current_user: immune to SET ROLE and SECURITY DEFINER. This is the
+-- PostgreSQL analogue of the MySQL USER()/CURRENT_USER() trap, where the wrong one
+-- returns the trigger's definer and stamps every row identically while looking installed.
+--
+-- REPLICA IDENTITY must cover the filter column for UPDATE/DELETE row filters. All four
+-- tables were already FULL, so nothing to change -- verify before assuming on a new node.
+--
+-- Usage:  psql -U postgres -d openelis -v node=rawach -f openelis/apply-write-origin-guard.sql
+\set ON_ERROR_STOP on
+BEGIN;
+
+ALTER TABLE clinlims.sample      ADD COLUMN IF NOT EXISTS sync_origin varchar(16);
+ALTER TABLE clinlims.sample_item ADD COLUMN IF NOT EXISTS sync_origin varchar(16);
+ALTER TABLE clinlims.analysis    ADD COLUMN IF NOT EXISTS sync_origin varchar(16);
+ALTER TABLE clinlims.result      ADD COLUMN IF NOT EXISTS sync_origin varchar(16);
+
+CREATE OR REPLACE FUNCTION clinlims.stamp_sync_origin() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF session_user = 'clinlims_sink' THEN
+    RETURN NEW;                    -- replicated row: keep the far node's stamp
+  END IF;
+  NEW.sync_origin := TG_ARGV[0];   -- local application write: stamp this node
+  RETURN NEW;
+END $fn$;
+
+DROP TRIGGER IF EXISTS sample_origin      ON clinlims.sample;
+DROP TRIGGER IF EXISTS sample_item_origin ON clinlims.sample_item;
+DROP TRIGGER IF EXISTS analysis_origin    ON clinlims.analysis;
+DROP TRIGGER IF EXISTS result_origin      ON clinlims.result;
+
+CREATE TRIGGER sample_origin      BEFORE INSERT OR UPDATE ON clinlims.sample
+  FOR EACH ROW EXECUTE FUNCTION clinlims.stamp_sync_origin(:'node');
+CREATE TRIGGER sample_item_origin BEFORE INSERT OR UPDATE ON clinlims.sample_item
+  FOR EACH ROW EXECUTE FUNCTION clinlims.stamp_sync_origin(:'node');
+CREATE TRIGGER analysis_origin    BEFORE INSERT OR UPDATE ON clinlims.analysis
+  FOR EACH ROW EXECUTE FUNCTION clinlims.stamp_sync_origin(:'node');
+CREATE TRIGGER result_origin      BEFORE INSERT OR UPDATE ON clinlims.result
+  FOR EACH ROW EXECUTE FUNCTION clinlims.stamp_sync_origin(:'node');
+
+-- Publish only our own writes. NULL passes, matching the MySQL rule (o == null ||
+-- o == node): rows that predate the column are unattributable, and on any UPDATE the
+-- trigger stamps them, so NULL is a snapshot-only state and cannot cause a loop.
+ALTER PUBLICATION dbz_clinlims_owned SET TABLE
+  clinlims.sample      WHERE (sync_origin IS NULL OR sync_origin = :'node'),
+  clinlims.sample_item WHERE (sync_origin IS NULL OR sync_origin = :'node'),
+  clinlims.analysis    WHERE (sync_origin IS NULL OR sync_origin = :'node'),
+  clinlims.result      WHERE (sync_origin IS NULL OR sync_origin = :'node');
+
+COMMIT;
