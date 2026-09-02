@@ -70,7 +70,7 @@ BEGIN
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t||'_origin', t);
     EXECUTE format($f$
       CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON public.%I
-      FOR EACH ROW EXECUTE FUNCTION public.stamp_sync_origin(%L) $f$,
+      FOR EACH ROW EXECUTE PROCEDURE public.stamp_sync_origin(%L) $f$,
       t||'_origin', t, node);
   END LOOP;
 END $guard$;

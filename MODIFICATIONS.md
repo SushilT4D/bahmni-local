@@ -594,3 +594,59 @@ second. The next cloud write landed at **both** tables in ~5 s with every task s
 Nothing alarms on a FAILED task. `connector.state` reads RUNNING over a FAILED task (BL-039), so
 every dashboard was green while sync was dead for 13 hours. This remains the highest-value item on
 ADR-003 phase 0.
+
+## FIXED: F-019 — the MySQL origin filter permitted NULL, same as the loop that fired — 2026-09-02
+
+The source filter read `return o == null || o == '<node>'`. With every node permitting NULL on both
+the publish and the accept side, an unstamped row is published by everyone and accepted by everyone.
+On the PostgreSQL/clinlims path that exact condition produced **341,175 messages for a 9-row table**
+and filled the cloud's disk. The MySQL side carried it too and had not fired only by circumstance.
+
+### The fix is publish-side ONLY, verified against the deployed groovy-4.0.22
+
+    o = null ; o == null || o == 'rawach'   -> true     old source: PUBLISHES unstamped rows
+    o = null ; o == 'rawach'                -> false    new source: does not
+    o = null ; o != 'rawach'                -> true     sink: accepts, and should
+
+The sink already behaved correctly for NULL, because the hub legitimately holds unstamped rows and a
+clinic should accept them. Only the publish side was wrong. One connector per clinic changed.
+
+### There is deliberately NO backfill here, unlike the clinlims equivalent
+
+Surveyed 2026-09-02: **121,727 unstamped `person` rows and ~121,730 unstamped `person_name` rows per
+node.** With `binlog_format=ROW` and `binlog_row_image=FULL`, one changed row is one binlog event is
+one Kafka message — no statement-level collapsing. A three-node backfill would touch **~730,375 rows
+and originate ~2.2M messages (~3.6M counting mirrored copies)**. It terminates after one hop rather
+than looping — stamping removes the NULL-on-both-sides condition — so it is a bounded flood, not a
+runaway. But it is the same shape that took the cloud down, and it would overwrite the peer's
+unstamped rows with the backfilling node's name, destroying provenance for all 121,727.
+
+Those rows came from a common seed and are already converged. Freezing them costs nothing, and any
+future edit is stamped by the trigger and syncs normally.
+
+### The hub has no filter, and that is correct
+
+The cloud deliberately carries no origin filter on either side. That is ADR-003's asymmetry, not an
+omission: spokes publish only their own writes, **the hub publishes everything** (which is what makes
+clinic-to-clinic relay possible), and spoke sinks drop their own echo. The cloud's sinks need no
+filter because they consume only clinic topics, already filtered at source.
+
+### Now a committed artifact, which it never was
+
+Until today this guard existed only as prose in this file and as live state in Kafka Connect — no
+committed definition, so a rebuilt node would have come up with **no guard at all**. It is now
+`openmrs/apply-mysql-origin-filter.sh <node>`, idempotent (verified by re-running to a 0-change
+result on both clinics) and scoped to MySQL/openmrs connectors only. An earlier version matched on
+`filterOrigin` alone and rewrote `clinlims-clinic-sink` as collateral — harmless only because the two
+conditions happen to be equivalent for NULL.
+
+### Verified
+
+Rawach `bahmni-local.openmrs.person` flat at 121,776 and `person_name` at 121,741 across the change.
+Ghated `person` moved 43 → 44 — exactly the one test row — and `person_name` held at 5. A stamped row
+created at Ghated reached the cloud in **10 s**. No flood.
+
+⚠ Ghated's `clinlims-source-connector` was found FAILED afterwards with *"the database system is in
+recovery mode"*: editing this override and running `docker-compose --profile odoo up -d` restarted
+`bahmni-postgres`, and the connector did not recover on its own. Restarted by hand. **Editing the
+override restarts dependent services** — and nothing alarms when a task dies (F-008).
