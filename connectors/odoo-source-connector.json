@@ -1,0 +1,30 @@
+{
+  "name": "odoo-source-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "bahmni-postgres",
+    "database.port": "5432",
+    "database.user": "odoo",
+    "database.password": "${ODOO_DB_PASSWORD}",
+    "database.dbname": "odoo",
+    "plugin.name": "pgoutput",
+    "slot.name": "dbz_odoo_up",
+    "publication.autocreate.mode": "disabled",
+    "publication.name": "dbz_odoo_owned",
+    "schema.include.list": "public",
+    "table.include.list": "public.res_partner,public.product_template,public.product_product,public.product_category,public.product_uom,public.sale_order,public.sale_order_line,public.stock_move,public.stock_quant,public.stock_picking,public.account_invoice,public.account_invoice_line",
+    "snapshot.mode": "no_data",
+    "topic.prefix": "bahmni-local",
+    "time.precision.mode": "connect",
+    "decimal.handling.mode": "double",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": "bahmni-local\\.public\\.(.*)",
+    "transforms.route.replacement": "bahmni-local.odoo.$1",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true"
+  }
+}

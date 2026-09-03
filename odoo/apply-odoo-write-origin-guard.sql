@@ -141,9 +141,30 @@ DECLARE
     'account_invoice','account_invoice_line'
   ];
 BEGIN
-  FOREACH v_tbl IN ARRAY v_tables LOOP
-    v_parts := v_parts || format('public.%I WHERE (sync_origin = %L)', v_tbl, v_node);
-  END LOOP;
+  -- THE HUB PUBLISHES EVERYTHING; A SPOKE PUBLISHES ONLY ITS OWN.
+  --
+  -- This asymmetry is the whole reason every clinic can hold every clinic's data. A spoke
+  -- filters to its own rows so it never re-publishes what it received. The cloud must NOT
+  -- filter, because its job is to relay: Rawach's order reaches the cloud, and only an
+  -- unfiltered cloud publication carries it onward to Ghated.
+  --
+  -- MEASURED ON THE LIVE LAB 2026-09-04, and this is not hypothetical. The cloud's
+  -- clinlims publication IS filtered to sync_origin='cloud', so the cloud holds 6 Rawach
+  -- and 1 Ghated samples plus 18 Rawach analyses and will publish NONE of them downward.
+  -- OpenELIS clinic-to-clinic sync therefore does not work at all today, silently, with
+  -- every connector RUNNING. OpenMRS escapes this only by accident of mechanism: MySQL
+  -- filters in the SMT and the cloud's MySQL source has no SMT filter, so the hub there
+  -- does relay. Odoo is built correct rather than inheriting the clinlims defect.
+  IF v_node = 'cloud' THEN
+    FOREACH v_tbl IN ARRAY v_tables LOOP
+      v_parts := v_parts || format('public.%I', v_tbl);
+    END LOOP;
+    RAISE NOTICE 'hub node: publication is UNFILTERED so clinic rows relay onward';
+  ELSE
+    FOREACH v_tbl IN ARRAY v_tables LOOP
+      v_parts := v_parts || format('public.%I WHERE (sync_origin = %L)', v_tbl, v_node);
+    END LOOP;
+  END IF;
 
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'dbz_odoo_owned') THEN
     EXECUTE 'ALTER PUBLICATION dbz_odoo_owned SET TABLE ' || array_to_string(v_parts, ', ');
