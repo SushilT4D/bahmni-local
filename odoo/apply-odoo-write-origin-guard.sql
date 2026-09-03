@@ -1,100 +1,157 @@
--- ADDED 2026-09-02 (sync-core). Puts the ADR-003 write-origin guard on Odoo's
--- database, so Odoo can use the SAME CDC pipeline as OpenMRS and OpenELIS.
+-- REWRITTEN 2026-09-04 for PostgreSQL 15 (sync-core, D7 Odoo full-replication build).
+-- Supersedes the 2026-09-02 draft, which targeted Odoo's shipped PostgreSQL 9.6 and so
+-- could not use publication row filters at all -- the whole reason Odoo is being moved
+-- onto bahmni-postgres first. Odoo 10 on PG 15.18 was verified 2026-09-04: 375 tables
+-- restore with zero errors, 49 modules load, web + XML-RPC both serve.
 --
--- Usage: psql -U odoo -d odoo -v node=<rawach|ghated|cloud> -v residue=<4|3|0> \
+-- WHAT THIS IS. The ADR-003 write-origin guard, identical in shape to the OpenELIS one
+-- (openelis/apply-write-origin-guard.sql), so Odoo rides the SAME CDC pipeline as
+-- OpenMRS and OpenELIS rather than inventing a third mechanism.
+--
+--   1. sync_origin column on each synced table
+--   2. a BEFORE trigger that stamps this node's name on LOCAL writes and preserves the
+--      far node's stamp on SINK writes
+--   3. a publication whose row filter yields only this node's own rows
+--
+-- session_user, NOT current_user: current_user returns the trigger's definer under
+-- SECURITY DEFINER and is changed by SET ROLE, so it stamps every row identically while
+-- looking correctly installed. This is the PostgreSQL analogue of the MySQL
+-- USER()/CURRENT_USER() trap.
+--
+-- STRICT FILTER, NO NULL ALLOWANCE. The clinlims first draft read
+--     WHERE (sync_origin IS NULL OR sync_origin = :'node')
+-- with a comment asserting NULL could not loop. It could and it did: 341,175 messages
+-- on Ghated, because a NULL row is published by EVERY node and accepted by EVERY node,
+-- so it circulates forever. Pre-existing rows are therefore BACKFILLED from the id
+-- residue before the filter goes on, and the filter is an equality test only.
+--
+-- REPLICA IDENTITY FULL is required for the row filter to apply to UPDATE and DELETE --
+-- without it Postgres has only the key column and cannot evaluate sync_origin, so
+-- updates escape the filter and loop. Set explicitly here rather than assumed.
+--
+-- PREREQUISITE: the odoo_sink login role must exist. Created by
+-- odoo/create-odoo-sink-role.sh, which keeps the password out of the shell history and
+-- out of any error message (a failed CREATE ROLE echoes its own DDL to the client).
+--
+-- Usage: psql -U postgres -d odoo -v node=rawach -v residue=4 \
 --          -f odoo/apply-odoo-write-origin-guard.sql
---
--- TABLE SET. Deliberately a subset, exactly as OpenMRS syncs 12 of 247 tables and
--- OpenELIS 4. Odoo 10 has 375 tables and most are framework state (ir_*, sessions,
--- assets) that MUST NOT travel. These twelve are the Bahmni-facing business objects:
---   customers      res_partner
---   catalogue      product_template, product_product, product_category, product_uom
---   dispensing     sale_order, sale_order_line
---   inventory      stock_move, stock_quant, stock_picking
---   billing        account_invoice, account_invoice_line
---
--- NOTE ON STRICTNESS: the filter is `sync_origin = node` with NO "IS NULL" branch.
--- The NULL-allowing form caused a 341k-message loop on the clinlims path the same
--- day (F-019) because every node both published and accepted unstamped rows.
--- Pre-existing rows are backfilled from the residue before the filter goes on.
 \set ON_ERROR_STOP on
 BEGIN;
 
-SELECT set_config('sync.node', :'node', false);
-SELECT set_config('sync.residue', :'residue', false);
+SELECT set_config('myvars.node',    :'node',    false);
+SELECT set_config('myvars.residue', :'residue', false);
 
--- session_user, NOT current_user: immune to SET ROLE and SECURITY DEFINER. The
--- PostgreSQL analogue of the MySQL USER()/CURRENT_USER() trap, where the wrong one
--- returns the trigger's definer and stamps every row identically while looking
--- installed. The sink role is exempt so a replicated row keeps the far node's stamp.
 CREATE OR REPLACE FUNCTION public.stamp_sync_origin() RETURNS trigger
 LANGUAGE plpgsql AS $fn$
 BEGIN
   IF session_user = 'odoo_sink' THEN
-    RETURN NEW;
+    RETURN NEW;                    -- replicated row: keep the originating node's stamp
   END IF;
-  NEW.sync_origin := TG_ARGV[0];
+  NEW.sync_origin := TG_ARGV[0];   -- local Odoo/odoo-connect write: stamp this node
   RETURN NEW;
 END $fn$;
 
-DO $guard$
+DO $do$
 DECLARE
-  t text;
-  tables text[] := ARRAY[
+  v_node    text   := current_setting('myvars.node');
+  v_residue int    := current_setting('myvars.residue')::int;
+  v_tbl     text;
+  v_tables  text[] := ARRAY[
     'res_partner',
     'product_template','product_product','product_category','product_uom',
     'sale_order','sale_order_line',
     'stock_move','stock_quant','stock_picking',
-    'account_invoice','account_invoice_line'];
-  node text := current_setting('sync.node');
-  res  int  := current_setting('sync.residue')::int;
+    'account_invoice','account_invoice_line'
+  ];
 BEGIN
-  FOREACH t IN ARRAY tables LOOP
-    IF to_regclass('public.'||t) IS NULL THEN
-      RAISE NOTICE 'skipping % (not present in this Odoo build)', t; CONTINUE;
-    END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'odoo_sink') THEN
+    RAISE EXCEPTION 'odoo_sink role missing -- run odoo/create-odoo-sink-role.sh first';
+  END IF;
 
-    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS sync_origin varchar(16)', t);
+  FOREACH v_tbl IN ARRAY v_tables LOOP
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS sync_origin varchar(16)', v_tbl);
 
-    -- the filter column must be in the replica identity for UPDATE/DELETE filtering
-    EXECUTE format('ALTER TABLE public.%I REPLICA IDENTITY FULL', t);
+    -- DROP THE TRIGGER BEFORE THE BACKFILL, not after. On a virgin table the order does
+    -- not matter because no trigger exists yet; on a RE-RUN it decides correctness. The
+    -- backfill is itself an UPDATE, so with the previous run's trigger still attached it
+    -- fires that trigger, which overwrites every computed value with this node's name.
+    -- Measured 2026-09-04: a re-run stamped all 4,124 catalogue rows 'rawach' instead of
+    -- 'cloud'. On a node already holding replicated rows the same re-run would relabel
+    -- other nodes' data as locally-owned, and the node would start republishing rows it
+    -- does not own -- two publishers for one row, which is the L-008 violation this
+    -- whole mechanism exists to prevent. Re-running a guard must be safe.
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_tbl || '_origin', v_tbl);
 
-    -- backfill from residue BEFORE the strict filter goes on, so legacy rows
-    -- have an owner and are not orphaned by it
+    -- Backfill BEFORE the filter exists, because a NULL row is published by every node
+    -- and accepted by every node -- the F-019 loop.
+    --
+    -- SEED ROWS ARE CLOUD-OWNED, NOT RESIDUE-OWNED. Residue identifies the minting node
+    -- only ABOVE a table's base_id floor (architecture s3/s4). Everything at or below the
+    -- floor arrived in the shared install image and exists byte-identically on every
+    -- node -- no node minted it. An earlier draft of this block ran the residue map over
+    -- those rows too, which is wrong in two ways at once: a residue-3 seed row would be
+    -- claimed by Ghated AND by Rawach's copy of it, and a residue-5 row (no node owns 5)
+    -- would be claimed by whichever node happened to apply the guard. Same row, two
+    -- publishers, both republishing each other's copy forever.
+    --
+    -- Stamping seed rows 'cloud' is deterministic: every node computes the SAME owner for
+    -- the SAME row, so exactly one publisher exists and the cloud is the master-data
+    -- authority it already is for the product catalogue.
+    --
+    -- THE FLOOR IS max(id) AT APPLY TIME, and that is only sound because all three lab
+    -- nodes are transaction-free today (verified 2026-09-04: sale_order, stock_move,
+    -- account_invoice, procurement_order all 0 on cloud and Rawach). Applying this to a
+    -- node that ALREADY holds local business rows would stamp that node's own history
+    -- 'cloud', and since the cloud does not have those rows they would never publish from
+    -- anywhere -- silent loss, the exact F-015 failure. Such a node needs its floor
+    -- measured, not assumed.
     EXECUTE format($f$
-      UPDATE public.%I SET sync_origin = CASE (id %% 10)
-        WHEN 0 THEN 'cloud' WHEN 3 THEN 'ghated' WHEN 4 THEN 'rawach'
-        ELSE %L END
-      WHERE sync_origin IS NULL $f$, t, node);
+      UPDATE public.%I SET sync_origin =
+        CASE WHEN id <= (SELECT COALESCE(MAX(id),0) FROM public.%I) THEN 'cloud'
+             ELSE CASE (id %% 10)
+                    WHEN 0 THEN 'cloud' WHEN 3 THEN 'ghated' WHEN 4 THEN 'rawach'
+                    ELSE %L
+                  END
+        END
+      WHERE sync_origin IS NULL $f$, v_tbl, v_tbl, v_node);
 
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t||'_origin', t);
-    EXECUTE format($f$
-      CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON public.%I
-      FOR EACH ROW EXECUTE PROCEDURE public.stamp_sync_origin(%L) $f$,
-      t||'_origin', t, node);
+    EXECUTE format('ALTER TABLE public.%I REPLICA IDENTITY FULL', v_tbl);
+
+    EXECUTE format(
+      'CREATE TRIGGER %I BEFORE INSERT OR UPDATE ON public.%I '
+      'FOR EACH ROW EXECUTE FUNCTION public.stamp_sync_origin(%L)',
+      v_tbl || '_origin', v_tbl, v_node);
   END LOOP;
-END $guard$;
+END $do$;
 
--- Publish only our own writes. STRICT: no NULL branch (F-019).
-DROP PUBLICATION IF EXISTS dbz_odoo_owned;
-CREATE PUBLICATION dbz_odoo_owned
-  FOR TABLE public.res_partner          WHERE (sync_origin = :'node'),
-            public.product_template     WHERE (sync_origin = :'node'),
-            public.product_product      WHERE (sync_origin = :'node'),
-            public.product_category     WHERE (sync_origin = :'node'),
-            public.product_uom          WHERE (sync_origin = :'node'),
-            public.sale_order           WHERE (sync_origin = :'node'),
-            public.sale_order_line      WHERE (sync_origin = :'node'),
-            public.stock_move           WHERE (sync_origin = :'node'),
-            public.stock_quant          WHERE (sync_origin = :'node'),
-            public.stock_picking        WHERE (sync_origin = :'node'),
-            public.account_invoice      WHERE (sync_origin = :'node'),
-            public.account_invoice_line WHERE (sync_origin = :'node');
+-- The publication is built in a SECOND DO block, after every column exists and every
+-- pre-existing row is stamped. Splitting it is not cosmetic: ALTER PUBLICATION ... SET
+-- TABLE with a row filter is validated against the live column at execution time, so a
+-- single block would reference sync_origin on table 12 before the loop had added it.
+DO $pub$
+DECLARE
+  v_node   text := current_setting('myvars.node');
+  v_tbl    text;
+  v_parts  text[] := '{}';
+  v_tables text[] := ARRAY[
+    'res_partner',
+    'product_template','product_product','product_category','product_uom',
+    'sale_order','sale_order_line',
+    'stock_move','stock_quant','stock_picking',
+    'account_invoice','account_invoice_line'
+  ];
+BEGIN
+  FOREACH v_tbl IN ARRAY v_tables LOOP
+    v_parts := v_parts || format('public.%I WHERE (sync_origin = %L)', v_tbl, v_node);
+  END LOOP;
+
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'dbz_odoo_owned') THEN
+    EXECUTE 'ALTER PUBLICATION dbz_odoo_owned SET TABLE ' || array_to_string(v_parts, ', ');
+  ELSE
+    EXECUTE 'CREATE PUBLICATION dbz_odoo_owned FOR TABLE ' || array_to_string(v_parts, ', ');
+  END IF;
+  RAISE NOTICE 'publication dbz_odoo_owned covers % tables, filtered to sync_origin=%',
+               array_length(v_tables,1), v_node;
+END $pub$;
 
 COMMIT;
-
-SELECT 'guarded tables: ' || COUNT(*)::text FROM pg_publication_tables WHERE pubname = 'dbz_odoo_owned';
-SELECT 'unstamped rows remaining: ' || COALESCE(SUM(n),0)::text FROM (
-  SELECT COUNT(*) n FROM public.res_partner WHERE sync_origin IS NULL
-  UNION ALL SELECT COUNT(*) FROM public.sale_order WHERE sync_origin IS NULL
-  UNION ALL SELECT COUNT(*) FROM public.stock_move WHERE sync_origin IS NULL) x;
