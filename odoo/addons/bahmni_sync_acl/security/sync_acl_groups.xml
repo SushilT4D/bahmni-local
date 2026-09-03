@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="module_category_bahmni_sync" model="ir.module.category">
+            <field name="name">Bahmni Clinic Visibility</field>
+            <field name="description">Which clinics' replicated Odoo records a user may see.</field>
+            <field name="sequence">20</field>
+        </record>
+
+        <!-- Own clinic only. This is the DEFAULT posture: every node physically holds
+             every clinic's rows, so without a rule every user would see all of them. -->
+        <record id="group_clinic_own" model="res.groups">
+            <field name="name">Own Clinic Only</field>
+            <field name="category_id" ref="module_category_bahmni_sync"/>
+            <field name="comment">Sees only records authored by the clinic named in the
+                user's Home Clinic Code. A user with a blank or mismatched code sees
+                nothing, which is the safe direction to fail.</field>
+        </record>
+
+        <!-- The escape hatch, and the answer to cross-clinic care until the catchment
+             rule is decided. Deliberately a separate grant, not the default. -->
+        <record id="group_clinic_all" model="res.groups">
+            <field name="name">All Clinics</field>
+            <field name="category_id" ref="module_category_bahmni_sync"/>
+            <field name="implied_ids" eval="[(4, ref('group_clinic_own'))]"/>
+            <field name="comment">Sees every clinic's records. Required for anyone doing
+                cross-clinic work -- HO stock planning, a patient seen at more than one
+                clinic, central reporting.</field>
+        </record>
+
+    </data>
+</odoo>

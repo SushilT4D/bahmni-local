@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <!--
+          GLOBAL RULES, NOT GROUP RULES. Odoo ORs record rules across the groups a user
+          belongs to and ANDs rules that have no group at all. An earlier version of this
+          file attached a narrow rule to "Own Clinic Only" and it restricted nothing: the
+          stock Employee rule on res.partner is ['|',('type','!=','private'),('type','=',
+          False)], which matches every row, so the union was everything. Measured: the
+          Rawach test user saw the cloud-authored DOWNLINK-TEST row. A permissive rule
+          added to a new group can never narrow access; only a global rule can.
+
+          The "All Clinics" bypass is therefore expressed INSIDE the domain. domain_force
+          is eval'd with `user` in scope, so a conditional expression is evaluated per
+          user at query time.
+
+          MASTER DATA IS DELIBERATELY UNSCOPED. product.template, product.product,
+          product.category and product.uom carry no rule here. They are cloud-authored
+          and shared, so a clinic-scoped rule would hand every clinic user an empty drug
+          catalogue while looking like a permissions success.
+        -->
+
+        <record id="rule_clinic_scope_res_partner" model="ir.rule">
+            <field name="name">res.partner: clinic visibility</field>
+            <field name="model_id" ref="base.model_res_partner"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_sale_order" model="ir.rule">
+            <field name="name">sale.order: clinic visibility</field>
+            <field name="model_id" ref="sale.model_sale_order"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_sale_order_line" model="ir.rule">
+            <field name="name">sale.order.line: clinic visibility</field>
+            <field name="model_id" ref="sale.model_sale_order_line"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_stock_move" model="ir.rule">
+            <field name="name">stock.move: clinic visibility</field>
+            <field name="model_id" ref="stock.model_stock_move"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_stock_quant" model="ir.rule">
+            <field name="name">stock.quant: clinic visibility</field>
+            <field name="model_id" ref="stock.model_stock_quant"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_stock_picking" model="ir.rule">
+            <field name="name">stock.picking: clinic visibility</field>
+            <field name="model_id" ref="stock.model_stock_picking"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_account_invoice" model="ir.rule">
+            <field name="name">account.invoice: clinic visibility</field>
+            <field name="model_id" ref="account.model_account_invoice"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+        <record id="rule_clinic_scope_account_invoice_line" model="ir.rule">
+            <field name="name">account.invoice.line: clinic visibility</field>
+            <field name="model_id" ref="account.model_account_invoice_line"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">[(1,'=',1)] if user.has_group('bahmni_sync_acl.group_clinic_all') else [('sync_origin','=',user.clinic_code)]</field>
+        </record>
+
+    </data>
+</odoo>
