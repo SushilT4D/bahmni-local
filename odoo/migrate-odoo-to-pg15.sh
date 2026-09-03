@@ -76,8 +76,18 @@ say "dump size: $(du -h "$DUMP" | cut -f1), $(grep -c '^CREATE TABLE' "$DUMP") t
 docker exec "$TGT" psql -U postgres -q -c "DROP DATABASE IF EXISTS odoo;" >/dev/null 2>&1 || true
 docker exec "$TGT" psql -U postgres -q -c "CREATE DATABASE odoo OWNER odoo;" >/dev/null
 docker cp "$DUMP" "$TGT":/tmp/.odoo_migrate.sql >/dev/null
-say "restoring into $TGT ..."
-ERRS=$(docker exec "$TGT" psql -U postgres -d odoo -f /tmp/.odoo_migrate.sql 2>&1 | grep -c '^ERROR' || true)
+say "restoring into $TGT (as odoo, so odoo OWNS the objects) ..."
+# RESTORE AS odoo, NOT postgres. The dump is --no-owner, so whoever runs the restore
+# owns every object. Restoring as postgres leaves the odoo role a non-owner, and
+# information_schema only shows objects the current role has privileges on -- so Odoo's
+# own setup_signaling() sees no base_registry_signaling sequence, tries to CREATE it,
+# and dies with 'relation "base_registry_signaling" already exists' on every request.
+#
+# This bit only the cloud. Rawach's odoo role is the image's POSTGRES_USER and therefore
+# SUPERUSER, which sees everything regardless of ownership, so the identical migration
+# looked completely healthy there. A latent break that surfaces only on a correctly
+# least-privileged node is worse than one that always fires.
+ERRS=$(docker exec "$TGT" psql -U odoo -d odoo -f /tmp/.odoo_migrate.sql 2>&1 | grep -c '^ERROR' || true)
 docker exec "$TGT" rm -f /tmp/.odoo_migrate.sql
 say "restore errors: $ERRS"
 [ "$ERRS" -eq 0 ] || { echo "  restore reported errors -- NOT cutting over" >&2; exit 1; }
