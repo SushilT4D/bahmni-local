@@ -17,6 +17,14 @@ set -euo pipefail
 
 NODE="${1:?usage: create-odoo-sink-role.sh <node>   e.g. rawach}"
 CTR="${PG_CONTAINER:-bahmni-local-bahmni-postgres-1}"
+PG_ADMIN="${PG_ADMIN:-postgres}"
+# Ghated has podman only; see the same note in migrate-odoo-to-pg15.sh.
+CTR_RT="${CTR_RT:-}"
+if [ -z "$CTR_RT" ]; then
+  if command -v docker >/dev/null 2>&1; then CTR_RT=docker
+  elif command -v podman >/dev/null 2>&1; then CTR_RT=podman
+  else echo "no docker or podman on PATH" >&2; exit 2; fi
+fi
 ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 
 # READ .env BY SOURCING IT, NOT BY CUTTING THE LINE. Bahmni's .env files carry inline
@@ -54,12 +62,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO odoo_sink;
 SQL
 
-docker cp "$TMP" "$CTR":/tmp/.odoo_sink.sql >/dev/null
-docker exec "$CTR" chmod 600 /tmp/.odoo_sink.sql
+"$CTR_RT" cp "$TMP" "$CTR":/tmp/.odoo_sink.sql >/dev/null
+"$CTR_RT" exec "$CTR" chmod 600 /tmp/.odoo_sink.sql
 # -f, not -c: on failure psql cites the file and line, not the statement text
-docker exec "$CTR" psql -U postgres -d odoo -v ON_ERROR_STOP=1 -q -f /tmp/.odoo_sink.sql
-docker exec "$CTR" rm -f /tmp/.odoo_sink.sql
+"$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d odoo -v ON_ERROR_STOP=1 -q -f /tmp/.odoo_sink.sql
+"$CTR_RT" exec "$CTR" rm -f /tmp/.odoo_sink.sql
 
 echo "  odoo_sink role ready on ${CTR} (node ${NODE})"
-docker exec "$CTR" psql -U postgres -d odoo -t -A \
+"$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d odoo -t -A \
   -c "SELECT '  verified: role=' || rolname || ' canlogin=' || rolcanlogin FROM pg_roles WHERE rolname='odoo_sink';"

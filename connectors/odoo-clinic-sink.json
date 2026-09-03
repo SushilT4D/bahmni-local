@@ -27,7 +27,7 @@
     "transforms.filterOrigin.type": "io.debezium.transforms.Filter",
     "transforms.filterOrigin.language": "jsr223.groovy",
     "transforms.filterOrigin.topic.regex": "remote\\.bahmni-cloud\\.odoo\\..*",
-    "transforms.filterOrigin.condition": "{ -> def r = (value.op == 'd' ? value.before : value.after); if (r == null) return true; if (r.schema().field('sync_origin') == null) return true; def o = r.get('sync_origin'); return o != 'rawach'; }()",
+    "transforms.filterOrigin.condition": "{ -> def r = (value.op == 'd' ? value.before : value.after); if (r == null) return true; if (r.schema().field('sync_origin') == null) return true; def o = r.get('sync_origin'); return o != '${NODE}'; }()",
     "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
     "transforms.route.regex": "remote\\.bahmni-cloud\\.odoo\\.(.*)",
     "transforms.route.replacement": "$1",

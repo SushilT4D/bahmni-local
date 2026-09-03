@@ -21,6 +21,20 @@
 # Usage: odoo/migrate-odoo-to-pg15.sh --source odoodb --target bahmni-postgres [--force]
 set -euo pipefail
 
+# Ghated runs rootless podman and has no `docker` on PATH at all, so the runtime is a
+# variable rather than a hardcoded binary. Autodetect, overridable with CTR_RT=podman.
+CTR_RT="${CTR_RT:-}"
+if [ -z "$CTR_RT" ]; then
+  if command -v docker >/dev/null 2>&1; then CTR_RT=docker
+  elif command -v podman >/dev/null 2>&1; then CTR_RT=podman
+  else echo "no docker or podman on PATH" >&2; exit 2; fi
+fi
+
+# The superuser differs per node: Rawach's bahmni-postgres was initialised with
+# POSTGRES_USER=postgres, Ghated's with POSTGRES_USER=odoo, and the cloud's openelisdb
+# with postgres. Assuming `postgres` exists fails on Ghated with an unhelpful blank.
+PG_ADMIN="${PG_ADMIN:-postgres}"
+
 SRC=""; TGT=""; FORCE=0; ODOO_CTR=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,7 +49,7 @@ done
 
 # Resolve the odoo app container if not named: it is the one whose image is odoo-ish.
 if [ -z "$ODOO_CTR" ]; then
-  ODOO_CTR=$(docker ps --format '{{.Names}}\t{{.Image}}' | awk -F'\t' '$2 ~ /odoo/ && $1 !~ /connect|db/ {print $1; exit}')
+  ODOO_CTR=$("$CTR_RT" ps --format '{{.Names}}\t{{.Image}}' | awk -F'\t' '$2 ~ /odoo/ && $1 !~ /connect|db/ {print $1; exit}')
 fi
 
 say() { printf '  %s\n' "$*"; }
@@ -45,13 +59,13 @@ say "target : $TGT"
 say "odoo   : ${ODOO_CTR:-<none found>}"
 
 # ---- preconditions -----------------------------------------------------------------
-TV=$(docker exec "$TGT" psql -U postgres -t -A -c "SHOW server_version;" 2>/dev/null | cut -d. -f1)
+TV=$("$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -t -A -c "SHOW server_version;" 2>/dev/null | cut -d. -f1)
 [ "${TV:-0}" -ge 15 ] || { echo "  target is PG ${TV:-?}; publication row filters need 15+" >&2; exit 1; }
-WL=$(docker exec "$TGT" psql -U postgres -t -A -c "SHOW wal_level;" 2>/dev/null)
+WL=$("$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -t -A -c "SHOW wal_level;" 2>/dev/null)
 [ "$WL" = "logical" ] || { echo "  target wal_level=$WL; CDC needs logical" >&2; exit 1; }
 say "target PG $TV, wal_level=$WL -- ok"
 
-EXISTING=$(docker exec "$TGT" psql -U postgres -t -A -c \
+EXISTING=$("$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -t -A -c \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog='odoo' AND table_schema='public';" 2>/dev/null || echo 0)
 if [ "${EXISTING:-0}" -gt 0 ] && [ "$FORCE" -eq 0 ]; then
   echo "  target already holds $EXISTING tables in odoo/public -- refusing. Use --force to replace." >&2
@@ -60,22 +74,30 @@ fi
 
 # ---- quiesce -----------------------------------------------------------------------
 STOPPED=0
-if [ -n "$ODOO_CTR" ] && [ "$(docker inspect -f '{{.State.Running}}' "$ODOO_CTR" 2>/dev/null)" = "true" ]; then
+if [ -n "$ODOO_CTR" ] && [ "$("$CTR_RT" inspect -f '{{.State.Running}}' "$ODOO_CTR" 2>/dev/null)" = "true" ]; then
   say "stopping $ODOO_CTR so no write lands mid-copy"
-  docker stop "$ODOO_CTR" >/dev/null; STOPPED=1
+  "$CTR_RT" stop "$ODOO_CTR" >/dev/null; STOPPED=1
 fi
-restore_odoo() { [ "$STOPPED" -eq 1 ] && { say "restarting $ODOO_CTR"; docker start "$ODOO_CTR" >/dev/null; }; }
+restore_odoo() { [ "$STOPPED" -eq 1 ] && { say "restarting $ODOO_CTR"; "$CTR_RT" start "$ODOO_CTR" >/dev/null; }; }
 trap restore_odoo EXIT
 
 # ---- dump + restore ----------------------------------------------------------------
 DUMP=$(mktemp); trap 'rm -f "$DUMP"; restore_odoo' EXIT
 say "dumping from $SRC ..."
-docker exec "$SRC" pg_dump -U odoo -d odoo --no-owner --no-privileges > "$DUMP"
+"$CTR_RT" exec "$SRC" pg_dump -U odoo -d odoo --no-owner --no-privileges > "$DUMP"
 say "dump size: $(du -h "$DUMP" | cut -f1), $(grep -c '^CREATE TABLE' "$DUMP") tables"
 
-docker exec "$TGT" psql -U postgres -q -c "DROP DATABASE IF EXISTS odoo;" >/dev/null 2>&1 || true
-docker exec "$TGT" psql -U postgres -q -c "CREATE DATABASE odoo OWNER odoo;" >/dev/null
-docker cp "$DUMP" "$TGT":/tmp/.odoo_migrate.sql >/dev/null
+# -d postgres is required, not cosmetic: psql defaults to a database named after the
+# connecting role, so on a node whose admin role IS `odoo` (Ghated) the DROP runs while
+# connected to the very database it is dropping and fails. It failed SILENTLY here
+# because of the `|| true`, and the CREATE that followed then reported the confusing
+# "database odoo already exists". Terminate other backends first for the same reason --
+# a single leftover connection from the app is enough to block the drop.
+"$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -d postgres -q -c \
+  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='odoo' AND pid <> pg_backend_pid();" >/dev/null 2>&1 || true
+"$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -d postgres -v ON_ERROR_STOP=1 -q -c "DROP DATABASE IF EXISTS odoo;"
+"$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -d postgres -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE odoo OWNER odoo;"
+"$CTR_RT" cp "$DUMP" "$TGT":/tmp/.odoo_migrate.sql >/dev/null
 say "restoring into $TGT (as odoo, so odoo OWNS the objects) ..."
 # RESTORE AS odoo, NOT postgres. The dump is --no-owner, so whoever runs the restore
 # owns every object. Restoring as postgres leaves the odoo role a non-owner, and
@@ -87,8 +109,8 @@ say "restoring into $TGT (as odoo, so odoo OWNS the objects) ..."
 # SUPERUSER, which sees everything regardless of ownership, so the identical migration
 # looked completely healthy there. A latent break that surfaces only on a correctly
 # least-privileged node is worse than one that always fires.
-ERRS=$(docker exec "$TGT" psql -U odoo -d odoo -f /tmp/.odoo_migrate.sql 2>&1 | grep -c '^ERROR' || true)
-docker exec "$TGT" rm -f /tmp/.odoo_migrate.sql
+ERRS=$("$CTR_RT" exec "$TGT" psql -U odoo -d odoo -f /tmp/.odoo_migrate.sql 2>&1 | grep -c '^ERROR' || true)
+"$CTR_RT" exec "$TGT" rm -f /tmp/.odoo_migrate.sql
 say "restore errors: $ERRS"
 [ "$ERRS" -eq 0 ] || { echo "  restore reported errors -- NOT cutting over" >&2; exit 1; }
 
@@ -98,8 +120,8 @@ MISMATCH=0
 for t in res_partner product_product product_template product_category product_uom \
          sale_order sale_order_line stock_move stock_quant stock_picking \
          account_invoice account_invoice_line ir_module_module; do
-  a=$(docker exec "$SRC" psql -U odoo -d odoo -t -A -c "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo x)
-  b=$(docker exec "$TGT" psql -U postgres -d odoo -t -A -c "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo y)
+  a=$("$CTR_RT" exec "$SRC" psql -U odoo -d odoo -t -A -c "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo x)
+  b=$("$CTR_RT" exec "$TGT" psql -U "$PG_ADMIN" -d odoo -t -A -c "SELECT COUNT(*) FROM $t;" 2>/dev/null || echo y)
   if [ "$a" != "$b" ]; then printf '    MISMATCH %-22s %s -> %s\n' "$t" "$a" "$b"; MISMATCH=1; fi
 done
 [ "$MISMATCH" -eq 0 ] && say "all counts match" || { echo "  counts differ -- NOT cutting over" >&2; exit 1; }
@@ -108,7 +130,7 @@ say ""
 say "migration complete. Odoo is NOT yet pointed at the new database."
 say "next, in order:"
 say "  1. odoo/create-odoo-sink-role.sh <node>"
-say "  2. psql -U postgres -d odoo -v residue=<n> -f odoo/apply-odoo-sequence-striding.sql"
-say "  3. psql -U postgres -d odoo -v node=<node> -v residue=<n> -f odoo/apply-odoo-write-origin-guard.sql"
+say "  2. psql -U "$PG_ADMIN" -d odoo -v residue=<n> -f odoo/apply-odoo-sequence-striding.sql"
+say "  3. psql -U "$PG_ADMIN" -d odoo -v node=<node> -v residue=<n> -f odoo/apply-odoo-write-origin-guard.sql"
 say "  4. repoint the odoo container: HOST=$TGT  (compose override), then start it"
 say "  5. register the connectors and add the odoo topics to mm2.properties"

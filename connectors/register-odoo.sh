@@ -11,7 +11,7 @@ set -a; . "$ROOT/.env"; set +a
 for name in "$@"; do
   f="$ROOT/connectors/${name}.json"
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
-  body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" \
+  body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
          python3 "$ROOT/connectors/_render_connector.py" "$f") || { echo "$body" >&2; exit 1; }
   code=$(printf '%s' "$body" | curl -s -o /tmp/.reg.out -w '%{http_code}' \
          -X PUT -H 'Content-Type: application/json' \
