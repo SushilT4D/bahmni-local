@@ -171,8 +171,10 @@ BEGIN
   ELSE
     EXECUTE 'CREATE PUBLICATION dbz_odoo_owned FOR TABLE ' || array_to_string(v_parts, ', ');
   END IF;
-  RAISE NOTICE 'publication dbz_odoo_owned covers % tables, filtered to sync_origin=%',
-               array_length(v_tables,1), v_node;
+  RAISE NOTICE 'publication dbz_odoo_owned covers % tables, %',
+               array_length(v_tables,1),
+               CASE WHEN v_node = 'cloud' THEN 'UNFILTERED (hub relays every node)'
+                    ELSE 'filtered to sync_origin=' || v_node END;
 END $pub$;
 
 COMMIT;

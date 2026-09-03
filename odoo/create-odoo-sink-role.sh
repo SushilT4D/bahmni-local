@@ -19,9 +19,16 @@ NODE="${1:?usage: create-odoo-sink-role.sh <node>   e.g. rawach}"
 CTR="${PG_CONTAINER:-bahmni-local-bahmni-postgres-1}"
 ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 
+# READ .env BY SOURCING IT, NOT BY CUTTING THE LINE. Bahmni's .env files carry inline
+# comments -- ODOO_DB_HOST=odoodb                      # [OK] -- and `cut -d= -f2-` keeps
+# the padding and the comment as part of the value. On the cloud that produced a 76-char
+# "password" where the real one is 4 chars: the role was created with the polluted string
+# while every consumer sources .env and gets the clean one, so Debezium failed with
+# "password authentication failed for user odoo" against a role that had just been
+# created successfully. Source it the same way the consumers do.
 if grep -q '^ODOO_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
   echo "  ODOO_SINK_PASSWORD already present in .env -- reusing, not regenerating"
-  PW="$(grep '^ODOO_SINK_PASSWORD=' "$ENV_FILE" | cut -d= -f2-)"
+  PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "$ODOO_SINK_PASSWORD")"
 else
   PW="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
   printf 'ODOO_SINK_PASSWORD=%s\n' "$PW" >> "$ENV_FILE"
