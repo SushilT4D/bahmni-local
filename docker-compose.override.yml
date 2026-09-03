@@ -204,17 +204,25 @@ services:
   odoo:
     image: 'bahmni/odoo-10:${ODOO_IMAGE_TAG}'
     platform: linux/amd64
-    # Base compose points HOST at bahmni-postgres and mounts odoo-16-shaped
-    # volumes; both are replaced, not merged.
+    # CUT OVER 2026-09-04 to bahmni-postgres (PG 15.18), off the shipped odoodb
+    # (PG 9.6.24). Odoo syncs on the same CDC pipeline as OpenMRS and OpenELIS, and
+    # that pipeline filters at the publication -- which 9.6 does not have at all
+    # (F-021). Odoo 10 on PG 15 was verified BEFORE the move, not assumed: 375 tables
+    # restore with 0 errors, 49 modules load, /web/login returns 200, and XML-RPC
+    # authenticates and reads through the ORM.
+    #
+    # The odoodb service above is deliberately LEFT DEFINED and its volume untouched,
+    # so this reverses by putting HOST back. Base compose mounts odoo-16-shaped
+    # volumes, so volumes stay overridden.
     environment:
       TZ: ${TZ}
-      HOST: odoodb
+      HOST: bahmni-postgres
       USER: ${ODOO_DB_USER}
       PASSWORD: ${ODOO_DB_PASSWORD}
     volumes: !override
       - 'odooapp-data:/var/lib/odoo'
     depends_on: !override
-      odoodb:
+      bahmni-postgres:
         condition: service_healthy
     restart: ${RESTART_POLICY}
 
