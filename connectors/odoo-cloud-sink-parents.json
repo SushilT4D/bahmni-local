@@ -1,12 +1,12 @@
 {
-  "name": "odoo-cloud-sink",
+  "name": "odoo-cloud-sink-parents",
   "config": {
     "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
     "tasks.max": "1",
     "connection.url": "jdbc:postgresql://openelisdb:5432/odoo",
     "connection.username": "odoo_sink",
     "connection.password": "${ODOO_SINK_PASSWORD}",
-    "topics": "source.bahmni-local.odoo.res_partner,source.bahmni-local.odoo.product_product,source.bahmni-local.odoo.sale_order,source.bahmni-local.odoo.sale_order_line,source.bahmni-local.odoo.stock_move,source.bahmni-local.odoo.stock_quant,source.bahmni-local.odoo.stock_picking,source.bahmni-local.odoo.account_invoice,source.bahmni-local.odoo.account_invoice_line",
+    "topics": "source.bahmni-local.odoo.product_category,source.bahmni-local.odoo.product_uom,source.bahmni-local.odoo.product_template",
     "insert.mode": "upsert",
     "primary.key.mode": "record_key",
     "delete.enabled": "false",
@@ -30,6 +30,7 @@
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "true"
+    "value.converter.schemas.enable": "true",
+    "name": "odoo-cloud-sink-parents"
   }
 }

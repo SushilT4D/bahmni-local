@@ -6,7 +6,7 @@
     "connection.url": "jdbc:postgresql://openelisdb:5432/odoo",
     "connection.username": "odoo_sink",
     "connection.password": "${ODOO_SINK_PASSWORD}",
-    "topics": "ghated.bahmni-ghated.odoo.res_partner,ghated.bahmni-ghated.odoo.product_template,ghated.bahmni-ghated.odoo.product_product,ghated.bahmni-ghated.odoo.product_category,ghated.bahmni-ghated.odoo.product_uom,ghated.bahmni-ghated.odoo.sale_order,ghated.bahmni-ghated.odoo.sale_order_line,ghated.bahmni-ghated.odoo.stock_move,ghated.bahmni-ghated.odoo.stock_quant,ghated.bahmni-ghated.odoo.stock_picking,ghated.bahmni-ghated.odoo.account_invoice,ghated.bahmni-ghated.odoo.account_invoice_line",
+    "topics": "ghated.bahmni-ghated.odoo.res_partner,ghated.bahmni-ghated.odoo.product_product,ghated.bahmni-ghated.odoo.sale_order,ghated.bahmni-ghated.odoo.sale_order_line,ghated.bahmni-ghated.odoo.stock_move,ghated.bahmni-ghated.odoo.stock_quant,ghated.bahmni-ghated.odoo.stock_picking,ghated.bahmni-ghated.odoo.account_invoice,ghated.bahmni-ghated.odoo.account_invoice_line",
     "insert.mode": "upsert",
     "primary.key.mode": "record_key",
     "delete.enabled": "false",
