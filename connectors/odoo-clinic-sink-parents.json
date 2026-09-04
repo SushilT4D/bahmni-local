@@ -1,12 +1,12 @@
 {
-  "name": "odoo-clinic-sink",
+  "name": "odoo-clinic-sink-parents",
   "config": {
     "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
     "tasks.max": "1",
     "connection.url": "jdbc:postgresql://bahmni-postgres:5432/odoo",
     "connection.username": "odoo_sink",
     "connection.password": "${ODOO_SINK_PASSWORD}",
-    "topics": "remote.bahmni-cloud.odoo.res_partner,remote.bahmni-cloud.odoo.product_product,remote.bahmni-cloud.odoo.sale_order,remote.bahmni-cloud.odoo.sale_order_line,remote.bahmni-cloud.odoo.stock_move,remote.bahmni-cloud.odoo.stock_quant,remote.bahmni-cloud.odoo.stock_picking,remote.bahmni-cloud.odoo.account_invoice,remote.bahmni-cloud.odoo.account_invoice_line",
+    "topics": "remote.bahmni-cloud.odoo.product_category,remote.bahmni-cloud.odoo.product_uom,remote.bahmni-cloud.odoo.product_template",
     "insert.mode": "upsert",
     "primary.key.mode": "record_key",
     "delete.enabled": "false",
@@ -34,6 +34,7 @@
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "true"
+    "value.converter.schemas.enable": "true",
+    "name": "odoo-clinic-sink-parents"
   }
 }
