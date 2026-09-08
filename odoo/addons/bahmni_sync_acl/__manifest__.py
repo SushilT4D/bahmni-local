@@ -3,33 +3,28 @@
     'name': 'Bahmni Sync ACL',
     'version': '10.0.1.0.0',
     'category': 'Bahmni',
-    'summary': 'Expose sync_origin to the ORM and restrict clinic visibility with record rules',
+    'summary': 'Expose sync_origin and a Home Clinic Code to the ORM (no record rules)',
     'description': """
 Every Bahmni node holds every node's Odoo data, because the CDC pipeline replicates the
-twelve synced business tables in full. Physical possession is therefore NOT the access
-boundary -- Odoo's own record rules are.
+twelve synced business tables in full. This module binds the trigger-maintained
+sync_origin column to the ORM (so Odoo's schema updater leaves it alone) and gives
+res.users a Home Clinic Code.
 
-The write-origin guard already stamps each row with the node that authored it, in a
-sync_origin column maintained by a database trigger. That column is the only clinic
-dimension present on ALL twelve tables: stock_move and sale_order carry location_id and
-warehouse_id, but res_partner carries neither, so no stock-based rule can scope patients.
+ACL DROPPED 2026-09-07 (operator decision, lab-verified). The clinic-visibility record
+rules that shipped on 2026-09-04 keyed on sync_origin, which means LAST WRITER, not
+owner: a head-office edit restamped a Rawach partner 'cloud' and Rawach users lost
+sight of their own patient (F-040). Rather than scope on a mutable column, Odoo is
+now treated like OpenELIS: every node's users see every node's rows, and per-clinic
+stock isolation comes from Odoo's own warehouse/location model. If BHS later asks for
+clinic isolation, add a STABLE ownership column (set on insert, never on update) and
+key rules on that -- never on sync_origin.
 
-This module makes sync_origin visible to the ORM (a raw column is invisible to record
-rules) and adds one rule per model: a user sees rows their own clinic authored, unless
-they hold the 'All Clinics' group.
-
-DELIBERATE LIMITATION, STATED RATHER THAN HIDDEN. sync_origin records who CREATED a row,
-not who may legitimately need it. A patient registered at Rawach and later seen at
-Ghated stays sync_origin='rawach', so Ghated staff will not see them by default. That is
-the unresolved catchment question, not an implementation defect -- and the fix is a
-policy decision about cross-clinic access, not a different column. Until that is
-decided, the escape hatch is the All Clinics group.
+The module stays installed rather than uninstalled on purpose: uninstalling would make
+Odoo drop the sync_origin columns, which the publication row filters and the
+write-origin triggers depend on.
 """,
     'depends': ['base', 'sale', 'stock', 'account'],
-    'data': [
-        'security/sync_acl_groups.xml',
-        'security/sync_acl_rules.xml',
-    ],
+    'data': [],
     'installable': True,
     'auto_install': False,
 }
