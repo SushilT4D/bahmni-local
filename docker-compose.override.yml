@@ -246,11 +246,10 @@ services:
       PASSWORD: ${ODOO_DB_PASSWORD}
     volumes: !override
       - 'odooapp-data:/var/lib/odoo'
-      # bahmni_sync_acl lives in this repo, not in an anonymous volume. The image
-      # mounts an anonymous volume at /mnt/extra-addons, which does not survive a
-      # container recreate -- an addon copied in with docker cp would vanish on the
-      # next compose up and take the record rules with it, silently re-exposing every
-      # clinic's rows to every user.
+      # Extra addons live in this repo, not in the image's anonymous volume at
+      # /mnt/extra-addons (which does not survive a container recreate). Empty since
+      # 2026-09-09: bahmni_sync_acl was uninstalled and removed (F-051) -- a clinic
+      # Odoo carries no sync-specific module, column or trigger.
       - './odoo/addons:/mnt/extra-addons'
     depends_on: !override
       bahmni-postgres:
