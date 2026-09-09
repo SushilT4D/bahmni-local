@@ -32,7 +32,6 @@
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "true",
     "name": "odoo-clinic-sink-parents",
-    "hibernate.c3p0.connectionCustomizerClassName": "t4d.sync.SyncOriginCustomizer",
-    "field.exclude.list": "sync_origin"
+    "hibernate.c3p0.connectionCustomizerClassName": "t4d.sync.SyncOriginCustomizer"
   }
 }
