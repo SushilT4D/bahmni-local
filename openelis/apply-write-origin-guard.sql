@@ -1,3 +1,6 @@
+-- SUPERSEDED 2026-09-09 on clinic nodes: the row filters and *_origin triggers this file
+-- creates are retired by retire-write-origin-guard.sql once the node runs PG16 with the
+-- replication-origin guard (sync-core F-044). The column and sequences it creates stay.
 -- ADDED 2026-09-02 (sync-core F-015). Moves the OpenELIS/clinlims lab path off
 -- creator-residue (id % 10) onto ADR-003 write-origin, matching the OpenMRS side.
 --

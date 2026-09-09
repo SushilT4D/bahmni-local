@@ -1,3 +1,6 @@
+-- SUPERSEDED 2026-09-09 on clinic nodes: the row filters and *_origin triggers this file
+-- creates are retired by retire-write-origin-guard.sql once the node runs PG16 with the
+-- replication-origin guard (sync-core F-044). The column and sequences it creates stay.
 -- Module 28 — clinlims sync setup for one node. Parameterised by :residue
 -- (4 = Rawach clinic, 0 = cloud) via psql -v. Idempotent.
 
