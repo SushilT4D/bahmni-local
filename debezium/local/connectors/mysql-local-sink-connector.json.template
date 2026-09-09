@@ -10,6 +10,7 @@
     "//topics4": "remote.bahmni-cloud.openmrs.users.",
     "topics": "${KAFKA_TOPICS}",
 
+    "field.exclude.list": "sync_origin",
     "connection.url": "jdbc:mysql://${LOCAL_MYSQL_HOST}:${LOCAL_MYSQL_PORT}/${LOCAL_MYSQL_DATABASE}?useSSL=${LOCAL_MYSQL_USE_SSL}&allowPublicKeyRetrieval=true&sessionVariables=sql_log_bin=0",
     "connection.username": "${LOCAL_MYSQL_USER}",
     "connection.password": "${LOCAL_MYSQL_PASSWORD}",

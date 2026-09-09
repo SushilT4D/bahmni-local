@@ -3,7 +3,7 @@
     'name': 'Bahmni Sync ACL',
     'version': '10.0.1.0.0',
     'category': 'Bahmni',
-    'summary': 'Expose sync_origin and a Home Clinic Code to the ORM (no record rules)',
+    'summary': 'Empty shell: sync_origin column dropped 2026-09-09 (F-049); kept installed so -u all cleans its fields',
     'description': """
 Every Bahmni node holds every node's Odoo data, because the CDC pipeline replicates the
 twelve synced business tables in full. This module binds the trigger-maintained

@@ -33,3 +33,4 @@ debezium/cloud/connectors/generated/
 
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
 config/kafka-connect/ext/*.jar
+*.pyc

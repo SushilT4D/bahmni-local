@@ -1,63 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Expose the sync_origin column to the ORM, and give res.users a home clinic.
+"""bahmni_sync_acl -- now an empty shell, kept installed on purpose.
 
-sync_origin is written by a PostgreSQL BEFORE trigger (odoo/apply-odoo-write-origin-
-guard.sql), never by Odoo. The field is therefore readonly and, crucially, declared with
-store=True and no compute: Odoo must read the existing column rather than manage it.
+History: this module bound the trigger-maintained sync_origin column to the ORM and
+carried the clinic-visibility record rules (2026-09-04). The rules were dropped on
+2026-09-07 (sync-core F-040). On 2026-09-09 the sync_origin column itself was dropped
+from all twelve synced tables on every node (F-049): the loop guard is the engine's
+replication origin, and the last-writer rule uses sync_updated_at alone.
 
-WHY NOT A NEW COLUMN: the column already exists on all twelve tables and carries live
-sync semantics. Declaring the field with the same name binds the ORM to it. Odoo's
-schema updater will see a matching column of matching type and leave it alone.
+No fields are declared here any more, deliberately. If this file declared sync_origin,
+Odoo's schema updater would recreate the column on the next `odoo -u all` (the
+container's start command) and silently reintroduce the dependency. The module stays
+installed rather than uninstalled so that its removal from the registry happens through
+a normal update, which deletes the stale ir.model.fields rows, and never through
+button_immediate_uninstall over XML-RPC, which self-deadlocks on res_partner (see the
+2026-09-09 upgrade notes). Safe to uninstall from the UI later.
 """
-from odoo import models, fields
-
-SYNCED_MODELS = [
-    'res.partner',
-    'product.template', 'product.product', 'product.category', 'product.uom',
-    'sale.order', 'sale.order.line',
-    'stock.move', 'stock.quant', 'stock.picking',
-    'account.invoice', 'account.invoice.line',
-]
-
-
-class SyncOriginMixin(models.AbstractModel):
-    _name = 'bahmni.sync.origin.mixin'
-
-    sync_origin = fields.Char(
-        string='Origin Node',
-        size=16,
-        readonly=True,
-        index=True,
-        help="Node that authored this row. Written by a database trigger during the "
-             "write, never by Odoo. Used by the clinic visibility record rules.",
-    )
-
-
-def _inject(model_name):
-    """Attach the field to an existing model without touching its own source."""
-    class _Injected(models.Model):
-        _inherit = model_name
-
-        sync_origin = fields.Char(
-            string='Origin Node', size=16, readonly=True, index=True,
-            help="Node that authored this row; maintained by a database trigger.",
-        )
-    _Injected.__name__ = 'SyncOrigin_' + model_name.replace('.', '_')
-    return _Injected
-
-
-for _m in SYNCED_MODELS:
-    _inject(_m)
-
-
-class ResUsers(models.Model):
-    _inherit = 'res.users'
-
-    clinic_code = fields.Char(
-        string='Home Clinic Code',
-        size=16,
-        help="Must match the sync_origin value this clinic stamps -- e.g. 'rawach', "
-             "'ghated', 'cloud'. The clinic visibility rule compares the two directly, "
-             "so a mismatch or a blank value means the user sees NOTHING rather than "
-             "everything. That is the intended failure direction.",
-    )

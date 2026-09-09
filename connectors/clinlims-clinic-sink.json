@@ -63,6 +63,7 @@
     "connection.pool.max_size": "2",
     "connection.pool.acquire_increment": "1",
     "connection.pool.timeout": "300",
-    "hibernate.c3p0.connectionCustomizerClassName": "t4d.sync.SyncOriginCustomizer"
+    "hibernate.c3p0.connectionCustomizerClassName": "t4d.sync.SyncOriginCustomizer",
+    "field.exclude.list": "sync_origin"
   }
 }
