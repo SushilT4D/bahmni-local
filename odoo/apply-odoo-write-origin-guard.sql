@@ -1,3 +1,6 @@
+-- SUPERSEDED 2026-09-09 on clinic nodes by retire-write-origin-guard.sql: row filters and the
+-- origin stamp are retired; the last-writer rule lives on in sync_lww() without an origin
+-- tie-break (sync-core F-048). Columns and sequences this file creates stay.
 -- REWRITTEN 2026-09-04 for PostgreSQL 15 (sync-core, D7 Odoo full-replication build).
 -- Supersedes the 2026-09-02 draft, which targeted Odoo's shipped PostgreSQL 9.6 and so
 -- could not use publication row filters at all -- the whole reason Odoo is being moved

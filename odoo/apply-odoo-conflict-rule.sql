@@ -1,3 +1,6 @@
+-- SUPERSEDED 2026-09-09 on clinic nodes by retire-write-origin-guard.sql: row filters and the
+-- origin stamp are retired; the last-writer rule lives on in sync_lww() without an origin
+-- tie-break (sync-core F-048). Columns and sequences this file creates stay.
 -- ADDED 2026-09-04 (sync-core D3). Gives Odoo a conflict rule, which the system has
 -- never had.
 --
