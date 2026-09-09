@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SUPERSEDED 2026-09-09 on clinic nodes by retire-mysql-origin-guard.sh: the Groovy filters
+# and the person/person_name stamping triggers are retired; the loop guard is
+# sessionVariables=sql_log_bin=0 on the clinic sinks (sync-core F-047).
 #
 # apply-sync-origin.sh — install the ADR-003 write-origin guard on one OpenMRS table.
 #

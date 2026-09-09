@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SUPERSEDED 2026-09-09 on clinic nodes by retire-mysql-origin-guard.sh: the Groovy filters
+# and the person/person_name stamping triggers are retired; the loop guard is
+# sessionVariables=sql_log_bin=0 on the clinic sinks (sync-core F-047).
 # ADDED 2026-09-02 (sync-core F-019). Applies the ADR-003 write-origin FILTERS to a
 # node's MySQL connectors. Until now these existed only as prose in MODIFICATIONS.md
 # and as live state in Kafka Connect — no committed definition, so a rebuilt node
