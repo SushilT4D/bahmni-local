@@ -11,12 +11,10 @@
     "topic.prefix": "bahmni-local",
     "schema.include.list": "clinlims",
     "table.include.list": "clinlims.sample,clinlims.sample_item,clinlims.analysis,clinlims.result",
-
     "plugin.name": "pgoutput",
     "slot.name": "dbz_clinlims_up",
     "publication.name": "dbz_clinlims_owned",
     "publication.autocreate.mode": "disabled",
-
     "snapshot.mode": "no_data",
     "decimal.handling.mode": "double",
     "time.precision.mode": "connect",
@@ -24,6 +22,7 @@
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "true"
+    "value.converter.schemas.enable": "true",
+    "slot.stream.params": "origin=none"
   }
 }

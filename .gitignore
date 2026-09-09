@@ -30,3 +30,6 @@ debezium/cloud/connectors/generated/
 # never touch bahmni_config/ again - so this tree is churn the service owns,
 # regenerated on every boot, and must never be committed.
 .local-config-scratch/
+
+# scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
+config/kafka-connect/ext/*.jar

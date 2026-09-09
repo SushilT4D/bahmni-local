@@ -34,6 +34,7 @@
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "true"
+    "value.converter.schemas.enable": "true",
+    "hibernate.c3p0.connectionCustomizerClassName": "t4d.sync.SyncOriginCustomizer"
   }
 }
