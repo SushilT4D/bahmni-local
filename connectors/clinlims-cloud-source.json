@@ -6,17 +6,15 @@
     "database.hostname": "openelisdb",
     "database.port": "5432",
     "database.user": "clinlims",
-    "database.password": "__ELISPW__",
+    "database.password": "${CLINLIMS_SOURCE_PASSWORD}",
     "database.dbname": "openelis",
     "topic.prefix": "bahmni-cloud",
     "schema.include.list": "clinlims",
     "table.include.list": "clinlims.sample,clinlims.sample_item,clinlims.analysis,clinlims.result",
-
     "plugin.name": "pgoutput",
     "slot.name": "dbz_clinlims_down",
     "publication.name": "dbz_clinlims_owned",
     "publication.autocreate.mode": "disabled",
-
     "snapshot.mode": "no_data",
     "decimal.handling.mode": "double",
     "time.precision.mode": "connect",

@@ -6,7 +6,7 @@
     "database.hostname": "bahmni-postgres",
     "database.port": "5432",
     "database.user": "clinlims",
-    "database.password": "__ELISPW__",
+    "database.password": "${CLINLIMS_SOURCE_PASSWORD}",
     "database.dbname": "openelis",
     "topic.prefix": "bahmni-local",
     "schema.include.list": "clinlims",

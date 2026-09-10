@@ -210,7 +210,9 @@ services:
   # (they run emulated). Same disease as bahmni/odoo-16 and mysql:5.6.
   # ==========================================================================
   odoodb:
-    profiles: ["odoo","local"]
+    # LEGACY since the 2026-09-04 cut-over to bahmni-postgres; never started (F-021 closed).
+    # Its volume is kept as the last rollback; delete both once the cut-over is a month old.
+    profiles: ["legacy"]
     image: 'bahmni/odoo-10-db:${ODOO_DB_IMAGE_TAG}'
     platform: linux/amd64
     environment:

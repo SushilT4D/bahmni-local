@@ -6,7 +6,7 @@
     "topics": "remote.bahmni-cloud.clinlims.sample,remote.bahmni-cloud.clinlims.sample_item,remote.bahmni-cloud.clinlims.analysis,remote.bahmni-cloud.clinlims.result",
     "connection.url": "jdbc:postgresql://bahmni-postgres:5432/openelis",
     "connection.username": "clinlims",
-    "connection.password": "__ELISPW__",
+    "connection.password": "${CLINLIMS_SINK_PASSWORD}",
     "transforms": "route",
     "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
     "transforms.route.regex": "remote\\.bahmni-cloud\\.clinlims\\.(.*)",
