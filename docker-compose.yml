@@ -284,25 +284,26 @@ services:
   # #########################################################
   # Debezium Containers                                        #
   # #########################################################
-  zookeeper:
+
+  # --- KRaft migration (KIP-866): dedicated controller quorum ---
+  # Runs alongside ZooKeeper in migration mode; metadata is copied ZK -> KRaft
+  # and dual-written until the broker is flipped to pure KRaft.
+  kafka-controller:
     profiles: [ "debezium" ]
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka-controller
+    container_name: kafka-controller
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      CLUSTER_ID: 'vEcXaxkBQ9euBm9cp_D-9w'
+      KAFKA_NODE_ID: 3000
+      KAFKA_PROCESS_ROLES: 'controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENERS: 'CONTROLLER://0.0.0.0:9093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
     volumes:
-      - "${CONTAINER_DATA_PATH}/data/zookeeper:/var/lib/zookeeper/data"
-      - "${CONTAINER_DATA_PATH}/logs/zookeeper:/var/lib/zookeeper/log"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/commands/ruok || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      - "${CONTAINER_DATA_PATH}/data/kafka-controller:/var/lib/kafka/data"
 
   kafka:
     profiles: [ "debezium" ]
@@ -310,14 +311,19 @@ services:
     hostname: kafka
     container_name: kafka
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      kafka-controller:
+        condition: service_started
     ports:
       - "9092:9092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      # --- KRaft (KIP-866) stage 2: pure KRaft; ZooKeeper no longer consulted ---
+      CLUSTER_ID: 'vEcXaxkBQ9euBm9cp_D-9w'
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1

@@ -33,9 +33,6 @@ services:
   kafka:
     ports: !override
       - '127.0.0.1:9092:9092'
-  zookeeper:
-    ports: !override
-      - '127.0.0.1:2181:2181'
   kafka-ui:
     ports: !override
       - '127.0.0.1:8086:8080'
