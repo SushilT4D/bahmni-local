@@ -1,0 +1,32 @@
+{
+  "name": "odoo-cloud-sink-all",
+  "config": {
+    "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+    "connection.password": "${ODOO_SINK_PASSWORD}",
+    "tasks.max": "1",
+    "hibernate.c3p0.max_size": "2",
+    "hibernate.c3p0.idle_test_period": "300",
+    "hibernate.c3p0.preferredTestQuery": "SELECT 1",
+    "hibernate.c3p0.testConnectionOnCheckout": "true",
+    "hibernate.c3p0.min_size": "1",
+    "collection.name.format": "public.${source.table}",
+    "schema.evolution": "none",
+    "hibernate.c3p0.acquire_increment": "1",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "insert.mode": "upsert",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "errors.retry.timeout": "-1",
+    "primary.key.mode": "record_key",
+    "connection.restart.on.errors": "true",
+    "topics": "source.bahmni-local.odoo.all",
+    "connection.username": "odoo_sink",
+    "errors.retry.delay.max.ms": "60000",
+    "flush.max.retries": "10",
+    "key.converter.schemas.enable": "true",
+    "delete.enabled": "true",
+    "hibernate.c3p0.timeout": "1800",
+    "consumer.override.auto.offset.reset": "earliest",
+    "value.converter.schemas.enable": "true",
+    "connection.url": "jdbc:postgresql://openelisdb:5432/odoo"
+  }
+}
