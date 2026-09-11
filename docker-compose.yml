@@ -294,7 +294,7 @@ services:
     hostname: kafka-controller
     container_name: kafka-controller
     environment:
-      CLUSTER_ID: 'vEcXaxkBQ9euBm9cp_D-9w'
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
       KAFKA_NODE_ID: 3000
       KAFKA_PROCESS_ROLES: 'controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
@@ -317,7 +317,7 @@ services:
       - "9092:9092"
     environment:
       # --- KRaft (KIP-866) stage 2: pure KRaft; ZooKeeper no longer consulted ---
-      CLUSTER_ID: 'vEcXaxkBQ9euBm9cp_D-9w'
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: 'broker'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
