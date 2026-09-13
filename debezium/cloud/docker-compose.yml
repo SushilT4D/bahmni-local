@@ -14,39 +14,45 @@ x-log-config: &log-config
   <<: *default
 
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.0
-    hostname: zookeeper
-    container_name: zookeeper
-    ports:
-      - "2181:2181"
+
+  # --- KRaft migration (KIP-866): dedicated controller quorum ---
+  kafka-controller:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka-controller
+    container_name: kafka-controller
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
+      KAFKA_NODE_ID: 3000
+      KAFKA_PROCESS_ROLES: 'controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LISTENERS: 'CONTROLLER://0.0.0.0:9093'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT'
+      KAFKA_LOG_DIRS: '/var/lib/kafka/data'
     volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/commands/ruok || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      - kafka-controller-data:/var/lib/kafka/data
 
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     hostname: kafka
     container_name: kafka
     depends_on:
-      zookeeper:
-        condition: service_healthy
+      kafka-controller:
+        condition: service_started
     ports:
       - "9092:9092"
       - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
+      # --- KRaft (KIP-866) stage 2: pure KRaft; ZooKeeper no longer consulted ---
+      # CLUSTER_ID is mandatory for the Confluent image in KRaft mode and must
+      # match the id in the kafka-data volume's meta.properties.
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '3000@kafka-controller:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,SASL_PLAINTEXT://${REMOTE_KAFKA_HOST:-localhost}:9092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,SASL_PLAINTEXT://0.0.0.0:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -650,6 +656,7 @@ services:
       # PACS_INTEGRATION_DB_PASSWORD: ${PACS_INTEGRATION_DB_PASSWORD}
 
 volumes:
+  kafka-controller-data:
   openmrs-data:
   openelisdbdata:
   odoodbdata:
