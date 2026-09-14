@@ -7,7 +7,7 @@
     "database.port": "${LOCAL_MYSQL_PORT}",
     "database.user": "${LOCAL_DEBEZIUM_USER}",
     "database.password": "${LOCAL_DEBEZIUM_PASSWORD}",
-    "database.server.id": "184054",
+    "database.server.id": "184056",
     "database.server.name": "${MYSQL_SERVER_NAME}",
     "topic.prefix": "${MYSQL_SERVER_NAME}",
     "database.include.list": "${DATABASE_INCLUDE_LIST}",

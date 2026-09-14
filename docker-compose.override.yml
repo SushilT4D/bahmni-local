@@ -11,10 +11,10 @@ services:
     ports: !override
       - '127.0.0.1:8083:8083'
     # Replication-origin loop guard, clinic half (sync-core F-042 follow-on, 2026-09-09):
-    # every JDBC-sink connection calls pg_replication_origin_session_setup(SYNC_ORIGIN_NAME)
-    # on acquire, via a c3p0 ConnectionCustomizer. The jar must sit INSIDE the jdbc plugin
-    # directory: Connect isolates each plugin's classloader, and c3p0 loads the class from
-    # its own. Source: config/kafka-connect/sync-origin/, built with eclipse-temurin:17-jdk.
+    # every JDBC-sink connection claims a replication origin hub_N on acquire, via a c3p0
+    # ConnectionCustomizer, so the PG sources (slot.stream.params=origin=none) skip what
+    # the sinks wrote. The jar must sit INSIDE the jdbc plugin directory (isolated
+    # classloaders). Source: config/kafka-connect/sync-origin/.
     environment:
       SYNC_ORIGIN_NAME: hub
     volumes:
@@ -65,16 +65,8 @@ services:
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
-      --auto-increment-increment=10 --auto-increment-offset=4
+      --auto-increment-increment=10 --auto-increment-offset=3 --server-id=3
       --wait-timeout=604800 --interactive-timeout=604800
-    # ⚠ 2026-09-02: THIS LINE IS NOT RE-READ ON RESTART. The running container was
-    #   created 2026-08-20, before the line was added, so `docker compose restart`
-    #   (and a machine reboot) kept the OLD command and Rawach was still on the stock
-    #   28800 two weeks later -- the sinks died again after a 13h overnight gap.
-    #   `docker inspect <c> --format '{{.Config.Cmd}}' is the only truthful check;
-    #   the file agreeing with intent proves nothing. Requires `up -d --force-recreate
-    #   bahmni-mysql` to take effect. Applied live with SET GLOBAL in the meantime.
-    #   The durable defence is now client-side: hibernate.c3p0.* on every JDBC sink.
 
   # OpenELIS lands in THIS container as a second database (`openelis`, schema
   # `clinlims`) alongside odoo — Module 28 §3.1, decision (i). Two consequences,
@@ -189,6 +181,8 @@ services:
     # authoring.
     volumes:
       - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms:/home/bahmni/clinical_forms"
+
+  # ==========================================================================
   # ODOO — ADDED 2026-09-02 (operator decision: "replicate cloud odoo as same
   # to clinic ... use same pipeline we used to sync mrs and elis").
   #
@@ -207,9 +201,7 @@ services:
   # (they run emulated). Same disease as bahmni/odoo-16 and mysql:5.6.
   # ==========================================================================
   odoodb:
-    # LEGACY since the 2026-09-04 cut-over to bahmni-postgres; never started (F-021 closed).
-    # Its volume is kept as the last rollback; delete both once the cut-over is a month old.
-    profiles: ["legacy"]
+    profiles: ["odoo","local"]
     image: 'bahmni/odoo-10-db:${ODOO_DB_IMAGE_TAG}'
     platform: linux/amd64
     environment:
@@ -217,7 +209,7 @@ services:
       POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD}
       TZ: ${TZ}
     volumes:
-      - 'odoodb-data:/var/lib/postgresql/data'
+      - 'ghated-odoodb:/var/lib/postgresql/data'
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${ODOO_DB_USER}"]
       interval: 10s
@@ -228,27 +220,22 @@ services:
   odoo:
     image: 'bahmni/odoo-10:${ODOO_IMAGE_TAG}'
     platform: linux/amd64
-    # CUT OVER 2026-09-04 to bahmni-postgres (PG 15.18), off the shipped odoodb
-    # (PG 9.6.24). Odoo syncs on the same CDC pipeline as OpenMRS and OpenELIS, and
-    # that pipeline filters at the publication -- which 9.6 does not have at all
-    # (F-021). Odoo 10 on PG 15 was verified BEFORE the move, not assumed: 375 tables
-    # restore with 0 errors, 49 modules load, /web/login returns 200, and XML-RPC
-    # authenticates and reads through the ORM.
+    # CUT OVER 2026-09-04 to bahmni-postgres (PG 15.19), off odoodb (PG 9.6.24), so
+    # Odoo rides the same CDC pipeline as OpenMRS and OpenELIS. That pipeline filters at
+    # the publication and 9.6 has no publications (F-021). The odoodb service and volume
+    # are left intact, so this reverses by putting HOST back.
     #
-    # The odoodb service above is deliberately LEFT DEFINED and its volume untouched,
-    # so this reverses by putting HOST back. Base compose mounts odoo-16-shaped
-    # volumes, so volumes stay overridden.
+    # Base compose mounts odoo-16-shaped volumes, so volumes stay overridden.
     environment:
       TZ: ${TZ}
       HOST: bahmni-postgres
       USER: ${ODOO_DB_USER}
       PASSWORD: ${ODOO_DB_PASSWORD}
     volumes: !override
-      - 'odooapp-data:/var/lib/odoo'
-      # Extra addons live in this repo, not in the image's anonymous volume at
-      # /mnt/extra-addons (which does not survive a container recreate). Empty since
-      # 2026-09-09: bahmni_sync_acl was uninstalled and removed (F-051) -- a clinic
-      # Odoo carries no sync-specific module, column or trigger.
+      - 'ghated-odooapp:/var/lib/odoo'
+      # bahmni_sync_acl must come from the repo, not the image's anonymous
+      # /mnt/extra-addons volume -- that volume does not survive a container recreate,
+      # and losing the addon silently re-exposes every clinic's rows to every user.
       - './odoo/addons:/mnt/extra-addons'
     depends_on: !override
       bahmni-postgres:
@@ -284,5 +271,5 @@ services:
     restart: ${RESTART_POLICY}
 
 volumes:
-  odoodb-data:
-  odooapp-data:
+  ghated-odoodb:
+  ghated-odooapp:

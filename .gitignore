@@ -34,3 +34,18 @@ debezium/cloud/connectors/generated/
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
 config/kafka-connect/ext/*.jar
 *.pyc
+
+# --- added 2026-09-14, when this node was first put under version control ---
+# Ghated renders these two source connectors with the DB password substituted.
+# Rawach has no equivalent files at all; everything it tracks under connectors/
+# uses ${VAR}. These are rendered artifacts and are never committed.
+connectors/mysql-source-connector.json
+connectors/mysql-local-source-connector.json
+
+# .env is ignored above, but its timestamped backups are not, and they carry the
+# same live credentials.
+.env.bak*
+*.pre-sanitise.bak
+
+# Same rule as ext/*.jar above: this node keeps the scripting jars one level up.
+config/kafka-connect/*.jar
