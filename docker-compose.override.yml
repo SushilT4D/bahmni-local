@@ -207,9 +207,15 @@ services:
   # (they run emulated). Same disease as bahmni/odoo-16 and mysql:5.6.
   # ==========================================================================
   odoodb:
-    # LEGACY since the 2026-09-04 cut-over to bahmni-postgres; never started (F-021 closed).
-    # Its volume is kept as the last rollback; delete both once the cut-over is a month old.
-    profiles: ["legacy"]
+    # The 2026-09-04 cut-over moved the ODOO APPLICATION to bahmni-postgres, but it did NOT
+    # move odoo-connect: the atomfeed service still keeps its bookkeeping here (markers,
+    # event_records, event_records_offset_marker, failed_events) and holds ~9 live JDBC
+    # connections to this container. Verified on Rawach 2026-09-14 via pg_stat_activity.
+    # It was briefly moved to profiles: ["legacy"], which made the whole "local" profile
+    # unstartable because odoo-connect depends_on it with condition: service_healthy.
+    # Back in the active profiles, matching Ghated. DO NOT delete this service or its volume
+    # until odoo-connect's markers are migrated — dropping them loses its feed position.
+    profiles: ["odoo","local"]
     image: 'bahmni/odoo-10-db:${ODOO_DB_IMAGE_TAG}'
     platform: linux/amd64
     environment:
