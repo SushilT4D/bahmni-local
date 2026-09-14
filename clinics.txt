@@ -1,2 +1,48 @@
-# clinic_id:offset   (lab: hospital H1 = offset 1; increment 10 set in script)
-h1:1
+# Fleet-wide residue ledger.  clinic_id:offset
+#
+# The increment (10) is set by docker-compose.override.yml's
+# --auto-increment-increment; this file sets only the per-node OFFSET.
+# scripts/configure-pk-offsets.sh looks up the row whose key equals this
+# node's BHS_LOCATION (case-insensitive, first match wins).
+#
+# ALLOCATION IS FLEET-WIDE AND MUST BE UNIQUE PER NODE.  The offset is the
+# strided residue that makes every row's origin computable from its own
+# primary key, which is what L-008 (per-row single-writer ownership) and
+# L-010 (a collision-free sync key) rest on.  Two nodes sharing an offset
+# mint colliding primary keys and there is no way to tell the rows apart
+# afterwards.  Never reuse or reassign a residue on a node that has already
+# written rows.
+#
+#   cloud    : 10   (residue 0)
+#   manpur   : 1
+#   bedawal  : 2
+#   ghated   : 3    - lab clinic 2
+#   rawach   : 4    - lab clinic 1
+#   bagdunda : 5
+#   kojawada : 6
+#   morwal   : UNALLOCATED - 12,882 patients, cannot sync until assigned
+#
+# 7 and 8 are free.  9 is free.  Counting Morwal, 8 of 10 are spoken for.
+manpur:1
+bedawal:2
+ghated:3
+rawach:4
+bagdunda:5
+kojawada:6
+cloud:10
+
+# --- Lab aliases -----------------------------------------------------------
+# The two lab nodes still carry the original lab codes in BHS_LOCATION rather
+# than their clinic slug, and BHS_LOCATION is NOT free to change: it derives
+# the MirrorMaker consumer group ids (mirrormaker-consumer-group-${BHS_LOCATION},
+# mirrormaker-cluster-*, mirrormaker-down-consumer-*), so renaming it would move
+# MM2 to a fresh consumer group and re-read or skip from a different offset.
+# These rows therefore map the codes in use onto the same residues above.
+#
+# NOTE: the value below corrects a real defect.  Until 2026-09-14 this file
+# held exactly one row, "h1:1", while Rawach's live MySQL has run
+# auto_increment_offset=4 since it was strided.  Running configure-pk-offsets.sh
+# on Rawach would have read that row and restrided the node from 4 to 1 --
+# manpur's residue -- silently breaking L-008 for every row written afterwards.
+h1:4
+h2:3

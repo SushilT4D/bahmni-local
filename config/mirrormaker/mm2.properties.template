@@ -2,17 +2,17 @@
 # This file is used by MirrorMaker Connect to replicate topics from local to remote Kafka
 
 # Cluster definitions
-clusters = source, remote
+clusters = ${LOCAL_CLUSTER_ALIAS}, remote
 
 # Local cluster (source)
-source.bootstrap.servers = kafka:29092
+${LOCAL_CLUSTER_ALIAS}.bootstrap.servers = kafka:29092
 
 # Remote cluster (target) - configured via environment variable
 remote.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 
 # Enable replication from local to remote
-source->remote.enabled = true
-source->remote.topics = ${KAFKA_TOPIC_PATTERNS}
+${LOCAL_CLUSTER_ALIAS}->remote.enabled = true
+${LOCAL_CLUSTER_ALIAS}->remote.topics = ${KAFKA_TOPIC_PATTERNS}
 
 # Topics to replicate (regex pattern)
 # Generated from tables.conf - use specific topics for better control
@@ -20,15 +20,15 @@ source->remote.topics = ${KAFKA_TOPIC_PATTERNS}
 # Example: bahmni-local\.openmrs\.(person|patient|visit)
 
 # Consumer configuration (reads from local Kafka)
-source.consumer.bootstrap.servers = kafka:29092
-source.consumer.group.id = ${MIRRORMAKER_CONSUMER_GROUP_ID}
-source.consumer.key.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
-source.consumer.value.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
-source.consumer.auto.offset.reset = earliest
-source.consumer.enable.auto.commit = true
+${LOCAL_CLUSTER_ALIAS}.consumer.bootstrap.servers = kafka:29092
+${LOCAL_CLUSTER_ALIAS}.consumer.group.id = ${MIRRORMAKER_CONSUMER_GROUP_ID}
+${LOCAL_CLUSTER_ALIAS}.consumer.key.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+${LOCAL_CLUSTER_ALIAS}.consumer.value.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+${LOCAL_CLUSTER_ALIAS}.consumer.auto.offset.reset = earliest
+${LOCAL_CLUSTER_ALIAS}.consumer.enable.auto.commit = true
 # Buffer size for offline scenarios
-source.consumer.fetch.min.bytes = 1
-source.consumer.fetch.max.wait.ms = 500
+${LOCAL_CLUSTER_ALIAS}.consumer.fetch.min.bytes = 1
+${LOCAL_CLUSTER_ALIAS}.consumer.fetch.max.wait.ms = 500
 
 # Producer configuration (writes to remote Kafka)
 remote.producer.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
@@ -63,9 +63,29 @@ replication.factor = 1
 # ---- topics (rendered by setup-mirrormaker.sh) ----
 
 # ---- single-broker internal topics ----
-source.offset.storage.replication.factor = 1
-source.config.storage.replication.factor = 1
-source.status.storage.replication.factor = 1
+${LOCAL_CLUSTER_ALIAS}.offset.storage.replication.factor = 1
+${LOCAL_CLUSTER_ALIAS}.config.storage.replication.factor = 1
+${LOCAL_CLUSTER_ALIAS}.status.storage.replication.factor = 1
 remote.offset.storage.replication.factor = 1
 remote.config.storage.replication.factor = 1
 remote.status.storage.replication.factor = 1
+
+# ---- down direction (cloud -> clinic). Ported from the hand-edited clinic-1
+#      config 2026-08-31: the template could never generate it, so a regenerate
+#      would silently drop the whole down direction.
+# reverses (we CONSUME from the cloud instead of producing to it). Clinics stay
+# behind NAT with no inbound reachability required.
+remote->${LOCAL_CLUSTER_ALIAS}.enabled = true
+remote->${LOCAL_CLUSTER_ALIAS}.topics = (bahmni-cloud\.openmrs\.person_name|bahmni-cloud\.openmrs\.person|bahmni-cloud\.openmrs\.users|bahmni-cloud\.openmrs\.user_property|bahmni-cloud\.openmrs\.user_role|bahmni-cloud\.openmrs\.role|bahmni-cloud\.openmrs\.role_privilege|bahmni-cloud\.openmrs\.role_role|bahmni-cloud\.openmrs\.provider|bahmni-cloud\.clinlims\.sample|bahmni-cloud\.clinlims\.sample_item|bahmni-cloud\.clinlims\.analysis|bahmni-cloud\.clinlims\.result)
+
+# Consumer — reads from the CLOUD. This is the hop that crosses the internet.
+remote.consumer.bootstrap.servers = samyogas-mac-mini.tailca2651.ts.net:9092
+remote.consumer.group.id = mirrormaker-down-consumer-${BHS_LOCATION}
+remote.consumer.key.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+remote.consumer.value.deserializer = org.apache.kafka.common.serialization.ByteArrayDeserializer
+# earliest: a clinic that has been offline drains its backlog rather than skipping it
+remote.consumer.auto.offset.reset = earliest
+remote.consumer.enable.auto.commit = true
+remote.consumer.fetch.min.bytes = 1
+remote.consumer.fetch.max.wait.ms = 500
+

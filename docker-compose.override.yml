@@ -65,7 +65,8 @@ services:
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
-      --auto-increment-increment=10 --auto-increment-offset=4
+      --auto-increment-increment=10 --auto-increment-offset=${MYSQL_AUTO_INCREMENT_OFFSET:?}
+      --server-id=${MYSQL_SERVER_ID:?}
       --wait-timeout=604800 --interactive-timeout=604800
     # ⚠ 2026-09-02: THIS LINE IS NOT RE-READ ON RESTART. The running container was
     #   created 2026-08-20, before the line was added, so `docker compose restart`
@@ -290,5 +291,14 @@ services:
     restart: ${RESTART_POLICY}
 
 volumes:
+  # The KEY must stay a literal: compose validates the volumes mapping against
+  # its schema BEFORE variable interpolation, so `${VAR}:` here is rejected with
+  # "Additional property ... is not allowed". `name:` is interpolated normally,
+  # so that is where the per-node value goes. Both are REQUIRED rather than
+  # defaulted: a default would have to spell one node's project prefix, and a
+  # node that silently fell back to it would mount an EMPTY volume and come up
+  # with a blank database while its real data sat untouched under the old name.
   odoodb-data:
+    name: ${ODOO_DB_VOLUME_NAME:?}
   odooapp-data:
+    name: ${ODOO_APP_VOLUME_NAME:?}

@@ -34,3 +34,28 @@ debezium/cloud/connectors/generated/
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
 config/kafka-connect/ext/*.jar
 *.pyc
+
+# --- Rendered MirrorMaker config (2026-09-14) --------------------------------
+# scripts/setup-mirrormaker.sh renders these from the .template files beside
+# them. They are per-node OUTPUT and must never be committed: both copies were
+# tracked until today carrying a real remote broker host and this node's
+# consumer group id, so a fresh clinic cloned another node's identity, and two
+# clinics sharing one MirrorMaker consumer group id split the partitions
+# between them and each sees only half its own changes.
+#
+# ORDERING: config/mirrormaker/mm2.properties is BIND-MOUNTED by
+# docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source
+# that does not exist, so `setup-mirrormaker.sh` must run BEFORE the first
+# `docker compose up` on a new node -- otherwise MirrorMaker starts against an
+# empty directory. (That failure is what the old install-clinic.sh warning was
+# describing when it called this path "an empty DIRECTORY in the tree".)
+# ONLY the legacy path is ignored today. config/mirrormaker/mm2.properties is
+# still TRACKED on purpose: setup-mirrormaker.sh CANNOT regenerate it. A render
+# into a scratch tree on 2026-09-14 differed from the live file in 54 lines --
+# it drops the .all aggregate topics (ADR-004) and every Odoo/OpenELIS topic in
+# both directions, the BL-029 producer tuning (delivery.timeout.ms=7200000,
+# linger/batch/zstd), and the whole down-direction source.producer block. The
+# committed file is the ONLY copy of that tuning, so ignoring it would delete
+# it from every fresh clone. Fix the template, prove render == live byte for
+# byte, THEN add the second line back.
+debezium/local/mirrormaker-config/mm2.properties
