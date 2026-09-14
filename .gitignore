@@ -25,6 +25,19 @@ debezium/local/connectors/generated/
 debezium/cloud/connectors/mysql-sink-*.json
 debezium/cloud/connectors/generated/
 
+# Same rule again, CLINIC side. scripts/generate-connectors.sh renders
+# debezium/local/connectors/mysql-source-connector.template.json into BOTH paths
+# below, and its SUBST_VARS includes ${LOCAL_DEBEZIUM_PASSWORD} -- so the output
+# carries the live Debezium password. These two were TRACKED in this public repo
+# until 2026-09-14, surviving only because someone had hand-edited the committed
+# copies to say ${DEBEZIUM_DB_PASSWORD} instead, a variable the generator does not
+# substitute (and which is not set in .env at all). That left the repo in a state
+# where the committed file could not register and the working file could not be
+# committed: running the generator and then `git add` leaked the credential.
+# Template is tracked, output is not. Regenerate rather than copy.
+connectors/mysql-source-connector.json
+connectors/mysql-local-source-connector.json
+
 # The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
 # /usr/local/bahmni_config. docker-compose.override.yml points it here so it can
 # never touch bahmni_config/ again - so this tree is churn the service owns,

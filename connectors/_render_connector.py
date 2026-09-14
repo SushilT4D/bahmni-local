@@ -25,8 +25,25 @@ def sub(v):
 
 cfg = {k: sub(v) for k, v in cfg.items()}
 
-unresolved = [k for k, v in cfg.items()
-              if 'password' in k.lower() and isinstance(v, str) and v.startswith('${')]
+# Kafka Connect expands these itself at runtime, so they MUST survive rendering.
+# ${source.table} and friends contain a dot, which \w+ above never matches, so they
+# pass through without needing to be listed here.
+RUNTIME_PLACEHOLDERS = {'topic'}
+
+# Fail on ANY placeholder we did not resolve, not just credentials. Until
+# 2026-09-14 this guard covered `password` keys alone, which was enough while the
+# only variables were secrets. Node identity is now parameterised too --
+# topic.prefix, database.server.name, the transform regexes and replacements all
+# carry ${MYSQL_SERVER_NAME} -- and an unset variable there does NOT fail loudly:
+# it registers a connector whose topic prefix is the literal "${MYSQL_SERVER_NAME}",
+# publishing to a topic no consumer subscribes to, while the connector reports
+# RUNNING. A clinic would look healthy and sync nothing.
+unresolved = sorted(
+    k for k, v in cfg.items()
+    if isinstance(v, str)
+    for m in re.finditer(r'\$\{(\w+)\}', v)
+    if m.group(1) not in RUNTIME_PLACEHOLDERS
+)
 if unresolved:
     sys.exit('  unset env for: ' + ','.join(unresolved))
 
