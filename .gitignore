@@ -33,6 +33,13 @@ debezium/cloud/connectors/generated/
 
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
 config/kafka-connect/ext/*.jar
+# Some nodes keep the scripting jars one level up instead of in ext/ (Ghated
+# does). Rule ported from node/ghated on 2026-09-14 when that node moved to
+# this branch and three downloaded jars appeared as untracked: its own
+# .gitignore had covered them and this one did not. Already-tracked files are
+# unaffected by a new ignore rule, so config/kafka-connect/sync-origin-customizer.jar
+# stays tracked -- that one is a BUILD ARTIFACT WE SHIP, not a download.
+config/kafka-connect/*.jar
 *.pyc
 
 # --- Rendered MirrorMaker config (2026-09-14) --------------------------------
