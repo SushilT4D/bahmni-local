@@ -19,11 +19,24 @@ that are never declared: `bahmni-patient-images`, `bahmni-document-images`,
 
 **Change made (minimal):** declared those volumes (plus `configuration_checksums`) under the
 existing empty `volumes:` key — i.e. filled in what the key was evidently meant to contain.
-Nothing else in the file was touched. The pristine copy is kept at `docker-compose.yml.orig`:
+Nothing else in the file was touched *at the time of this change*. The pristine copy is
+kept at `docker-compose.yml.orig`:
 ```bash
 diff docker-compose.yml.orig docker-compose.yml
 ```
 **→ Logged as finding BL-024. Worth reporting upstream.**
+
+> **The diff above is no longer minimal (checked 2026-09-14).** `.orig` is still the
+> pristine upstream file at `339dd91` and has never been edited — but
+> `docker-compose.yml` has since accumulated four deliberate change-sets beyond the
+> volumes fix, so the command now reports nine hunks, not one. Those are: the volumes
+> declaration (A1, below); Odoo served at root on its own TLS port 9444, because Odoo
+> emits absolute URLs and cannot live under a sub-path; the `bahmni-web` mounts
+> repointed off absolute paths into one developer's home directory (2026-08-28); and
+> the two-stage KRaft migration (KIP-866) that added the `kafka-controller` service and
+> flipped the broker off ZooKeeper. A1 remains the only change *forced* by the upstream
+> file failing to parse, which is what the `(1)` in this section's heading counts. For
+> the itemised history of the rest, read `git log -- docker-compose.yml`.
 
 ## B. Files we had to create (not in the repo)
 
