@@ -69,13 +69,22 @@ config/kafka-connect/*.jar
 # `docker compose up` on a new node -- otherwise MirrorMaker starts against an
 # empty directory. (That failure is what the old install-clinic.sh warning was
 # describing when it called this path "an empty DIRECTORY in the tree".)
-# ONLY the legacy path is ignored today. config/mirrormaker/mm2.properties is
-# still TRACKED on purpose: setup-mirrormaker.sh CANNOT regenerate it. A render
-# into a scratch tree on 2026-09-14 differed from the live file in 54 lines --
-# it drops the .all aggregate topics (ADR-004) and every Odoo/OpenELIS topic in
-# both directions, the BL-029 producer tuning (delivery.timeout.ms=7200000,
-# linger/batch/zstd), and the whole down-direction source.producer block. The
-# committed file is the ONLY copy of that tuning, so ignoring it would delete
-# it from every fresh clone. Fix the template, prove render == live byte for
-# byte, THEN add the second line back.
+# Rendered MirrorMaker config, both paths. setup-mirrormaker.sh produces these
+# from the .template files beside them; they are per-node OUTPUT carrying a real
+# broker host and this node's consumer group ids, so they must never be
+# committed -- a fresh clinic was inheriting another node's identity from them,
+# and two clinics sharing one MirrorMaker consumer group id split the partitions
+# between them and each sees half its own changes.
+#
+# The main path stayed tracked until the template could actually regenerate it.
+# It can now (fixed in d47be8e), and that was VERIFIED ON BOTH NODES before
+# untracking: 55 settings each side on Rawach and on Ghated, none missing, none
+# extra, the single difference being the order of alternatives inside one topics
+# regex, compared as a set and found identical.
+#
+# ORDERING: config/mirrormaker/mm2.properties is BIND-MOUNTED by
+# docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source that
+# does not exist, so setup-mirrormaker.sh must run BEFORE the first
+# `docker compose up` on a new node.
+config/mirrormaker/mm2.properties
 debezium/local/mirrormaker-config/mm2.properties
