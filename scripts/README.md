@@ -31,11 +31,16 @@ emit connector/topic definitions.
 `register-mirrormaker.sh`, `deploy-connectors.sh`, `update-connector.sh`,
 `unregister-connectors.sh`, `delete-connectors.sh`.
 
-**Verify** — read live state and judge it. `preflight.sh` (reachability, disk,
-clock), `check-sink-tasks.sh`, `check-sink-connectors.sh`,
-`check-source-connectors.sh`, `check-mirrormaker.sh`,
-`check-schema-history.sh`, `check-status.sh`, `trace-change.sh`,
-`test-replication.sh`.
+**Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
+MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
+`check-sink-tasks.sh`, `check-sink-connectors.sh`, `check-source-connectors.sh`,
+`check-mirrormaker.sh`, `check-schema-history.sh`, `check-status.sh`,
+`trace-change.sh`, `test-replication.sh`.
+
+> `preflight.sh` runs **entirely on this node** and opens no connections. The
+> three-node fan-out that used to live in it is the operator's, and moved to the
+> Bahmni workspace repo (`skills/lab-preflight.sh`) on 2026-09-14 — it pipes this
+> same file to each node over SSH, so every node is judged by one ruler.
 
 > Prefer `check-sink-tasks.sh`: it sweeps every connector and judges on **task**
 > state, not connector state. A connector reports `RUNNING` while its task is
@@ -50,8 +55,12 @@ and L-010 (the sync key), not a tuning knob.
 schema-history topic must never expire) and `apply-slot-heartbeat.sh` (heartbeat
 table plus publication membership in both Postgres databases).
 
-**Data movement** — `pull-openmrs-db.sh`, `mysqldump.sh`,
-`backup_bahmni_lite.sh`, `restore_bahmni_lite.sh`.
+**Data movement** — `mysqldump.sh`, `backup_bahmni_lite.sh`,
+`restore_bahmni_lite.sh`.
+
+> Seeding a clinic from cloud data is a **manual** step: take the dump and share
+> the file. `pull-openmrs-db.sh`, which SSHed to the hub to dump and download,
+> was removed on 2026-09-14 — see the note below.
 
 **Recovery** — `fix-offsets.sh`, `restart-connectors.sh`.
 
@@ -68,3 +77,24 @@ table plus publication membership in both Postgres databases).
   `debezium/{local,cloud}/connectors/generated/`. Templates are tracked, output
   is not: a rendered config carries a live password, so it must never be
   committed. Regenerate rather than copy.
+
+## No SSH lives here
+
+This directory contains **nothing that reaches another machine**, and it should
+stay that way. A clinic node talks to `localhost`; it reaches the hub over
+Kafka, never a shell. Under L-007 that transport is meant to be mTLS with
+per-site ACLs confining each site to its own topics, so a shell from every
+clinic to the hub is far wider access than the architecture grants — and this
+repo is public.
+
+Removed on 2026-09-14, when `git grep` found SSH in exactly three files and the
+resolved compose config referenced it zero times:
+
+| Was | Now |
+|---|---|
+| `preflight.sh`'s three-node fan-out, with the hub's hostname and a path to one developer's private key | operator wrapper in the Bahmni workspace repo; the checks stayed here, node-local |
+| `skills/capacity-preflight.sh` (whole `skills/` dir) | moved to the Bahmni workspace repo — operator tooling |
+| `pull-openmrs-db.sh` | dropped; dumps are taken and shared manually |
+
+If you are about to add a script that SSHes somewhere, it belongs in the
+operator's repo, not this one.
