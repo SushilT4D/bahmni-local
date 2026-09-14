@@ -14,6 +14,8 @@ OUTPUT="${PROJECT_DIR}/config/mirrormaker/mm2.properties"
 LEGACY_TEMPLATE="${PROJECT_DIR}/debezium/local/mirrormaker-config/mm2.properties.template"
 LEGACY_OUTPUT="${PROJECT_DIR}/debezium/local/mirrormaker-config/mm2.properties"
 TABLES_CONF="${PROJECT_DIR}/debezium/local/tables.conf"
+DOWN_TABLES_CONF="${PROJECT_DIR}/debezium/cloud/tables.conf"
+SUBSYSTEMS_CONF="${PROJECT_DIR}/debezium/subsystems.conf"
 
 echo "Setting up MirrorMaker configuration..."
 
@@ -68,27 +70,76 @@ echo "✓ MIRRORMAKER_CONSUMER_GROUP_ID=${MIRRORMAKER_CONSUMER_GROUP_ID}"
 echo "✓ MIRRORMAKER_CLUSTER_GROUP_ID=${MIRRORMAKER_CLUSTER_GROUP_ID}"
 echo "✓ cloud secrets left as \${REMOTE_KAFKA_*} placeholders (runtime inject)"
 
-# Optional: topic patterns from tables.conf
+# ---------------------------------------------------------------------------
+# Topic patterns.  BOTH directions are generated here.
+#
+# Before 2026-09-14 only the UP pattern was built, and only from
+# debezium/local/tables.conf -- OpenMRS tables.  The DOWN pattern was a literal
+# in the template.  Both omitted every Odoo and OpenELIS topic, so regenerating
+# mm2.properties silently dropped two whole subsystems from replication.  The
+# subsystem topics now come from debezium/subsystems.conf, which is the tracked
+# source of truth for them.
+#
+# Ordering is deliberate and matches the rendered file this replaced:
+# aggregates first, then OpenMRS, then per-table subsystem topics.
+# ---------------------------------------------------------------------------
 SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
-if [[ -z "${KAFKA_TOPIC_PATTERNS:-}" && -f "${TABLES_CONF}" ]]; then
-  topics=()
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// }" ]] && continue
-    if [[ "$line" =~ ^([^:]+):(.+)$ ]]; then
+REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
+
+# build_topic_pattern <server-name> <openmrs-tables.conf>
+# Emits a MirrorMaker topics regex.  Dots are escaped for the regex, so a topic
+# name is matched literally rather than "." matching any character.
+build_topic_pattern() {
+  local sn="$1" tconf="$2"
+  local aggs=() omrs=() subs=() line schema topic table
+
+  if [[ -f "${SUBSYSTEMS_CONF}" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line// }" ]] && continue
+      [[ "$line" =~ ^([^:]+):(.+)$ ]] || continue
+      schema="${BASH_REMATCH[1]}"; topic="${BASH_REMATCH[2]}"
+      if [[ "${topic}" == "all" ]]; then
+        aggs+=("${sn}\\.${schema}\\.${topic}")
+      else
+        subs+=("${sn}\\.${schema}\\.${topic}")
+      fi
+    done < "${SUBSYSTEMS_CONF}"
+  fi
+
+  if [[ -f "${tconf}" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line// }" ]] && continue
+      [[ "$line" =~ ^([^:]+):(.+)$ ]] || continue
       table="${BASH_REMATCH[1]}"
-      topics+=("${SERVER_NAME}\\.${DATABASE_NAME}\\.${table}")
-    fi
-  done < "${TABLES_CONF}"
-  if [[ ${#topics[@]} -gt 0 ]]; then
-    export KAFKA_TOPIC_PATTERNS="($(IFS='|'; echo "${topics[*]}"))"
-    echo "✓ Generated topic pattern from tables.conf: ${KAFKA_TOPIC_PATTERNS}"
+      omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")
+    done < "${tconf}"
+  fi
+
+  local all=("${aggs[@]}" "${omrs[@]}" "${subs[@]}")
+  (( ${#all[@]} > 0 )) || return 1
+  printf '(%s)' "$(IFS='|'; echo "${all[*]}")"
+}
+
+if [[ -z "${KAFKA_TOPIC_PATTERNS:-}" ]]; then
+  if KAFKA_TOPIC_PATTERNS="$(build_topic_pattern "${SERVER_NAME}" "${TABLES_CONF}")"; then
+    export KAFKA_TOPIC_PATTERNS
+    echo "✓ UP   topics ($(grep -o '|' <<<"${KAFKA_TOPIC_PATTERNS}" | wc -l | tr -d ' ') separators): ${SERVER_NAME}.*"
   fi
 fi
 
+if [[ -z "${KAFKA_DOWN_TOPIC_PATTERNS:-}" ]]; then
+  if KAFKA_DOWN_TOPIC_PATTERNS="$(build_topic_pattern "${REMOTE_SERVER_NAME}" "${DOWN_TABLES_CONF}")"; then
+    export KAFKA_DOWN_TOPIC_PATTERNS
+    echo "✓ DOWN topics ($(grep -o '|' <<<"${KAFKA_DOWN_TOPIC_PATTERNS}" | wc -l | tr -d ' ') separators): ${REMOTE_SERVER_NAME}.*"
+  fi
+fi
+export REMOTE_SERVER_NAME
+
 # Omit cloud credential vars so placeholders remain for start-mm2.sh.
-SUBST_VARS='${LOCAL_CLUSTER_ALIAS} ${KAFKA_TOPIC_PATTERNS} ${BHS_LOCATION} ${MIRRORMAKER_CONSUMER_GROUP_ID} ${MIRRORMAKER_CLUSTER_GROUP_ID} ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}'
+SUBST_VARS='${LOCAL_CLUSTER_ALIAS} ${KAFKA_TOPIC_PATTERNS} ${KAFKA_DOWN_TOPIC_PATTERNS} ${BHS_LOCATION} ${MIRRORMAKER_CONSUMER_GROUP_ID} ${MIRRORMAKER_CLUSTER_GROUP_ID} ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}'
 
 envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${OUTPUT}"
 echo "✓ Generated: ${OUTPUT}"
