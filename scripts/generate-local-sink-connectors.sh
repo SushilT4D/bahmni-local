@@ -67,14 +67,28 @@ done < "$TABLES_CONF"
 # CLOUD-owned table an up-direction sink. Same rule, other direction: a table the
 # CLINIC authors must never get a down-direction sink.
 #
-# Why this is worse than a plain ownership violation. The clinic captures its own
-# tables, and these sinks write straight to MySQL with no sql_log_bin guard, so a
-# sink write re-enters the clinic binlog, ships up to the cloud, is applied there,
-# and — because the table would now be in BOTH capture lists — comes straight back
-# down. That is an unbounded loop, and unlike clinlims on Postgres there is no
-# publication row filter on MySQL to break it. One line added to the wrong
-# tables.conf is all it takes, so the check runs BEFORE any file is written.
-if [[ -f "$UP_TABLES_CONF" ]]; then
+# Why this mattered. The clinic captures its own tables, so a sink write that lands
+# in the clinic binlog ships up to the cloud, is applied there, and — because the
+# table is in BOTH capture lists — comes straight back down. Unbounded, and unlike
+# clinlims on Postgres there is no publication row filter on MySQL to break it.
+#
+# NARROWED 2026-09-14. That hazard is closed when the sink writes with
+# sessionVariables=sql_log_bin=0 (the engine-native loop guard that replaced the
+# sync_origin marker fleet-wide on 2026-09-09): the write never enters the binlog,
+# so it cannot loop. The template has carried that setting since, and the nine
+# mysql-local-sink-* connectors registered on both clinics all use it — including
+# person and person_name, which this check was refusing to generate even though the
+# running fleet has run them safely for days.
+#
+# An unconditional refusal here also enforces PER-TABLE ownership, which is the
+# superseded L-001. The live invariant is L-008: a table MAY be written by more than
+# one node provided no two nodes write the same row, which is what the residue and
+# base_id striding guarantee for person/person_name.
+#
+# So: still refuse — loudly, before writing anything — but only when the sink would
+# genuinely go out without the guard. If the template ever loses sql_log_bin=0 this
+# reverts to the old absolute behaviour, which is the safe direction to fail in.
+if [[ -f "$UP_TABLES_CONF" ]] && ! grep -q 'sql_log_bin=0' "$TEMPLATE"; then
     for t in "${TABLES[@]}"; do
         if grep -qE "^[[:space:]]*${t}:" "$UP_TABLES_CONF"; then
             {
