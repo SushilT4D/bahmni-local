@@ -53,6 +53,10 @@ ENVIRONMENT_KEYS = {
     "connection.password",
     # embeds MYSQL_SERVER_NAME / database name, which vary per clinic
     "transforms.dropPrefix.regex",
+    # since 2026-09-14 the hub serves several clinics, so the topic carries the
+    # clinic's MirrorMaker alias and server name; generator_rules() checks its
+    # SHAPE instead.
+    "topics",
 }
 
 _PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
@@ -95,6 +99,29 @@ def generator_rules(cfg, database_name):
         errs.append("missing BL-039 connection.restart.on.errors")
     if not cfg.get("primary.key.fields"):
         errs.append("empty primary.key.fields")
+
+    # L-010 is BLOCKING, and stated here rather than left to the known-good diff
+    # so the failure names the invariant instead of reporting a shape mismatch.
+    # The sync key must be collision-free BY CONSTRUCTION: under v1 that is the
+    # strided integer PK carried in the Kafka record KEY. record_value keys the
+    # upsert on a value field, which striding does not protect. This generator
+    # emitted record_value until 2026-09-14 while every live sink ran record_key.
+    pkm = cfg.get("primary.key.mode")
+    if pkm != "record_key":
+        errs.append(
+            f"L-010 BLOCKING: primary.key.mode is {pkm!r}, must be 'record_key' "
+            "(the strided integer PK, not a value field)"
+        )
+
+    # A per-clinic sink must carry a clinic-distinguishing topic. Two clinics
+    # sharing one connector name is how the hub lost clinic 2's configs: the
+    # second registration PUT over the first.
+    topics = cfg.get("topics", "")
+    if topics and topics.count(".") < 3:
+        errs.append(
+            f"topics {topics!r} is not <mm_prefix>.<server_name>.<database>.<table> "
+            "-- a sink that does not name its clinic cannot be one of several"
+        )
     return errs
 
 
