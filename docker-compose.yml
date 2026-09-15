@@ -1,6 +1,22 @@
 
 x-default-logging: &default
-  {}
+  # Was literally `{}`, which merged nothing into x-log-config below, so all 14
+  # services inheriting *log-config ran json-file with NO rotation:
+  # HostConfig.LogConfig read driver=json-file opts=map[] on every one.
+  #
+  # On 2026-09-15 that had filled Rawach to 95% of its 58 GB VM disk --
+  # /var/lib/docker/containers alone held 21.1 GB, of which odoo-connect was
+  # 13.9 GB and mirrormaker-connect 5.8 GB in a single unrotated json.log each.
+  # The node was under the 5 GB preflight floor (F-022) because of log files.
+  #
+  # 50m x 3 bounds each container at 150 MB, so 14 services cannot exceed ~2 GB.
+  # NOTE: log options are fixed at container CREATION -- existing containers keep
+  # their unbounded config until recreated. Truncating the json.log reclaims the
+  # space meanwhile and is safe while the container runs.
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 x-loki-logging: &loki
   driver: loki

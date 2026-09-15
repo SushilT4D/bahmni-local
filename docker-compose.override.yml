@@ -1,13 +1,39 @@
 # Host-side deviations for the MacBook hospital node (authored by us, NOT Sushil's file).
 # Compose auto-merges docker-compose.override.yml. `!override` REPLACES the list —
 # a plain merge would append and keep his original binding.
+x-rotate-logs: &rotate
+  # Rotation for the services that inherit NO logging config from the base file.
+  # These are the ones that actually filled the disk: on 2026-09-15 odoo-connect
+  # held a single 13.9 GB json.log and mirrormaker-connect 5.8 GB, together most
+  # of the 21.1 GB in /var/lib/docker/containers that had taken Rawach to 95% of
+  # its 58 GB VM disk and under the F-022 floor.
+  #
+  # The base file defines x-log-config, but its x-default-logging was `{}` so it
+  # merged nothing, and these services never referenced it anyway. A YAML anchor
+  # is file-scoped and odoo-connect/odoodb exist ONLY here, so it is redeclared.
+  #
+  # Log options are fixed at container CREATION: existing containers keep their
+  # unbounded config until recreated. Truncating the json.log reclaims the space
+  # meanwhile and is safe on a running container.
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
+  # Rotation only: defined in the base file, bounded here.
+  atomfeed-console:
+    logging: *rotate
+  kafka-controller:
+    logging: *rotate
   # 8081 is taken by our proxy (BAHMNI_PROXY_HTTP_PORT); 8082 is free on this Mac.
   schema-registry:
+    logging: *rotate
     ports: !override
       - '127.0.0.1:8082:8081'
   # Keep the sync layer loopback-only: nothing here should be on the LAN.
   kafka-connect:
+    logging: *rotate
     ports: !override
       - '127.0.0.1:8083:8083'
     # Replication-origin loop guard, clinic half (sync-core F-042 follow-on, 2026-09-09):
@@ -28,12 +54,15 @@ services:
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-4.0.22.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-4.0.22.jar:ro'
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-3.2.4.Final.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-3.2.4.Final.jar:ro'
   mirrormaker-connect:
+    logging: *rotate
     ports: !override
       - '127.0.0.1:8084:8083'
   kafka:
+    logging: *rotate
     ports: !override
       - '127.0.0.1:9092:9092'
   kafka-ui:
+    logging: *rotate
     ports: !override
       - '127.0.0.1:8086:8080'
 
@@ -222,6 +251,7 @@ services:
   # (they run emulated). Same disease as bahmni/odoo-16 and mysql:5.6.
   # ==========================================================================
   odoodb:
+    logging: *rotate
     # The 2026-09-04 cut-over moved the ODOO APPLICATION to bahmni-postgres, but it did NOT
     # move odoo-connect: the atomfeed service still keeps its bookkeeping here (markers,
     # event_records, event_records_offset_marker, failed_events) and holds ~9 live JDBC
@@ -277,6 +307,7 @@ services:
     restart: ${RESTART_POLICY}
 
   odoo-connect:
+    logging: *rotate
     profiles: ["odoo","local"]
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
     platform: linux/amd64
