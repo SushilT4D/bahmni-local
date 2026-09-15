@@ -21,7 +21,6 @@ debezium/cloud/connectors/generated/
 # The live override carries three literal passwords (POSTGRES_PASSWORD,
 # OPENELIS_DB_PASSWORD, OPENMRS_ATOMFEED_PASSWORD) and this remote is PUBLIC.
 # The committed .example beside it enumerates every key with ${VAR} placeholders.
-debezium/cloud/docker-compose.override.yml
 # Hand-rolled version control from before this repo was used properly.
 *.bak-*
 # 10 MB OpenELIS seed dump (carries credential hashes) and 54 MB of built
