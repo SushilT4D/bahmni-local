@@ -159,6 +159,20 @@ services:
   # interpolate ${OPENELIS_HOST}/${OPENELIS_PORT} — could only ever render
   # "http://:/" no matter what .env said. That is the real shape of BL-048.
   openmrs:
+    # F-050 / BL-014. This container had NO memory limit and grew to 5.7 GB of
+    # ANONYMOUS memory on Rawach in one day -- cgroup memory.stat read anon 5715
+    # MiB against only 7 MiB of file cache -- while OMRS_JAVA_MEMORY_OPTS caps the
+    # heap at 2048m and metaspace at 512m. So roughly 3 GB sits OUTSIDE the heap,
+    # where the heap cap cannot reach it. The VM was left with 168 MB available
+    # and swap fully consumed, which is how the hub's OpenMRS died for three days
+    # (BL-069): unbounded, so the kernel took the container rather than the
+    # container failing itself.
+    #
+    # PER NODE, and required: Ghated runs the same image and heap settings at
+    # 2.8 GB after FIVE days, so this is not a general leak -- it tracks database
+    # size. A shared literal would either kill the larger node on sight or fail to
+    # bound the smaller one. Rawach 6g, Ghated 4g, both above measured usage.
+    mem_limit: ${OPENMRS_MEM_LIMIT:?}
     environment:
       OPENELIS_HOST: ${OPENELIS_HOST}
       OPENELIS_PORT: ${OPENELIS_PORT}
