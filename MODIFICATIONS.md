@@ -4,6 +4,28 @@ Goal was to run Sushil's stack **unmodified**. Two things made that impossible, 
 everything else here is host-specific configuration. This file is the complete list —
 review it against Sushil's real setup when he sends his `.env`.
 
+> **How to read this file (added 2026-09-15).** This is the journal of every deviation from
+> upstream, in the order it happened, and nothing below has been rewritten to look current.
+> Three things changed after most of it was written, so read it with these in hand:
+>
+> 1. **Paths.** On 2026-09-15 (Stage 4, sync-core F-067) the tree became `clinic/`, `cloud/`,
+>    `sync/`. Every path below is as it was when written; the map is: repo-root files and
+>    `scripts/`, `config/`, `connectors/`, `odoo/`, `openelis/`, `openmrs/`, `proxy/` → under
+>    `clinic/`; `debezium/cloud/` → `cloud/`; `debezium/local/`, `debezium/subsystems.conf`
+>    and `clinics.txt` → `sync/`. Each node runs compose from `clinic/` or `cloud/` with its
+>    own gitignored `.env` there; `.env.example` next to it is the contract.
+> 2. **Branch.** One branch for every node, `feat/bahmni-kraft` (renamed from
+>    `feat/bahmni-clinic-kraft` on 2026-09-15). `node/cloud`, `node/ghated` and
+>    `feat/bahmni-clinic-kraft` are kept on origin for reference only.
+> 3. **Superseded entries are marked in place** with a `⟶ SUPERSEDED` or `⟶ RESOLVED` note
+>    and a pointer, never deleted. The most consequential: the ADR-003 origin guard
+>    (`sync_origin`, triggers, the `filterOrigin` SMT) documented near the end was **retired
+>    fleet-wide on 2026-09-09** (sync-core F-049/F-051) — no node carries custom schema now.
+>
+> The current record of *why* things are the way they are lives in `git log`, the
+> `//`-comment blocks inside the connector generators, and the sync-core ledger
+> (`docs/sync-core/open-followups.md`, rows F-001…F-067, in the Bahmni workspace repo).
+
 ## A. Forced changes to tracked files (1)
 
 ### A1. `docker-compose.yml` — the committed file does not parse
@@ -45,6 +67,9 @@ diff docker-compose.yml.orig docker-compose.yml
 the compose. Each line is tagged `[OK] / [GUESS] / [LOCAL] / [OFF]` — the `[GUESS]` ones are
 what to replace from Sushil's real file. **There is no `.env.example` upstream (BL-025).**
 
+> ⟶ RESOLVED 2026-09-14: `clinic/.env.example` (188 variables, every secret blanked, the quoting
+> contract in its header) and `cloud/.env.example` now exist and are tracked (AL-010).
+
 ### B2. `certs/cert.pem` + `certs/key.pem`
 Self-signed (`CN=bahmni.local`), because `proxy` mounts `${CERTIFICATE_PATH}:/etc/tls:ro` and
 `bahmni-nginx.conf` requires `cert.pem`/`key.pem`. Sushil's `scripts/config.sh` uses `mkcert`.
@@ -62,6 +87,9 @@ create them root-owned.
 | `CONTAINER_DATA_PATH` | (BHS path) | repo root | the compose expects `htdocs/` + `bahmni_config/` directly under it |
 | Odoo Postgres port | 5432 | **not started** | host Postgres already owns 5432 — must remap before starting the `odoo` profile |
 
+> ⟶ SUPERSEDED: Odoo runs on `bahmni-postgres` (published 127.0.0.1:5433) since 2026-08-20, PG 16
+> since 2026-09-09; the `odoodb` container survives only as odoo-connect's marker store (F-065).
+
 ## D. Tooling differences (no file changes)
 
 - **Docker instead of Podman.** `proxy/build.sh` and `systemdate/build.sh` call `podman build`.
@@ -73,6 +101,12 @@ create them root-owned.
   to it. **Sushil may build a different image — confirm.**
 
 ## E. Deliberately NOT started
+
+> ⟶ SUPERSEDED. Since 2026-09-15 both lab clinics run exactly three profiles —
+> `--profile local --profile debezium --profile openelis` — which reproduces the 21 running
+> services; `unused`, `restore`, `cdss`, `snowstorm-lite` and `bahmni-mart` do not run. The
+> `debezium` profile points at the Mac mini hub (`samyogas-mac-mini.tailca2651.ts.net:9092`),
+> never at production. What follows is the 2026-08-18 state.
 
 - **`debezium` profile.** `mm2.properties` points `remote.bootstrap.servers` at
   **`hmis.bhs.org.in:9092` — BHS production**. Starting it unmodified would replicate from this
@@ -87,6 +121,13 @@ create them root-owned.
 4. What is `ODOO_DB_IMAGE_NAME`? `bahmni/odoo-db-16:1.0.0` isn't public.
 5. Do you build OpenMRS via `openmrs/build.sh`, or pull the IPLIT image directly?
 
+> ⟶ Status 2026-09-15: (1) the hub's `.env` is Sushil's real cloud file, sanitised into
+> `cloud/.env.example`; the clinic file is still ours. (2) Still unknown. (3) The hub runs
+> `infoiplitin/clinic-config-indiadistro:bhs-0.0.19`; the clinics still carry the guess.
+> (4) `bahmni/odoo-10-db:demo-latest` runs as `odoodb`, and Odoo itself is Odoo 10 on
+> `bahmni-postgres`. (5) Pulled directly — `infoiplitin/openmrs:iplit-1.0.0-662-4` on every lab
+> node, while staging moved to `iplit-1.2.0-1200-03` (sync-core F-057, an L-005 trigger).
+
 ## F. D-phase additions (2026-08-18 evening — hospital sync side)
 
 | # | What | Why |
@@ -100,6 +141,13 @@ create them root-owned.
 | F7 | **PK striding APPLIED**: increment=10 offset=1, 11 tables re-seeded (person→230001, visit→625001, encounter→528001 …) via his script | BL-004's mechanism, now in force; clinics.txt authored (h1:1) |
 | F8 | Debezium MySQL user `debezium` created (REPLICATION SLAVE/CLIENT etc.) | source connector prerequisite |
 | F9 | Docker Desktop VM 8092→12288 MiB | debezium profile adds ~5 JVMs |
+
+> ⟶ Notes 2026-09-15 on the table above: F1's alias `source` is now `${LOCAL_CLUSTER_ALIAS}` in
+> `sync/local/mirrormaker-config/mm2.properties.template`, rendered per node into the gitignored
+> `clinic/config/mirrormaker/mm2.properties` (both directions' topic patterns generated). F7's
+> `offset=1` was a defect: Rawach's allocation is **4** (`sync/clinics.txt` carried `h1:1` until
+> 2026-09-14 while the server ran 4). F6's podman shim is still what
+> `clinic/scripts/configure-pk-offsets.sh` needs on a Docker host.
 
 ## ADDED (not in Sushil's repo): `scripts/check-sink-tasks.sh`
 
@@ -117,6 +165,10 @@ that a task with nothing to write cannot prove its connection is alive.
 This is an **addition**, not an edit — `check-sink-connectors.sh` is untouched.
 
 ## MODIFIED: `debezium/cloud/connectors/mysql-sink-connector.json.template`
+
+> ⟶ SUPERSEDED 2026-09-14: the template is retired to a pointer; `cloud/connectors/known-good.json`
+> (refreshed from the live hub, 36 settings) is the authoritative shape, `cloud/scripts/validate-sink-config.py`
+> diffs every generated config against it, and the generator serves every clinic in `cloud/clinics.conf`.
 
 **Date:** 2026-08-20 · **Reason:** BL-039
 
@@ -298,6 +350,11 @@ script, so the leak is gone locally, but it is present in any stock deployment.
 
 ## ADDED: bidirectional clinlims CDC sync (Module 28 §9) — 2026-08-21
 
+> ⟶ Notes: S1's PG 15 became PG 16 on all three nodes on 2026-09-09 (side-by-side upgrade). S3's
+> row-filtered publication and the origin guard it fed were retired on 2026-09-09 (F-049/F-051):
+> last arrival wins, no sink exclusions, no custom schema on any node. The topics are the ordered
+> per-subsystem `<prefix>.<schema>.all` since 2026-09-10 (ADR-004).
+
 Builds on the OpenELIS-at-clinic section above. Both nodes now sync lab data both ways.
 
 | # | What | Why |
@@ -359,6 +416,10 @@ reporting on every task; `register-local-sink-connectors.sh` strips the port fro
 mid-loop `exit 1`; the up sink shape is defined twice (heredoc + template) — the exact
 split that caused the 2026-08-27 six-sink failure; and `start-mm2.sh` leaves SASL
 credentials in `/tmp/mm2-runtime.properties` with default permissions.
+
+> ⟶ Status 2026-09-15: the cloud sink generator was rewritten on 2026-09-14 and reproduces the
+> live configs byte-for-byte (24/24), `record_key` enforced as L-010 by the validator; the
+> heredoc/template double definition is gone (template retired). The rest of the list is open.
 
 ## MODIFIED: BL-039 durable fix — idle no longer kills sink tasks — 2026-08-28
 
@@ -422,6 +483,11 @@ generator and both templates record this so nobody tries it again.
 35 on the clinic). Those connections are no longer reaped at 8h, so the failure is prevented
 rather than merely made rarer — but the pool is not shrinking, and the only thing standing
 between us and a repeat is the server-side timeout.
+
+> ⟶ SUPERSEDED 2026-09-02 (F-013): the lever is `max_size`, not `min_size` —
+> `min_size=1`, `max_size=2`, `acquire_increment=1` bound the pool at 48 connections for 25 hub
+> sinks, all RUNNING. And the four `hibernate.c3p0.*` keys (F-007, below) are the client-side
+> defence that actually holds; `connection.pool.timeout` is inert.
 
 ### Layer 2 MEASURED — it does nothing
 
@@ -509,6 +575,15 @@ constraint is untouched — but the override it is mounted from remains untracke
 
 ## ADDED: ADR-003 origin guard + three-node relay — 2026-08-31
 
+> ⟶ **SUPERSEDED 2026-09-09 (sync-core F-049 / F-051).** Everything in this section that
+> touches schema or filtering was retired fleet-wide: the `sync_origin` column and its
+> triggers are dropped on every node, the `filterOrigin` SMT and the echo-dropping sink filters
+> are gone, and conflict resolution is last-arrival-wins with no sink exclusions. The retirement
+> scripts are `clinic/openmrs/retire-mysql-origin-guard.sh`, `clinic/odoo/retire-write-origin-guard.sql`
+> and `clinic/openelis/retire-write-origin-guard.sql`. What survives from this entry is the
+> three-node relay itself (ADR-003 §7's asymmetry: spokes publish their own writes, the hub
+> publishes everything) and Ghated's membership. Read the rest as the record of what was tried.
+
 **The lab is deliberately left in this state.** It differs from a stock clinic node; do not
 assume the repo describes what is running.
 
@@ -564,6 +639,10 @@ created after the change, which is the only reason it had it).
 Applied live with `SET GLOBAL` on Rawach and the cloud. Durable only after
 `up -d --force-recreate bahmni-mysql`, which has NOT been done (it takes the clinic down).
 
+> ⟶ RESOLVED 2026-09-15: every clinic container was recreated by the Stage 4 cutover, and the
+> preflight now reads `mysql wait_timeout 604800` on all three nodes from `Config.Cmd`, not from
+> `SET GLOBAL`.
+
 ### 2. `connection.pool.timeout` is inert — confirmed from the bytecode, not inferred
 
 The 2026-08-28 note called it "MEASURED INERT" from connection ages. That was right, and here is why.
@@ -609,6 +688,9 @@ every dashboard was green while sync was dead for 13 hours. This remains the hig
 ADR-003 phase 0.
 
 ## FIXED: F-019 — the MySQL origin filter permitted NULL, same as the loop that fired — 2026-09-02
+
+> ⟶ SUPERSEDED 2026-09-09: the origin filter this entry fixes no longer exists (see the note on
+> the ADR-003 entry above). Kept as the record of why NULL-permitting filters loop.
 
 The source filter read `return o == null || o == '<node>'`. With every node permitting NULL on both
 the publish and the accept side, an unstamped row is published by everyone and accepted by everyone.
@@ -663,3 +745,17 @@ created at Ghated reached the cloud in **10 s**. No flood.
 recovery mode"*: editing this override and running `docker-compose --profile odoo up -d` restarted
 `bahmni-postgres`, and the connector did not recover on its own. Restarted by hand. **Editing the
 override restarts dependent services** — and nothing alarms when a task dies (F-008).
+
+## 2026-09-14 → 15 — one branch, one layout, and the hub outage
+
+Recorded in the sync-core ledger rather than here; this is the index.
+
+| What | Where |
+|---|---|
+| Every per-node value moved into `.env` (residue, server id, volume names, memory limit, MirrorMaker alias, topic patterns); `clinics.txt` and `clinics.conf` ledgers; `subsystems.conf` as the tracked source of the Odoo/OpenELIS topic lists; the MirrorMaker template regenerates faithfully on both clinics (AL-021, AL-022) | commits of 2026-09-14 on `feat/bahmni-kraft`; sync-core F-057…F-063 |
+| Cloud sink generator rewritten: clinics × tables, `record_key` (L-010) enforced by `cloud/scripts/validate-sink-config.py` against `cloud/connectors/known-good.json`, `delete.enabled`, 24/24 byte-identical to the live hub | `cloud/scripts/generate-sink-connectors.sh` |
+| Log rotation actually in effect (`x-default-logging` was `{}`), odoo-connect's root-DEBUG logback replaced (`clinic/odoo/logback-erp-connect.xml`) | `fa26d5c` |
+| odoo-connect: the image ships Spring 6 with HttpClient 4 only; three HttpClient 5 jars bind-mounted from `clinic/odoo/erp-connect-lib/` (SHA-1 verified), preflight probe added | `373f9f3`, sync-core F-064; F-065 for the exhausted `failed_events` |
+| Hub disk full, broker dead 07:21Z: `bahmni-cloud.odoo.all` grown to 8 GB by the relay of Rawach's odoo-connect replay; recovered with Connect stopped, `retention.bytes=2 GiB` via the internal listener `kafka:29092`, log caps in effect on every hub container. Rawach's `odoo-connect` is deliberately STOPPED until the replay decision | sync-core F-066 |
+| Stage 4: `debezium/cloud/` → `cloud/` (`18b8e94`, `43d7f31`), clinic tree → `clinic/` and `debezium/` + `clinics.txt` → `sync/` (`d386445`); all three nodes recreated from the new directories; `COMPOSE_PROJECT_NAME` is now a per-node `.env` value; ten absolute path keys in `.env` must move with the tree | sync-core F-067, `README.md` |
+| Branch renamed `feat/bahmni-clinic-kraft` → `feat/bahmni-kraft`; old branches kept; exited `zookeeper` orphans removed on all nodes | sync-core F-067 |
