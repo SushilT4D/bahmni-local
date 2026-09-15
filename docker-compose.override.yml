@@ -308,6 +308,14 @@ services:
 
   odoo-connect:
     logging: *rotate
+    # Silences the image's root-DEBUG logback, whose CONSOLE appender has no
+    # rolling policy and so writes straight into the container's json.log. With
+    # org.apache.http.wire at DEBUG that is every HTTP header of every ATOM feed
+    # poll: 3,857 MB in about three hours on Rawach, the largest single consumer
+    # of a 58 GB VM disk, twice in one day. Rotation bounds the damage; this
+    # bounds the cause.
+    volumes:
+      - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
     profiles: ["odoo","local"]
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
     platform: linux/amd64
