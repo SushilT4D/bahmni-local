@@ -1,25 +1,19 @@
 {
-  "name": "mysql-sink-${TABLE}",
-  "config": {
-    "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
-    "tasks.max": "1",
-    "topics": "${KAFKA_TOPICS}",
-    "connection.url": "jdbc:mysql://${REMOTE_MYSQL_HOST}:${REMOTE_MYSQL_PORT}/${REMOTE_MYSQL_DATABASE}?useSSL=${REMOTE_MYSQL_USE_SSL}&allowPublicKeyRetrieval=true",
-    "connection.username": "${REMOTE_MYSQL_USER}",
-    "connection.password": "${REMOTE_MYSQL_PASSWORD}",
-    "table.name": "${REMOTE_TABLE_NAME_FORMAT}",
-    "insert.mode": "upsert",
-    "primary.key.mode": "record_key",
-    "auto.create": "true",
-    "auto.evolve": "true",
-    "delete.enabled": "true",
-    "errors.tolerance": "none",
-    "errors.log.enable": "true",
-    "errors.log.include.messages": "true",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "false",
-    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "key.converter.schemas.enable": "false"
-  }
+  "//RETIRED": "2026-09-15. NOTHING READS THIS FILE. Verified on both nodes: the",
+  "//RETIRED2": "only mention anywhere is prose in MODIFICATIONS.md recording edits",
+  "//RETIRED3": "made to it on 2026-08-20 and 2026-09-02.",
+  "//WHY": "That is BL-039 exactly. The retry block was added HERE while",
+  "//WHY2": "generate-sink-connectors.sh writes its own inline JSON and never reads a",
+  "//WHY3": "template -- so six cloud sinks were found FAILED a week after the 'fix'.",
+  "//DRIFT": "Being unread, it drifted into two different stale shapes: the clinic",
+  "//DRIFT2": "branch carried the BL-039/c3p0/pool hardening with the SUPERSEDED",
+  "//DRIFT3": "primary.key.mode=record_value and delete.enabled=false, while the hub",
+  "//DRIFT4": "branch carried the correct record_key and delete.enabled=true with none",
+  "//DRIFT5": "of the hardening. Neither matched the 24 sinks actually running.",
+  "//AUTHORITY": "The shape of a sink is connectors/known-good.json, which is",
+  "//AUTHORITY2": "refreshed from the live hub and enforced by scripts/validate-sink-config.py",
+  "//AUTHORITY3": "on every generated config. The generator is scripts/generate-sink-connectors.sh.",
+  "//AUTHORITY4": "Change those. Adding keys here changes nothing that runs.",
+  "//KEPT": "Kept rather than deleted because MODIFICATIONS.md cites this path as the",
+  "//KEPT2": "target of two dated changes; the path resolving is the point."
 }
-

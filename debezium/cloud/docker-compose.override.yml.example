@@ -1,3 +1,16 @@
+# SANITISED 2026-09-15. This file shipped THREE literal passwords and an absolute
+# path into a PUBLIC repo from its first commit (9a55e03). The values did not
+# match the hub's live credentials when checked, so they were stale rather than
+# current -- but an .example is the one file guaranteed to be read by someone
+# setting up a new node, and it is the last place a real-looking secret belongs.
+#
+# Every credential here is now ${VAR:?}: unset means the stack refuses to start,
+# rather than silently coming up on an example password. The host path is
+# ${CONTAINER_DATA_PATH:?} for the same reason -- an absolute path from one
+# machine is another node's identity waiting to be inherited (AL-022).
+#
+# Real values go in .env, which is gitignored. See .env.example for the full list.
+
 
 # ============================================================================
 # TRAP, found 2026-09-02: NEVER put a "#" comment INSIDE a folded block scalar.
@@ -87,7 +100,7 @@ services:
     # host dir there would shadow the addons shipped inside the image.
     volumes: !override
       - 'odooappdata:/var/lib/odoo'
-      - '/Users/samyoga/Documents/Claude/Projects/general/bahmni-local/.local-empty/extra-addons:/mnt/extra-addons'
+      - '${CONTAINER_DATA_PATH:?}/.local-empty/extra-addons:/mnt/extra-addons'
   odoo-connect:
     platform: linux/amd64
   atomfeed-console:
@@ -124,7 +137,7 @@ services:
       postgres -c wal_level=logical -c max_replication_slots=10 -c max_wal_senders=10
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${HUB_OPENELISDB_POSTGRES_PASSWORD:?}
       POSTGRES_DB: postgres
       TZ: Asia/Kolkata
     ports:
@@ -151,11 +164,11 @@ services:
       OPENELIS_DB_PORT: '5432'
       OPENELIS_DB_NAME: openelis
       OPENELIS_DB_USERNAME: clinlims
-      OPENELIS_DB_PASSWORD: \${OPENELIS_DB_PASSWORD}
+      OPENELIS_DB_PASSWORD: ${HUB_OPENELIS_DB_PASSWORD:?}
       OPENMRS_HOST: openmrs
       OPENMRS_PORT: '8080'
       OPENMRS_ATOMFEED_USER: superman
-      OPENMRS_ATOMFEED_PASSWORD: \${OPENMRS_ATOMFEED_PASSWORD}
+      OPENMRS_ATOMFEED_PASSWORD: ${HUB_OPENMRS_ATOMFEED_PASSWORD:?}
     depends_on:
       openelisdb:
         condition: service_healthy
