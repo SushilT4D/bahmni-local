@@ -316,6 +316,27 @@ services:
     # bounds the cause.
     volumes:
       - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
+      # Apache HttpClient 5, which the image needs and does not ship (sync-core
+      # F-064). openerp-client's XMLClient.setTimeout builds Spring 6's
+      # HttpComponentsClientHttpRequestFactory, compiled against HttpClient 5
+      # (org.apache.hc.*), while the WAR carries only HttpClient 4.5.13 -- so the
+      # call throws NoClassDefFoundError on EVERY Odoo XML-RPC request. Upstream
+      # swallows it (catch Throwable, log), so customers are still written: the
+      # cost is a 30-line stack trace per event -- 336 a minute on Rawach on
+      # 2026-09-15. These jars stop that; they do NOT restore the configured
+      # reply timeout, which was never applied and still is not: Spring 6.0's
+      # setReadTimeout on this factory is a no-op and logs "has no effect"
+      # once. A hung Odoo still stalls the feed worker. Versions are the ones Spring Boot
+      # 3.0.13's BOM manages for this spring-web (6.0.19); the SHA-1s in
+      # odoo/erp-connect-lib/SHA1SUMS match Maven Central. Still unfixed on
+      # upstream master as of 2026-03-04 (openerp-client/pom.xml declares
+      # httpclient 4 only), so this stays until an image ships the jars.
+      # A missing source file would make the engine create an empty DIRECTORY
+      # of that name inside WEB-INF/lib and the fix would silently not apply;
+      # scripts/preflight.sh checks the jar is a file and the error is gone.
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
     profiles: ["odoo","local"]
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
     platform: linux/amd64

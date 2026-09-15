@@ -140,6 +140,29 @@ bad=[k for k,v in d.items() if v['status']['connector']['state']!='RUNNING' or a
 case "$st" in *"not RUNNING: []") ok "$st";; *) bad "$st";; esac
 
 
+# --- odoo-connect -----------------------------------------------------------
+# The image lacks Apache HttpClient 5 and the compose override bind-mounts three
+# jars into its WEB-INF/lib (sync-core F-064). Two ways for that to silently
+# not apply: the source file missing, so the engine creates an empty DIRECTORY
+# of the jar's name; or a container recreated from an older override. Both
+# leave the error in the log, so the log is judged as well as the file. Only
+# when the container is running: the hub runs no odoo-connect (it receives
+# Odoo rows over CDC, never the atom feed) and says so rather than passing.
+OC=$(resolve "odoo-connect")
+if [ -n "$OC" ]; then
+  if "$CT" exec "$OC" sh -c 'test -f /run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar' 2>/dev/null; then
+    ok "odoo-connect has httpclient5 mounted as a file"
+  else
+    bad "odoo-connect httpclient5 jar is not a file in WEB-INF/lib -- mount missing, or an empty directory took its place (F-064)"
+  fi
+  ncdf=$("$CT" logs --tail 2000 "$OC" 2>&1 | grep -c 'NoClassDefFoundError: org/apache/hc/core5')
+  [ "${ncdf:-0}" -eq 0 ] \
+    && ok "odoo-connect: no HttpClient 5 NoClassDefFoundError in last 2000 lines" \
+    || bad "odoo-connect logged ${ncdf} HttpClient 5 NoClassDefFoundError(s) in last 2000 lines (F-064) -- recreate it from the current override"
+else
+  echo "  note odoo-connect not running on this node -- atom-feed consumer probes skipped (expected on the hub)"
+fi
+
 # --- checkout drift ---------------------------------------------------------
 # WHY. On 2026-09-15 the hub was found running a sink generator three weeks older
 # than the fixed copy sitting on the clinic branch, and nobody knew, because
