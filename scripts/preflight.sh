@@ -139,4 +139,67 @@ except Exception: print('connect-unreachable'); sys.exit()
 bad=[k for k,v in d.items() if v['status']['connector']['state']!='RUNNING' or any(t['state']!='RUNNING' for t in v['status']['tasks'])]; print(f'{len(d)} connectors; not RUNNING: {bad}')")
 case "$st" in *"not RUNNING: []") ok "$st";; *) bad "$st";; esac
 
+
+# --- checkout drift ---------------------------------------------------------
+# WHY. On 2026-09-15 the hub was found running a sink generator three weeks older
+# than the fixed copy sitting on the clinic branch, and nobody knew, because
+# nothing ever compared a node's checkout to its remote. Every other check here
+# asks whether the node is HEALTHY; this one asks whether it is running the code
+# we think it is.
+#
+# Deliberately does NOT fetch by default: this script is node-local and fast, and
+# the operator wrapper is the networked half. But an "up to date" computed from a
+# week-old remote-tracking ref is not evidence of anything, so the age of that
+# ref is checked too -- a stale reference FAILS rather than quietly passing.
+# Set PREFLIGHT_FETCH=yes to refresh it first.
+REF_MAX_AGE_H=${REF_MAX_AGE_H:-24}
+
+# Find the repo the way AL-023 says: ask a running container which directory its
+# compose project came from. Works regardless of how this script was invoked --
+# the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
+REPO=${PREFLIGHT_REPO:-}
+if [ -z "$REPO" ]; then
+  for c in $("$CT" ps --format '{{.Names}}' 2>/dev/null | head -5); do
+    wd=$("$CT" inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null)
+    [ -n "$wd" ] && [ -d "$wd" ] && { REPO="$wd"; break; }
+  done
+fi
+
+if [ -z "${REPO:-}" ] || ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
+  bad "checkout drift NOT MEASURED: no git repo found (set PREFLIGHT_REPO)"
+else
+  [ "${PREFLIGHT_FETCH:-no}" = "yes" ] && git -C "$REPO" fetch --quiet 2>/dev/null
+
+  dirty=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  [ "${dirty:-0}" -eq 0 ] \
+    && ok "working tree clean" \
+    || bad "working tree has ${dirty} uncommitted change(s) -- node config diverging off-repo"
+
+  if ! up=$(git -C "$REPO" rev-parse --abbrev-ref '@{u}' 2>/dev/null); then
+    # Not pedantry: the hub had no upstream, so from that node you could not tell
+    # whether your work was pushed or your checkout was stale. Drift is invisible.
+    bad "no upstream for $(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null) -- drift CANNOT be detected from this node"
+  else
+    ahead=$(git -C "$REPO" rev-list --count "${up}..HEAD" 2>/dev/null || echo 0)
+    behind=$(git -C "$REPO" rev-list --count "HEAD..${up}" 2>/dev/null || echo 0)
+
+    age_desc=""
+    gd=$(git -C "$REPO" rev-parse --git-dir 2>/dev/null)
+    ref_mtime=$(stat -f %m "${gd}/FETCH_HEAD" 2>/dev/null || stat -c %Y "${gd}/FETCH_HEAD" 2>/dev/null || echo 0)
+    age_h=$(( ( $(date +%s) - ${ref_mtime:-0} ) / 3600 ))
+
+    if [ "${ref_mtime:-0}" -eq 0 ]; then
+      bad "drift reference NEVER FETCHED -- ahead/behind below is NOT evidence; rerun with PREFLIGHT_FETCH=yes"
+      age_desc="never fetched"
+    elif [ "$age_h" -gt "$REF_MAX_AGE_H" ]; then
+      bad "drift reference is ${age_h}h old (max ${REF_MAX_AGE_H}h) -- ahead/behind below is NOT evidence; rerun with PREFLIGHT_FETCH=yes"
+    fi
+    [ "${behind:-0}" -eq 0 ] \
+      && ok "checkout current with ${up} (ref ${age_desc:-${age_h}h old})" \
+      || bad "checkout is ${behind} commit(s) BEHIND ${up} -- this node is running old code"
+    [ "${ahead:-0}" -eq 0 ] \
+      || bad "${ahead} commit(s) exist only on this node -- unpushed"
+  fi
+fi
+
 exit $rc
