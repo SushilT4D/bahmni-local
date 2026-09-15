@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from debezium/{local|cloud}/tables.conf.
+# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from debezium/local/tables.conf or cloud/tables.conf.
 #
 # Usage:
 #   ./scripts/generate-table-config.sh local
@@ -15,7 +15,7 @@ usage() {
 Usage: $(basename "$0") <local|cloud>
 
   local   Read debezium/local/tables.conf  (clinic → cloud CDC)
-  cloud   Read debezium/cloud/tables.conf  (cloud → clinic)
+  cloud   Read cloud/tables.conf           (cloud → clinic)
 
   --include-relay   Also emit tables marked `:relay` -- clinic-owned tables the
                     hub relays (ADR-003 s7). A CLINIC needs these, because they
@@ -35,7 +35,12 @@ case "${SIDE}" in
   *) usage; echo "Error: unknown side '${SIDE}' (use local or cloud)" >&2; exit 1 ;;
 esac
 
-TABLES_CONF="${PROJECT_DIR}/debezium/${SIDE}/tables.conf"
+# Stage 4 (2026-09-15): the hub tree moved from debezium/cloud/ to cloud/; the clinic
+# list stays under debezium/local/ until the clinic/sync half of the split lands.
+case "${SIDE}" in
+  cloud) TABLES_CONF="${PROJECT_DIR}/cloud/tables.conf" ;;
+  *)     TABLES_CONF="${PROJECT_DIR}/debezium/${SIDE}/tables.conf" ;;
+esac
 [[ -f "${TABLES_CONF}" ]] || { echo "Error: ${TABLES_CONF} not found"; exit 1; }
 
 if [[ -f "${ENV_FILE}" ]]; then
@@ -90,7 +95,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   fi
 done < "${TABLES_CONF}"
 
-echo "# Generated from debezium/${SIDE}/tables.conf"
+echo "# Generated from ${TABLES_CONF#${PROJECT_DIR}/}"
 echo "# Side: ${SIDE}"
 echo "# Server: ${SERVER_NAME}"
 echo "# Database: ${DATABASE_NAME}"

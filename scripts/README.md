@@ -73,8 +73,8 @@ table plus publication membership in both Postgres databases).
   the root and the scripts read the root `.env`.
 - `.env` is gitignored; `.env.example` enumerates every variable.
 - Rendered connector JSON is gitignored by design — `.gitignore` covers
-  `debezium/cloud/connectors/mysql-sink-*.json` and both
-  `debezium/{local,cloud}/connectors/generated/`. Templates are tracked, output
+  `cloud/connectors/mysql-sink-*.json`, `cloud/connectors/generated/` and
+  `debezium/local/connectors/generated/`. Templates are tracked, output
   is not: a rendered config carries a live password, so it must never be
   committed. Regenerate rather than copy.
 

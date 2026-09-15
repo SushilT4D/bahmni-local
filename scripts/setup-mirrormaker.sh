@@ -14,7 +14,7 @@ OUTPUT="${PROJECT_DIR}/config/mirrormaker/mm2.properties"
 LEGACY_TEMPLATE="${PROJECT_DIR}/debezium/local/mirrormaker-config/mm2.properties.template"
 LEGACY_OUTPUT="${PROJECT_DIR}/debezium/local/mirrormaker-config/mm2.properties"
 TABLES_CONF="${PROJECT_DIR}/debezium/local/tables.conf"
-DOWN_TABLES_CONF="${PROJECT_DIR}/debezium/cloud/tables.conf"
+DOWN_TABLES_CONF="${PROJECT_DIR}/cloud/tables.conf"
 SUBSYSTEMS_CONF="${PROJECT_DIR}/debezium/subsystems.conf"
 
 echo "Setting up MirrorMaker configuration..."

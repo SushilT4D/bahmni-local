@@ -17,13 +17,13 @@ data/postgresql.pg14*
 debezium/local/connectors/generated/
 
 # Same rule, CLOUD side (F-010). generate-sink-connectors.sh writes
-# mysql-sink-<table>.json straight into debezium/cloud/connectors/ - NOT into a
+# mysql-sink-<table>.json straight into cloud/connectors/ - NOT into a
 # generated/ subdir - with connection.password already substituted. On the mini
 # that is 19 files carrying the live sink DB password, in a tracked directory,
 # in a repo whose origin is public. A single `git add -A` there publishes them.
 # The *.json.template and known-good.json files do NOT match this pattern.
-debezium/cloud/connectors/mysql-sink-*.json
-debezium/cloud/connectors/generated/
+cloud/connectors/mysql-sink-*.json
+cloud/connectors/generated/
 
 # Same rule again, CLINIC side. scripts/generate-connectors.sh renders
 # debezium/local/connectors/mysql-source-connector.template.json into BOTH paths

@@ -2,20 +2,20 @@
 # generate-cloud-source-connector.sh — render the DOWN-direction Debezium source that
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
-# table.include.list comes from debezium/cloud/tables.conf via generate-table-config.sh,
+# table.include.list comes from cloud/tables.conf via generate-table-config.sh,
 # so the whitelist can never drift from the declared ownership split (L-001).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-TEMPLATE="${ROOT}/debezium/cloud/connectors/mysql-cloud-source-connector.json.template"
-OUT="${1:-${ROOT}/debezium/cloud/connectors/generated/mysql-cloud-source-connector.json}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TEMPLATE="${ROOT}/cloud/connectors/mysql-cloud-source-connector.json.template"
+OUT="${1:-${ROOT}/cloud/connectors/generated/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
 # Env: repo root first, then the cloud deployment's own .env (which wins).
-# The cloud stack is deployed from debezium/cloud/, so DEBEZIUM_DB_PASSWORD and the
-# other cloud-side values live in debezium/cloud/.env, not at the repo root.
+# The cloud stack is deployed from cloud/, so DEBEZIUM_DB_PASSWORD and the
+# other cloud-side values live in cloud/.env, not at the repo root.
 # shellcheck disable=SC1091
-for envf in "${ROOT}/.env" "${ROOT}/debezium/cloud/.env"; do
+for envf in "${ROOT}/.env" "${ROOT}/cloud/.env"; do
   [[ -f "$envf" ]] && set -a && source "$envf" && set +a
 done
 
@@ -53,7 +53,7 @@ if not inc or '*' in inc:
 # UP-direction sink write. If any clinic-owned table appears in this whitelist, the
 # cloud captures rows that just arrived FROM a clinic and MirrorMaker sends them
 # straight back down -- an infinite loop and an L-001 violation.
-# This is not hypothetical: on 2026-08-20 debezium/cloud/tables.conf on the cloud host
+# This is not hypothetical: on 2026-08-20 the cloud tables.conf (then debezium/cloud/) on the cloud host
 # had been extended from 7 to 19 tables (its header still said "Cloud -> local sync"),
 # so this generator produced a whitelist containing person/patient/visit/encounter.
 # A comment cannot prevent that. A computed intersection can.
