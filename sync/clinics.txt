@@ -46,3 +46,4 @@ cloud:10
 # manpur's residue -- silently breaking L-008 for every row written afterwards.
 h1:4
 h2:3
+azure:7
