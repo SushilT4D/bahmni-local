@@ -184,8 +184,25 @@ else
     behind=$(git -C "$REPO" rev-list --count "HEAD..${up}" 2>/dev/null || echo 0)
 
     age_desc=""
-    gd=$(git -C "$REPO" rev-parse --git-dir 2>/dev/null)
-    ref_mtime=$(stat -f %m "${gd}/FETCH_HEAD" 2>/dev/null || stat -c %Y "${gd}/FETCH_HEAD" 2>/dev/null || echo 0)
+    # Freshness of the drift REFERENCE, not of any particular transport. The hub
+    # cannot reach GitHub at all -- TCP/443 and SSH both time out from that
+    # network -- so its remote-tracking ref is PUSHED IN by a node that can reach
+    # both (see skills/lab-preflight.sh). FETCH_HEAD therefore never exists there,
+    # and measuring it would report "never fetched" forever on a node whose
+    # reference is in fact current. The ref file's own mtime is true under either
+    # model: it moves when the ref moves, however it got there.
+    # --absolute-git-dir, not --git-dir: the latter returns ".git" relative to the
+    # REPO, and this script runs with an arbitrary CWD when the operator wrapper
+    # pipes it over ssh -- which silently made every mtime lookup miss and every
+    # node report "never fetched".
+    gd=$(git -C "$REPO" rev-parse --absolute-git-dir 2>/dev/null)
+    upref=$(git -C "$REPO" rev-parse --symbolic-full-name '@{u}' 2>/dev/null)
+    ref_mtime=0
+    for cand in "${gd}/${upref}" "${gd}/FETCH_HEAD" "${gd}/packed-refs"; do
+      [ -f "$cand" ] || continue
+      ref_mtime=$(stat -f %m "$cand" 2>/dev/null || stat -c %Y "$cand" 2>/dev/null || echo 0)
+      [ "${ref_mtime:-0}" -gt 0 ] && break
+    done
     age_h=$(( ( $(date +%s) - ${ref_mtime:-0} ) / 3600 ))
 
     if [ "${ref_mtime:-0}" -eq 0 ]; then
