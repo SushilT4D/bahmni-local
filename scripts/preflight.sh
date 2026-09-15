@@ -59,21 +59,49 @@ MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFK
 # is that VM's disk that fills. nsenter into pid 1 reads the VM's own view.
 read -r disk mem <<< "$("$CT" run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -n -i \
   sh -c 'echo $(df -m /var/lib/docker 2>/dev/null | tail -1 | awk "{print \$4}") $(free -m | awk "NR==2{print \$7}")' 2>/dev/null)"
+probe="nsenter"
+
+# ROOTLESS PODMAN CANNOT nsenter INTO PID 1. It fails with
+#   nsenter: can't open '/proc/1/ns/ipc': Permission denied
+# so the read above returns nothing. Until 2026-09-15 the script then skipped
+# both lines silently and Ghated -- a whole clinic -- had no disk or memory floor
+# at all, which read exactly like a node that passed.
+#
+# `podman info` reports the same numbers without entering any namespace.
+# MUST be memAvailable, NOT memFree: on this node memFree read 182 MB against a
+# memAvailable of 1157 MB, so memFree would have raised a false FAIL against the
+# 1024 MB floor every time.
+if [ -z "${disk:-}" ] || [ -z "${mem:-}" ]; then
+  if read -r d2 m2 <<< "$("$CT" info --format json 2>/dev/null | python3 -c '
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+st=d.get("store",{}); h=d.get("host",{})
+alloc,used = st.get("graphRootAllocated"), st.get("graphRootUsed")
+avail = h.get("memAvailable")
+if alloc is None or used is None or avail is None: sys.exit(1)
+print((alloc-used)//1048576, avail//1048576)
+' 2>/dev/null)"; then
+    [ -n "${d2:-}" ] && disk="$d2"
+    [ -n "${m2:-}" ] && mem="$m2"
+    probe="${CT} info"
+  fi
+fi
 # A probe that returns nothing must SAY so. Under rootless podman the nsenter
 # above yields nothing (Ghated, measured 2026-09-14), and the previous version
 # of this script skipped the line silently -- so a disk floor nobody was
 # measuring read exactly like a disk floor that passed.
 if [ -n "${disk:-}" ]; then
   [ "$disk" -ge $((DISK_FLOOR_GB*1024)) ] \
-    && ok "vm disk free ${disk} MB" || bad "vm disk free ${disk} MB < ${DISK_FLOOR_GB} GB (F-022)"
+    && ok "vm disk free ${disk} MB (via ${probe})" || bad "vm disk free ${disk} MB < ${DISK_FLOOR_GB} GB (F-022)"
 else
-  bad "vm disk NOT MEASURED (nsenter probe returned nothing; rootless podman needs 'podman info' Store.GraphRootUsage instead)"
+  bad "vm disk NOT MEASURED: neither nsenter nor ${CT} info returned a value"
 fi
 if [ -n "${mem:-}" ]; then
   [ "$mem" -ge "$MEM_FLOOR_MB" ] \
-    && ok "vm memory available ${mem} MB" || bad "vm memory available ${mem} MB < ${MEM_FLOOR_MB} MB (F-050)"
+    && ok "vm memory available ${mem} MB (via ${probe})" || bad "vm memory available ${mem} MB < ${MEM_FLOOR_MB} MB (F-050)"
 else
-  bad "vm memory NOT MEASURED (nsenter probe returned nothing)"
+  bad "vm memory NOT MEASURED: neither nsenter nor ${CT} info returned a value"
 fi
 
 # --- MySQL wait_timeout -----------------------------------------------------
