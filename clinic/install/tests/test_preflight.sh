@@ -7,7 +7,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 assert_contains(){ if printf '%s' "$2" | grep -q -- "$3"; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: output lacks %q\n' "$1" "$3"; fails=$((fails+1)); fi; }
 assert_rc(){ if [ "$2" -eq "$3" ]; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: rc %s want %s\n' "$1" "$2" "$3"; fails=$((fails+1)); fi; }
-T="${HERE}/../tasks/00-preflight.sh"
+T="${HERE}/../tasks/000-preflight.sh"
 mkdir -p "$TMP/clinic" "$TMP/seed"
 for f in openmrs odoo openelis; do printf 'x' | gzip > "$TMP/seed/$f.sql.gz"; done
 printf 'rawach:4\nghated:3\n' > "$TMP/ledger"

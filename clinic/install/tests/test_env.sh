@@ -11,7 +11,7 @@ env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="${HERE}/.
   REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.test:9092 REMOTE_KAFKA_USERNAME=mirrormaker REMOTE_KAFKA_PASSWORD='p&w' \
   OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c \
   BHS_LOCATION=azure COMPOSE_PROJECT_NAME=bahmni-azure MYSQL_SERVER_NAME=bahmni-azure LOCAL_CLUSTER_ALIAS=azure MYSQL_AUTO_INCREMENT_OFFSET=7 MYSQL_SERVER_ID=7 DEBEZIUM_SERVER_ID=184057 ODOO_DB_VOLUME_NAME=bahmni-azure_odoodb-data ODOO_APP_VOLUME_NAME=bahmni-azure_odooapp-data \
-  bash "${HERE}/../tasks/20-env.sh" >/dev/null 2>&1; rc=$?
+  bash "${HERE}/../tasks/020-env.sh" >/dev/null 2>&1; rc=$?
 assert_eq "task exits 0" "$rc" "0"
 E="$TMP/clinic/.env"
 . "${HERE}/../lib.sh"

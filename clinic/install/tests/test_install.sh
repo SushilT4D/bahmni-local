@@ -24,7 +24,7 @@ OPENELIS_ATOMFEED_PASSWORD=b
 ODOO_ATOMFEED_PASSWORD=c
 EOF
 
-out="$(bash "$I" --list 2>&1)"; assert_contains "--list names tasks" "$out" "00-preflight"
+out="$(bash "$I" --list 2>&1)"; assert_contains "--list names tasks" "$out" "000-preflight"
 out="$(bash "$I" --seed "$TMP/seed" --dry-run 2>&1)"; assert_contains "missing --answers refused" "$out" "--answers"
 sed '/^RESIDUE=/d' "$TMP/answers.env" > "$TMP/short.env"
 out="$(bash "$I" --answers "$TMP/short.env" --seed "$TMP/seed" --dry-run 2>&1)"; assert_contains "missing key named" "$out" "RESIDUE"
