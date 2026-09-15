@@ -68,10 +68,37 @@ down = {t.split('.')[-1] for t in inc.split(',')}
 clash = sorted(down & up)
 if clash:
     sys.exit(
-        "LOOP GUARD TRIPPED: these tables are clinic-owned (debezium/local/tables.conf) "
-        f"and must never be captured by the cloud source: {clash}\n"
-        "  Capturing them would re-send clinic data back down to the clinics.\n"
-        "  Fix debezium/cloud/tables.conf so it lists ONLY cloud-owned tables.")
+        f"REFUSING to generate: these tables appear in BOTH direction files: {clash}\n"
+        "  (clinic-owned per debezium/local/tables.conf, and cloud-owned per this one)\n"
+        "\n"
+        "  This is NOT a claim that the hub must never capture them. The running hub DOES\n"
+        "  capture person and person_name, deliberately. ADR-003 section 7: spokes publish\n"
+        "  only their own writes, THE HUB PUBLISHES EVERYTHING, spokes drop their own echo.\n"
+        "  That is the mechanism that makes a patient registered at one clinic visible at\n"
+        "  another. The hub's up-direction sinks therefore run WITHOUT sql_log_bin=0 by\n"
+        "  construction (ADR-004, BL-068); on MySQL 5.6 they could not set it in any case,\n"
+        "  SYSTEM_VARIABLES_ADMIN being an 8.0 privilege. The clinics, on 8.0, do set it,\n"
+        "  which is what stops the relayed row travelling back up.\n"
+        "\n"
+        "  The refusal stands because that rule is recorded as DESIGNED BUT UNTESTED\n"
+        "  (ADR-003) over an open constitution gap (L-008 unsuperseded, the proposed L-011\n"
+        "  never adopted; ADR-004 lists it 'not resolved'). Generating a source config from\n"
+        "  an unratified rule would put this file ahead of the decision.\n"
+        "\n"
+        "  So do not simply add the table here to silence this. If the clinic needs the\n"
+        "  table to arrive -- which is the BL-042 case -- mark it with the role field:\n"
+        "\n"
+        "      person:person_id:relay\n"
+        "\n"
+        "  `relay` says the CLINIC authors it and the hub only passes it downward. The\n"
+        "  clinic's generators then include it (they read every row) while this one still\n"
+        "  does not (it reads unmarked rows only), which is the split that lets one file\n"
+        "  answer both readers. An UNMARKED clinic-owned table is still refused, because\n"
+        "  that is the accident this guard exists to catch.\n"
+        "\n"
+        "  Marking a table does NOT ratify the relay. The hub keeps publishing only what\n"
+        "  the cloud authors until ADR-003 s7 is settled; `generate-table-config.sh cloud\n"
+        "  --include-relay` is the explicit opt-in for when it is.")
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")
 PYEOF

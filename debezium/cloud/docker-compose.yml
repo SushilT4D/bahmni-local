@@ -1,5 +1,21 @@
 x-default-logging: &default
-  {}
+  # Was literally `{}`, so x-log-config below merged nothing and every service
+  # inheriting it ran json-file with NO rotation. Verified at runtime on
+  # 2026-09-15: HostConfig.LogConfig read driver=json-file opts=map[] on all of
+  # them, and the resolved config showed 29 of 29 services without max-size.
+  #
+  # By then /var/lib/docker/containers held 2.5 GB on a VM with 1.6 GB free --
+  # cloud-openelis-1 1695 MB and kafka-connect 799 MB in single unrotated logs --
+  # on a node already under the 5 GB preflight floor (F-022).
+  #
+  # 50m x 3 bounds each container at 150 MB. Log options are fixed at container
+  # CREATION: existing containers keep the old config until recreated, so this
+  # prevents recurrence; truncating the json.log reclaims space meanwhile and is
+  # safe on a running container.
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 x-loki-logging: &loki
   driver: loki
@@ -213,6 +229,22 @@ services:
   openmrs:
     profiles: ['emr', "bahmni-mart"]
     image: infoiplitin/openmrs:${OPENMRS_IMAGE_TAG}
+
+    # BL-069 / BL-014, added 2026-09-14. This container was OOM-killed on
+    # 2026-09-11 and stayed dead for THREE DAYS: it had no restart policy at all
+    # (the service simply omitted the key) and no memory limit, so the JVM sized
+    # itself against the whole VM and the kernel took it rather than the
+    # container. Meanwhile openmrsdb, proxy, bahmni-web, Kafka and every
+    # connector read healthy, and the sink kept writing straight to MySQL --
+    # the sync was fine and the application was gone.
+    #
+    # 5g, not the 4g first tried. MEASURED 2026-09-14 after a full boot: a 3g heap
+    # plus JVM overhead (metaspace, code cache, threads, amd64 emulation on arm64)
+    # settles at 3.76 GiB = 94% of a 4g cap, which would have OOMed again -- and
+    # with restart: unless-stopped that becomes a LOOP. At 5g it sits at 75%. Do
+    # not lower without re-measuring docker stats; the VM holds 11.9 GiB total.
+    restart: unless-stopped
+    mem_limit: 5g
     environment:
       TZ: ${TZ}
       OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
