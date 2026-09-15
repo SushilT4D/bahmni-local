@@ -24,6 +24,17 @@ debezium/local/connectors/generated/
 # The *.json.template and known-good.json files do NOT match this pattern.
 cloud/connectors/mysql-sink-*.json
 cloud/connectors/generated/
+# The hub's OTHER rendered connectors (register-odoo.sh / _render_connector.py
+# write odoo-*.json with live passwords), its untracked htdocs copy, its starter
+# SQL and every *.bak-* the operator leaves behind. These rules lived only on the
+# retired node/cloud branch; when the hub checked out the shared branch on
+# 2026-09-15 (Stage 4) 19 node-local files surfaced as untracked, five of them
+# carrying credentials. Templates and known-good.json stay tracked: ignore rules
+# never apply to tracked files.
+cloud/connectors/odoo-*.json
+cloud/htdocs/
+cloud/openelis-starter.sql
+*.bak-*
 
 # Same rule again, CLINIC side. scripts/generate-connectors.sh renders
 # debezium/local/connectors/mysql-source-connector.template.json into BOTH paths
