@@ -7,11 +7,13 @@
 # needs a fresh UUID and a config-image rebuild; printed as a hand-step.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
-appjson_prefix(){ jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev/null; }
+# `|| true`: under set -e a missing file would end the task with no FAIL line.
+appjson_prefix(){ { jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev/null || true; } | head -1; }
 [ "${1:-}" = "--lib-only" ] && return 0 2>/dev/null
 
 begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
 APP="${CLINIC_DIR}/bahmni_config/openmrs/apps/registration/app.json"
+[ -f "$APP" ] || warn "registration app.json not found at ${APP#${CLINIC_DIR}/} (fixture checkout?)"
 cur="$(appjson_prefix "$APP")"
 if [ "$cur" = "${MRN_PREFIX}" ]; then ok "registration defaultIdentifierPrefix is ${MRN_PREFIX}"; else
   warn "registration app.json carries defaultIdentifierPrefix='${cur}', not ${MRN_PREFIX}. It is a tracked fleet file; change it on the branch, not here:"

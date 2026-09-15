@@ -6,7 +6,7 @@ begin_task "00 · preflight"
 
 # 1. identity is allocated, and only to us (TC-S-69: a node with no residue cannot join)
 r="$(ledger_residue "${CLINIC_SLUG}")"
-[ -n "$r" ] || fail "no row for '${CLINIC_SLUG}' in ${LEDGER}. Allocate first (operator, both ledgers), commit, push, pull here -- the line is:  ${CLINIC_SLUG}:${RESIDUE}"
+[ -n "$r" ] || fail "no row for '${CLINIC_SLUG}' in ${LEDGER}. the operator allocates first (skills/install-clinic.sh allocate ${CLINIC_SLUG} ${RESIDUE} -- the row is ${CLINIC_SLUG}:${RESIDUE}), commits, pushes, and this checkout pulls"
 [ "$r" = "${RESIDUE}" ] || fail "ledger says ${CLINIC_SLUG}:${r} but the answers say RESIDUE=${RESIDUE}; the ledger wins -- fix the answers"
 c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
 [ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one (docs/sync-core/residues.txt)"

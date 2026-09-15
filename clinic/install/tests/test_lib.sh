@@ -59,6 +59,31 @@ assert_eq "gen_secret length" "${#s1}" "32"
 [ "$s1" != "$s2" ] && printf '  ok   gen_secret differs\n' || { printf '  FAIL gen_secret repeats\n'; fails=$((fails+1)); }
 k="$(kafka_cluster_id)"; assert_eq "kafka_cluster_id length" "${#k}" "22"
 
+# fleet registry
+export FLEET_DIR="$TMP/fleet"; mkdir -p "$FLEET_DIR"
+printf 'CLINIC_SLUG=azure\nMRN_PREFIX=AZR\nSITE_NUMBER=\n' > "$FLEET_DIR/azure.env"
+printf 'CLINIC_SLUG=morwal\nMRN_PREFIX=MOR\nSITE_NUMBER=\n' > "$FLEET_DIR/morwal.env"
+assert_eq "fleet_slugs" "$(fleet_slugs | tr '\n' ' ')" "azure morwal "
+assert_eq "fleet_file case-insensitive" "$(fleet_file AZURE)" "$FLEET_DIR/azure.env"
+( fleet_file nope ) >/dev/null 2>&1; assert_rc "fleet_file unknown is non-zero" $? 1
+assert_eq "fleet_table" "$(fleet_table | tr '\n' '|')" "  azure      residue 7   MRN AZR|  morwal     residue -   MRN MOR|"
+# answers
+a="$TMP/a.env"; printf 'CLINIC_SLUG=azure\nRESIDUE=7\nMRN_PREFIX=\n' > "$a"
+assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" | head -3 | tr '\n' ' ')" "MRN_PREFIX SITE_NUMBER CLINIC_PHONE "
+( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
+assert_eq "answers_write writes twelve keys" "$(grep -c '^[A-Z_]*=' "$a")" "12"
+assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
+assert_eq "answers_write quotes a space" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" 'REMOTE_KAFKA_PASSWORD="p w"'
+assert_eq "answers_write mode 600" "$(stat -f %Lp "$a" 2>/dev/null || stat -c %a "$a")" "600"
+# ask / ask_secret
+X=set; ask X "q" "d" "here" </dev/null; assert_eq "ask keeps a set value" "$X" "set"
+X=""; ( ask X "q" "d" "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask with no terminal fails" $? 1
+X=""; INSTALL_INTERACTIVE=1 ask X "q" "d" "here" <<< "" 2>/dev/null; assert_eq "ask empty answer = default" "$X" "d"
+X=""; INSTALL_INTERACTIVE=1 ask X "q" "d" "here" <<< "typed" 2>/dev/null; assert_eq "ask typed answer" "$X" "typed"
+X=""; ( INSTALL_INTERACTIVE=1 ask X "q" "" "here" <<< "" ) >/dev/null 2>&1; assert_rc "ask empty with no default fails" $? 1
+X=""; INSTALL_INTERACTIVE=1 ask_secret X "here" <<< "s3cret" 2>/dev/null; assert_eq "ask_secret reads hidden" "$X" "s3cret"
+X=""; ( ask_secret X "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask_secret with no terminal fails" $? 1
+
 # run honours DRY
 out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: echo hello"
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"

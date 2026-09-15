@@ -126,6 +126,48 @@ has_placeholders(){
 refuse_inherited_alias(){
   case "$1" in source|ghated|rawach|cloud|remote) fail "LOCAL_CLUSTER_ALIAS '$1' is another node's identity (AL-022); a new node takes its own slug" ;; esac
 }
+# --- fleet registry -----------------------------------------------------------
+# sync/fleet/<slug>.env holds a clinic's non-secret identity (MRN prefix, site
+# number, phone, cert hostname); sync/hub.env the hub endpoint. The residue stays
+# in the ledger alone (one source). Secrets are never in the repo: they come from
+# <seed>/secrets.env or a hidden prompt. install.sh --clinic <slug> composes the
+# twelve answers from these; --answers <file> remains the hand-written path.
+FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
+HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
+ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
+ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continue; basename "$f" .env; done; }
+fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [ -f "$f" ] && printf '%s\n' "$f"; }
+# fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
+fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
+# answers_missing FILE : prints every answer key that is absent or empty.
+answers_missing(){ local k; for k in $ANSWER_KEYS; do [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
+# answers_write FILE : the twelve keys from the current environment, mode 600.
+answers_write(){ local f="$1" k v; ( umask 077; : > "$f" ); chmod 600 "$f"; for k in $ANSWER_KEYS; do eval "v=\${$k:-}"; env_put "$f" "$k" "$v"; done; }
+# interactive : stdin is a terminal, or INSTALL_INTERACTIVE=1 (tests pipe answers in).
+interactive(){ [ -t 0 ] || [ "${INSTALL_INTERACTIVE:-0}" = 1 ]; }
+# ask VAR PROMPT DEFAULT WHERE : keeps a value already set; otherwise asks (empty
+# answer = DEFAULT) or, with no terminal, fails naming WHERE to put it.
+ask(){
+  local var="$1" prompt="$2" def="${3:-}" where="$4" v
+  eval "v=\${$var:-}"; [ -z "$v" ] || return 0
+  interactive || fail "${var} is not set and there is no terminal to ask on: set it in ${where}"
+  printf '  %s [%s]: ' "$prompt" "$def" >&2; IFS= read -r v || v=""
+  [ -n "$v" ] || v="$def"
+  [ -n "$v" ] || fail "${var} needs a value (${where})"
+  eval "$var=\$v"; export "$var"
+}
+# ask_secret VAR WHERE : like ask, typed hidden, no default, never echoed.
+ask_secret(){
+  local var="$1" where="$2" v
+  eval "v=\${$var:-}"; [ -z "$v" ] || return 0
+  interactive || fail "${var} is not set and there is no terminal to ask on: put it in ${where}"
+  printf '  %s (hidden): ' "$var" >&2; IFS= read -r -s v || v=""; printf '\n' >&2
+  [ -n "$v" ] || fail "${var} needs a value (${where})"
+  eval "$var=\$v"; export "$var"
+}
+
 wait_for_http(){ # URL SECONDS : 200 or 401 counts as answering
   local url="$1" secs="${2:-300}" i code
   for i in $(seq 1 $((secs/5))); do

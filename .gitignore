@@ -99,3 +99,8 @@ clinic/config/kafka-connect/*.jar
 # `docker compose up` on a new node.
 clinic/config/mirrormaker/mm2.properties
 sync/local/mirrormaker-config/mm2.properties
+
+# clinic installer: composed or hand-written answers and the seed's password file
+# carry live credentials and must never reach this (public) repo.
+clinic-*.env
+secrets.env
