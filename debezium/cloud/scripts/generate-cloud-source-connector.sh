@@ -85,10 +85,20 @@ if clash:
         "  never adopted; ADR-004 lists it 'not resolved'). Generating a source config from\n"
         "  an unratified rule would put this file ahead of the decision.\n"
         "\n"
-        "  So do not simply add the table here to silence this. Either settle the relay\n"
-        "  rule in an ADR and update this guard alongside it, or leave this file listing\n"
-        "  cloud-owned tables only and accept that it under-describes the running hub.\n"
-        "  Measured 2026-09-14: the hub captures 9 tables, this file lists 7.")
+        "  So do not simply add the table here to silence this. If the clinic needs the\n"
+        "  table to arrive -- which is the BL-042 case -- mark it with the role field:\n"
+        "\n"
+        "      person:person_id:relay\n"
+        "\n"
+        "  `relay` says the CLINIC authors it and the hub only passes it downward. The\n"
+        "  clinic's generators then include it (they read every row) while this one still\n"
+        "  does not (it reads unmarked rows only), which is the split that lets one file\n"
+        "  answer both readers. An UNMARKED clinic-owned table is still refused, because\n"
+        "  that is the accident this guard exists to catch.\n"
+        "\n"
+        "  Marking a table does NOT ratify the relay. The hub keeps publishing only what\n"
+        "  the cloud authors until ADR-003 s7 is settled; `generate-table-config.sh cloud\n"
+        "  --include-relay` is the explicit opt-in for when it is.")
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")
 PYEOF

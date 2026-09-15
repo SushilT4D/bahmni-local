@@ -17,11 +17,18 @@ Usage: $(basename "$0") <local|cloud>
   local   Read debezium/local/tables.conf  (clinic → cloud CDC)
   cloud   Read debezium/cloud/tables.conf  (cloud → clinic)
 
+  --include-relay   Also emit tables marked `:relay` -- clinic-owned tables the
+                    hub relays (ADR-003 s7). A CLINIC needs these, because they
+                    arrive and must be sunk. The hub must NOT publish them while
+                    the relay rule is unratified.
+
 Prints TABLE_INCLUDE_LIST, KAFKA_TOPICS, and PRIMARY_KEYS.
 EOF
 }
 
 SIDE="${1:-}"
+INCLUDE_RELAY="no"
+for a in "$@"; do [[ "$a" == "--include-relay" ]] && INCLUDE_RELAY="yes"; done
 case "${SIDE}" in
   local|cloud) ;;
   -h|--help|"") usage; [[ -n "${SIDE}" ]] || exit 1; exit 0 ;;
@@ -54,10 +61,27 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
   [[ -z "${line// }" ]] && continue
 
-  # table:pk or table:pk:base_id  (pk may contain commas for composite keys)
-  if [[ "$line" =~ ^([^:]+):([^:]+)(:([0-9]+))?$ ]]; then
+  # table:pk[:base_id|:role]   (pk may contain commas for composite keys)
+  #
+  # The optional third field is a NUMBER on the local side (a table's base_id
+  # floor) and a WORD on the cloud side (a role). The only role today is `relay`:
+  # a CLINIC-owned table that travels down because the hub relays it (ADR-003
+  # section 7), as opposed to a table the cloud AUTHORS.
+  #
+  # That distinction is the entire point of this field. Both kinds arrive at a
+  # clinic and both need a down-direction sink, so the clinic's generators want
+  # the FULL list -- but the hub's own source connector must publish only what the
+  # cloud authors, because the relay rule is recorded as designed-but-unratified.
+  # One file, two correct answers. Before this field existed there was no way to
+  # say that, so adding person/person_name for BL-042 made the cloud source
+  # generator refuse outright and the two branches drifted to different answers.
+  if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+))?$ ]]; then
     table="${BASH_REMATCH[1]}"
     pk="${BASH_REMATCH[2]}"
+    role="${BASH_REMATCH[4]:-}"
+    if [[ "${role}" == "relay" && "${INCLUDE_RELAY}" != "yes" ]]; then
+      continue
+    fi
     table_include_list+=("${DATABASE_NAME}.${table}")
     kafka_topics+=("${SERVER_NAME}.${DATABASE_NAME}.${table}")
     primary_keys+=("$pk")
