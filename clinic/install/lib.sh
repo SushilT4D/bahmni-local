@@ -80,8 +80,11 @@ if not done:
 open(f, "w").write("\n".join(lines))
 PY
 }
-env_get(){ grep -E "^$2=" "$1" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
-gen_secret(){ LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
+# Under `set -e -o pipefail` (every task), a grep with no match or a tr cut short
+# by head turns a pipeline non-zero and aborts the caller on the SUCCESS path.
+# Hence the `|| true` guards and python for the secret.
+env_get(){ { grep -E "^$2=" "$1" || true; } | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
 # Kafka cluster id: 22 chars of url-safe base64 over 16 random bytes, what
 # kafka-storage random-uuid produces, without needing the image.
 kafka_cluster_id(){ python3 -c 'import uuid,base64; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))'; }
@@ -115,9 +118,10 @@ ledger_conflicts(){ awk -F: -v s="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" -v r="$2
 # <placeholder>, except keys in the space-separated allowlist.
 has_placeholders(){
   local f="$1" allow=" ${2:-} " k
-  grep -E '^[A-Z_0-9]+=(<[^>]*>)?$' "$f" | cut -d= -f1 | while read -r k; do
+  { grep -E '^[A-Z_0-9]+=(<[^>]*>)?$' "$f" || true; } | cut -d= -f1 | while read -r k; do
     case "$allow" in *" $k "*) ;; *) printf '%s\n' "$k" ;; esac
   done
+  return 0
 }
 refuse_inherited_alias(){
   case "$1" in source|ghated|rawach|cloud|remote) fail "LOCAL_CLUSTER_ALIAS '$1' is another node's identity (AL-022); a new node takes its own slug" ;; esac
