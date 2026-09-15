@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIR="${1:-${ROOT}/debezium/local/connectors/generated}"
+DIR="${1:-${ROOT}/../sync/local/connectors/generated}"
 CONNECT="${LOCAL_CONNECT_URL:-http://localhost:8083}"
 
 shopt -s nullglob

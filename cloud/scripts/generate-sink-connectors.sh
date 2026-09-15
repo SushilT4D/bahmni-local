@@ -20,7 +20,7 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 
 # These sinks apply UP-direction data: they consume <clinic>.<server>.openmrs.*
 # topics and write clinic-authored rows into the cloud. So the table list is the
-# CLINIC's (debezium/local/tables.conf), NOT this directory's tables.conf --
+# CLINIC's (sync/local/tables.conf), NOT this directory's tables.conf --
 # which lists the tables that flow the other way.
 #
 # Until 2026-08-27 this defaulted to ${PROJECT_DIR}/tables.conf and generated
@@ -28,7 +28,7 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 # user_role/provider, all subscribed to topics the clinic never publishes. Those
 # seven measured 0 messages while person/patient/visit carried 122k/122k/478k:
 # inert, but they reported RUNNING and inflated any "all sinks green" check.
-TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../debezium/local/tables.conf}"
+TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/local/tables.conf}"
 DOWN_TABLES_CONF="${PROJECT_DIR}/tables.conf"
 CLINICS_CONF="${CLINICS_CONF:-${PROJECT_DIR}/clinics.conf}"
 ENV_FILE="${PROJECT_DIR}/.env"

@@ -18,8 +18,8 @@ INCREMENT=10
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
-CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/clinics.txt}"
-TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/debezium/local/tables.conf}"
+CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
+TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
 MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
 
 DRY_RUN=false

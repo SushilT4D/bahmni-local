@@ -69,7 +69,7 @@ clash = sorted(down & up)
 if clash:
     sys.exit(
         f"REFUSING to generate: these tables appear in BOTH direction files: {clash}\n"
-        "  (clinic-owned per debezium/local/tables.conf, and cloud-owned per this one)\n"
+        "  (clinic-owned per sync/local/tables.conf, and cloud-owned per this one)\n"
         "\n"
         "  This is NOT a claim that the hub must never capture them. The running hub DOES\n"
         "  capture person and person_name, deliberately. ADR-003 section 7: spokes publish\n"

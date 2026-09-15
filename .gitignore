@@ -11,10 +11,10 @@ certs/
 *.gz
 
 # moved-aside PG14 datadirs from the PG15 bump (Module 28)
-data/postgresql.pg14*
+clinic/data/postgresql.pg14*
 
 # generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
-debezium/local/connectors/generated/
+sync/local/connectors/generated/
 
 # Same rule, CLOUD side (F-010). generate-sink-connectors.sh writes
 # mysql-sink-<table>.json straight into cloud/connectors/ - NOT into a
@@ -46,8 +46,8 @@ cloud/openelis-starter.sql
 # where the committed file could not register and the working file could not be
 # committed: running the generator and then `git add` leaked the credential.
 # Template is tracked, output is not. Regenerate rather than copy.
-connectors/mysql-source-connector.json
-connectors/mysql-local-source-connector.json
+clinic/connectors/mysql-source-connector.json
+clinic/connectors/mysql-local-source-connector.json
 
 # The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
 # /usr/local/bahmni_config. docker-compose.override.yml points it here so it can
@@ -56,14 +56,14 @@ connectors/mysql-local-source-connector.json
 .local-config-scratch/
 
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
-config/kafka-connect/ext/*.jar
+clinic/config/kafka-connect/ext/*.jar
 # Some nodes keep the scripting jars one level up instead of in ext/ (Ghated
 # does). Rule ported from node/ghated on 2026-09-14 when that node moved to
 # this branch and three downloaded jars appeared as untracked: its own
 # .gitignore had covered them and this one did not. Already-tracked files are
 # unaffected by a new ignore rule, so config/kafka-connect/sync-origin-customizer.jar
 # stays tracked -- that one is a BUILD ARTIFACT WE SHIP, not a download.
-config/kafka-connect/*.jar
+clinic/config/kafka-connect/*.jar
 *.pyc
 
 # --- Rendered MirrorMaker config (2026-09-14) --------------------------------
@@ -97,5 +97,5 @@ config/kafka-connect/*.jar
 # docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source that
 # does not exist, so setup-mirrormaker.sh must run BEFORE the first
 # `docker compose up` on a new node.
-config/mirrormaker/mm2.properties
-debezium/local/mirrormaker-config/mm2.properties
+clinic/config/mirrormaker/mm2.properties
+sync/local/mirrormaker-config/mm2.properties

@@ -18,11 +18,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${1:-${ROOT}/debezium/local/connectors/generated}"
-TEMPLATE="${ROOT}/debezium/local/connectors/mysql-local-sink-connector.json.template"
-TABLES_CONF="${TABLES_CONF:-${ROOT}/cloud/tables.conf}"
+OUT="${1:-${ROOT}/../sync/local/connectors/generated}"
+TEMPLATE="${ROOT}/../sync/local/connectors/mysql-local-sink-connector.json.template"
+TABLES_CONF="${TABLES_CONF:-${ROOT}/../cloud/tables.conf}"
 # The clinic's OWN capture list. Read only to refuse overlap — see the L-008 guard below.
-UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/debezium/local/tables.conf}"
+UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/local/tables.conf}"
 
 [[ -f "$TEMPLATE"    ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
 [[ -f "$TABLES_CONF" ]] || { echo "missing table list: $TABLES_CONF" >&2; exit 1; }
