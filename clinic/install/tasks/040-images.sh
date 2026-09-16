@@ -45,4 +45,10 @@ for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect
 J="${CLINIC_DIR}/config/kafka-connect"
 if ls "$J"/ext/groovy-4.0.22.jar "$J"/ext/groovy-jsr223-4.0.22.jar "$J"/ext/debezium-scripting-3.2.4.Final.jar >/dev/null 2>&1; then skip "scripting jars present"; else bash "$J/ext/fetch-scripting-jars.sh" >/dev/null; fi
 [ -f "$J/sync-origin-customizer.jar" ] || fail "customizer jar missing from the checkout: $J/sync-origin-customizer.jar (rebuild: $J/sync-origin/build.sh ${CT})"
-unzip -l "$J/sync-origin-customizer.jar" | grep -q 't4d/sync/SyncOriginCustomizer.class' && ok "jars: 3 scripting + customizer" || fail "customizer jar does not contain t4d.sync.SyncOriginCustomizer"
+# a jar is a zip; check with python3 (already required) rather than unzip, which
+# is not installed on a fresh Ubuntu VM (first live run, manpur).
+if python3 -c 'import zipfile,sys; sys.exit(0 if "t4d/sync/SyncOriginCustomizer.class" in zipfile.ZipFile(sys.argv[1]).namelist() else 1)' "$J/sync-origin-customizer.jar" 2>/dev/null; then
+  ok "jars: 3 scripting + customizer"
+else
+  fail "customizer jar does not contain t4d.sync.SyncOriginCustomizer"
+fi
