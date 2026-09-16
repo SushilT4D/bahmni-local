@@ -21,17 +21,23 @@ ct image inspect "$omrs" >/dev/null 2>&1 && ok "openmrs image ${omrs}" || fail "
 # the two local builds (their scripts source .env from CWD and call podman by name)
 if ct image inspect "bahmni-local/proxy:$(env_get "$E" PROXY_IMAGE_TAG)" >/dev/null 2>&1; then skip "proxy image built"; else bash proxy/build.sh; fi
 if ct image inspect bahmni-local/systemdate:1.0 >/dev/null 2>&1; then skip "systemdate image built"; else bash systemdate/build.sh; fi
-# everything else the profiles reference. Visible output + retry: a fresh VM IP
-# hits Docker Hub's anonymous pull-rate limit, and the old `--quiet 2>/dev/null
-# || true` HID that cause on the first live run -- the check below then reported
-# only "images missing". `docker login` raises the anonymous limit.
-pull_ok=0
-for attempt in 1 2 3; do
-  if compose pull --ignore-buildable; then pull_ok=1; break; fi
-  warn "image pull attempt ${attempt}/3 failed (Docker Hub rate-limits fresh IPs -- 'docker login' raises the limit); retrying in 15s"
-  sleep 15
+# Pull each registry image individually. `docker compose pull` is all-or-nothing
+# and also tries to pull the two locally-built images (bahmni-local/proxy,
+# bahmni-local/systemdate) -- they are built by proxy/build.sh and systemdate/
+# build.sh, not a compose `build:` section, so --ignore-buildable does NOT skip
+# them; their inevitable "pull access denied" then aborts and "Interrupts" every
+# real pull (first live run, manpur). Per-image pull skips what is already present
+# (the local builds, openmrs) and the bahmni-local/* local-only names, retries
+# transient failures (a fresh VM IP can hit Docker Hub's anonymous rate limit --
+# `docker login` raises it), and one failure never stops the others.
+for img in $(compose config --images 2>/dev/null | sort -u); do
+  case "$img" in bahmni-local/*) continue ;; esac
+  ct image inspect "$img" >/dev/null 2>&1 && continue
+  for attempt in 1 2 3; do
+    if ct pull "$img"; then break; fi
+    warn "pull ${img} attempt ${attempt}/3 failed; retrying in 10s"; sleep 10
+  done
 done
-[ "$pull_ok" = 1 ] || warn "image pull did not fully succeed after 3 tries; the check below names what is still missing"
 missing=""
 for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
 [ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
