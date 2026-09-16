@@ -104,8 +104,17 @@ for t in "${TASKS_DIR}"/[0-9]*-*.sh; do
   n="$(basename "$t" .sh)"; num="${n%%-*}"
   if [ -n "$ONLY" ] && [ "$num" != "$ONLY" ]; then continue; fi
   if [ -n "$FROM" ] && [ "$num" -lt "$FROM" ]; then continue; fi
-  if ! bash "$t"; then
-    if [ -n "$CLINIC" ]; then how="--clinic $CLINIC"; else how="--answers $ANSWERS"; fi
+  if [ -n "$CLINIC" ]; then how="--clinic $CLINIC"; else how="--answers $ANSWERS"; fi
+  rc=0; bash "$t" || rc=$?
+  if [ "$rc" = 75 ] && [ "${_KRAFT_SG:-}" != 1 ] && command -v sg >/dev/null 2>&1; then
+    # task 010 added us to the docker group; re-exec the remaining tasks under the
+    # group so no manual re-login is needed. _KRAFT_SG guards against a loop.
+    log "  activating the docker group and continuing (no re-login needed)..."
+    export _KRAFT_SG=1
+    if [ -n "$CLINIC" ]; then sel="--clinic $(printf '%q' "$CLINIC")"; else sel="--answers $(printf '%q' "$ANSWERS")"; fi
+    exec sg docker -c "$(printf '%q' "$0") ${sel} --seed $(printf '%q' "$SEED_DIR") --from ${num}"
+  fi
+  if [ "$rc" != 0 ]; then
     printf '\n  STOPPED at task %s. Fix what its FAIL line names, then resume with: %s %s --seed %s --from %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" >&2
     exit 1
   fi
