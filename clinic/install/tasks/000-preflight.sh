@@ -28,8 +28,11 @@ ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))
 
 # 4. host facts
 require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt install jq"; require_cmd openssl; require_cmd curl; require_cmd gzip
-avail_gb="$(df -g "${CLINIC_DIR}" 2>/dev/null | awk 'NR==2{print $4}')"
-[ -n "$avail_gb" ] || avail_gb="$(( $(df -k "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
+# df -Pk is POSIX-portable; the BSD/macOS-only `df -g` aborts this task under
+# set -e -o pipefail on Linux (the substitution fails before the fallback runs,
+# with NO FAIL line) -- F-068, the first live Linux run. -P stops a long device
+# name from wrapping and misaligning $4.
+avail_gb="$(( $(df -Pk "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
 [ "$avail_gb" -ge 60 ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < 60 GB (the seed restores to ~11 GB of MySQL, Kafka and logs need the rest)"
 if [ "${PLATFORM}" = macos ]; then ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"; else ram_mb="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"; fi
 [ "$ram_mb" -ge 8192 ] && ok "RAM ${ram_mb} MB" || fail "RAM ${ram_mb} MB < 8192 MB"
