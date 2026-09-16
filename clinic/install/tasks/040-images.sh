@@ -21,8 +21,17 @@ ct image inspect "$omrs" >/dev/null 2>&1 && ok "openmrs image ${omrs}" || fail "
 # the two local builds (their scripts source .env from CWD and call podman by name)
 if ct image inspect "bahmni-local/proxy:$(env_get "$E" PROXY_IMAGE_TAG)" >/dev/null 2>&1; then skip "proxy image built"; else bash proxy/build.sh; fi
 if ct image inspect bahmni-local/systemdate:1.0 >/dev/null 2>&1; then skip "systemdate image built"; else bash systemdate/build.sh; fi
-# everything else the profiles reference
-compose pull --ignore-buildable --quiet 2>/dev/null || compose pull --quiet 2>/dev/null || true
+# everything else the profiles reference. Visible output + retry: a fresh VM IP
+# hits Docker Hub's anonymous pull-rate limit, and the old `--quiet 2>/dev/null
+# || true` HID that cause on the first live run -- the check below then reported
+# only "images missing". `docker login` raises the anonymous limit.
+pull_ok=0
+for attempt in 1 2 3; do
+  if compose pull --ignore-buildable; then pull_ok=1; break; fi
+  warn "image pull attempt ${attempt}/3 failed (Docker Hub rate-limits fresh IPs -- 'docker login' raises the limit); retrying in 15s"
+  sleep 15
+done
+[ "$pull_ok" = 1 ] || warn "image pull did not fully succeed after 3 tries; the check below names what is still missing"
 missing=""
 for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
 [ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
