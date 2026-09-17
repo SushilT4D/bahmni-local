@@ -109,3 +109,23 @@ clinic/install/.bin/
 # rendered per-clinic clinlims up-sinks (install-clinic.sh join copies the tracked
 # clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
 cloud/connectors/clinlims-*.json
+
+# hub/ (2026-09-17): the sync layer's own compose project, split out of cloud/.
+# Same secret classes as the cloud/connectors/* rules above -- the env file,
+# the JAAS SASL password, and every connector JSON a generator writes with a
+# live password already substituted. Templates are exempt by name: the six
+# hand-authored connector JSONs below carry only ${VAR} placeholders (verified
+# 2026-09-17), substituted by register-odoo.sh at registration time, not at
+# rest -- so they stay tracked.
+hub/.env
+hub/kafka_server_jaas.conf
+hub/connectors/mysql-sink-*.json
+hub/connectors/odoo-*-sink-all.json
+hub/connectors/clinlims-*-sink-all.json
+hub/connectors/mysql-cloud-source-connector.json
+!hub/connectors/odoo-cloud-source.json
+!hub/connectors/clinlims-cloud-source.json
+!hub/connectors/odoo-cloud-sink-all.json
+!hub/connectors/clinlims-cloud-sink-all.json
+!hub/connectors/odoo-ghated-sink-all.json
+!hub/connectors/clinlims-ghated-sink-all.json

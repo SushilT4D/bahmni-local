@@ -37,31 +37,10 @@ services:
     logging: *rotate
   implementer-interface:
     logging: *rotate
-  kafka-controller:
-    logging: *rotate
   otp:
     logging: *rotate
   rabbitmq:
     logging: *rotate
-  kafka:
-    logging: *rotate
-    ports: !override
-      - '127.0.0.1:9092:9092'
-      - '127.0.0.1:9093:9093'
-    # MM-07: cp-kafka's preflight (cub zk-ready) sees the JAAS file in
-    # KAFKA_OPTS and then demands a SASL zookeeper — but his zookeeper is
-    # plain, so the probe times out even though the session establishes.
-    # This env tells the probe zookeeper SASL is off. Broker config unchanged.
-    environment:
-      ZOOKEEPER_SASL_ENABLED: "FALSE"
-  schema-registry:
-    logging: *rotate
-    ports: !override
-      - '127.0.0.1:8082:8081'   # host 8081 is the cloud proxy's HTTP remap
-  kafka-connect:
-    logging: *rotate
-    ports: !override
-      - '127.0.0.1:8083:8083'
   openmrsdb:
     ports: !override
       - '127.0.0.1:3306:3306'

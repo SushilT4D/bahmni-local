@@ -2,20 +2,20 @@
 # generate-cloud-source-connector.sh — render the DOWN-direction Debezium source that
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
-# table.include.list comes from cloud/tables.conf via generate-table-config.sh,
+# table.include.list comes from hub/tables.conf via generate-table-config.sh,
 # so the whitelist can never drift from the declared ownership split (L-001).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEMPLATE="${ROOT}/cloud/connectors/mysql-cloud-source-connector.json.template"
-OUT="${1:-${ROOT}/cloud/connectors/generated/mysql-cloud-source-connector.json}"
+TEMPLATE="${ROOT}/hub/connectors/mysql-cloud-source-connector.json.template"
+OUT="${1:-${ROOT}/hub/connectors/generated/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
-# Env: repo root first, then the cloud deployment's own .env (which wins).
-# The cloud stack is deployed from cloud/, so DEBEZIUM_DB_PASSWORD and the
-# other cloud-side values live in cloud/.env, not at the repo root.
+# Env: repo root first, then hub/.env (which wins).
+# The sync layer is deployed from hub/, so DEBEZIUM_DB_PASSWORD and the
+# other hub-side values live in hub/.env, not at the repo root.
 # shellcheck disable=SC1091
-for envf in "${ROOT}/.env" "${ROOT}/cloud/.env"; do
+for envf in "${ROOT}/.env" "${ROOT}/hub/.env"; do
   [[ -f "$envf" ]] && set -a && source "$envf" && set +a
 done
 
