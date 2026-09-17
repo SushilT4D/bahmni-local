@@ -82,6 +82,41 @@ done
 NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}"
 NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}"
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
-pubs="$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d openelis -At),$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
-printf '%s' "$pubs" | grep -q dbz_clinlims_owned && printf '%s' "$pubs" | grep -q dbz_odoo_owned && ok "publications: ${pubs}" || fail "publications missing (got: ${pubs}); the dumps should carry dbz_clinlims_owned and dbz_odoo_owned"
+
+# Publications are created by the installer, not expected inside the dump (sync-core
+# Task 4, 2026-09-17): a dump seeded from the hub (the future seed source) carries no
+# publication at all -- staging has 0. The table list is derived at run time from
+# sync/subsystems.conf's odoo:/clinlims: rows, the same file the striding SQL (task 060)
+# and the MirrorMaker whitelist read, so there is exactly one place that says which
+# tables are synced. dbz_heartbeat is deliberately left OUT of this list: task 080 runs
+# scripts/apply-slot-heartbeat.sh once Connect is up, and that script creates the
+# heartbeat table and ALTER PUBLICATION ... ADD TABLE's it in itself (idempotent, checks
+# NOT EXISTS first) -- adding it here too would just mean this ALTER strips it back out
+# on the next re-run of this task, only for the heartbeat script to re-add it. One owner
+# per piece of the publication.
+sync_publication(){ # db  subsystems-prefix  pg-schema  pubname
+  local db="$1" prefix="$2" schema="$3" pub="$4" tables t parts=""
+  tables="$(grep -E "^${prefix}:" "${REPO_DIR}/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2)"
+  [ -n "${tables}" ] || fail "no ${prefix}: rows found in ${REPO_DIR}/sync/subsystems.conf"
+  for t in ${tables}; do parts="${parts}${parts:+, }${schema}.${t}"; done
+  ct exec -i "$PG" psql -U postgres -d "${db}" -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = '${pub}') THEN
+    EXECUTE 'ALTER PUBLICATION ${pub} SET TABLE ${parts}';
+  ELSE
+    EXECUTE 'CREATE PUBLICATION ${pub} FOR TABLE ${parts}';
+  END IF;
+END \$\$;
+SQL
+}
+sync_publication odoo odoo public dbz_odoo_owned
+sync_publication openelis clinlims clinlims dbz_clinlims_owned
+
+want_odoo="$(grep -E '^odoo:' "${REPO_DIR}/sync/subsystems.conf" | grep -vc ':all$')"
+want_clinlims="$(grep -E '^clinlims:' "${REPO_DIR}/sync/subsystems.conf" | grep -vc ':all$')"
+got_odoo="$(printf "select count(*) from pg_publication_tables where pubname='dbz_odoo_owned'" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
+got_clinlims="$(printf "select count(*) from pg_publication_tables where pubname='dbz_clinlims_owned'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
+[ "${got_odoo:-0}" = "${want_odoo}" ] && ok "publication dbz_odoo_owned: ${got_odoo} tables" || fail "publication dbz_odoo_owned: ${got_odoo:-0} tables, want ${want_odoo}"
+[ "${got_clinlims:-0}" = "${want_clinlims}" ] && ok "publication dbz_clinlims_owned: ${got_clinlims} tables" || fail "publication dbz_clinlims_owned: ${got_clinlims:-0} tables, want ${want_clinlims}"

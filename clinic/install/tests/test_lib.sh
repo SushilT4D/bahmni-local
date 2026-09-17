@@ -40,20 +40,23 @@ env_put "$f" D 'plain'
 env_put "$f" E 'has space'
 assert_eq "env_put replaces" "$(env_get "$f" B)" 'x&y/z#w'
 
-# ensure_openmrs_jvm_opts: repairs a template-era .env, respects an operator's own flags, idempotent
+# ensure_openmrs_jvm_opts: pins the heap cap only (sync-core Task 4, 2026-09-17). The
+# container-support flag is retired with the 1.2.0 image pin: this function must no
+# longer ADD it (that would silently reintroduce what .env.example just dropped), but
+# it also never STRIPS one an operator (or a node still on the old image) set by hand.
 j="$TMP/jvm.env"
 printf 'A=1\nOMRS_JAVA_MEMORY_OPTS="-XX:NewSize=128m"\nOMRS_JAVA_SERVER_OPTS="-Dfile.encoding=UTF-8 -server -Djava.awt.headless=true"\n' > "$j"
 ensure_openmrs_jvm_opts "$j" >/dev/null
-assert_eq "jvm opts: flag appended once" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-Dfile.encoding=UTF-8 -server -Djava.awt.headless=true -XX:-UseContainerSupport'
+assert_eq "jvm opts: server opts untouched (flag not re-added)" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-Dfile.encoding=UTF-8 -server -Djava.awt.headless=true'
 assert_eq "jvm opts: heap pinned when no -Xmx" "$(env_get "$j" OMRS_JAVA_MEMORY_OPTS)" "$OMRS_HEAP_CAP"
 before="$(cat "$j")"; ensure_openmrs_jvm_opts "$j" >/dev/null
 assert_eq "jvm opts: second call changes nothing" "$(cat "$j")" "$before"
 printf 'OMRS_JAVA_MEMORY_OPTS="-Xms1g -Xmx3g"\nOMRS_JAVA_SERVER_OPTS="-server -XX:-UseContainerSupport -Dx=1"\n' > "$j"
 ensure_openmrs_jvm_opts "$j" >/dev/null
 assert_eq "jvm opts: operator heap kept" "$(env_get "$j" OMRS_JAVA_MEMORY_OPTS)" '-Xms1g -Xmx3g'
-assert_eq "jvm opts: flag present mid-string not duplicated" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-server -XX:-UseContainerSupport -Dx=1'
+assert_eq "jvm opts: an operator's own flag is not stripped" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-server -XX:-UseContainerSupport -Dx=1'
 printf 'A=1\n' > "$j"; ensure_openmrs_jvm_opts "$j" >/dev/null
-assert_eq "jvm opts: absent keys created" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-XX:-UseContainerSupport'
+assert_eq "jvm opts: server opts key not created when absent" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" ''
 assert_eq "env_put appends" "$(env_get "$f" D)" "plain"
 assert_eq "env_put quotes a space" "$(grep -E '^E=' "$f")" 'E="has space"'
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"

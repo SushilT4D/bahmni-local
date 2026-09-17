@@ -47,12 +47,15 @@ DECLARE
   v_max     bigint;
   v_last    bigint;
   v_next    bigint;
+  -- Renamed onto the Odoo 16 table set 2026-09-17 (sync-core Task 4, matching
+  -- staging): the unit-of-measure and two invoicing tables changed names between
+  -- Odoo versions; the other nine carry over unchanged.
   v_tables  text[] := ARRAY[
     'res_partner',
-    'product_template','product_product','product_category','product_uom',
+    'product_template','product_product','product_category','uom_uom',
     'sale_order','sale_order_line',
     'stock_move','stock_quant','stock_picking',
-    'account_invoice','account_invoice_line'
+    'account_move','account_move_line'
   ];
 BEGIN
   IF v_residue < 0 OR v_residue > 9 THEN

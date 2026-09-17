@@ -1,4 +1,5 @@
 -- sync-core, 2026-09-09: HUB. Drop the last sync-specific object anywhere in the fleet: the
+-- HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration against the retired Odoo 10 clinic override. Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 -- sync_lww() last-writer guard on the 12 Odoo tables (F-051). Under per-row single-writer
 -- ownership no two nodes write the same row, so the hub, like the clinics, plain-upserts and
 -- the last arrival wins. Idempotent. Run as superuser: psql -U postgres -d odoo -f hub-retire-lww.sql

@@ -249,21 +249,28 @@ ensure_stopped(){
 }
 
 # --- OpenMRS JVM options ----------------------------------------------------
-# infoiplitin/openmrs:iplit-1.0.0-662-4 ships Java 8u372, whose cgroup v2
-# metrics code throws a NullPointerException on an Azure Ubuntu 24.04 host the
-# moment Tomcat registers its MBeans; the container restart-loops behind a green
-# "Running" (first live clinic, manpur, 2026-09-17; reproduced on the hub with
-# jrunscript). -XX:-UseContainerSupport skips that code, after which the JVM
-# sizes its heap from host RAM -- so the heap is pinned explicitly (Rawach's
-# proven cap, F-050). Task 080 calls this before it starts the stack, so a node
-# whose .env predates the fix is repaired on resume, not by hand. An operator's
-# own -Xmx is respected; the flag is only ever added, never duplicated.
-OMRS_CONTAINER_FLAG='-XX:-UseContainerSupport'
+# infoiplitin/openmrs:iplit-1.0.0-662-4 shipped Java 8u372, whose cgroup v2
+# metrics code threw a NullPointerException on an Azure Ubuntu 24.04 host the
+# moment Tomcat registered its MBeans; the container restart-looped behind a
+# green "Running" (first live clinic, manpur, 2026-09-17; reproduced on the hub
+# with jrunscript). -XX:-UseContainerSupport skipped that code, after which the
+# JVM sized its heap from host RAM -- so the heap is pinned explicitly
+# regardless (Rawach's proven cap, F-050).
+#
+# RETIRED 2026-09-17 (sync-core Task 4): the fleet pin moved to
+# infoiplitin/openmrs:iplit-1.2.0-1200-03, Java 8u432, which does not have the
+# bug. This function used to ADD the flag to any .env missing it (a template-
+# era node, repaired on resume, not by hand) -- it must NOT do that any more,
+# or task 080 would silently reintroduce on every run the exact flag this
+# task's .env.example edit just removed. An operator's own flag (added by
+# hand, or left over on a node still running the old image) is left alone
+# either way: this function only ever adds what is missing, and the flag is no
+# longer something it considers missing. The heap cap is unrelated to the bug
+# and stays pinned regardless.
 OMRS_HEAP_CAP='-Xms512m -Xmx2048m -XX:NewSize=128m -XX:MaxMetaspaceSize=512m'
 ensure_openmrs_jvm_opts(){ # ENV_FILE
-  local f="$1" server mem changed=''
-  server="$(env_get "$f" OMRS_JAVA_SERVER_OPTS)"; mem="$(env_get "$f" OMRS_JAVA_MEMORY_OPTS)"
-  case " $server " in *" ${OMRS_CONTAINER_FLAG} "*) ;; *) env_put "$f" OMRS_JAVA_SERVER_OPTS "${server:+$server }${OMRS_CONTAINER_FLAG}"; changed="${changed} ${OMRS_CONTAINER_FLAG}" ;; esac
+  local f="$1" mem changed=''
+  mem="$(env_get "$f" OMRS_JAVA_MEMORY_OPTS)"
   case " $mem " in *" -Xmx"*) ;; *) env_put "$f" OMRS_JAVA_MEMORY_OPTS "${OMRS_HEAP_CAP}"; changed="${changed} heap=${OMRS_HEAP_CAP}" ;; esac
   if [ -n "$changed" ]; then ok "openmrs JVM opts pinned in .env:${changed}"; else skip "openmrs JVM opts already pinned"; fi
 }

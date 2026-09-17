@@ -38,5 +38,10 @@ printf 'CONTAINER_DATA_PATH=/tmp\nKAFKA_CLUSTER_ID=x\nOPENMRS_MEM_LIMIT=6g\nMYSQ
 ( cd "$REPO/clinic" && docker compose --env-file "$TMPENV" --profile local --profile debezium --profile openelis config --images 2>/dev/null ) > "$TMPIMGS"
 grep -q '^confluentinc/cp-kafka:8.3.2$' "$TMPIMGS" && ok "clinic compose resolves cp-kafka:8.3.2" || bad "clinic compose does not resolve cp-kafka:8.3.2: $(tr '\n' ' ' <"$TMPIMGS")"
 grep -q '^quay.io/debezium/connect:3.6.2.Final$' "$TMPIMGS" && ok "clinic compose resolves debezium 3.6.2" || bad "clinic compose does not resolve debezium 3.6.2"
+# Task 1 deferred these two: the odoo-10 override existed when test_versions.sh was
+# written, so the clinic project could not yet resolve odoo-16 cleanly. It is gone now
+# (sync-core Task 4, 2026-09-17).
+grep -q '^bahmni/odoo-16:1.0.0$' "$TMPIMGS" && ok "clinic compose resolves bahmni/odoo-16:1.0.0" || bad "clinic compose does not resolve bahmni/odoo-16:1.0.0: $(tr '\n' ' ' <"$TMPIMGS")"
+grep -q '^bahmni/odoo-10' "$TMPIMGS" && bad "clinic compose still resolves a bahmni/odoo-10 image: $(tr '\n' ' ' <"$TMPIMGS")" || ok "no bahmni/odoo-10 image in clinic compose"
 [ -f "$REPO/hub/scripts/install-jdbc-connector.sh" ] && bad "install-jdbc-connector.sh still present (unused Confluent JDBC)" || ok "Confluent JDBC installer gone"
 printf '%s failure(s)\n' "$fails"; exit $((fails>0))

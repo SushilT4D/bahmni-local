@@ -30,7 +30,12 @@ BEGIN
   RAISE NOTICE 'strided % clinlims sequences', n;
 END \$\$;
 SQL
-ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < odoo/apply-odoo-sequence-striding.sql
+# Same table list the publication and MirrorMaker whitelist use (sync/subsystems.conf's
+# odoo: rows, the :all aggregate row excluded) -- one source of truth, passed to the SQL
+# as a comma-separated psql variable rather than duplicated as a second hard-coded array.
+ODOO_TABLES="$(grep -E '^odoo:' "${REPO_DIR}/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2 | tr '\n' ',' | sed 's/,$//')"
+[ -n "${ODOO_TABLES}" ] || fail "no odoo: rows found in ${REPO_DIR}/sync/subsystems.conf"
+ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < odoo/apply-odoo-sequence-striding.sql
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < odoo/apply-master-sequence-striding.sql
 bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) from pg_sequences where (schemaname='clinlims') and (increment_by<>10 or last_value %% 10 <> ${RESIDUE}) limit 3" | ct exec -i "$PG" psql -U postgres -d openelis -At | tr '\n' ' ')"
 [ -z "$bad" ] && ok "clinlims sequences: increment 10, residue ${RESIDUE}" || fail "clinlims sequences off-residue: ${bad}"

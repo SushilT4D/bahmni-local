@@ -26,6 +26,8 @@ assert_eq "KAFKA_IMAGE pinned" "$(env_get "$E" KAFKA_IMAGE)" "confluentinc/cp-ka
 assert_eq "DEBEZIUM_CONNECT_IMAGE pinned" "$(env_get "$E" DEBEZIUM_CONNECT_IMAGE)" "quay.io/debezium/connect:3.6.2.Final"
 assert_eq "OPENMRS_IMAGE_NAME pinned" "$(env_get "$E" OPENMRS_IMAGE_NAME)" "infoiplitin/openmrs:iplit-1.2.0-1200-03"
 assert_eq "ODOO_CONNECT_IMAGE_TAG pinned" "$(env_get "$E" ODOO_CONNECT_IMAGE_TAG)" "1.0.0"
+assert_eq "no ODOO_DB_IMAGE_TAG" "$(grep -c '^ODOO_DB_IMAGE_TAG=' "$E")" "0"
+assert_eq "no ODOO_IMAGE_TAG" "$(grep -c '^ODOO_IMAGE_TAG=' "$E")" "0"
 assert_eq "REMOTE_KAFKA_PASSWORD quoted" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$E")" 'REMOTE_KAFKA_PASSWORD="p&w"'
 assert_eq "OPENELIS_DB_PASSWORD == CLINLIMS_SOURCE_PASSWORD" "$(env_get "$E" OPENELIS_DB_PASSWORD)" "$(env_get "$E" CLINLIMS_SOURCE_PASSWORD)"
 assert_eq "DEBEZIUM_DB_PASSWORD == LOCAL_DEBEZIUM_PASSWORD" "$(env_get "$E" DEBEZIUM_DB_PASSWORD)" "$(env_get "$E" LOCAL_DEBEZIUM_PASSWORD)"

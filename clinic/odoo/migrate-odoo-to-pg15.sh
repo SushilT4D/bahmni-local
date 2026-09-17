@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration (Odoo 10's shipped PG9.6 -> bahmni-postgres). Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 # ADDED 2026-09-04 (sync-core, D7 Odoo full-replication build).
 #
 # Moves one node's Odoo database off its shipped PostgreSQL 9.6 onto the node's PG 15

@@ -1,4 +1,5 @@
 -- sync-core, 2026-09-09: remove the last custom column from a CLINIC Odoo (F-051).
+-- HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration against the retired Odoo 10 clinic override. Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 -- With per-row single-writer ownership (L-008) and the engine loop guards (F-044/F-047),
 -- no two nodes write the same row, so a clinic sink can plain-upsert: no last-writer rule,
 -- no trigger, no column. The hub keeps a guard on Odoo's own write_date (hub-lww-on-write-date.sql).

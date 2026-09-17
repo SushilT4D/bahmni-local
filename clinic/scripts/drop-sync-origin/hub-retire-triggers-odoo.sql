@@ -1,4 +1,5 @@
 -- Hub only: keep last-writer-wins on sync_updated_at, drop the origin stamp and tie-break.
+-- HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration against the retired Odoo 10 clinic override. Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 CREATE OR REPLACE FUNCTION public.sync_lww() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF session_user IN ('odoo_sink') THEN

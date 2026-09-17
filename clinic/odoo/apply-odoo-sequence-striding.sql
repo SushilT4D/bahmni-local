@@ -30,14 +30,24 @@
 -- F-005. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
 -- separately; this script does not pretend to fix it.
 --
--- Usage: psql -U postgres -d odoo -v residue=4 -f odoo/apply-odoo-sequence-striding.sql
+-- TABLE LIST. The twelve synced Odoo tables are no longer hard-coded here (sync-core
+-- Task 4, 2026-09-17): the caller (task 060) reads sync/subsystems.conf's odoo: rows --
+-- the same file the publication and MirrorMaker whitelist derive from -- and passes them
+-- in as a single comma-separated psql variable, split back into an array below. A
+-- second source of truth for "which Odoo tables are synced" is exactly the bug this
+-- repo's subsystems.conf already fixed once for the MirrorMaker regex (see that file's
+-- own header); this script does not get to keep its own copy.
+--
+-- Usage: psql -U postgres -d odoo -v residue=4 -v tables=res_partner,product_template,... \
+--          -f odoo/apply-odoo-sequence-striding.sql
 \set ON_ERROR_STOP on
 BEGIN;
 
 -- psql does NOT interpolate :variables inside a dollar-quoted block (they are string
--- literals to the lexer), so the residue is handed in through a GUC set out here, where
--- interpolation does happen, and read back with current_setting() inside.
+-- literals to the lexer), so residue and the table list are handed in through GUCs set
+-- out here, where interpolation does happen, and read back with current_setting() inside.
 SELECT set_config('myvars.residue', :'residue', false);
+SELECT set_config('myvars.tables', :'tables', false);
 
 DO $do$
 DECLARE
@@ -47,14 +57,11 @@ DECLARE
   v_max     bigint;
   v_last    bigint;
   v_next    bigint;
-  v_tables  text[] := ARRAY[
-    'res_partner',
-    'product_template','product_product','product_category','product_uom',
-    'sale_order','sale_order_line',
-    'stock_move','stock_quant','stock_picking',
-    'account_invoice','account_invoice_line'
-  ];
+  v_tables  text[] := string_to_array(current_setting('myvars.tables'), ',');
 BEGIN
+  IF v_tables IS NULL OR array_length(v_tables, 1) IS NULL THEN
+    RAISE EXCEPTION 'no tables passed in -tables (expected a comma-separated list from sync/subsystems.conf)';
+  END IF;
   IF v_residue < 0 OR v_residue > 9 THEN
     RAISE EXCEPTION 'residue must be 0..9, got %', v_residue;
   END IF;

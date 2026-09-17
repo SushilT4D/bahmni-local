@@ -1,4 +1,5 @@
 -- sync-core, 2026-09-09: retire the Odoo write-origin guard on a CLINIC node (F-048).
+-- HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration against the retired Odoo 10 clinic override. Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 -- Supersedes apply-odoo-write-origin-guard.sql (row filters + stamp triggers) and the
 -- sync_origin half of apply-odoo-conflict-rule.sql. The loop guard is now the engine's:
 -- sink sessions carry a replication origin and the source decodes with origin=none
