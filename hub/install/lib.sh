@@ -73,3 +73,16 @@ hub_base_container(){
     *) fail "hub_base_container: unknown role $1" ;;
   esac
 }
+
+# binlog_ok FORMAT IMAGE RETENTION_S SERVER_ID INCREMENT OFFSET CONNECTOR_ID : the
+# base MySQL is fit for a Debezium source and the hub's striding (residue 0).
+binlog_ok(){
+  local f="$1" i="$2" r="$3" s="$4" inc="$5" off="$6" cid="$7" bad=''
+  [ "$f" = ROW ] || bad="$bad binlog_format=$f"
+  [ "$i" = FULL ] || bad="$bad binlog_row_image=$i"
+  [ "${r:-0}" -ge 604800 ] || bad="$bad retention=${r}s(<7d)"
+  [ "$s" != "$cid" ] || bad="$bad server_id=$s(equals the connector id, F-059)"
+  [ "$inc" = 10 ] || bad="$bad auto_increment_increment=$inc"
+  [ "$off" = 10 ] || bad="$bad auto_increment_offset=$off(the hub is residue 0)"
+  [ -z "$bad" ] && return 0; printf '%s\n' "$bad"; return 1
+}
