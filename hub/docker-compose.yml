@@ -1,3 +1,14 @@
+x-rotate-logs: &rotate
+  # For the services that do NOT reference *log-config in the base file and so
+  # inherit no logging config at all. Fixing x-default-logging alone covered
+  # only 13 of 29 here -- and left kafka-connect, holding a 799 MB unrotated
+  # json.log, among the uncovered. A YAML anchor is file-scoped, so it is
+  # redeclared rather than reused from the base file.
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 services:
 
   # --- KRaft migration (KIP-866): dedicated controller quorum ---
@@ -5,6 +16,7 @@ services:
     image: confluentinc/cp-kafka:7.6.0
     hostname: kafka-controller
     container_name: kafka-controller
+    logging: *rotate
     environment:
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
       KAFKA_NODE_ID: 3000
@@ -21,6 +33,7 @@ services:
     image: confluentinc/cp-kafka:7.6.0
     hostname: kafka
     container_name: kafka
+    logging: *rotate
     depends_on:
       kafka-controller:
         condition: service_started
@@ -55,6 +68,11 @@ services:
       KAFKA_OPTS: >-
         -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
         -Dzookeeper.sasl.client=false
+      # MM-07: cp-kafka's preflight (cub zk-ready) sees the JAAS file in
+      # KAFKA_OPTS and then demands a SASL zookeeper — but his zookeeper is
+      # plain, so the probe times out even though the session establishes.
+      # This env tells the probe zookeeper SASL is off. Broker config unchanged.
+      ZOOKEEPER_SASL_ENABLED: "FALSE"
     volumes:
       - kafka-data:/var/lib/kafka/data
       - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf:ro
@@ -70,6 +88,7 @@ services:
     image: confluentinc/cp-schema-registry:7.6.0
     hostname: schema-registry
     container_name: schema-registry
+    logging: *rotate
     depends_on:
       kafka:
         condition: service_healthy
@@ -91,6 +110,7 @@ services:
     image: quay.io/debezium/connect:3.2.4.Final
     hostname: kafka-connect
     container_name: kafka-connect
+    logging: *rotate
     depends_on:
       kafka:
         condition: service_healthy

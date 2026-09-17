@@ -123,6 +123,10 @@ hub/connectors/mysql-sink-*.json
 hub/connectors/odoo-*-sink-all.json
 hub/connectors/clinlims-*-sink-all.json
 hub/connectors/mysql-cloud-source-connector.json
+# generate-cloud-source-connector.sh's default OUT path (mirrors the
+# cloud/connectors/generated/ rule above, same reason: rendered, password-
+# substituted output, never meant to be committed).
+hub/connectors/generated/
 !hub/connectors/odoo-cloud-source.json
 !hub/connectors/clinlims-cloud-source.json
 !hub/connectors/odoo-cloud-sink-all.json

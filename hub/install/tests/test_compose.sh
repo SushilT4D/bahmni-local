@@ -13,4 +13,5 @@ git -C "$HUB/.." ls-files cloud/kafka_server_jaas.conf | grep -q . && bad "JAAS 
 # with a single pathname", confirmed on git 2.39.5) -- split into two calls,
 # same assertion.
 git -C "$HUB/.." check-ignore -q hub/.env && git -C "$HUB/.." check-ignore -q hub/kafka_server_jaas.conf && ok "hub/.env and JAAS ignored" || bad "hub secrets not ignored"
+git -C "$HUB/.." check-ignore -q hub/connectors/generated/x.json && ok "hub/connectors/generated/ ignored" || bad "hub/connectors/generated/ not ignored"
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))
