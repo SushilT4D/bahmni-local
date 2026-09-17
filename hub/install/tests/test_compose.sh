@@ -3,7 +3,10 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HUB="$(cd "$HERE/../.." && pwd)"; fails=0
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 [ -f "$HUB/docker-compose.yml" ] && ok "hub compose exists" || bad "hub/docker-compose.yml missing"
-env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet docker compose -f "$HUB/docker-compose.yml" config >/tmp/hubcfg.yml 2>/tmp/hubcfg.err \
+# KAFKA_IMAGE, SCHEMA_REGISTRY_IMAGE and DEBEZIUM_CONNECT_IMAGE are fleet pins
+# (sync/versions.env) the example does not carry -- hub_compose_env's
+# versions_put writes them at render time (hub/install/lib.sh), not this file.
+env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') $(grep -oE '^[A-Z_]+=[^ ]*' "$HUB/../sync/versions.env" | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet docker compose -f "$HUB/docker-compose.yml" config >/tmp/hubcfg.yml 2>/tmp/hubcfg.err \
   && ok "hub compose validates with the example keys" || { bad "hub compose does not validate: $(head -3 /tmp/hubcfg.err)"; }
 for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  ${s}:" /tmp/hubcfg.yml && ok "service $s" || bad "service $s missing"; done
 grep -qE 'name: testnet' /tmp/hubcfg.yml && grep -qE 'external: true' /tmp/hubcfg.yml && ok "attaches to the base network" || bad "external network not declared"
