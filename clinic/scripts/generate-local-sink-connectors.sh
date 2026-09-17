@@ -1,10 +1,10 @@
 #!/bin/bash
 # generate-local-sink-connectors.sh — render the DOWN-direction (cloud → clinic) sinks.
 #
-# One connector per cloud-owned table from cloud/tables.conf. These run ON THE
+# One connector per cloud-owned table from hub/tables.conf. These run ON THE
 # CLINIC and write into the clinic's OpenMRS DB.
 #
-# Deliberate differences from the up-direction generator (cloud/scripts/
+# Deliberate differences from the up-direction generator (hub/scripts/
 # generate-sink-connectors.sh), each one a defect we hit:
 #   BL-030  that script used an UNQUOTED heredoc, so the shell expanded the RegexRouter
 #           replacement "$1" to empty and every connector died with `Invalid identifier:`.
@@ -20,7 +20,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-${ROOT}/../sync/local/connectors/generated}"
 TEMPLATE="${ROOT}/../sync/local/connectors/mysql-local-sink-connector.json.template"
-TABLES_CONF="${TABLES_CONF:-${ROOT}/../cloud/tables.conf}"
+TABLES_CONF="${TABLES_CONF:-${ROOT}/../hub/tables.conf}"
 # The clinic's OWN capture list. Read only to refuse overlap — see the L-008 guard below.
 UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/local/tables.conf}"
 
@@ -63,7 +63,7 @@ done < "$TABLES_CONF"
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
 # L-008 ownership guard — the mirror image of the one in
-# cloud/scripts/generate-sink-connectors.sh, which refuses to give a
+# hub/scripts/generate-sink-connectors.sh, which refuses to give a
 # CLOUD-owned table an up-direction sink. Same rule, other direction: a table the
 # CLINIC authors must never get a down-direction sink.
 #

@@ -65,7 +65,7 @@ This directory contains the configuration for the **local** machine that capture
 
 Canonical lists:
 - **This file** (`debezium/local/tables.conf`) — clinic → cloud CDC
-- **`../cloud/tables.conf`** — cloud → clinic (users/roles/providers)
+- **`../hub/tables.conf`** — cloud → clinic (users/roles/providers)
 
 Quick steps (local → cloud):
 1. Add a line here: `table:pk:base_id` or `table:pk`

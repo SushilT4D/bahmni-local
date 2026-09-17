@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from sync/local/tables.conf or cloud/tables.conf.
+# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from sync/local/tables.conf or hub/tables.conf.
 #
 # Usage:
 #   ./scripts/generate-table-config.sh local
@@ -15,7 +15,7 @@ usage() {
 Usage: $(basename "$0") <local|cloud>
 
   local   Read sync/local/tables.conf      (clinic → cloud CDC)
-  cloud   Read cloud/tables.conf           (cloud → clinic)
+  cloud   Read hub/tables.conf             (cloud → clinic)
 
   --include-relay   Also emit tables marked `:relay` -- clinic-owned tables the
                     hub relays (ADR-003 s7). A CLINIC needs these, because they
@@ -35,10 +35,10 @@ case "${SIDE}" in
   *) usage; echo "Error: unknown side '${SIDE}' (use local or cloud)" >&2; exit 1 ;;
 esac
 
-# Stage 4 (2026-09-15): this script lives in clinic/scripts/, the hub tree is cloud/
+# Stage 4 (2026-09-15): this script lives in clinic/scripts/, the hub tree is hub/
 # and the shared sync definitions are sync/ -- all siblings of PROJECT_DIR (clinic/).
 case "${SIDE}" in
-  cloud) TABLES_CONF="${PROJECT_DIR}/../cloud/tables.conf" ;;
+  cloud) TABLES_CONF="${PROJECT_DIR}/../hub/tables.conf" ;;
   *)     TABLES_CONF="${PROJECT_DIR}/../sync/${SIDE}/tables.conf" ;;
 esac
 [[ -f "${TABLES_CONF}" ]] || { echo "Error: ${TABLES_CONF} not found"; exit 1; }
