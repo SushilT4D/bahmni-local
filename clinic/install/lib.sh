@@ -91,9 +91,20 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 # .env editing. A value containing a space, &, !, #, $, ; or | is double-quoted
 # (the file is read both by compose interpolation and by scripts that `source`
 # it). Python does the replace so no character in the value needs escaping.
+#
+# The class also catches a bare "'" or "\" (Task 7 fold-in, code review): a
+# generated or operator-typed secret (hub/.env's KAFKA_UI_PASSWORD and
+# friends, or an operator hand-editing any .env) can legitimately carry
+# either, and an unquoted value written straight into the file corrupts
+# whichever shell later `.`-sources it -- a lone "'" opens an unterminated
+# quoted string that swallows everything up to the NEXT "'" anywhere later in
+# the file, silently merging keys together. Individually backslash-escaped
+# here (not wrapped in a second pair of single quotes) so the shell's own
+# parsing of this case pattern is not itself at the mercy of getting quote
+# nesting right.
 env_put(){
   local f="$1" k="$2" v="$3"
-  case "$v" in *[' &!#$;|']*) v="\"$v\"" ;; esac
+  case "$v" in *[\ \&\!\#\$\;\|\'\\]*) v="\"$v\"" ;; esac
   python3 - "$f" "$k" "$v" <<'PY'
 import sys, re
 f, k, v = sys.argv[1], sys.argv[2], sys.argv[3]

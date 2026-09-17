@@ -156,6 +156,37 @@ services:
       timeout: 5s
       retries: 5
 
+  # Topic/consumer/Connect browser, behind a real login -- task 070 brings it
+  # up alongside kafka-connect and proves both the login page answers AND an
+  # unauthenticated API call is refused. 127.0.0.1 only: this is an operator
+  # convenience on the hub host itself, never a service another node dials.
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE:?}
+    hostname: kafka-ui
+    container_name: kafka-ui
+    logging: *rotate
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:8080:8080'
+    environment:
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:?}
+      # Compose's ${VAR} substitution inserts hub/.env's raw value verbatim,
+      # byte for byte, into this environment entry -- unlike
+      # kafka_server_jaas.conf (a properties FILE this installer generates
+      # and must itself quote correctly), there is no second text format here
+      # for a "'" or "\" in the password to break out of, so no
+      # jaas_escape-style pass applies. gen_secret() (hub_compose_env's
+      # default for this key) only ever produces [A-Za-z0-9] regardless.
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?}
+      KAFKA_CLUSTERS_0_NAME: hub
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+
 networks:
   default:
     name: ${KAFKA_BASE_NETWORK:?set KAFKA_BASE_NETWORK to the base stack's network, e.g. cloud_default}

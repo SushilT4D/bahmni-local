@@ -60,17 +60,25 @@ if docker network create "$NET" >/dev/null 2>&1; then ok "throwaway network ${NE
 # The image pins compose needs to INTERPOLATE the file (every service's
 # ${VAR:?} is resolved even though only kafka-controller/kafka are started)
 # plus the cluster id and the throwaway network -- nothing else in hub/.env
-# is referenced by docker-compose.yml itself. versions_put (not a raw
-# env_get loop) because sync/versions.env's values carry inline "# comment"
-# text that only versions_put strips -- confirmed live: a plain env_get read
-# of KAFKA_IMAGE came back as 'confluentinc/cp-kafka:8.3.2    # Apache Kafka
-# 4.3.x...', which env_put then quoted whole and docker compose would have
-# tried to pull as a literal image reference, comment included.
+# is referenced by docker-compose.yml itself, EXCEPT kafka-ui's
+# KAFKA_UI_USER/KAFKA_UI_PASSWORD (Ruling 3): compose interpolates the WHOLE
+# file before deciding which services to start, so even though kafka-ui is
+# never brought up here, its two required vars still need a value or `up`
+# refuses outright (found live: "required variable KAFKA_UI_USER is missing
+# a value") -- dummy values, since nothing in this test ever dials kafka-ui.
+# versions_put (not a raw env_get loop) because sync/versions.env's values
+# carry inline "# comment" text that only versions_put strips -- confirmed
+# live: a plain env_get read of KAFKA_IMAGE came back as
+# 'confluentinc/cp-kafka:8.3.2    # Apache Kafka 4.3.x...', which env_put
+# then quoted whole and docker compose would have tried to pull as a literal
+# image reference, comment included.
 : > "$tmp_env"
 versions_put "$tmp_env" || bad "versions_put failed to copy sync/versions.env into the temp .env"
 CID="$(kafka_cluster_id)"
 env_put "$tmp_env" KAFKA_CLUSTER_ID "$CID"
 env_put "$tmp_env" KAFKA_BASE_NETWORK "$NET"
+env_put "$tmp_env" KAFKA_UI_USER admin
+env_put "$tmp_env" KAFKA_UI_PASSWORD "$(gen_secret)"
 ok "temp .env written with the fleet's image pins + cluster id ${CID} + network ${NET}"
 
 write_jaas "$jaas_path" testadmin testfleet

@@ -13,10 +13,24 @@ for name in "$@"; do
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
   body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
          python3 "$ROOT/connectors/_render_connector.py" "$f") || { echo "$body" >&2; exit 1; }
-  code=$(printf '%s' "$body" | curl -s -o /tmp/.reg.out -w '%{http_code}' \
+  # Connect's response echoes the connector config back, database.password and
+  # connection.password included -- so the body is never written to disk (was
+  # /tmp/.reg.out, a fixed, world-readable path: F-073, converged here on the
+  # same fix as clinic/connectors/register-odoo.sh, bab605f/d66aae8). It's held
+  # only in this shell's own memory, split on the trailing newline curl's -w
+  # appends, and on a non-2xx it's printed with any password value masked
+  # before the human ever sees it.
+  resp=$(printf '%s' "$body" | curl -s -w '\n%{http_code}' \
          -X PUT -H 'Content-Type: application/json' \
          --data-binary @- "$CONNECT_URL/connectors/${name}/config")
+  code="${resp##*$'\n'}"
   echo "  ${name}: HTTP ${code}"
-  [ "$code" -lt 300 ] || sed 's/^/    /' /tmp/.reg.out
+  # The value group below must consume JSON escapes ([^"\\]|\\.)* rather than
+  # stop at the first bare quote ([^"]*) -- a password containing an escaped
+  # quote (\") would otherwise end the match early and leak everything after
+  # it, e.g. "connection.password": "SEC\"RET" -> "connection.password":
+  # "***"RET" with the naive pattern (d66aae8).
+  [ "$code" -lt 300 ] || printf '%s\n' "${resp%$'\n'*}" \
+    | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' \
+    | sed 's/^/    /'
 done
-rm -f /tmp/.reg.out

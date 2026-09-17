@@ -98,31 +98,24 @@ mysql_login_ok "$my_ip" "$DEBEZIUM_DB_USER" "$DEBEZIUM_DB_PASSWORD" \
   || fail "mysql ${DEBEZIUM_DB_USER}@${my_ip} did not authenticate"
 
 # --- Postgres: sink roles ---------------------------------------------------
-# Both pg_admin and pg_admin_pw dispatch their CONTAINER/SUPERUSER on the DB
-# name they're given -- "openelis" routes to ELIS/ELIS_SUPERUSER (Ruling 11:
-# IPLIT's base runs it as a separate Postgres container from "odoo"),
-# everything else (odoo, and the bare "postgres" maintenance db used nowhere
-# in this file) stays on PG/BASE_PG_SUPERUSER. Every call site below already
-# passes "odoo" or "openelis" as its db argument, so dispatching here routes
+# pg_admin (hub/install/lib.sh) dispatches its CONTAINER/SUPERUSER on the DB
+# name it's given -- "openelis" routes to BASE_ELIS_CONTAINER/
+# BASE_ELIS_SUPERUSER (Ruling 11: IPLIT's base runs it as a separate Postgres
+# container from "odoo"), everything else (odoo, and the bare "postgres"
+# maintenance db used nowhere in this file) stays on BASE_PG_CONTAINER/
+# BASE_PG_SUPERUSER. Every call site below already passes "odoo" or
+# "openelis" as its db argument, so dispatching there routes
 # create_pg_sink_role/build_publication/check_sink_privileges/check_sequences
-# and the heartbeat calls correctly without touching any of them.
+# and the heartbeat calls correctly without touching any of them. Hoisted to
+# lib.sh (code review fold-in, Task 6/7 review) so this task and
+# 080-sources.sh share one contract instead of each defining a same-named
+# function with a different argument shape.
 #
-# pg_admin DB ARGS... : psql as the base Postgres superuser, script on stdin,
-# no masking -- reserved for SQL that carries no secret.
-pg_admin(){
-  local db="$1" ct_name="$PG" su="$BASE_PG_SUPERUSER"
-  [ "$db" = openelis ] && { ct_name="$ELIS"; su="$ELIS_SUPERUSER"; }
-  shift
-  ct exec -i "$ct_name" psql -U "$su" -d "$db" -v ON_ERROR_STOP=1 -q "$@"
-}
 # pg_admin_pw DB : like pg_admin, for SQL (on stdin) that carries
 # ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD -- masked the same way mysql_root
 # masks the MySQL secrets above (mask_env_secrets, Fix round 2).
 pg_admin_pw(){
-  local ct_name="$PG" su="$BASE_PG_SUPERUSER"
-  [ "$1" = openelis ] && { ct_name="$ELIS"; su="$ELIS_SUPERUSER"; }
-  ct exec -i "$ct_name" psql -U "$su" -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 \
-    | mask_env_secrets ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD
+  pg_admin "$@" 2>&1 | mask_env_secrets ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD
 }
 # create_pg_sink_role ROLE PASSWORD DB SCHEMA : role create-when-absent +
 # password convergence, then the same schema/table/sequence/default-privilege
@@ -300,7 +293,19 @@ check_sequences openelis clinlims clinlims $EXISTING_CLINLIMS_TABLES
 [ -z "$SEQ_BAD" ] && ok "sequence striding (residue 0): ${SEQ_REPORT}" || fail "sequence striding violations:${SEQ_BAD}"
 
 # --- Replication origins: none, on purpose ----------------------------------
-origins="$(printf "select count(*) from pg_replication_origin where roname like 'hub_%%'" | pg_admin odoo -At)"
-[ "${origins:-0}" = 0 ] && ok "origins: none (hub relays)" || fail "hub_% replication origin(s) exist on the hub (${origins}) -- an origin here would switch the relay off"
+# pg_replication_origin is per Postgres INSTANCE, not shared across two
+# separate servers -- queried through odoo's own instance (PG) below, and,
+# when Ruling 11's two-container base differs (IPLIT's real hub: OpenELIS
+# lives on its own Postgres instance, ELIS), through openelis's instance too.
+# A single-instance check would silently miss an origin created on the other
+# one; the mini and every clinic collapse ELIS back onto PG, so this is a
+# no-op there (already proven fit by the one check).
+check_no_hub_origins(){ # DB
+  local db="$1" origins
+  origins="$(printf "select count(*) from pg_replication_origin where roname like 'hub_%%'" | pg_admin "$db" -At)"
+  [ "${origins:-0}" = 0 ] && ok "origins: none (hub relays), db=${db}" || fail "hub_% replication origin(s) exist on ${db} (${origins}) -- an origin here would switch the relay off"
+}
+check_no_hub_origins odoo
+[ "$ELIS" != "$PG" ] && check_no_hub_origins openelis
 
 ok "base databases carry the sync identities, publications, heartbeats; striding at residue 0"

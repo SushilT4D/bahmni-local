@@ -34,7 +34,28 @@
 # the base file's `environment` map. Three connectors and a handful of test
 # rows are nowhere near what the Debezium Connect image's own default heap
 # assumes.
+#
+# kafka (Ruling 9): boot-override.yml already reset this service's ports to
+# `[]` (this Mac may already run a real hub bound to the base file's own
+# 127.0.0.1:9092/9093). Task 090's exit checks re-prove the SASL listener at
+# the end of the install (sasl_listener_ok, hub/install/lib.sh), so this
+# layer republishes just the SASL port -- on 19092, never the real 9092 --
+# and test_sources.sh exports SASL_LISTENER_PORT=19092 to match before
+# running 090. 9093 (the base file's other kafka mapping) is not needed by
+# anything here and stays unpublished.
+#
+# kafka-ui (Ruling 9): the only real proof of Ruling 3 -- a throwaway
+# instance, renamed and republished on 18080 rather than the real 8080, so
+# task 070's own two checks (login page 200, /api/clusters refused
+# unauthenticated) can be exercised for real. Its `environment` (cluster
+# name, bootstrap servers, Connect address) all reference SERVICE names
+# (kafka, kafka-connect), which resolve to these renamed containers exactly
+# the same either way -- container_name is a docker-level identifier only,
+# never part of Compose's internal DNS.
 services:
+  kafka:
+    ports: !override
+      - '127.0.0.1:19092:9092'
   kafka-connect:
     container_name: hubtest-kafka-connect
     depends_on: !override
@@ -44,3 +65,7 @@ services:
       - '127.0.0.1:18083:8083'
     environment:
       KAFKA_HEAP_OPTS: "-Xms256m -Xmx1g"
+  kafka-ui:
+    container_name: hubtest-kafka-ui
+    ports: !override
+      - '127.0.0.1:18080:8080'

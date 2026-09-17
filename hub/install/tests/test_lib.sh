@@ -127,4 +127,25 @@ capture_rc=$?
 assert_eq "capture-then-loop shape (this task's pattern) exits non-zero" "$capture_rc" "1"
 assert_eq "capture-then-loop shape never reaches the marker after the fail" "$capture_out" ""
 
+# pg_admin DB ARGS... (code review fold-in, Task 6/7 review: hoisted here so
+# 050-base-db.sh and 080-sources.sh stop each defining their own, differently
+# -shaped, same-named function). Dispatch only -- CT is faked to `echo` so
+# this runs with no real docker/podman, and just proves which container and
+# superuser pg_admin chose to `exec` into for a given db name.
+export BASE_PG_CONTAINER=pg-c BASE_PG_SUPERUSER=pgsu BASE_ELIS_CONTAINER=elis-c BASE_ELIS_SUPERUSER=elissu
+CT=echo
+got="$(pg_admin odoo -Atc 'select 1')"
+assert_eq "pg_admin odoo execs into BASE_PG_CONTAINER as BASE_PG_SUPERUSER" "$got" "exec -i pg-c psql -U pgsu -d odoo -v ON_ERROR_STOP=1 -q -Atc select 1"
+got="$(pg_admin openelis -Atc 'select 1')"
+assert_eq "pg_admin openelis execs into BASE_ELIS_CONTAINER as BASE_ELIS_SUPERUSER" "$got" "exec -i elis-c psql -U elissu -d openelis -v ON_ERROR_STOP=1 -q -Atc select 1"
+got="$(pg_admin postgres -Atc 'select 1')"
+assert_eq "pg_admin postgres (the maintenance db, not \"openelis\") stays on BASE_PG_CONTAINER" "$got" "exec -i pg-c psql -U pgsu -d postgres -v ON_ERROR_STOP=1 -q -Atc select 1"
+# The ELIS fallback (an .env composed before BASE_ELIS_CONTAINER/SUPERUSER
+# existed): unset both and confirm pg_admin collapses back onto BASE_PG_*,
+# same as hub_compose_env's own default and hub_base_container's.
+unset BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER
+got="$(pg_admin openelis -Atc 'select 1')"
+assert_eq "pg_admin openelis falls back to BASE_PG_CONTAINER/SUPERUSER when the ELIS pair is unset" "$got" "exec -i pg-c psql -U pgsu -d openelis -v ON_ERROR_STOP=1 -q -Atc select 1"
+unset CT BASE_PG_CONTAINER BASE_PG_SUPERUSER
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

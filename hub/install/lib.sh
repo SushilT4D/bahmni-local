@@ -17,21 +17,25 @@ REPO_DIR="${REPO_DIR:-$(cd "${HUB_INSTALL_DIR}/../.." && pwd)}"
 CLINIC_DIR="${HUB_DIR}" PROFILES="" INSTALL_DIR="${REPO_DIR}/clinic/install" . "${REPO_DIR}/clinic/install/lib.sh"
 PROFILES=""
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
-HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE"
+HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE KAFKA_UI_USER KAFKA_UI_PASSWORD"
 
-# KAFKA_CONTAINER / CONNECT_CONTAINER: the docker/podman container NAMES hub
-# tasks `exec` into for kafka-configs/kafka-topics calls (080-sources.sh, and
+# KAFKA_CONTAINER: the docker/podman container NAME hub tasks `exec` into for
+# kafka-configs/kafka-topics calls (080-sources.sh, and
 # clinic/scripts/set-schema-history-retention.sh, shared with the clinic).
-# Always "kafka" / "kafka-connect" in production -- hub/docker-compose.yml
-# pins those exact container_names, and nothing about a real deployment ever
-# needs them to differ. Deliberately NOT HUB_KEYS/hub/.env material: unlike
-# KAFKA_CONNECT_URL, there is no per-deployment reason for these to vary.
+# Always "kafka" in production -- hub/docker-compose.yml pins that exact
+# container_name, and nothing about a real deployment ever needs it to
+# differ. Deliberately NOT HUB_KEYS/hub/.env material: unlike
+# KAFKA_CONNECT_URL, there is no per-deployment reason for this to vary.
 # The one legitimate override is hub/install/tests/test_sources.sh, which
 # must run these same tasks for real beside another real stack that already
-# holds the bare names on this host's docker daemon, and so renames its own
-# throwaway containers and exports these two before invoking the tasks.
+# holds the bare name on this host's docker daemon, and so renames its own
+# throwaway container and exports this before invoking the tasks.
+#
+# CONNECT_CONTAINER (its former sibling here) was removed (code review
+# fold-in, Task 6/7 review): every hub task that talks to Kafka Connect does
+# so over its REST API (CONNECT_URL), never `ct exec` into the container by
+# name, so the variable was defined and exported but read by nothing.
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
-CONNECT_CONTAINER="${CONNECT_CONTAINER:-kafka-connect}"
 
 # hub_compose_env BASE_ENV SECRETS OUT : write hub/.env from the fleet pointer
 # (sync/hub.env), the base stack's .env (root credentials, existing sink
@@ -93,6 +97,13 @@ hub_compose_env(){
   put ODOO_DB_PASSWORD "$(env_get "$base" ODOO_DB_PASSWORD)"
   put CLINLIMS_SOURCE_PASSWORD "$(env_get "$base" OPENELIS_DB_PASSWORD)"
   put REMOTE_SERVER_NAME bahmni-cloud
+  # kafka-ui (Ruling 3): a login the operator actually knows, not a bare
+  # generated username -- "admin" is not a secret, so it is a fixed default
+  # rather than something `put`'s already-set-wins guard needs to protect
+  # from being clobbered on resume (it never generates a fresh one after the
+  # first run either way, same as every other `put` here).
+  put KAFKA_UI_USER admin
+  put KAFKA_UI_PASSWORD "$(gen_secret)"
   versions_put "$out"   # every fleet pin from sync/versions.env (L-005: one place)
   for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || [ "$k" = BASE_PG_PASSWORD ] || fail "hub .env is missing $k"; done
 }
@@ -114,6 +125,34 @@ hub_base_container(){
       ;;
     *) fail "hub_base_container: unknown role $1" ;;
   esac
+}
+
+# pg_admin DB ARGS... : psql as the base Postgres superuser, for whichever
+# container actually hosts DB -- "openelis" routes to BASE_ELIS_CONTAINER/
+# BASE_ELIS_SUPERUSER (IPLIT's real hub base runs Odoo and OpenELIS in two
+# separate Postgres containers with different bootstrap superusers), every
+# other DB (odoo, and the bare "postgres" maintenance db some callers use)
+# stays on BASE_PG_CONTAINER/BASE_PG_SUPERUSER. One contract, hoisted here
+# (code review fold-in, Task 6/7 review): 050-base-db.sh and 080-sources.sh
+# each used to define their own `pg_admin` with a DIFFERENT argument shape
+# (050's took a db name and dispatched; 080's took a container+superuser
+# directly), a naming collision waiting to bite the next person who greps for
+# one and edits the other. Both tasks now call this one. ARGS are passed
+# straight to psql -- a heredoc/pipe on stdin, or -Atc "SQL", or -f/-v as
+# 050-base-db.sh already does -- with no masking here; a caller whose SQL
+# carries a secret masks it the way 050-base-db.sh's own pg_admin_pw wraps
+# this function for the two sink-role passwords. Reads BASE_PG_CONTAINER/
+# BASE_PG_SUPERUSER/BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER from the caller's
+# already-sourced hub/.env; the BASE_ELIS_* fallback mirrors hub_compose_env's
+# own default (an .env composed before that key pair existed).
+pg_admin(){
+  local db="$1" ct_name="${BASE_PG_CONTAINER:?pg_admin: BASE_PG_CONTAINER not set}" su="${BASE_PG_SUPERUSER:?pg_admin: BASE_PG_SUPERUSER not set}"
+  if [ "$db" = openelis ]; then
+    ct_name="${BASE_ELIS_CONTAINER:-$ct_name}"
+    su="${BASE_ELIS_SUPERUSER:-$su}"
+  fi
+  shift
+  ct exec -i "$ct_name" psql -U "$su" -d "$db" -v ON_ERROR_STOP=1 -q "$@"
 }
 
 # jaas_escape STR : backslash-escapes a value for safe embedding inside a
@@ -179,6 +218,41 @@ write_jaas(){
   chmod 600 "$out"
 }
 
+# sasl_listener_ok : proves the broker's published SASL_PLAINTEXT listener
+# authenticates the mirrormaker user, dialed from the HOST network on the
+# PUBLISHED port -- never by dialing REMOTE_KAFKA_HOST from inside the
+# broker's own container (an Azure VM cannot reach its own public IP).
+# Extracted here (code review fold-in, Task 6/7 review) so task 060 (right
+# after the broker first comes up) and task 090 (the exit checks, proving it
+# is STILL true at the end) share one definition instead of two copies
+# drifting apart. Same ok-or-named-reason contract as binlog_ok above: prints
+# nothing and returns 0 on success, prints the reason and returns 1
+# otherwise. Reads KAFKA_IMAGE/REMOTE_KAFKA_HOST/REMOTE_KAFKA_PASSWORD from
+# the caller's already-sourced hub/.env; requires setup_compose to have run
+# (uses ct). The check's own password never touches a command line, a log, or
+# a tracked file: written by the printf builtin (no subprocess ever sees it
+# in argv) to a mode-600 temp file under HUB_DIR, removed before this
+# function returns on every path.
+#
+# SASL_LISTENER_PORT overrides which published host port is dialed (default
+# 9092, production's real value): hub/install/tests/test_sources.sh's
+# throwaway broker cannot publish 9092 itself (this host may already run a
+# real hub bound to it), so it republishes the same internal SASL listener on
+# a throwaway host port instead and sets this to match -- the one legitimate
+# override, the same shape as KAFKA_CONTAINER/CONNECT_URL.
+sasl_listener_ok(){
+  local tmp esc_pw rc=0 port="${SASL_LISTENER_PORT:-9092}"
+  tmp="$(mktemp "${HUB_DIR}/.sasl-check.XXXXXX")"
+  chmod 600 "$tmp"
+  esc_pw="$(jaas_escape "${REMOTE_KAFKA_PASSWORD:?sasl_listener_ok: REMOTE_KAFKA_PASSWORD not set}")"
+  printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
+  ct run --rm --network host -v "${tmp}:/tmp/c.properties:ro" "${KAFKA_IMAGE:?sasl_listener_ok: KAFKA_IMAGE not set}" kafka-broker-api-versions --bootstrap-server "127.0.0.1:${port}" --command-config /tmp/c.properties >/dev/null 2>&1 || rc=$?
+  rm -f "$tmp"
+  [ "$rc" = 0 ] && return 0
+  printf 'SASL listener did not answer on 127.0.0.1:%s as mirrormaker (image %s)\n' "$port" "${KAFKA_IMAGE}"
+  return 1
+}
+
 # binlog_ok FORMAT IMAGE RETENTION_S SERVER_ID INCREMENT OFFSET CONNECTOR_ID : the
 # base MySQL is fit for a Debezium source and the hub's striding (residue 0).
 binlog_ok(){
@@ -190,6 +264,41 @@ binlog_ok(){
   [ "$inc" = 10 ] || bad="$bad auto_increment_increment=$inc"
   [ "$off" = 10 ] || bad="$bad auto_increment_offset=$off(the hub is residue 0)"
   [ -z "$bad" ] && return 0; printf '%s\n' "$bad"; return 1
+}
+
+# mysql_major_ok VERSION : true (rc 0) iff VERSION's major component is a fit
+# for Debezium 3.6.2 (MySQL 8.0.x only -- 5.6/5.7 are not, though task 000's
+# own binlog-fitness checks tolerate them). VERSION is whatever `select
+# version()` returned, e.g. "8.0.39" or "5.7.44-log". Prints the reason and
+# returns 1 when it is not a fit, same ok-or-named-reason contract as
+# binlog_ok above. Extracted from 080-sources.sh (code review fold-in, Task 6
+# review: this comparison used to be inlined there with no test of its own) --
+# pure text logic, no docker, so it is testable directly.
+mysql_major_ok(){
+  local ver="$1" major="${1%%.*}"
+  case "$major" in
+    ''|*[!0-9]*) printf 'could not read a numeric MySQL major version (got %s)\n' "$ver"; return 1 ;;
+  esac
+  [ "$major" -ge 8 ] && return 0
+  printf 'mysql %s is below major version 8 -- Debezium 3.6.2 supports MySQL 8.0.x only\n' "$ver"
+  return 1
+}
+
+# slot_wait_state ROW SLOT : classifies a psql read-back ROW (the exact
+# "<slot_name>|<active>" text a `select slot_name || '|' || active from
+# pg_replication_slots where slot_name = '<slot>'` -At query produces) against
+# SLOT -- "active" (the slot exists and is active), "inactive" (exists, not
+# yet active) or "missing" (no such row, including an empty ROW: the slot not
+# created yet). Extracted from 080-sources.sh's wait_slot (code review
+# fold-in, Task 6 review) -- pure and side-effect free, so it is testable
+# directly against the real shapes psql -At produces: dbz_odoo_down|true,
+# dbz_odoo_down|false, empty.
+slot_wait_state(){
+  case "$1" in
+    "${2}|true")  printf 'active\n' ;;
+    "${2}|false") printf 'inactive\n' ;;
+    *)            printf 'missing\n' ;;
+  esac
 }
 
 # mysql_user_sql VERSION USER PASSWORD DB : SQL text (on stdout) that creates

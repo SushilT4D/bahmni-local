@@ -17,19 +17,18 @@
 # real, unmodified task scripts (which hardcode `exec kafka`, matching
 # production) couldn't be exercised without stopping that other stack. Fixed
 # by making the container/URL indirection first-class: hub/install/lib.sh's
-# KAFKA_CONTAINER/CONNECT_CONTAINER (bare "kafka"/"kafka-connect" in
-# production; nothing about a real deployment ever needs them to differ) and
-# 080-sources.sh's CONNECT_URL are all env-overridable, and
-# clinic/scripts/set-schema-history-retention.sh (shared with the clinic;
-# untouched otherwise) takes the same KAFKA_CONTAINER override. This test
-# renames its own throwaway containers (hubtest-kafka / hubtest-kafka-
-# controller / hubtest-kafka-connect, via boot-override.yml + this
-# directory's source-override.yml layered on top -- schema-registry is
+# KAFKA_CONTAINER (bare "kafka" in production; nothing about a real
+# deployment ever needs it to differ) and 080-sources.sh's CONNECT_URL are
+# both env-overridable, and clinic/scripts/set-schema-history-retention.sh
+# (shared with the clinic; untouched otherwise) takes the same KAFKA_CONTAINER
+# override. This test renames its own throwaway containers (hubtest-kafka /
+# hubtest-kafka-controller / hubtest-kafka-connect, via boot-override.yml +
+# this directory's source-override.yml layered on top -- schema-registry is
 # skipped entirely, since every converter in play here is JsonConverter) and
-# exports the three overrides before invoking the real 050 and 080 task
-# scripts, so this is still the real, unmodified production code path, just
-# addressed by different names -- never the real Rawach containers, which
-# this test never touches.
+# exports the overrides before invoking the real 050 and 080 task scripts, so
+# this is still the real, unmodified production code path, just addressed by
+# different names -- never the real Rawach containers, which this test never
+# touches.
 #
 # Distinct from test_broker_boot.sh (asserts directly against its own renamed
 # containers; never invokes a real task script) and test_base_db.sh
@@ -47,6 +46,19 @@
 # constrained Mac, and a pre-run cleanup step clears any hubtest-src-*
 # container/network or hub/.src-*/.task080.* temp file a prior, non-trapped
 # (e.g. killed) run left behind.
+#
+# Task 7 (Ruling 9): the run now continues past 080 into 090-exit-checks.sh
+# for real too -- against this same throwaway stack, with SASL_LISTENER_PORT
+# pointed at the throwaway broker's own republished SASL port (source-
+# override.yml's kafka: 19092, never the real 9092) and
+# HUB_EXIT_CHECKS_SKIP_GIT=1 (090's own documented escape hatch: this smoke
+# runs beside another session's in-flight edits to this same checkout, which
+# git status --porcelain would otherwise -- correctly, just not usefully here
+# -- report as dirty). A throwaway kafka-ui (hubtest-kafka-ui, republished on
+# 18080) is also brought up and proven the same way task 070 proves the real
+# one (login page, negative auth check, and the positive login + read-back
+# proof, Ruling R3a) -- the only real, live proof that Ruling 3's login/auth
+# actually work, not just that the compose file parses.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../lib.sh"
@@ -62,6 +74,7 @@ PG_C=hubtest-src-pg
 CTRL_C=hubtest-kafka-controller
 KAFKA_C=hubtest-kafka
 CONNECT_C=hubtest-kafka-connect
+UI_C=hubtest-kafka-ui
 PROJ=hubtest-src
 COMPOSE_F="${HUB_DIR}/docker-compose.yml"
 OVERRIDE_F="${HERE}/boot-override.yml"
@@ -84,12 +97,34 @@ setup_compose
 # helper from lib.sh, which knows nothing about either override file.
 dc(){ docker compose -p "$PROJ" -f "$COMPOSE_F" -f "$OVERRIDE_F" -f "$SRC_OVERRIDE_F" --env-file "$env_path" "$@"; }
 cleanup(){
+  # Ruling 6(e), code review fold-in (Task 6 review): on a failed run, the
+  # container logs are the whole point -- and `dc down -v` below deletes them
+  # for good. Dumped BEFORE teardown, one container at a time, masked through
+  # mask_env_secrets with every HUB_KEYS name (unset/empty ones are skipped,
+  # per its own contract) so a real secret value that ended up in a
+  # container's own log (a startup banner, a rejected connection) never
+  # reaches this test's output unredacted. $env_path is re-sourced first
+  # (the throwaway hub/.env still exists at this point, values included) so
+  # mask_env_secrets actually has something to mask against -- this script's
+  # own process never otherwise exports them.
+  if [ "${fails:-0}" -gt 0 ]; then
+    printf '\n  -- run failed (%s failure(s)): last 60 log lines per hubtest container, before teardown --\n' "$fails" >&2
+    if [ -f "$env_path" ]; then set -a; . "$env_path" 2>/dev/null; set +a; fi
+    for c in "$CTRL_C" "$KAFKA_C" "$CONNECT_C" "$UI_C" "$MY_C" "$PG_C"; do
+      printf '\n  --- docker logs --tail 60 %s ---\n' "$c" >&2
+      ct logs --tail 60 "$c" 2>&1 | mask_env_secrets $HUB_KEYS | sed 's/^/    /' >&2
+    done
+  fi
   dc down -v >/dev/null 2>&1 || true
   ct rm -f "$MY_C" "$PG_C" >/dev/null 2>&1 || true
   ct network rm "$NET" >/dev/null 2>&1 || true
   if [ -n "$env_backup" ]; then cp -p "$env_backup" "$env_path"; rm -f "$env_backup"; else rm -f "$env_path"; fi
   if [ -n "$jaas_backup" ]; then cp -p "$jaas_backup" "$jaas_path"; rm -f "$jaas_backup"; else rm -f "$jaas_path"; fi
   rm -f "$tmp_base" "$tmp_secrets" "$tmp_hubenv"
+  # kafka-ui login probe temp files (carry KAFKA_UI_PASSWORD briefly) -- a
+  # glob backstop, same style as the pre-run cleanup below, in case a crash
+  # between their mktemp and their own explicit rm -f skipped that cleanup.
+  rm -f "${HUB_DIR}"/.kafka-ui-login-test.* "${HUB_DIR}"/.kafka-ui-cookies-test.* >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -100,9 +135,9 @@ trap cleanup EXIT
 # anything new so a stale run never collides with this one. `rm -f`/`-rf` on
 # a glob that matches nothing just tries (and silently tolerates failing on)
 # the literal pattern as a filename, so no nullglob dance is needed here.
-for c in "$MY_C" "$PG_C" "$CTRL_C" "$KAFKA_C" "$CONNECT_C"; do ct rm -f "$c" >/dev/null 2>&1 || true; done
+for c in "$MY_C" "$PG_C" "$CTRL_C" "$KAFKA_C" "$CONNECT_C" "$UI_C"; do ct rm -f "$c" >/dev/null 2>&1 || true; done
 ct network rm "$NET" >/dev/null 2>&1 || true
-rm -f "${HUB_DIR}"/.src-base.* "${HUB_DIR}"/.src-secrets.* "${HUB_DIR}"/.src-hubenv.* >/dev/null 2>&1 || true
+rm -f "${HUB_DIR}"/.src-base.* "${HUB_DIR}"/.src-secrets.* "${HUB_DIR}"/.src-hubenv.* "${HUB_DIR}"/.kafka-ui-login-test.* "${HUB_DIR}"/.kafka-ui-cookies-test.* >/dev/null 2>&1 || true
 rm -rf "${HUB_DIR}"/.task080.* >/dev/null 2>&1 || true
 ok "pre-run cleanup: no leftover hubtest-src-* containers/network or hub/.src-*/.task080.* temp files"
 
@@ -202,11 +237,13 @@ fi
 [ "$seed_rc" = 0 ] && ok "postgres seeded: roles odoo/clinlims, all $(printf '%s\n' "$odoo_tables" | wc -l | tr -d ' ') odoo tables, all $(printf '%s\n' "$clinlims_tables" | wc -l | tr -d ' ') clinlims tables (subsystem_tables, striding-compliant)" \
   || { bad "postgres seed failed (rc=${seed_rc})"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
-# --- the hub compose stack, renamed: kafka-controller, kafka, kafka-connect -
-# schema-registry is never brought up -- source-override.yml drops kafka-
-# connect's dependency on it, and nothing here uses anything but JsonConverter.
-dc up -d kafka-controller kafka kafka-connect >/dev/null \
-  && ok "hub compose up -d kafka-controller kafka kafka-connect (renamed ${CTRL_C}/${KAFKA_C}/${CONNECT_C}; schema-registry skipped)" \
+# --- the hub compose stack, renamed: kafka-controller, kafka, kafka-connect,
+# kafka-ui -- schema-registry is never brought up -- source-override.yml
+# drops kafka-connect's dependency on it, and nothing here uses anything but
+# JsonConverter. kafka-ui is included (Ruling 9) so Ruling 3's login/auth can
+# be proven live, the same two ways task 070 proves the real one.
+dc up -d kafka-controller kafka kafka-connect kafka-ui >/dev/null \
+  && ok "hub compose up -d kafka-controller kafka kafka-connect kafka-ui (renamed ${CTRL_C}/${KAFKA_C}/${CONNECT_C}/${UI_C}; schema-registry skipped)" \
   || { bad "hub compose up failed"; printf '%s\n' "$fails failure(s)"; exit 1; }
 answered=0
 for i in $(seq 1 60); do ct exec "$KAFKA_C" kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
@@ -214,6 +251,54 @@ for i in $(seq 1 60); do ct exec "$KAFKA_C" kafka-broker-api-versions --bootstra
 answered=0
 for i in $(seq 1 60); do curl -sf --max-time 5 127.0.0.1:18083/connector-plugins >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
 [ "$answered" = 1 ] && ok "hub kafka-connect (${CONNECT_C}) answers on 127.0.0.1:18083" || { bad "hub kafka-connect did not answer within 300s"; printf '%s\n' "$fails failure(s)"; exit 1; }
+
+# --- kafka-ui (Ruling 9, the only real proof of Ruling 3): the login page
+# answers, an unauthenticated API call is refused, and the configured
+# credentials actually log in and read the cluster back -- the exact checks
+# task 070 itself performs against the real service, here against the
+# throwaway one on 127.0.0.1:18080. Ruling R3a (found live on the first
+# smoke run): kafbat's actual LOGIN_FORM behavior redirects an unauthenticated
+# API call to /login (302), not a bare 401/403, so the negative check accepts
+# either; the positive login proof is what actually confirms auth works.
+answered=0
+for i in $(seq 1 60); do
+  ui_code="$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 5 http://127.0.0.1:18080/ 2>/dev/null)"
+  [ "$ui_code" = 200 ] && { answered=1; break; }
+  sleep 5
+done
+[ "$answered" = 1 ] && ok "hub kafka-ui (${UI_C}) login page answers on 127.0.0.1:18080 (HTTP 200)" || { bad "hub kafka-ui did not answer HTTP 200 on 127.0.0.1:18080/ within 300s (last HTTP ${ui_code:-<none>})"; printf '%s\n' "$fails failure(s)"; exit 1; }
+ui_api_result="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 5 http://127.0.0.1:18080/api/clusters 2>/dev/null || true)"
+ui_api_code="${ui_api_result%% *}"; ui_api_redirect="${ui_api_result#* }"
+case "$ui_api_code" in
+  401|403) ok "hub kafka-ui /api/clusters refuses an unauthenticated call (HTTP ${ui_api_code})" ;;
+  302) case "$ui_api_redirect" in
+    */login) ok "hub kafka-ui /api/clusters refuses an unauthenticated call (HTTP 302 -> ${ui_api_redirect})" ;;
+    *) bad "hub kafka-ui /api/clusters redirected unauthenticated to '${ui_api_redirect:-<none>}', not a login path" ;;
+  esac ;;
+  *) bad "hub kafka-ui /api/clusters answered HTTP ${ui_api_code:-<none>} unauthenticated (want 401/403, or a 302 to the login page)" ;;
+esac
+ui_login_body="$(mktemp "${HUB_DIR}/.kafka-ui-login-test.XXXXXX")"
+ui_cookie_jar="$(mktemp "${HUB_DIR}/.kafka-ui-cookies-test.XXXXXX")"
+chmod 600 "$ui_login_body" "$ui_cookie_jar"
+python3 -c '
+import sys, urllib.parse
+user, pw = sys.argv[1], sys.argv[2]
+sys.stdout.write("username=%s&password=%s" % (urllib.parse.quote_plus(user), urllib.parse.quote_plus(pw)))
+' "$(env_get "$env_path" KAFKA_UI_USER)" "$(env_get "$env_path" KAFKA_UI_PASSWORD)" > "$ui_login_body"
+ui_login_result="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 -c "$ui_cookie_jar" -d @"$ui_login_body" http://127.0.0.1:18080/login 2>/dev/null || true)"
+ui_login_code="${ui_login_result%% *}"; ui_login_redirect="${ui_login_result#* }"
+case "$ui_login_code" in
+  302) case "$ui_login_redirect" in
+    *login*) bad "hub kafka-ui login with KAFKA_UI_USER/KAFKA_UI_PASSWORD failed (redirected to ${ui_login_redirect})" ;;
+    *) ok "hub kafka-ui login succeeded (HTTP 302 -> ${ui_login_redirect})" ;;
+  esac ;;
+  *) bad "hub kafka-ui login POST answered HTTP ${ui_login_code:-<none>}, expected a 302 redirect" ;;
+esac
+ui_clusters_body="$(curl -s --max-time 10 -b "$ui_cookie_jar" http://127.0.0.1:18080/api/clusters 2>/dev/null || true)"
+printf '%s' "$ui_clusters_body" | grep -qF '"name":"hub"' \
+  && ok "hub kafka-ui authenticated session reads back cluster \"hub\" via /api/clusters" \
+  || bad "hub kafka-ui authenticated /api/clusters did not carry cluster \"hub\" (got: $(printf '%s' "$ui_clusters_body" | head -c 200))"
+rm -f "$ui_login_body" "$ui_cookie_jar"
 
 # --- run 050-base-db.sh for real (080 depends on its publications+heartbeats)
 # No container/URL overrides needed -- 050 never touches Kafka/Connect.
@@ -246,12 +331,14 @@ SQL
   || { bad "granting odoo/clinlims DML failed (rc=${seed_rc})"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
 # --- run 080-sources.sh for real, twice (idempotency) -----------------------
-# KAFKA_CONTAINER/CONNECT_CONTAINER/CONNECT_URL exported here, once, flow
-# through to 080's own `ct exec "$KAFKA_CONTAINER"` calls and (inherited by
-# the subprocess) clinic/scripts/set-schema-history-retention.sh's own
-# `exec "$KAFKA_CONTAINER"` -- the one and only reason this run can address
-# hubtest-kafka/hubtest-kafka-connect instead of the real bare names.
-export KAFKA_CONTAINER="$KAFKA_C" CONNECT_CONTAINER="$CONNECT_C" CONNECT_URL="http://127.0.0.1:18083"
+# KAFKA_CONTAINER/CONNECT_URL exported here, once, flow through to 080's own
+# `ct exec "$KAFKA_CONTAINER"` calls and (inherited by the subprocess)
+# clinic/scripts/set-schema-history-retention.sh's own `exec
+# "$KAFKA_CONTAINER"` -- the one and only reason this run can address
+# hubtest-kafka/hubtest-kafka-connect instead of the real bare names. Also
+# exported here (not just at the 090 call site below) so every subprocess
+# from this point on -- 080 included -- shares one consistent environment.
+export KAFKA_CONTAINER="$KAFKA_C" CONNECT_URL="http://127.0.0.1:18083"
 TASK080="${REPO_DIR}/hub/install/tasks/080-sources.sh"
 out1="$(bash "$TASK080" 2>&1)"; rc1=$?
 printf '%s\n' "$out1" | sed 's/^/    /'
@@ -319,6 +406,39 @@ if printf '%s\n' "$connect_logs" | grep -q "InstanceAlreadyExists"; then
 else
   ok "no InstanceAlreadyExists in the Connect log (custom.metric.tags disambiguates the two Postgres sources)"
 fi
+
+# --- Ruling 7 (F-073): register-odoo.sh (hub copy) never leaves a rendered
+# connector config -- with its plaintext password -- sitting in a fixed,
+# world-readable /tmp path. Checked once here, after both real registration
+# runs above (each of the two 080 runs registers odoo-cloud-source and
+# clinlims-cloud-source via connectors/register-odoo.sh, so four registration
+# calls have happened by this point).
+[ -e /tmp/.reg.out ] && bad "register-odoo.sh left /tmp/.reg.out behind (F-073)" || ok "no /tmp/.reg.out left behind after registration (F-073)"
+
+# --- run 090-exit-checks.sh for real, against this same throwaway stack -----
+# (Ruling 9). SASL_LISTENER_PORT points sasl_listener_ok (lib.sh, shared with
+# task 060) at the throwaway broker's own republished SASL port
+# (source-override.yml's kafka: 19092, never the real 9092).
+# HUB_EXIT_CHECKS_SKIP_GIT is 090's own documented escape hatch for exactly
+# this situation: this smoke runs beside another session's in-flight edits to
+# this same checkout, which a real `git status --porcelain` would report as
+# dirty for reasons that have nothing to do with whether 080/090 themselves
+# work. HUB_MIN_DISK_GB=1 lowers the disk-free threshold from its production
+# default of 20 -- never loosened there -- so the assertion is about the
+# CHECK running and reporting a real number, not about how much space this
+# particular dev host happens to have free right now. Ruling R1b: the
+# disk-free check itself reads free space under the broker's OWN data volume
+# via `ct exec "$KAFKA_CONTAINER" df -Pk /var/lib/kafka/data` (never a
+# host-level df on DockerRootDir, which Docker Desktop for macOS cannot
+# resolve at all -- found live on this exact host, fixed in 090 itself, not
+# worked around here), so it is exercised for real and expected to pass
+# cleanly on any host, this one included.
+export SASL_LISTENER_PORT=19092 HUB_EXIT_CHECKS_SKIP_GIT=1 HUB_MIN_DISK_GB=1
+TASK090="${REPO_DIR}/hub/install/tasks/090-exit-checks.sh"
+out090="$(bash "$TASK090" 2>&1)"; rc090=$?
+printf '%s\n' "$out090" | sed 's/^/    /'
+[ "$rc090" = 0 ] && ok "090-exit-checks.sh exits 0 against the throwaway stack" || bad "090-exit-checks.sh exited ${rc090}"
+printf '%s\n' "$out090" | grep -qF "exit checks: all green" && ok "090 reaches its summary line (exit checks: all green)" || bad "090 did not reach its summary line -- see its output above"
 
 printf '%s\n' "$fails failure(s)"
 exit $((fails>0))

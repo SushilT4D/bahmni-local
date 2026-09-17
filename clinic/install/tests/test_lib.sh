@@ -62,6 +62,22 @@ assert_eq "env_put quotes a space" "$(grep -E '^E=' "$f")" 'E="has space"'
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"
 assert_eq "env_put keeps other lines" "$(grep -c . "$f")" "6"
 
+# env_put quoting guard also triggers on a single quote or a backslash (Task
+# 7 fold-in, hub-side ruling; env_put itself is shared with the hub): a
+# generated or operator-typed secret carrying either character must survive
+# both env_get's own parse AND being `.`-sourced directly by a real shell --
+# hub/.env is `. `-sourced by every install task, not just read with
+# env_get, so the round trip through sourcing is the test that actually
+# matters. raw_pw mirrors the fixed test value hub/install/tests/test_lib.sh
+# already uses for pg_lit_escape/mysql_lit_escape: 5 chars, a ' b \ c.
+raw_pw="a'b\\c"
+f2="$TMP/e2.env"; : > "$f2"
+env_put "$f2" SECRET "$raw_pw"
+assert_eq "env_put quotes a value containing a single quote and a backslash" "$(grep -c '^SECRET="' "$f2")" "1"
+assert_eq "env_put round-trips a quote+backslash value through env_get" "$(env_get "$f2" SECRET)" "$raw_pw"
+( set -a; . "$f2"; set +a; [ "$SECRET" = "$raw_pw" ] )
+assert_rc "env_put-written value survives being sourced directly, not just env_get" $? 0
+
 # placeholders
 printf 'A=1\nB=<x>\nC=\nMAIL_USER=\n' > "$f"
 assert_eq "has_placeholders lists B and C, honours allowlist" "$(has_placeholders "$f" "MAIL_USER" | tr '\n' ' ')" "B C "

@@ -19,15 +19,14 @@ setup_compose
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
-MY="$BASE_MYSQL_CONTAINER"; PG="$BASE_PG_CONTAINER"
-# ELIS/ELIS_SUPERUSER (Ruling 11): IPLIT's real hub base runs Odoo and
-# OpenELIS in two separate Postgres containers with different bootstrap
-# superusers; the mini and every clinic run one container for both, and
-# hub_compose_env always defaults these two keys from BASE_PG_CONTAINER/
-# BASE_PG_SUPERUSER, so the fallback here only matters for an .env composed
-# before this key pair existed. dbz_clinlims_down's slot lives on ELIS;
-# dbz_odoo_down's stays on PG.
-ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE_PG_SUPERUSER}"
+MY="$BASE_MYSQL_CONTAINER"
+# Ruling 11 (two-container base): IPLIT's real hub runs Odoo and OpenELIS in
+# two separate Postgres containers with different bootstrap superusers; the
+# mini and every clinic run one container for both. This task no longer
+# tracks its own PG/ELIS container aliases (code review fold-in, Task 6/7
+# review: pg_admin, hub/install/lib.sh, now dispatches BASE_PG_CONTAINER vs.
+# BASE_ELIS_CONTAINER itself from the db name it's given -- "odoo" or
+# "openelis" below, the same two names 050-base-db.sh already passes it).
 # CONNECT_URL: an already-exported value wins (hub/install/tests/test_sources.sh
 # sets one to reach its own renamed, differently-published Connect instance)
 # before falling back to hub/.env's own KAFKA_CONNECT_URL (an operator's real
@@ -43,14 +42,13 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # Task 000 still tolerates 5.6 (its binlog-fitness reads work on either); this
 # is the one place that turns "the Azure hub is still 5.6" into a named,
 # actionable failure instead of a connector that silently never comes up.
+# mysql_major_ok (hub/install/lib.sh) is the pure comparison, extracted so it
+# has a test of its own (code review fold-in, Task 6 review).
 mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
 ver="$(printf 'select version()' | mysql_root | head -1)"
-major="${ver%%.*}"
-case "$major" in
-  ''|*[!0-9]*) fail "could not read a numeric MySQL major version from ${MY} (got '${ver}')" ;;
-esac
-[ "$major" -ge 8 ] || fail "base mysql ${ver} on ${MY} is below major version 8 -- Debezium 3.6.2 supports MySQL 8.0.x only. docs/superpowers/plans/2026-09-17-fleet-on-staging-versions.md rebuilds the hub's base on 8.0.39; run that plan before this task."
-ok "base mysql version ${ver} fit for Debezium 3.6.2 (major >= 8)"
+bad="$(mysql_major_ok "$ver")" \
+  && ok "base mysql version ${ver} fit for Debezium 3.6.2 (major >= 8)" \
+  || fail "base mysql ${ver} on ${MY} unfit: ${bad} -- docs/superpowers/plans/2026-09-17-fleet-on-staging-versions.md rebuilds the hub's base on 8.0.39; run that plan before this task."
 
 # --- 2. MySQL down-source: render to a gitignored file, PUT-of-config ------
 GENERATED="${HUB_DIR}/connectors/mysql-cloud-source-connector.json"
@@ -151,10 +149,16 @@ ret="$(ct exec "$KAFKA_CONTAINER" kafka-configs --bootstrap-server kafka:29092 -
 # progress line every 30s naming the still-inactive slot -- generous enough
 # to absorb host contention (this dev Mac shares ~20 other containers with
 # this test) without a production install ever approaching it.
-pg_admin(){ # CONTAINER SUPERUSER SQL
-  ct exec -i "$1" psql -U "$2" -d postgres -v ON_ERROR_STOP=1 -q -Atc "$3"
-}
-wait_slot(){ # SLOT CONTAINER SUPERUSER MAX_SECONDS
+# pg_admin (hub/install/lib.sh, DB ARGS...) replaces this task's own former
+# pg_admin(CONTAINER SUPERUSER SQL) -- a name collision with 050-base-db.sh's
+# own, differently-shaped pg_admin (code review fold-in, Task 6/7 review).
+# wait_slot below now names the DATABASE ("odoo" or "openelis"), and pg_admin
+# dispatches to whichever container actually hosts it -- the same "postgres"
+# maintenance-db connection this task always used still works unchanged,
+# since pg_replication_slots is visible from any database in that instance,
+# and "odoo"/"openelis" both already exist and route to the right instance
+# under Ruling 11's two-container base.
+wait_slot(){ # SLOT DB MAX_SECONDS
   # NOTE (found live while proving this round): `slot_name || '|' || active`
   # concatenates the boolean through Postgres's ::text cast, which renders
   # "true"/"false" -- not the "t"/"f" a BARE boolean column shows under
@@ -164,22 +168,25 @@ wait_slot(){ # SLOT CONTAINER SUPERUSER MAX_SECONDS
   # comparison below was inherited from Fix round 1 checking for "|t", which
   # can never match this query's actual output regardless of how long it
   # waits -- a pre-existing defect this round's new progress line (Ruling
-  # 13) surfaced live, not a new one introduced here.
-  local slot="$1" ct_name="$2" su="$3" secs="${4:-900}" i row elapsed=0
+  # 13) surfaced live, not a new one introduced here. slot_wait_state
+  # (hub/install/lib.sh) is the pure classifier, extracted so it has a test
+  # of its own (code review fold-in, Task 6 review).
+  local slot="$1" db="$2" secs="${3:-900}" i row state elapsed=0
   for i in $(seq 1 $((secs/5))); do
-    row="$(pg_admin "$ct_name" "$su" "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")"
-    [ "$row" = "${slot}|true" ] && { ok "replication slot ${slot} active"; return 0; }
+    row="$(pg_admin "$db" -Atc "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")"
+    state="$(slot_wait_state "$row" "$slot")"
+    [ "$state" = active ] && { ok "replication slot ${slot} active"; return 0; }
     elapsed=$((elapsed+5))
     [ $((elapsed % 30)) -eq 0 ] && info "still waiting on replication slot ${slot} to become active (${elapsed}s/${secs}s elapsed; last read: ${row:-<not found>})"
     sleep 5
   done
-  case "$row" in
-    "${slot}|false") fail "replication slot ${slot} exists but never became active within ${secs}s" ;;
-    *) fail "replication slot ${slot} not found in pg_replication_slots within ${secs}s" ;;
+  case "$state" in
+    inactive) fail "replication slot ${slot} exists but never became active within ${secs}s" ;;
+    *)        fail "replication slot ${slot} not found in pg_replication_slots within ${secs}s" ;;
   esac
 }
-wait_slot dbz_odoo_down "$PG" "$BASE_PG_SUPERUSER" 900
-wait_slot dbz_clinlims_down "$ELIS" "$ELIS_SUPERUSER" 900
+wait_slot dbz_odoo_down odoo 900
+wait_slot dbz_clinlims_down openelis 900
 
 # --- 7. The MySQL source's schema-changes topic exists ----------------------
 # (Already proven once, as a precondition, in step 5's bounded wait -- this is
