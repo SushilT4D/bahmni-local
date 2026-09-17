@@ -1,35 +1,39 @@
 #!/usr/bin/env bash
 # Live smoke test: does hub/install/tasks/080-sources.sh actually register and
 # prove the hub's three Debezium sources end to end -- against a REAL hub
-# Kafka broker + Connect (booted from hub/docker-compose.yml itself) and
-# throwaway MySQL 8.0.39 / Postgres 16 standing in for the base stack, seeded
-# with every table each source's table.include.list names (Debezium's
-# initial/no_data snapshot needs each listed table to actually exist, so a
-# minimal 1-2 table seed would make the connectors themselves fail to reach
-# RUNNING -- table.include.list is derived the same way 080 derives it:
-# hub/tables.conf's unmarked rows for MySQL, subsystem_tables for both
-# Postgres sources, never hand-copied, so this test can't silently drift from
-# what 080 actually registers).
+# Kafka broker + Connect and throwaway MySQL 8.0.39 / Postgres 16 standing in
+# for the base stack, seeded with every table each source's table.include.list
+# names (Debezium's initial/no_data snapshot needs each listed table to
+# actually exist, so a minimal 1-2 table seed would make the connectors
+# themselves fail to reach RUNNING -- table.include.list is derived the same
+# way 080 derives it: hub/tables.conf's unmarked rows for MySQL,
+# subsystem_tables for both Postgres sources, never hand-copied, so this test
+# can't silently drift from what 080 actually registers).
 #
-# Distinct from test_broker_boot.sh (which never runs a real task script --
-# it renames kafka/kafka-controller via boot-override.yml to hubtest-kafka/
-# hubtest-kafka-controller and asserts against those directly) and from
-# test_base_db.sh (Postgres+MySQL only, no Kafka at all). This test cannot use
-# the boot-override renaming trick: 080-sources.sh's own kafka-configs/
-# kafka-topics calls, AND clinic/scripts/set-schema-history-retention.sh's own
-# internal `exec kafka`, hardcode the literal container name "kafka" (matching
-# hub/docker-compose.yml's fixed container_name, matching production) -- so
-# for the REAL, unmodified task script to be exercised, this test needs the
-# REAL service names, kafka included, not a renamed stand-in.
+# Fix round 1: this test used to fail fast on a genuine, unavoidable
+# collision -- hub/docker-compose.yml pins fixed container_names (kafka,
+# kafka-controller, schema-registry, kafka-connect), and this host already
+# runs a real bahmni-local clinic stack under exactly those names, so the
+# real, unmodified task scripts (which hardcode `exec kafka`, matching
+# production) couldn't be exercised without stopping that other stack. Fixed
+# by making the container/URL indirection first-class: hub/install/lib.sh's
+# KAFKA_CONTAINER/CONNECT_CONTAINER (bare "kafka"/"kafka-connect" in
+# production; nothing about a real deployment ever needs them to differ) and
+# 080-sources.sh's CONNECT_URL are all env-overridable, and
+# clinic/scripts/set-schema-history-retention.sh (shared with the clinic;
+# untouched otherwise) takes the same KAFKA_CONTAINER override. This test
+# renames its own throwaway containers (hubtest-kafka / hubtest-kafka-
+# controller / hubtest-kafka-connect, via boot-override.yml + this
+# directory's source-override.yml layered on top -- schema-registry is
+# skipped entirely, since every converter in play here is JsonConverter) and
+# exports the three overrides before invoking the real 050 and 080 task
+# scripts, so this is still the real, unmodified production code path, just
+# addressed by different names -- never the real Rawach containers, which
+# this test never touches.
 #
-# That makes this test unable to coexist with any OTHER stack already holding
-# kafka / kafka-controller / schema-registry / kafka-connect as real container
-# names on the same docker daemon -- a full container_name collision, not a
-# published-port clash boot-override.yml could route around, and not
-# something this test can fix without stopping that other stack (out of
-# scope, and not this test's call to make). It checks for exactly that up
-# front and fails fast, naming the collision, rather than limping into a
-# confusing failure three steps into a 10-minute compose-up.
+# Distinct from test_broker_boot.sh (asserts directly against its own renamed
+# containers; never invokes a real task script) and test_base_db.sh
+# (Postgres+MySQL only, no Kafka at all).
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../lib.sh"
@@ -39,19 +43,16 @@ bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 
 docker info >/dev/null 2>&1 || { skip "docker is not available/running on this host -- test_sources.sh needs a real docker to boot kafka+connect+mysql+postgres"; exit 0; }
 
-collide=""
-for c in kafka kafka-controller schema-registry kafka-connect; do
-  docker inspect "$c" >/dev/null 2>&1 && collide="${collide}${collide:+, }${c}"
-done
-if [ -n "$collide" ]; then
-  bad "container name(s) already in use on this docker daemon: ${collide}. hub/docker-compose.yml pins these exact container_names, and 080-sources.sh / clinic/scripts/set-schema-history-retention.sh hardcode \`exec kafka\` -- there is no renaming workaround available here (unlike test_broker_boot.sh, this test must invoke the real task scripts). Not faking a pass: stopping. Evidence: $(docker ps --format '{{.Names}} ({{.Image}})' | tr '\n' ' ')"
-  printf '%s\n' "$fails failure(s)"
-  exit 1
-fi
-
 NET=hubtest-src-net
 MY_C=hubtest-src-mysql
 PG_C=hubtest-src-pg
+CTRL_C=hubtest-kafka-controller
+KAFKA_C=hubtest-kafka
+CONNECT_C=hubtest-kafka-connect
+PROJ=hubtest-src
+COMPOSE_F="${HUB_DIR}/docker-compose.yml"
+OVERRIDE_F="${HERE}/boot-override.yml"
+SRC_OVERRIDE_F="${HERE}/source-override.yml"
 env_path="${HUB_DIR}/.env"
 env_backup=""
 jaas_path="${HUB_DIR}/kafka_server_jaas.conf"
@@ -64,8 +65,13 @@ if [ -f "$env_path" ]; then env_backup="$(mktemp "${HUB_DIR}/.env-backup.XXXXXX"
 if [ -f "$jaas_path" ]; then jaas_backup="$(mktemp "${HUB_DIR}/.jaas-backup.XXXXXX")"; cp -p "$jaas_path" "$jaas_backup"; fi
 
 setup_compose
+# dc: the hub compose file plus BOTH renaming overrides, a dedicated project
+# name, and an explicit --env-file (compose's own auto-.env-detection depends
+# on cwd, which this script never changes) -- never the shared compose()
+# helper from lib.sh, which knows nothing about either override file.
+dc(){ docker compose -p "$PROJ" -f "$COMPOSE_F" -f "$OVERRIDE_F" -f "$SRC_OVERRIDE_F" --env-file "$env_path" "$@"; }
 cleanup(){
-  compose down -v >/dev/null 2>&1 || true
+  dc down -v >/dev/null 2>&1 || true
   ct rm -f "$MY_C" "$PG_C" >/dev/null 2>&1 || true
   ct network rm "$NET" >/dev/null 2>&1 || true
   if [ -n "$env_backup" ]; then cp -p "$env_backup" "$env_path"; rm -f "$env_backup"; else rm -f "$env_path"; fi
@@ -169,24 +175,56 @@ fi
 [ "$seed_rc" = 0 ] && ok "postgres seeded: roles odoo/clinlims, all $(printf '%s\n' "$odoo_tables" | wc -l | tr -d ' ') odoo tables, all $(printf '%s\n' "$clinlims_tables" | wc -l | tr -d ' ') clinlims tables (subsystem_tables, striding-compliant)" \
   || { bad "postgres seed failed (rc=${seed_rc})"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
-# --- the real hub compose stack: kafka-controller, kafka, schema-registry, kafka-connect
-compose up -d kafka-controller kafka schema-registry kafka-connect >/dev/null \
-  && ok "hub compose up -d kafka-controller kafka schema-registry kafka-connect" \
+# --- the hub compose stack, renamed: kafka-controller, kafka, kafka-connect -
+# schema-registry is never brought up -- source-override.yml drops kafka-
+# connect's dependency on it, and nothing here uses anything but JsonConverter.
+dc up -d kafka-controller kafka kafka-connect >/dev/null \
+  && ok "hub compose up -d kafka-controller kafka kafka-connect (renamed ${CTRL_C}/${KAFKA_C}/${CONNECT_C}; schema-registry skipped)" \
   || { bad "hub compose up failed"; printf '%s\n' "$fails failure(s)"; exit 1; }
 answered=0
-for i in $(seq 1 60); do ct exec kafka kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
-[ "$answered" = 1 ] && ok "hub kafka answers on kafka:29092" || { bad "hub kafka did not answer within 300s"; printf '%s\n' "$fails failure(s)"; exit 1; }
+for i in $(seq 1 60); do ct exec "$KAFKA_C" kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
+[ "$answered" = 1 ] && ok "hub kafka (${KAFKA_C}) answers on kafka:29092" || { bad "hub kafka did not answer within 300s"; printf '%s\n' "$fails failure(s)"; exit 1; }
 answered=0
-for i in $(seq 1 60); do curl -sf --max-time 5 localhost:8083/connector-plugins >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
-[ "$answered" = 1 ] && ok "hub kafka-connect answers on localhost:8083" || { bad "hub kafka-connect did not answer within 300s"; printf '%s\n' "$fails failure(s)"; exit 1; }
+for i in $(seq 1 60); do curl -sf --max-time 5 127.0.0.1:18083/connector-plugins >/dev/null 2>&1 && { answered=1; break; }; sleep 5; done
+[ "$answered" = 1 ] && ok "hub kafka-connect (${CONNECT_C}) answers on 127.0.0.1:18083" || { bad "hub kafka-connect did not answer within 300s"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
 # --- run 050-base-db.sh for real (080 depends on its publications+heartbeats)
+# No container/URL overrides needed -- 050 never touches Kafka/Connect.
 TASK050="${REPO_DIR}/hub/install/tasks/050-base-db.sh"
 out050="$(bash "$TASK050" 2>&1)"; rc050=$?
 printf '%s\n' "$out050" | sed 's/^/    /'
 [ "$rc050" = 0 ] && ok "050-base-db.sh exits 0 (prerequisite for 080)" || { bad "050-base-db.sh exited ${rc050}"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
+# --- source-role DML grants, after 050 (which is what creates dbz_heartbeat)
+# 050 grants odoo_sink/clinlims_sink (the JDBC SINK roles); it has no reason
+# to touch odoo/clinlims (the SOURCE roles the Postgres source connectors log
+# in as) -- those are this test's own seed, not 050's job. A real OpenELIS/
+# Odoo deployment's own source role already owns its schema and so already
+# has these rights; this throwaway seed created every table as postgres, so
+# odoo/clinlims (LOGIN REPLICATION only, no DML) cannot run the heartbeat
+# ACTION QUERY, which is real INSERT/UPDATE SQL the source connector issues
+# as itself, not something the replication protocol grants for free -- caught
+# live: odoo-cloud-source logged "Could not execute heartbeat action ...
+# permission denied for schema clinlims" until this grant was added.
+seed_rc=0
+ct exec -i "$PG_C" psql -U postgres -d odoo -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null || seed_rc=$?
+GRANT USAGE ON SCHEMA public TO odoo;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO odoo;
+SQL
+ct exec -i "$PG_C" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -q <<'SQL' >/dev/null || seed_rc=$?
+GRANT USAGE ON SCHEMA clinlims TO clinlims;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA clinlims TO clinlims;
+SQL
+[ "$seed_rc" = 0 ] && ok "source roles odoo/clinlims granted DML (dbz_heartbeat included) after 050 created it" \
+  || { bad "granting odoo/clinlims DML failed (rc=${seed_rc})"; printf '%s\n' "$fails failure(s)"; exit 1; }
+
 # --- run 080-sources.sh for real, twice (idempotency) -----------------------
+# KAFKA_CONTAINER/CONNECT_CONTAINER/CONNECT_URL exported here, once, flow
+# through to 080's own `ct exec "$KAFKA_CONTAINER"` calls and (inherited by
+# the subprocess) clinic/scripts/set-schema-history-retention.sh's own
+# `exec "$KAFKA_CONTAINER"` -- the one and only reason this run can address
+# hubtest-kafka/hubtest-kafka-connect instead of the real bare names.
+export KAFKA_CONTAINER="$KAFKA_C" CONNECT_CONTAINER="$CONNECT_C" CONNECT_URL="http://127.0.0.1:18083"
 TASK080="${REPO_DIR}/hub/install/tasks/080-sources.sh"
 out1="$(bash "$TASK080" 2>&1)"; rc1=$?
 printf '%s\n' "$out1" | sed 's/^/    /'

@@ -1,0 +1,38 @@
+# Compose override for test_sources.sh ONLY -- layered on TOP of
+# boot-override.yml (kafka/kafka-controller renamed to hubtest-kafka/
+# hubtest-kafka-controller, kafka's host ports reset). This file adds the
+# third and last container test_sources.sh needs: a throwaway Kafka Connect,
+# renamed the same way and for the same reason (hub/docker-compose.yml pins
+# container_name: kafka-connect, and this Mac already runs a real one).
+#
+# `ports: !override [...]` replaces the base file's 127.0.0.1:8083:8083
+# outright (compose's default list merge APPENDS, which would keep BOTH, and
+# the base 8083 mapping collides with the real stack's own kafka-connect) --
+# published on 18083 instead, never 8083. `!reset` (as boot-override.yml uses
+# for kafka's ports) only ever clears a key to empty regardless of what
+# follows the tag -- confirmed directly (`!reset ['x']` still produced no
+# ports key at all) -- so a real replacement value needs `!override`, not
+# `!reset`.
+#
+# `depends_on: !override` replaces the base file's map wholesale, dropping
+# the schema-registry dependency entirely rather than merely leaving it
+# unmentioned (compose's default map merge is key-by-key, which would keep
+# schema-registry's entry untouched, and a container literally named
+# schema-registry collides with the real stack the same way kafka-connect
+# does). Nothing test_sources.sh proves needs schema-registry: every
+# converter in play, on kafka-connect itself and on all three registered
+# connectors, is JsonConverter -- schema-registry exists in
+# hub/docker-compose.yml only because a later Avro/Confluent-format connector
+# might want it, not because anything here does.
+#
+# Service name inside the compose network stays "kafka-connect" (container_name
+# is a docker-level identifier only), so BOOTSTRAP_SERVERS: kafka:29092 and
+# every ${REMOTE_SERVER_NAME}-prefixed connector config needs no change here.
+services:
+  kafka-connect:
+    container_name: hubtest-kafka-connect
+    depends_on: !override
+      kafka:
+        condition: service_healthy
+    ports: !override
+      - '127.0.0.1:18083:8083'

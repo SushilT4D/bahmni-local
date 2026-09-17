@@ -19,6 +19,20 @@ PROFILES=""
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE"
 
+# KAFKA_CONTAINER / CONNECT_CONTAINER: the docker/podman container NAMES hub
+# tasks `exec` into for kafka-configs/kafka-topics calls (080-sources.sh, and
+# clinic/scripts/set-schema-history-retention.sh, shared with the clinic).
+# Always "kafka" / "kafka-connect" in production -- hub/docker-compose.yml
+# pins those exact container_names, and nothing about a real deployment ever
+# needs them to differ. Deliberately NOT HUB_KEYS/hub/.env material: unlike
+# KAFKA_CONNECT_URL, there is no per-deployment reason for these to vary.
+# The one legitimate override is hub/install/tests/test_sources.sh, which
+# must run these same tasks for real beside another real stack that already
+# holds the bare names on this host's docker daemon, and so renames its own
+# throwaway containers and exports these two before invoking the tasks.
+KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
+CONNECT_CONTAINER="${CONNECT_CONTAINER:-kafka-connect}"
+
 # hub_compose_env BASE_ENV SECRETS OUT : write hub/.env from the fleet pointer
 # (sync/hub.env), the base stack's .env (root credentials, existing sink
 # passwords) and the operator's secrets file (the fleet SASL password). Values
