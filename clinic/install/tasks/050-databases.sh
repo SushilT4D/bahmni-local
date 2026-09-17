@@ -55,6 +55,13 @@ psql_pg <<SQL
 DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='odoo')     THEN CREATE ROLE odoo     SUPERUSER LOGIN REPLICATION PASSWORD '${ODOO_DB_PASSWORD}'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='clinlims') THEN CREATE ROLE clinlims LOGIN REPLICATION PASSWORD '${OPENELIS_DB_PASSWORD}'; END IF;
+  -- The seed dumps carry GRANTs to these sink roles, so they must exist BEFORE the
+  -- restore (bare here; the sink-role scripts below set passwords + table grants).
+  -- poc_sink appears in the OpenELIS dump but the fleet has no script for it -- a
+  -- bare role satisfies the grant. (first live clinic, manpur)
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='odoo_sink')     THEN CREATE ROLE odoo_sink     LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='clinlims_sink') THEN CREATE ROLE clinlims_sink LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='poc_sink')      THEN CREATE ROLE poc_sink      LOGIN; END IF;
 END \$\$;
 ALTER ROLE odoo WITH PASSWORD '${ODOO_DB_PASSWORD}';
 ALTER ROLE clinlims WITH PASSWORD '${OPENELIS_DB_PASSWORD}';
