@@ -325,7 +325,10 @@ VERSIONS_FILE="${VERSIONS_FILE:-${REPO_DIR:-$(cd "${INSTALL_DIR}/../.." && pwd)}
 versions_put(){
   local f="$1" line k v
   [ -f "${VERSIONS_FILE}" ] || fail "version pins missing: ${VERSIONS_FILE}"
-  while IFS= read -r line; do
+  # `|| [ -n "$line" ]` : a versions.env saved without a trailing newline on its
+  # last line would otherwise drop that last KEY=value silently (the same class
+  # of bug subsystem_tables's own comment above documents for sync/subsystems.conf).
+  while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"; v="${v%%#*}"; v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+$//')"
     env_put "$f" "$k" "$v"

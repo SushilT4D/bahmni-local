@@ -128,4 +128,14 @@ printf 'odoo:a\nodoo:b' > "$SUBS"
 assert_eq "subsystem_tables reads an unterminated last line too" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "a b"
 printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
 
+# versions_put: a sync/versions.env with NO trailing newline on its last line
+# (the same unterminated-last-line trap subsystem_tables was fixed for above)
+# must still land its final key in the rendered target file.
+printf 'A=1\nB=2' > "$TMP/sync/versions.env"
+tgt="$TMP/versions-target.env"; : > "$tgt"
+versions_put "$tgt"
+assert_eq "versions_put reads an unterminated last line too (A)" "$(env_get "$tgt" A)" "1"
+assert_eq "versions_put reads an unterminated last line too (B)" "$(env_get "$tgt" B)" "2"
+printf 'A=1\nB=2\n' > "$TMP/sync/versions.env"   # leave a clean file behind
+
 exit "$fails"

@@ -86,6 +86,9 @@ compose_answers(){
 # present and non-empty. Secrets are never printed.
 REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 set -a; . "$ANSWERS"; set +a
+# The fleet's image pins (sync/versions.env) -- task 000's seed-shape gate reads
+# OPENMRS_IMAGE_NAME from here, and every task after it sees the same pins.
+set -a; . "${VERSIONS_FILE}"; set +a
 missing=""
 for k in $REQUIRED; do eval "v=\${$k:-}"; [ -n "$v" ] || missing="$missing $k"; done
 [ -z "$missing" ] || fail "answers file is missing:$missing"

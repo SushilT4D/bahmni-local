@@ -24,6 +24,21 @@ for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
 done
 ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))"
 
+# L-005 gate: the seed must be the shape the pinned images expect. The 1.2.0 dump carries
+# IPLIT's changeset of 2025-12-23 (the only changeset unique to 1.2.0 among the synced
+# tables' history, spec §10.3); an Odoo 16 dump has uom_uom, an Odoo 10 dump product_uom.
+# gzip is wrapped in `{ ... || true; }` because grep -m1 closes its read end the instant
+# it matches -- on a dump where the match is early and the rest of the stream is still
+# large, gzip gets SIGPIPE (exit 141) while still writing. Under `set -o pipefail` (this
+# task's shebang) a bare `gzip -dc f | grep -qm1 pat` would then report the WHOLE
+# pipeline as failed with rc=141 even though grep found its match. `{ gzip ... || true; }`
+# makes the left side of the pipe always report 0, so pipefail sees only grep's status.
+{ gzip -dc "${SEED_DIR}/openmrs.sql.gz" 2>/dev/null || true; } | grep -qm1 '20251223-drop-default-value-from-column' \
+  || fail "seed openmrs.sql.gz is not an iplit-1.2.0 dump (changeset 20251223-drop-default-value-from-column absent); the hub must be on ${OPENMRS_IMAGE_NAME} before it is dumped"
+{ gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null || true; } | grep -qm1 -E 'CREATE TABLE (public\.)?uom_uom\b' \
+  || fail "seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)"
+ok "seed shape: openmrs iplit-1.2.0, odoo 16"
+
 [ "${PREFLIGHT_SKIP_HOST:-0}" = 1 ] && { ok "host facts skipped (PREFLIGHT_SKIP_HOST)"; exit 0; }
 
 # 4. host facts

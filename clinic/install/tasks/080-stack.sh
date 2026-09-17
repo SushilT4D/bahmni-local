@@ -11,7 +11,7 @@ setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 # the file, so a stale export here would hide the repaired value from `up`.
 ensure_openmrs_jvm_opts "$E"
 set -a; . "$E"; set +a
-OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-odoodb-1"; OC="${COMPOSE_PROJECT_NAME}-odoo-connect-1"
+OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"; OC="${COMPOSE_PROJECT_NAME}-odoo-connect-1"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
 url="https://localhost:${BAHMNI_PROXY_HTTPS_PORT:-9443}/openmrs/ws/rest/v1/session"
@@ -29,17 +29,20 @@ feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
   out="$(ct exec "$OM" curl -s -w '\n%{http_code}' -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "http://localhost:8080/openmrs/ws/atomfeed/$1/recent" 2>/dev/null || true)"
   FEED_CODE="${out##*$'\n'}"; FEED_BODY="${out%$'\n'*}"
 }
-# odoo-connect keeps its feed positions in odoodb's odoo database (Rawach and
-# staging alike; the Odoo app's own DB on bahmni-postgres is a different one).
-# mk runs psql there with the feed/entry/page as psql variables, so no value is
-# ever interpolated into SQL text.
-mk(){ ct exec -i "$OD" sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d odoo -v ON_ERROR_STOP=1 -q -At -v f="$1" -v e="$2" -v p="$3"' _ "${1:-}" "${2:-}" "${3:-}"; }
-[ "$(printf "select count(*) from information_schema.tables where table_name='markers'" | mk)" = 1 ] || fail "no markers table in ${OD}'s odoo database; odoo-connect keeps its feed positions there on every lab node, so this odoodb image is not the fleet's"
-# Every feed odoo-connect reads: the four each lab node's table carries, plus any
+# odoo-connect keeps its feed positions in the odoo database itself (staging,
+# 2026-09-17: five feeds), now colocated on the shared bahmni-postgres instance --
+# the Odoo app's own tables live in that same database, not a separate odoodb.
+# mk runs psql there, using the same postgres superuser role tasks 050/060 use
+# (not a container-env POSTGRES_USER, which bahmni-postgres does not set for
+# this role), with the feed/entry/page as psql variables so no value is ever
+# interpolated into SQL text.
+mk(){ ct exec -i "$OD" sh -c 'psql -U postgres -d odoo -v ON_ERROR_STOP=1 -q -At -v f="$1" -v e="$2" -v p="$3"' _ "${1:-}" "${2:-}" "${3:-}"; }
+[ "$(printf "select count(*) from information_schema.tables where table_name='markers'" | mk)" = 1 ] || fail "no markers table in bahmni-postgres's odoo database; odoo-connect 1.0.0 keeps its feed positions there on every lab node, so this Postgres image is not the fleet's"
+# Every feed odoo-connect reads: the five each lab node's table carries, plus any
 # other row already in this node's table -- a stale row for a feed we did not
 # list is exactly as dangerous as a stale patient row (F-066).
 present="$(printf 'select feed_uri from markers' | mk | sed -nE 's#.*/atomfeed/([a-z]+)/recent$#\1#p' | tr '\n' ' ')"
-for f in $(printf 'encounter patient lab drug %s\n' "$present" | tr ' ' '\n' | grep -v '^$' | sort -u); do
+for f in $(printf 'patient encounter lab saleable drug %s\n' "$present" | tr ' ' '\n' | grep -v '^$' | sort -u); do
   # /session answering does not prove every module is up: give the atomfeed
   # module up to 10 more minutes before calling the credentials wrong. A feed
   # that never reads is a STOP, not a skip: an unparked marker is the F-066
