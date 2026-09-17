@@ -16,6 +16,13 @@ assert_eq "existing sink password reused" "$(env_get "$OUT" ODOO_SINK_PASSWORD)"
 assert_eq "odoo db password carried" "$(env_get "$OUT" ODOO_DB_PASSWORD)" "od"
 assert_eq "clinlims source password from base OPENELIS_DB_PASSWORD" "$(env_get "$OUT" CLINLIMS_SOURCE_PASSWORD)" "oe"
 assert_eq "remote server name" "$(env_get "$OUT" REMOTE_SERVER_NAME)" "bahmni-cloud"
+# Task 080: the down-source's connection triple. CLOUD_MYSQL_HOST has no base
+# .env counterpart to copy -- it defaults to whatever BASE_MYSQL_CONTAINER was
+# just set to (no override here, so the fixed fallback "cloud-openmrsdb-1"),
+# since Docker resolves container names on the shared network.
+assert_eq "CLOUD_MYSQL_HOST defaults to BASE_MYSQL_CONTAINER" "$(env_get "$OUT" CLOUD_MYSQL_HOST)" "cloud-openmrsdb-1"
+assert_eq "CLOUD_MYSQL_PORT default" "$(env_get "$OUT" CLOUD_MYSQL_PORT)" "3306"
+assert_eq "CLOUD_MYSQL_DATABASE default" "$(env_get "$OUT" CLOUD_MYSQL_DATABASE)" "openmrs"
 assert_eq "clinlims sink password generated (32)" "$(env_get "$OUT" CLINLIMS_SINK_PASSWORD | wc -c | tr -d ' ')" "33"
 assert_eq "cluster id generated (22)" "$(env_get "$OUT" KAFKA_CLUSTER_ID | wc -c | tr -d ' ')" "23"
 assert_eq "mode 600" "$(stat -c %a "$OUT" 2>/dev/null || stat -f %Lp "$OUT")" "600"
@@ -30,6 +37,18 @@ assert_eq "hub_base_container mysql" "$(hub_base_container mysql)" "cloud-openmr
 assert_eq "hub_base_container pg" "$(hub_base_container pg)" "cloud-openelisdb-1"
 ( hub_base_container bogus ) >/dev/null 2>&1; rc=$?
 assert_eq "hub_base_container rejects an unknown role" "$rc" "1"
+
+# hub/.env.example must declare exactly the keys HUB_KEYS lists -- a key added
+# to one and not the other is exactly how CLOUD_MYSQL_HOST/PORT/DATABASE went
+# missing from .env.example in the first place (task 080). Word-count first
+# (a quick, readable failure), then the full set (names every drift exactly).
+example_file="$HERE/../../.env.example"
+example_count="$(grep -cE '^[A-Z_0-9]+=' "$example_file")"
+hub_keys_count="$(printf '%s\n' $HUB_KEYS | wc -l | tr -d ' ')"
+assert_eq "hub/.env.example key count matches HUB_KEYS (${hub_keys_count})" "$example_count" "$hub_keys_count"
+example_sorted="$(grep -oE '^[A-Z_0-9]+=' "$example_file" | sed 's/=$//' | sort)"
+hub_keys_sorted="$(printf '%s\n' $HUB_KEYS | sort)"
+assert_eq "hub/.env.example key set is exactly HUB_KEYS" "$example_sorted" "$hub_keys_sorted"
 
 # mysql_user_sql VERSION USER PASSWORD DB -- pure text generation, no docker
 # needed. 5.6.51 stands in for the Azure hub's base image, 8.0.39 for every

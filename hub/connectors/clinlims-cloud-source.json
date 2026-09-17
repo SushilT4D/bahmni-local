@@ -22,7 +22,7 @@
     "database.port": "5432",
     "plugin.name": "pgoutput",
     "key.converter.schemas.enable": "true",
-    "database.hostname": "openelisdb",
+    "database.hostname": "${BASE_PG_CONTAINER}",
     "database.password": "${CLINLIMS_SOURCE_PASSWORD}",
     "value.converter.schemas.enable": "true",
     "transforms.agg.replacement": "${REMOTE_SERVER_NAME}.clinlims.all",
