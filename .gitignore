@@ -104,3 +104,5 @@ sync/local/mirrormaker-config/mm2.properties
 # carry live credentials and must never reach this (public) repo.
 clinic-*.env
 secrets.env
+# the installer's podman->docker shim (lib.sh mk_podman_shim); a per-node artifact, never config
+clinic/install/.bin/

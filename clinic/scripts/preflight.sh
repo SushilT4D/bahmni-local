@@ -57,9 +57,21 @@ MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFK
 # --- VM disk + memory -------------------------------------------------------
 # The container VM, not the host: on macOS the engine runs in a Linux VM and it
 # is that VM's disk that fills. nsenter into pid 1 reads the VM's own view.
+# On a Linux host there is no VM: the engine's data-root sits on a host
+# filesystem and MemAvailable is the host's own. Measure it directly, at the
+# engine's REAL data-root -- the first Linux clinic (manpur) keeps it on a data
+# disk, and /var/lib/docker on the OS disk reported 8 GB free for a node with
+# 120 GB (2026-09-17). The nsenter/VM probes below are for macOS engines.
+if [ "$(uname -s)" = Linux ]; then
+  root="$("$CT" info --format '{{.DockerRootDir}}' 2>/dev/null || "$CT" info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo /var/lib/docker)"
+  disk="$(df -Pm "$root" 2>/dev/null | awk 'NR==2{print $4}')"
+  mem="$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')"
+  probe="host ${root}"
+else
 read -r disk mem <<< "$("$CT" run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -n -i \
   sh -c 'echo $(df -m /var/lib/docker 2>/dev/null | tail -1 | awk "{print \$4}") $(free -m | awk "NR==2{print \$7}")' 2>/dev/null)"
 probe="nsenter"
+fi
 
 # ROOTLESS PODMAN CANNOT nsenter INTO PID 1. It fails with
 #   nsenter: can't open '/proc/1/ns/ipc': Permission denied
@@ -196,7 +208,7 @@ else
   dirty=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   [ "${dirty:-0}" -eq 0 ] \
     && ok "working tree clean" \
-    || bad "working tree has ${dirty} uncommitted change(s) -- node config diverging off-repo"
+    || bad "working tree has ${dirty} uncommitted change(s) -- node config diverging off-repo:$(git -C "$REPO" status --porcelain 2>/dev/null | head -5 | sed 's/^/ /' | tr '\n' ';')"
 
   if ! up=$(git -C "$REPO" rev-parse --abbrev-ref '@{u}' 2>/dev/null); then
     # Not pedantry: the hub had no upstream, so from that node you could not tell
@@ -223,7 +235,11 @@ else
     ref_mtime=0
     for cand in "${gd}/${upref}" "${gd}/FETCH_HEAD" "${gd}/packed-refs"; do
       [ -f "$cand" ] || continue
-      ref_mtime=$(stat -f %m "$cand" 2>/dev/null || stat -c %Y "$cand" 2>/dev/null || echo 0)
+      # GNU first: on Linux `stat -f %m FILE` prints FILESYSTEM status to stdout
+      # before failing, and that junk landed in this variable ahead of the
+      # fallback's epoch (manpur: "integer expression expected"). tail -1 keeps
+      # only the last line whatever the order.
+      ref_mtime=$( { stat -c %Y "$cand" 2>/dev/null || stat -f %m "$cand" 2>/dev/null || echo 0; } | tail -1)
       [ "${ref_mtime:-0}" -gt 0 ] && break
     done
     age_h=$(( ( $(date +%s) - ${ref_mtime:-0} ) / 3600 ))
