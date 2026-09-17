@@ -30,6 +30,7 @@
     "value.converter.schemas.enable": "true",
     "transforms.agg.replacement": "${REMOTE_SERVER_NAME}.odoo.all",
     "table.include.list": "public.res_country_state,public.res_partner,public.product_template,public.product_product,public.product_category,public.uom_uom,public.sale_order,public.sale_order_line,public.stock_move,public.stock_quant,public.stock_picking,public.account_move,public.account_move_line,public.dbz_heartbeat",
-    "snapshot.mode": "no_data"
+    "snapshot.mode": "no_data",
+    "custom.metric.tags": "database=odoo"
   }
 }

@@ -27,6 +27,15 @@ setup_compose
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
 MY="$BASE_MYSQL_CONTAINER"; PG="$BASE_PG_CONTAINER"
+# ELIS/ELIS_SUPERUSER (Ruling 11): IPLIT's real hub base runs Odoo and
+# OpenELIS in two separate Postgres containers with different bootstrap
+# superusers (iplit-base-odoodb-1/odoo, iplit-base-openelisdb-1/clinlims);
+# the mini and every clinic run one container for both. hub_compose_env
+# always defaults BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER from the BASE_PG_*
+# values, so the fallback here only matters for an .env composed before this
+# key pair existed -- with it, every openelis-database operation below
+# collapses back onto $PG/$BASE_PG_SUPERUSER exactly as before.
+ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE_PG_SUPERUSER}"
 
 # container_ip CONTAINER : its address on whichever docker/podman network(s)
 # it is attached to. Used to dial MySQL/Postgres from inside their OWN
@@ -89,14 +98,30 @@ mysql_login_ok "$my_ip" "$DEBEZIUM_DB_USER" "$DEBEZIUM_DB_PASSWORD" \
   || fail "mysql ${DEBEZIUM_DB_USER}@${my_ip} did not authenticate"
 
 # --- Postgres: sink roles ---------------------------------------------------
+# Both pg_admin and pg_admin_pw dispatch their CONTAINER/SUPERUSER on the DB
+# name they're given -- "openelis" routes to ELIS/ELIS_SUPERUSER (Ruling 11:
+# IPLIT's base runs it as a separate Postgres container from "odoo"),
+# everything else (odoo, and the bare "postgres" maintenance db used nowhere
+# in this file) stays on PG/BASE_PG_SUPERUSER. Every call site below already
+# passes "odoo" or "openelis" as its db argument, so dispatching here routes
+# create_pg_sink_role/build_publication/check_sink_privileges/check_sequences
+# and the heartbeat calls correctly without touching any of them.
+#
 # pg_admin DB ARGS... : psql as the base Postgres superuser, script on stdin,
 # no masking -- reserved for SQL that carries no secret.
-pg_admin(){ local db="$1"; shift; ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d "$db" -v ON_ERROR_STOP=1 -q "$@"; }
+pg_admin(){
+  local db="$1" ct_name="$PG" su="$BASE_PG_SUPERUSER"
+  [ "$db" = openelis ] && { ct_name="$ELIS"; su="$ELIS_SUPERUSER"; }
+  shift
+  ct exec -i "$ct_name" psql -U "$su" -d "$db" -v ON_ERROR_STOP=1 -q "$@"
+}
 # pg_admin_pw DB : like pg_admin, for SQL (on stdin) that carries
 # ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD -- masked the same way mysql_root
 # masks the MySQL secrets above (mask_env_secrets, Fix round 2).
 pg_admin_pw(){
-  ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 \
+  local ct_name="$PG" su="$BASE_PG_SUPERUSER"
+  [ "$1" = openelis ] && { ct_name="$ELIS"; su="$ELIS_SUPERUSER"; }
+  ct exec -i "$ct_name" psql -U "$su" -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 \
     | mask_env_secrets ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD
 }
 # create_pg_sink_role ROLE PASSWORD DB SCHEMA : role create-when-absent +
@@ -128,19 +153,27 @@ SQL
 create_pg_sink_role odoo_sink "$ODOO_SINK_PASSWORD" odoo public
 create_pg_sink_role clinlims_sink "$CLINLIMS_SINK_PASSWORD" openelis clinlims
 
-# pg_login_ok HOST DB USER PASSWORD : same proof as mysql_login_ok, over psql.
+# pg_login_ok HOST DB USER PASSWORD : same proof as mysql_login_ok, over psql
+# -- runs the psql CLIENT from inside the container that actually hosts DB
+# (PG for odoo, ELIS for openelis), same dispatch as pg_admin/pg_admin_pw
+# above, since in a two-container base the ELIS container is where
+# clinlims_sink's role and network path actually live.
 pg_login_ok(){
-  printf '%s\n' "$4" | ct exec -i -e PLHOST="$1" -e PLDB="$2" -e PLUSER="$3" "$PG" sh -c \
+  local ct_name="$PG"
+  [ "$2" = openelis ] && ct_name="$ELIS"
+  printf '%s\n' "$4" | ct exec -i -e PLHOST="$1" -e PLDB="$2" -e PLUSER="$3" "$ct_name" sh -c \
     'IFS= read -r pw && PGPASSWORD="$pw" psql -h "$PLHOST" -U "$PLUSER" -d "$PLDB" -Atc "select 1"' >/dev/null 2>&1
 }
 pg_ip="$(container_ip "$PG")"
 [ -n "$pg_ip" ] || fail "could not read ${PG}'s network address via ct inspect"
+elis_ip="$(container_ip "$ELIS")"
+[ -n "$elis_ip" ] || fail "could not read ${ELIS}'s network address via ct inspect"
 pg_login_ok "$pg_ip" odoo odoo_sink "$ODOO_SINK_PASSWORD" \
   && ok "postgres odoo_sink@${pg_ip}/odoo authenticates over the network" \
   || fail "postgres odoo_sink@${pg_ip}/odoo did not authenticate"
-pg_login_ok "$pg_ip" openelis clinlims_sink "$CLINLIMS_SINK_PASSWORD" \
-  && ok "postgres clinlims_sink@${pg_ip}/openelis authenticates over the network" \
-  || fail "postgres clinlims_sink@${pg_ip}/openelis did not authenticate"
+pg_login_ok "$elis_ip" openelis clinlims_sink "$CLINLIMS_SINK_PASSWORD" \
+  && ok "postgres clinlims_sink@${elis_ip}/openelis authenticates over the network" \
+  || fail "postgres clinlims_sink@${elis_ip}/openelis did not authenticate"
 
 # --- Publications: derived from sync/subsystems.conf, not hand-copied ------
 # subsystem_tables (clinic/install/lib.sh, sourced transitively) is the one

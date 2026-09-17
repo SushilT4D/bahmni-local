@@ -28,6 +28,12 @@
 # Service name inside the compose network stays "kafka-connect" (container_name
 # is a docker-level identifier only), so BOOTSTRAP_SERVERS: kafka:29092 and
 # every ${REMOTE_SERVER_NAME}-prefixed connector config needs no change here.
+#
+# KAFKA_HEAP_OPTS (Ruling 15): same trim and same reasoning as boot-
+# override.yml's kafka/kafka-controller -- a map key, merges additively into
+# the base file's `environment` map. Three connectors and a handful of test
+# rows are nowhere near what the Debezium Connect image's own default heap
+# assumes.
 services:
   kafka-connect:
     container_name: hubtest-kafka-connect
@@ -36,3 +42,5 @@ services:
         condition: service_healthy
     ports: !override
       - '127.0.0.1:18083:8083'
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx1g"

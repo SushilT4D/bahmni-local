@@ -34,6 +34,19 @@
 # Distinct from test_broker_boot.sh (asserts directly against its own renamed
 # containers; never invokes a real task script) and test_base_db.sh
 # (Postgres+MySQL only, no Kafka at all).
+#
+# Fix round 2: the slot-active wait (080-sources.sh's wait_slot) is bounded
+# at 15 minutes now instead of round 1's 600s, because the actual root cause
+# of that wait -- the two Postgres sources colliding on Debezium's JMX MBean
+# names, since both share topic.prefix=bahmni-cloud -- is fixed directly
+# (custom.metric.tags on each connector JSON), asserted here by grepping the
+# full Connect log for the collision warning across both runs. This test's
+# own throwaway containers (mysql/postgres flags, and KAFKA_HEAP_OPTS in
+# boot-override.yml/source-override.yml) are also trimmed so the whole smoke
+# fits beside another real stack's containers on a shared, resource-
+# constrained Mac, and a pre-run cleanup step clears any hubtest-src-*
+# container/network or hub/.src-*/.task080.* temp file a prior, non-trapped
+# (e.g. killed) run left behind.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/../lib.sh"
@@ -80,6 +93,19 @@ cleanup(){
 }
 trap cleanup EXIT
 
+# --- Pre-run cleanup: leftover state from an earlier, non-trapped run -------
+# (Ruling 15) A run killed outright (not a normal exit or a signal the EXIT
+# trap above catches) can leave hubtest-* containers/network and
+# hub/.src-*/.task080.* temp files behind; clear them before creating
+# anything new so a stale run never collides with this one. `rm -f`/`-rf` on
+# a glob that matches nothing just tries (and silently tolerates failing on)
+# the literal pattern as a filename, so no nullglob dance is needed here.
+for c in "$MY_C" "$PG_C" "$CTRL_C" "$KAFKA_C" "$CONNECT_C"; do ct rm -f "$c" >/dev/null 2>&1 || true; done
+ct network rm "$NET" >/dev/null 2>&1 || true
+rm -f "${HUB_DIR}"/.src-base.* "${HUB_DIR}"/.src-secrets.* "${HUB_DIR}"/.src-hubenv.* >/dev/null 2>&1 || true
+rm -rf "${HUB_DIR}"/.task080.* >/dev/null 2>&1 || true
+ok "pre-run cleanup: no leftover hubtest-src-* containers/network or hub/.src-*/.task080.* temp files"
+
 ct network create "$NET" >/dev/null 2>&1 && ok "throwaway network ${NET} created" || { bad "could not create network ${NET}"; printf '%s\n' "$fails failure(s)"; exit 1; }
 
 # --- hub/.env: composed through the real hub_compose_env, not hand-written --
@@ -107,8 +133,9 @@ ok "temp JAAS written at hub/kafka_server_jaas.conf (restored on exit)"
 # --- throwaway mysql: binlog enabled, openmrs + hub/tables.conf's 7 cloud-owned tables
 MY_IMAGE="$(env_get "$env_path" MYSQL_IMAGE)"; MY_IMAGE="${MY_IMAGE:-mysql:8.0.39}"
 ct run -d --name "$MY_C" --network "$NET" -e MYSQL_ROOT_PASSWORD=throwaway "$MY_IMAGE" \
-  --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL >/dev/null \
-  && ok "mysql container ${MY_C} (${MY_IMAGE}, binlog ROW/FULL) started" || { bad "mysql container failed to start"; printf '%s\n' "$fails failure(s)"; exit 1; }
+  --server-id=1 --log-bin=mysql-bin --binlog-format=ROW --binlog-row-image=FULL \
+  --performance-schema=OFF --innodb-buffer-pool-size=64M >/dev/null \
+  && ok "mysql container ${MY_C} (${MY_IMAGE}, binlog ROW/FULL, trimmed footprint) started" || { bad "mysql container failed to start"; printf '%s\n' "$fails failure(s)"; exit 1; }
 ready=0
 for i in $(seq 1 60); do ct logs "$MY_C" 2>&1 | grep -q 'ready for connections.*port: 3306' && { ready=1; break; }; sleep 2; done
 [ "$ready" = 1 ] && ok "mysql real server ready on port 3306 (past the init-server handoff)" || { bad "mysql never logged the final server's ready-for-connections line"; printf '%s\n' "$fails failure(s)"; exit 1; }
@@ -131,8 +158,8 @@ SQL
 # --- throwaway postgres: wal_level=logical, odoo/clinlims roles+dbs, every table
 # each source's table.include.list needs (subsystem_tables -- never hand-copied)
 PG_IMAGE="$(env_get "$env_path" POSTGRES_IMAGE)"; PG_IMAGE="${PG_IMAGE:-postgres:16}"
-ct run -d --name "$PG_C" --network "$NET" -e POSTGRES_PASSWORD=throwaway "$PG_IMAGE" -c wal_level=logical >/dev/null \
-  && ok "postgres container ${PG_C} (${PG_IMAGE}) started" || { bad "postgres container failed to start"; printf '%s\n' "$fails failure(s)"; exit 1; }
+ct run -d --name "$PG_C" --network "$NET" -e POSTGRES_PASSWORD=throwaway "$PG_IMAGE" -c wal_level=logical -c shared_buffers=32MB >/dev/null \
+  && ok "postgres container ${PG_C} (${PG_IMAGE}, trimmed footprint) started" || { bad "postgres container failed to start"; printf '%s\n' "$fails failure(s)"; exit 1; }
 ready=0
 for i in $(seq 1 60); do ct logs "$PG_C" 2>&1 | grep -q "PostgreSQL init process complete" && { ready=1; break; }; sleep 2; done
 [ "$ready" = 1 ] || { bad "postgres never logged the temp-to-real handoff (init process complete)"; printf '%s\n' "$fails failure(s)"; exit 1; }
@@ -246,6 +273,22 @@ assert_line "clinlims heartbeat in table.include.list"     "clinlims-cloud-sourc
 assert_line "odoo heartbeat.interval.ms present"           "odoo-cloud-source: heartbeat.interval.ms="
 assert_line "clinlims heartbeat.interval.ms present"       "clinlims-cloud-source: heartbeat.interval.ms="
 assert_line "task reaches its final summary line"          "hub sources registered and proven:"
+
+# --- Ruling 11: the clinlims source's database.hostname placeholder is
+# actually substituted to BASE_ELIS_CONTAINER, not just present in the
+# template. This one-container test never sets BASE_ELIS_CONTAINER, so
+# hub_compose_env defaults it to BASE_PG_CONTAINER's value ($PG_C) -- proving
+# the placeholder resolves at all, even though it resolves to the same
+# container clinlims lives on here. Read back from Connect's own /config
+# (database.hostname is not a secret field, unlike database.password).
+elis_container="$(env_get "$env_path" BASE_ELIS_CONTAINER)"
+rendered_host="$(curl -s "${CONNECT_URL}/connectors/clinlims-cloud-source/config" | jq -r '.["database.hostname"] // empty')"
+if [ -n "$elis_container" ] && [ "$rendered_host" = "$elis_container" ]; then
+  ok "clinlims-cloud-source database.hostname resolves to BASE_ELIS_CONTAINER (${elis_container})"
+else
+  bad "clinlims-cloud-source database.hostname (${rendered_host:-<empty>}) does not equal BASE_ELIS_CONTAINER (${elis_container:-<empty>})"
+fi
+
 # No password value ever appears in the task's own stdout/stderr.
 for secret in "$(env_get "$env_path" DEBEZIUM_DB_PASSWORD)" "$(env_get "$env_path" ODOO_DB_PASSWORD)" "$(env_get "$env_path" CLINLIMS_SOURCE_PASSWORD)"; do
   [ -n "$secret" ] || continue
@@ -260,6 +303,22 @@ printf '%s\n' "$out2" | sed 's/^/    /'
 line1="$(printf '%s\n' "$out1" | grep 'hub sources registered and proven:')"
 line2="$(printf '%s\n' "$out2" | grep 'hub sources registered and proven:')"
 [ -n "$line1" ] && [ "$line1" = "$line2" ] && ok "second run reaches the identical final line (idempotent)" || bad "final line changed between runs: [${line1}] vs [${line2}]"
+
+# --- Ruling 14: the two Postgres sources no longer collide on JMX bean names.
+# custom.metric.tags (database=odoo / database=clinlims, both connector JSONs)
+# disambiguates Debezium's MBean ObjectNames, which otherwise collide because
+# both sources share topic.prefix=bahmni-cloud -- the exact mechanism Fix
+# round 1 traced as the reason the slot-active wait exceeded even a 600s
+# bound (ChangeEventSourceCoordinator stalls behind the retry loop this
+# produces before it reaches START_REPLICATION). Checked over the FULL
+# Connect log across both runs above, not just the first -- a real collision
+# would log on every registration, not only the first.
+connect_logs="$(ct logs "$CONNECT_C" 2>&1)"
+if printf '%s\n' "$connect_logs" | grep -q "InstanceAlreadyExists"; then
+  bad "Connect log carries an InstanceAlreadyExists line -- the two Postgres sources' JMX names still collide"
+else
+  ok "no InstanceAlreadyExists in the Connect log (custom.metric.tags disambiguates the two Postgres sources)"
+fi
 
 printf '%s\n' "$fails failure(s)"
 exit $((fails>0))

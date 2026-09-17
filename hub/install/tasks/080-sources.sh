@@ -20,6 +20,14 @@ setup_compose
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
 MY="$BASE_MYSQL_CONTAINER"; PG="$BASE_PG_CONTAINER"
+# ELIS/ELIS_SUPERUSER (Ruling 11): IPLIT's real hub base runs Odoo and
+# OpenELIS in two separate Postgres containers with different bootstrap
+# superusers; the mini and every clinic run one container for both, and
+# hub_compose_env always defaults these two keys from BASE_PG_CONTAINER/
+# BASE_PG_SUPERUSER, so the fallback here only matters for an .env composed
+# before this key pair existed. dbz_clinlims_down's slot lives on ELIS;
+# dbz_odoo_down's stays on PG.
+ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE_PG_SUPERUSER}"
 # CONNECT_URL: an already-exported value wins (hub/install/tests/test_sources.sh
 # sets one to reach its own renamed, differently-published Connect instance)
 # before falling back to hub/.env's own KAFKA_CONNECT_URL (an operator's real
@@ -131,48 +139,47 @@ ret="$(ct exec "$KAFKA_CONTAINER" kafka-configs --bootstrap-server kafka:29092 -
 # Bounded wait, same reason as step 5's schema-history topic: RUNNING is
 # reported once the task starts, which can precede the slot actually being
 # created (Debezium creates it lazily too) or precede it showing
-# active=true. 600s, not a smaller round number: all three connectors here
-# share topic.prefix=bahmni-cloud by design (one logical "cloud" source),
-# and Debezium's JMX metric bean names are keyed by that server name, not
-# the connector name -- so on one Connect worker, whichever connector loses
-# the race to register a given MBean name logs "Unable to register metrics
-# as an old set with the same name ... retrying in PT5S" and retries 12
-# times (5s apart, ~55-60s) per metrics context. This is not a harmless
-# side warning: traced live via the connector's full log, the actual
-# io.debezium.pipeline.ChangeEventSourceCoordinator does not proceed past
-# "Metrics registered" to set up the real replication stream (the
-# START_REPLICATION call that flips pg_replication_slots.active to true)
-# until the snapshot-context retry cycle resolves (~55-60s), and the
-# SAME cycle repeats for the streaming-context registration right after
-# (~another 55-60s) -- roughly 110-120s of pure registration overhead for a
-# connector racing against just ONE other, measured directly from a full
-# log trace on this dev Mac. With three connectors on one worker all keyed
-# to the same server name, a connector can lose to two different
-# connectors in the two different metric contexts, compounding the wait;
-# on this specific, already-loaded shared Mac (another real stack's ~20
-# containers already running, host free memory observed critically low)
-# that compounded wait was measured exceeding 300s on two consecutive full
-# runs. 600s is a deliberately large, production-harmless ceiling (a real
-# hub install resolves in ~2 minutes and never approaches it) chosen
-# because this task could not establish a smaller number that reliably
-# holds on this host -- if this line still times out, that is this host's
-# resource contention, not this task's registration logic, which the
-# earlier direct trace already proved correct end to end.
-pg_admin(){ ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -q -Atc "$1"; }
-wait_slot(){ # SLOT MAX_SECONDS
-  local slot="$1" secs="${2:-60}" i row
+# active=true. Ruling 14 tags each Postgres source's JMX metrics with its own
+# database (custom.metric.tags), which stops the two same-topic.prefix
+# connectors from colliding on Debezium's MBean names -- the actual root
+# cause traced in Fix round 1 of io.debezium.pipeline.ChangeEventSourceCoordinator
+# stalling behind repeated "Unable to register metrics as an old set with the
+# same name ... retrying" before it would proceed to START_REPLICATION (the
+# call that flips pg_replication_slots.active to true). With that collision
+# gone this should resolve in the ~2-minute range a single connector traced
+# at, but the bound is Ruling 13's flat 15 minutes (900s) regardless, with a
+# progress line every 30s naming the still-inactive slot -- generous enough
+# to absorb host contention (this dev Mac shares ~20 other containers with
+# this test) without a production install ever approaching it.
+pg_admin(){ # CONTAINER SUPERUSER SQL
+  ct exec -i "$1" psql -U "$2" -d postgres -v ON_ERROR_STOP=1 -q -Atc "$3"
+}
+wait_slot(){ # SLOT CONTAINER SUPERUSER MAX_SECONDS
+  # NOTE (found live while proving this round): `slot_name || '|' || active`
+  # concatenates the boolean through Postgres's ::text cast, which renders
+  # "true"/"false" -- not the "t"/"f" a BARE boolean column shows under
+  # psql's -At (confirmed directly: `select slot_name, active from
+  # pg_replication_slots` gives `dbz_odoo_down|t`, but this query's own `||`
+  # form gives `dbz_odoo_down|true` on the same row, same Postgres 16). The
+  # comparison below was inherited from Fix round 1 checking for "|t", which
+  # can never match this query's actual output regardless of how long it
+  # waits -- a pre-existing defect this round's new progress line (Ruling
+  # 13) surfaced live, not a new one introduced here.
+  local slot="$1" ct_name="$2" su="$3" secs="${4:-900}" i row elapsed=0
   for i in $(seq 1 $((secs/5))); do
-    row="$(pg_admin "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")"
-    [ "$row" = "${slot}|t" ] && { ok "replication slot ${slot} active"; return 0; }
+    row="$(pg_admin "$ct_name" "$su" "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")"
+    [ "$row" = "${slot}|true" ] && { ok "replication slot ${slot} active"; return 0; }
+    elapsed=$((elapsed+5))
+    [ $((elapsed % 30)) -eq 0 ] && info "still waiting on replication slot ${slot} to become active (${elapsed}s/${secs}s elapsed; last read: ${row:-<not found>})"
     sleep 5
   done
   case "$row" in
-    "${slot}|f") fail "replication slot ${slot} exists but never became active within ${secs}s" ;;
+    "${slot}|false") fail "replication slot ${slot} exists but never became active within ${secs}s" ;;
     *) fail "replication slot ${slot} not found in pg_replication_slots within ${secs}s" ;;
   esac
 }
-wait_slot dbz_odoo_down 600
-wait_slot dbz_clinlims_down 600
+wait_slot dbz_odoo_down "$PG" "$BASE_PG_SUPERUSER" 900
+wait_slot dbz_clinlims_down "$ELIS" "$ELIS_SUPERUSER" 900
 
 # --- 7. The MySQL source's schema-changes topic exists ----------------------
 # (Already proven once, as a precondition, in step 5's bounded wait -- this is

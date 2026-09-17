@@ -38,6 +38,21 @@ assert_eq "hub_base_container pg" "$(hub_base_container pg)" "cloud-openelisdb-1
 ( hub_base_container bogus ) >/dev/null 2>&1; rc=$?
 assert_eq "hub_base_container rejects an unknown role" "$rc" "1"
 
+# Ruling 11 (two-container Postgres base): BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER
+# default from BASE_PG_CONTAINER/BASE_PG_SUPERUSER in hub_compose_env -- no
+# override was given above, so both collapse to the same one-container values
+# every other assertion in this file already exercises.
+assert_eq "BASE_ELIS_CONTAINER defaults from BASE_PG_CONTAINER" "$(env_get "$OUT" BASE_ELIS_CONTAINER)" "cloud-openelisdb-1"
+assert_eq "BASE_ELIS_SUPERUSER defaults from BASE_PG_SUPERUSER" "$(env_get "$OUT" BASE_ELIS_SUPERUSER)" "postgres"
+assert_eq "hub_base_container elis (populated by hub_compose_env)" "$(hub_base_container elis)" "cloud-openelisdb-1"
+# hub_base_container's OWN fallback: an hub/.env written before this key pair
+# existed has no BASE_ELIS_CONTAINER line at all (not just an empty one) --
+# a separate fixture, since $OUT above always has the key populated by
+# hub_compose_env and so never exercises this function's own default branch.
+mkdir -p "$TMP/hub-noelis"
+printf 'BASE_PG_CONTAINER=legacy-pg-container\n' > "$TMP/hub-noelis/.env"
+assert_eq "hub_base_container elis falls back to BASE_PG_CONTAINER when absent" "$(HUB_DIR="$TMP/hub-noelis" hub_base_container elis)" "legacy-pg-container"
+
 # hub/.env.example must declare exactly the keys HUB_KEYS lists -- a key added
 # to one and not the other is exactly how CLOUD_MYSQL_HOST/PORT/DATABASE went
 # missing from .env.example in the first place (task 080). Word-count first

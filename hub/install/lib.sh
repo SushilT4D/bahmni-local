@@ -17,7 +17,7 @@ REPO_DIR="${REPO_DIR:-$(cd "${HUB_INSTALL_DIR}/../.." && pwd)}"
 CLINIC_DIR="${HUB_DIR}" PROFILES="" INSTALL_DIR="${REPO_DIR}/clinic/install" . "${REPO_DIR}/clinic/install/lib.sh"
 PROFILES=""
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
-HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE"
+HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE"
 
 # KAFKA_CONTAINER / CONNECT_CONTAINER: the docker/podman container NAMES hub
 # tasks `exec` into for kafka-configs/kafka-topics calls (080-sources.sh, and
@@ -69,6 +69,19 @@ hub_compose_env(){
   put BASE_PG_PASSWORD "$(env_get "$base" POSTGRES_PASSWORD)"
   put BASE_MYSQL_CONTAINER "${BASE_MYSQL_CONTAINER:-cloud-openmrsdb-1}"
   put BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-cloud-openelisdb-1}"
+  # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
+  # databases on the mini and every clinic, so these default straight from
+  # the BASE_PG_* values just set above (read back from $out, same reason
+  # CLOUD_MYSQL_HOST reads BASE_MYSQL_CONTAINER back below rather than the
+  # shell variable -- a pre-existing value already in $out must win over a
+  # fresh default). IPLIT's real hub base is the one deployment that differs:
+  # it runs Odoo and OpenELIS in two separate Postgres containers with
+  # different bootstrap superusers (iplit-base-odoodb-1/odoo,
+  # iplit-base-openelisdb-1/clinlims -- docs/sync-core/runbooks/hub-build-and-
+  # connect.md's container table), where an operator sets both keys
+  # explicitly before running the installer.
+  put BASE_ELIS_CONTAINER "$(env_get "$out" BASE_PG_CONTAINER)"
+  put BASE_ELIS_SUPERUSER "$(env_get "$out" BASE_PG_SUPERUSER)"
   # The down-source dials the base stack's own MySQL by container name on the
   # shared KAFKA_BASE_NETWORK (Docker resolves it), so its default is simply
   # whatever BASE_MYSQL_CONTAINER was just set to above -- read back from $out,
@@ -88,9 +101,17 @@ hub_compose_env(){
 # role, read back from hub/.env (hub_compose_env's OUT) -- for hub scripts
 # that docker/podman exec into the base stack's MySQL or Postgres.
 hub_base_container(){
+  local v
   case "$1" in
     mysql) env_get "${HUB_DIR}/.env" BASE_MYSQL_CONTAINER ;;
     pg)    env_get "${HUB_DIR}/.env" BASE_PG_CONTAINER ;;
+    # elis: BASE_ELIS_CONTAINER if hub/.env carries it (always true once
+    # composed by hub_compose_env, which defaults it), falling back to
+    # BASE_PG_CONTAINER for an .env written before this key pair existed.
+    elis)
+      v="$(env_get "${HUB_DIR}/.env" BASE_ELIS_CONTAINER)"
+      printf '%s' "${v:-$(env_get "${HUB_DIR}/.env" BASE_PG_CONTAINER)}"
+      ;;
     *) fail "hub_base_container: unknown role $1" ;;
   esac
 }
