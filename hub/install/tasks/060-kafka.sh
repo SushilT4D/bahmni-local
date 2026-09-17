@@ -31,11 +31,15 @@ check_eq "cluster id" "$cid" "$KAFKA_CLUSTER_ID"
 # The SASL check's password never touches a command line, a log, or a tracked
 # file: written by the printf builtin (no subprocess ever sees it in argv) to
 # a mode-600 temp file under HUB_DIR, removed by the trap below whether the
-# check passes, fails, or this script dies unexpectedly.
+# check passes, fails, or this script dies unexpectedly. Escaped the same way
+# as write_jaas (Fix round 1): an operator-typed REMOTE_KAFKA_PASSWORD
+# containing a '"' or '\' would otherwise break this properties file's own
+# quoting of the sasl.jaas.config value.
 tmp="$(mktemp "${HUB_DIR}/.sasl-check.XXXXXX")"
 chmod 600 "$tmp"
 trap 'rm -f "$tmp"' EXIT
-printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$REMOTE_KAFKA_PASSWORD" > "$tmp"
+esc_pw="$(jaas_escape "$REMOTE_KAFKA_PASSWORD")"
+printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
 if ct run --rm --network host -v "${tmp}:/tmp/c.properties:ro" "$KAFKA_IMAGE" kafka-broker-api-versions --bootstrap-server 127.0.0.1:9092 --command-config /tmp/c.properties >/dev/null 2>&1; then
   ok "SASL listener answers on the published 9092 as mirrormaker (advertised as ${REMOTE_KAFKA_HOST})"
 else

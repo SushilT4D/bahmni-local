@@ -73,11 +73,21 @@ hub_base_container(){
   esac
 }
 
+# jaas_escape STR : backslash-escapes a value for safe embedding inside a
+# double-quoted JAAS/Java-properties string. Order matters -- backslashes
+# first, then quotes -- so a literal backslash already in the input is never
+# re-escaped by the quote pass (Fix round 1, code review Finding 1): an
+# operator-typed REMOTE_KAFKA_PASSWORD containing a '"' or '\' would otherwise
+# break the quoting of whatever file it lands in.
+jaas_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
 # write_jaas OUT ADMIN_PW FLEET_PW : the broker's SASL/PLAIN users. Generated from
 # hub/.env at install time -- cloud/kafka_server_jaas.conf was TRACKED with literal
-# passwords since the repo's first commit (public repo), hence F-071.
+# passwords since the repo's first commit (public repo), hence F-071. Both
+# passwords are escaped before interpolation (Fix round 1).
 write_jaas(){
-  local out="$1" adm="$2" fleet="$3"
+  local out="$1" adm fleet
+  adm="$(jaas_escape "$2")"; fleet="$(jaas_escape "$3")"
   ( umask 077; printf 'KafkaServer {\n    org.apache.kafka.common.security.plain.PlainLoginModule required\n    username="admin"\n    password="%s"\n    user_admin="%s"\n    user_mirrormaker="%s";\n};\n' "$adm" "$adm" "$fleet" > "$out" )
   chmod 600 "$out"
 }

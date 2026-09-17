@@ -1,0 +1,19 @@
+# Compose override for test_broker_boot.sh ONLY -- never referenced by
+# install.sh or any task. Renames the two boot services' containers so this
+# throwaway smoke test can run beside another real stack that happens to hold
+# the fixed names hub/docker-compose.yml uses (container_name: kafka /
+# kafka-controller are not namespaced by -p). `ports: !reset []` (compose
+# 2.24+) clears kafka's published 127.0.0.1:9092/9093 rather than merging with
+# them, since a foreign stack may already be bound to those same host ports
+# even when the container names differ. Service names inside the compose
+# network (kafka, kafka-controller) are untouched by container_name, so
+# KAFKA_CONTROLLER_QUORUM_VOTERS and the advertised listeners in
+# hub/docker-compose.yml need no change here -- only docker-level identifiers
+# (exec/inspect/logs) use the renamed values.
+services:
+  kafka-controller:
+    container_name: hubtest-kafka-controller
+
+  kafka:
+    container_name: hubtest-kafka
+    ports: !reset []

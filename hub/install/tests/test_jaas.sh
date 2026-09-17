@@ -7,4 +7,14 @@ assert_eq "mode 600" "$(stat -c %a "$TMP/j.conf" 2>/dev/null || stat -f %Lp "$TM
 assert_eq "admin line" "$(grep -c 'user_admin="adm1n"' "$TMP/j.conf")" "1"
 assert_eq "mirrormaker line" "$(grep -c 'user_mirrormaker="fl33t";' "$TMP/j.conf")" "1"
 assert_eq "no placeholders" "$(grep -c '\${' "$TMP/j.conf")" "0"
+
+# Fix round 1 (code review Finding 1): a fleet password containing a double
+# quote and a backslash must not break the JAAS file's own quoting -- write_jaas
+# must escape it (backslash -> \\, double quote -> \"), never write it bare.
+write_jaas "$TMP/j2.conf" 'adm1n' 'fl"ee\t33t'
+assert_eq "mode 600 (escaped case)" "$(stat -c %a "$TMP/j2.conf" 2>/dev/null || stat -f %Lp "$TMP/j2.conf")" "600"
+assert_eq "escaped mirrormaker line present" "$(grep -Fc 'user_mirrormaker="fl\"ee\\t33t";' "$TMP/j2.conf")" "1"
+assert_eq "bare unescaped password absent" "$(grep -Fc 'fl"ee\t33t' "$TMP/j2.conf")" "0"
+assert_eq "no placeholders (escaped case)" "$(grep -c '\${' "$TMP/j2.conf")" "0"
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))
