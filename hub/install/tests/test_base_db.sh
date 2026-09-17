@@ -147,24 +147,34 @@ done
 [ "$ready" = 1 ] && ok "mysql real server ready for connections on port 3306 (past the init-server handoff)" || { bad "mysql never logged the final server's ready-for-connections line"; exit 1; }
 
 # --- hub/.env for the task under test ---------------------------------------
-REMOTE_MYSQL_PW="$(gen_secret)"; DEBEZIUM_PW="$(gen_secret)"; ODOO_SINK_PW="$(gen_secret)"; CLINLIMS_SINK_PW="$(gen_secret)"
+# Fix round 2: these four passwords deliberately carry a "'" and a "\" each --
+# an operator could type either into hub/.env, and 050-base-db.sh's SQL
+# literals (mysql_user_sql, create_pg_sink_role) must survive it, which the
+# network login proofs and the write-proof below prove end to end. printf
+# '%q' quotes each value for THIS FILE itself, not just the SQL later: a
+# naive unquoted heredoc interpolation would drop an unmatched "'" straight
+# into hub/.env, and `. hub/.env` sourcing it back would either error out or
+# -- worse -- treat everything up to the NEXT "'" anywhere later in the file
+# as one string, silently corrupting every key after it.
+weird_secret(){ printf '%s%s%s%s' "$(gen_secret)" "'" '\' "$(gen_secret)"; }
+REMOTE_MYSQL_PW="$(weird_secret)"; DEBEZIUM_PW="$(weird_secret)"; ODOO_SINK_PW="$(weird_secret)"; CLINLIMS_SINK_PW="$(weird_secret)"
 ( umask 077
 cat > "$env_path" <<EOF
 BASE_MYSQL_CONTAINER=${MY_C}
 BASE_PG_CONTAINER=${PG_C}
 BASE_PG_SUPERUSER=postgres
 REMOTE_MYSQL_USER=sink
-REMOTE_MYSQL_PASSWORD=${REMOTE_MYSQL_PW}
+REMOTE_MYSQL_PASSWORD=$(printf '%q' "$REMOTE_MYSQL_PW")
 REMOTE_MYSQL_DATABASE=openmrs
 DEBEZIUM_DB_USER=debezium
-DEBEZIUM_DB_PASSWORD=${DEBEZIUM_PW}
-ODOO_SINK_PASSWORD=${ODOO_SINK_PW}
-CLINLIMS_SINK_PASSWORD=${CLINLIMS_SINK_PW}
+DEBEZIUM_DB_PASSWORD=$(printf '%q' "$DEBEZIUM_PW")
+ODOO_SINK_PASSWORD=$(printf '%q' "$ODOO_SINK_PW")
+CLINLIMS_SINK_PASSWORD=$(printf '%q' "$CLINLIMS_SINK_PW")
 KAFKA_BASE_NETWORK=${NET}
 EOF
 )
 chmod 600 "$env_path"
-ok "temp hub/.env written (restored on exit)"
+ok "temp hub/.env written (restored on exit), sink+debezium+mysql passwords each carry a ' and a \\"
 
 # --- run 050-base-db.sh for real, twice (idempotency) -----------------------
 out1="$(bash "$TASK" 2>&1)"; rc1=$?
@@ -193,7 +203,16 @@ assert_line "task reaches its final summary line"                               
 # itself comes from clinic/install/lib.sh (sourced transitively via
 # hub/install/lib.sh above), the same parser 050-base-db.sh now calls, so this
 # count can never drift from what the task under test actually iterates over.
-total_odoo="$(subsystem_tables odoo | wc -l | tr -d ' ')"
+#
+# Captured on its own line, not `subsystem_tables odoo | wc -l | tr -d ' '`
+# (Fix round 2, same class as 050-base-db.sh's for-loop fix): without
+# `pipefail` a fail() from subsystem_tables deep in that pipe would be
+# invisible -- wc/tr would just count whatever partial output leaked through
+# before the pipe closed and report a silently-wrong total. Capturing the
+# generator's own output first means its exit status can be checked honestly.
+odoo_tables="$(subsystem_tables odoo)"; odoo_tables_rc=$?
+[ "$odoo_tables_rc" = 0 ] || bad "subsystem_tables odoo failed (rc=${odoo_tables_rc}): ${odoo_tables}"
+total_odoo="$(printf '%s\n' "$odoo_tables" | wc -l | tr -d ' ')"
 expected_warns=$((total_odoo - 3))
 warn_count="$(printf '%s\n' "$out1" | grep -c 'WARN.*does not exist in odoo')"
 [ "${warn_count:-0}" = "$expected_warns" ] \

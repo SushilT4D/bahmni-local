@@ -45,8 +45,11 @@ container_ip(){ ct inspect --format '{{range .NetworkSettings.Networks}}{{.IPAdd
 # DEBEZIUM_DB_PASSWORD are masked in anything mysql_root prints back: a
 # syntax error near a password clause otherwise echoes the clause, secret
 # included (the same failure mode create-odoo-sink-role.sh's header records
-# for Postgres ERROR CONTEXT lines).
-mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | sed "s/${REMOTE_MYSQL_PASSWORD}/<hidden>/g; s/${DEBEZIUM_DB_PASSWORD}/<hidden>/g"; }
+# for Postgres ERROR CONTEXT lines). mask_env_secrets (hub/install/lib.sh), not
+# `sed "s/${SECRET}/.../g"` -- a literal replace can't be broken by a secret
+# that happens to contain a sed/regex-special character, "/" (the delimiter)
+# included (Fix round 2).
+mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
 
 ver="$(printf 'select version()' | mysql_root | head -1)"
 [ -n "$ver" ] || fail "could not read MySQL version from ${MY}"
@@ -91,10 +94,10 @@ mysql_login_ok "$my_ip" "$DEBEZIUM_DB_USER" "$DEBEZIUM_DB_PASSWORD" \
 pg_admin(){ local db="$1"; shift; ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d "$db" -v ON_ERROR_STOP=1 -q "$@"; }
 # pg_admin_pw DB : like pg_admin, for SQL (on stdin) that carries
 # ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD -- masked the same way mysql_root
-# masks the MySQL secrets above.
+# masks the MySQL secrets above (mask_env_secrets, Fix round 2).
 pg_admin_pw(){
   ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 \
-    | sed "s/${ODOO_SINK_PASSWORD}/<hidden>/g; s/${CLINLIMS_SINK_PASSWORD}/<hidden>/g"
+    | mask_env_secrets ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD
 }
 # create_pg_sink_role ROLE PASSWORD DB SCHEMA : role create-when-absent +
 # password convergence, then the same schema/table/sequence/default-privilege
@@ -105,9 +108,13 @@ pg_admin_pw(){
 # what exists today; ALTER DEFAULT PRIVILEGES covers a table added to the
 # schema later, so a subsystems.conf addition does not also need a grants
 # re-run here. All four GRANTs are idempotent (re-granting an already-held
-# privilege is a no-op), so a rerun converges, never errors.
+# privilege is a no-op), so a rerun converges, never errors. PASSWORD is
+# escaped (pg_lit_escape) before it is interpolated into the ALTER ROLE
+# literal, not used raw (Fix round 2) -- interpolating it raw would let an
+# operator-typed password containing "'" break out of the literal.
 create_pg_sink_role(){
-  local role="$1" pw="$2" db="$3" schema="$4"
+  local role="$1" pw db="$3" schema="$4"
+  pw="$(pg_lit_escape "$2")"
   pg_admin_pw "$db" <<SQL >/dev/null
 DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN CREATE ROLE ${role} LOGIN; END IF; END \$\$;
 ALTER ROLE ${role} WITH LOGIN PASSWORD '${pw}';
@@ -154,8 +161,17 @@ EXISTING_ODOO_TABLES=""; EXISTING_CLINLIMS_TABLES=""
 # tables only) as a side effect, so the striding check below asks "does this
 # table exist" once, not twice.
 build_publication(){
-  local db="$1" prefix="$2" schema="$3" pub="$4" t exists parts="" list=""
-  for t in $(subsystem_tables "$prefix"); do
+  local db="$1" prefix="$2" schema="$3" pub="$4" t exists parts="" list="" tables
+  # Captured into a variable FIRST, not `for t in $(subsystem_tables "$prefix")`
+  # directly (Fix round 2, code review): subsystem_tables runs in the
+  # command substitution's OWN subshell, so its fail() (a bad row name) only
+  # ends that subshell -- the for-list's word-splitting is not a context
+  # `set -e` checks, so the loop would silently run on whatever rows were
+  # printed before the bad one and this task would reach its final ok line
+  # anyway. A plain assignment's exit status IS what `set -e` checks, so a
+  # capture-then-loop propagates the failure correctly.
+  tables="$(subsystem_tables "$prefix")"
+  for t in $tables; do
     exists="$(printf "select (to_regclass('%s.%s') is not null)" "$schema" "$t" | pg_admin "$db" -At)"
     if [ "$exists" = t ]; then
       parts="${parts}${parts:+, }${schema}.${t}"; list="${list}${list:+ }${t}"

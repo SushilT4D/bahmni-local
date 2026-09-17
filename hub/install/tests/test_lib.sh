@@ -44,4 +44,53 @@ assert_has  "5.6.51: has SET PASSWORD"              "$out56" 'SET PASSWORD'
 assert_has  "8.0.39: has CREATE USER IF NOT EXISTS" "$out80" 'CREATE USER IF NOT EXISTS'
 assert_has  "8.0.39: has IDENTIFIED BY"             "$out80" 'IDENTIFIED BY'
 assert_has  "8.0.39: has ALTER USER"                "$out80" 'ALTER USER'
+# pg_lit_escape / mysql_lit_escape (Fix round 2): exact escaped SQL text for
+# a value carrying both a quote and a backslash. This is a fixed test value,
+# never a real secret -- the whole point of the assertion is that the exact
+# output is knowable and stable.
+raw_pw="a'b\\c"                    # 5 chars: a ' b \ c
+assert_eq "pg_lit_escape doubles the quote, leaves backslash alone" "$(pg_lit_escape "$raw_pw")" "a''b\\c"
+assert_eq "mysql_lit_escape backslash-escapes the backslash, then the quote" "$(mysql_lit_escape "$raw_pw")" "a\\'b\\\\c"
+
+# mask_env_secrets (Fix round 2): a literal substring replace, not a sed
+# pattern -- so a value containing sed/regex-special characters (here all of
+# / \ ' & at once) must still be found and replaced whole, not break the
+# mask or leak through it the way `sed "s/${SECRET}/.../g"` would. Built via
+# variable interpolation on both the export and the expected input/output so
+# the value is written out once, not re-escaped by hand in two places.
+secret_val="a/b\\c'd&e"
+export TESTVAR_MASK_SECRET="$secret_val"
+got="$(printf '%s' "prefix ${secret_val} suffix" | mask_env_secrets TESTVAR_MASK_SECRET)"
+assert_eq "mask_env_secrets replaces a value containing / \\ ' & intact" "$got" "prefix <hidden> suffix"
+unset TESTVAR_MASK_SECRET
+
+# Regression (Fix round 2, code review): `for t in $(gen); do` only checks
+# the exit status of the SUBSHELL command substitution forks to run gen --
+# word-splitting a $(...) into a for-list is not a context `set -e` inspects
+# -- so a fail() partway through gen is swallowed: the loop still runs on
+# whatever gen printed before it died, and the caller reaches code after the
+# loop with exit 0. Capturing gen's output into a variable FIRST turns that
+# into a plain assignment, whose exit status IS what `set -e` checks; this is
+# the exact shape hub/install/tasks/050-base-db.sh and
+# hub/install/tests/test_base_db.sh now use everywhere a fail()-capable
+# generator (subsystem_tables) feeds a for-list. Both shapes are run inside
+# their own `( set -e; ... )` subshell here so their exit -- or lack of it --
+# never ends this test script.
+fake_gen(){ printf 'one\ntwo\n'; fail 'boom'; }
+
+swallow_out="$( ( set -e
+  for t in $(fake_gen 2>/dev/null); do :; done
+  echo REACHED_END
+) 2>/dev/null )"
+assert_eq "swallowing shape (for t in \$(gen)) still reaches past the mid-generator fail" "$swallow_out" "REACHED_END"
+
+capture_out="$( ( set -e
+  tables="$(fake_gen 2>/dev/null)"
+  for t in $tables; do :; done
+  echo REACHED_END
+) 2>/dev/null )"
+capture_rc=$?
+assert_eq "capture-then-loop shape (this task's pattern) exits non-zero" "$capture_rc" "1"
+assert_eq "capture-then-loop shape never reaches the marker after the fail" "$capture_out" ""
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

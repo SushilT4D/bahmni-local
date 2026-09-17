@@ -81,6 +81,50 @@ hub_base_container(){
 # break the quoting of whatever file it lands in.
 jaas_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
+# pg_lit_escape STR : doubles every single quote, for safe embedding inside a
+# single-quoted Postgres string literal ('...'). Postgres string literals do
+# not treat backslash specially (standard_conforming_strings, the default
+# since 9.1), so nothing else needs escaping -- an operator-typed
+# ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD containing a "'" would otherwise
+# break out of the ALTER ROLE ... PASSWORD '...' literal it lands in
+# (Fix round 2).
+pg_lit_escape(){ printf '%s' "$1" | sed "s/'/''/g"; }
+
+# mysql_lit_escape STR : backslash-escapes a value for safe embedding inside a
+# single-quoted MySQL string literal ('...'). Unlike Postgres, MySQL string
+# literals DO treat backslash as an escape character, so it needs the same
+# two-pass order as jaas_escape above -- backslashes first, then quotes -- so
+# a literal backslash already in the input is never re-escaped by the quote
+# pass. An operator-typed REMOTE_MYSQL_PASSWORD/DEBEZIUM_DB_PASSWORD
+# containing a "'" or "\" would otherwise break the IDENTIFIED BY '...'
+# clause mysql_user_sql builds below (Fix round 2).
+mysql_lit_escape(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"; }
+
+# mask_env_secrets NAME... : reads stdin, replaces the CURRENT value of each
+# named environment variable with <hidden> -- a literal substring replace
+# (Python's str.replace, not a sed regex), so a password containing any
+# sed/regex-special character (., *, [, ], ^, $, \, or the delimiter itself,
+# "/") can never break the mask or leak past it the way
+# `sed "s/${SECRET}/<hidden>/g"` did (Fix round 2, code review: that pattern
+# breaks -- or silently mis-substitutes -- the moment a secret contains a "/"
+# or a regex metacharacter). Only variable NAMES are ever passed as
+# arguments (never secret values); mask_env_secrets reads the actual values
+# from its own inherited environment, so a secret never touches this
+# process's own argv either. A name that is unset or empty is skipped, not
+# replaced -- Python's str.replace(data, "", "<hidden>") would otherwise
+# insert "<hidden>" between every character.
+mask_env_secrets(){
+  python3 -c '
+import os, sys
+data = sys.stdin.read()
+for name in sys.argv[1:]:
+    val = os.environ.get(name, "")
+    if val:
+        data = data.replace(val, "<hidden>")
+sys.stdout.write(data)
+' "$@"
+}
+
 # write_jaas OUT ADMIN_PW FLEET_PW : the broker's SASL/PLAIN users. Generated from
 # hub/.env at install time -- cloud/kafka_server_jaas.conf was TRACKED with literal
 # passwords since the repo's first commit (public repo), hence F-071. Both
@@ -115,17 +159,21 @@ binlog_ok(){
 # none of the privileges the caller actually wants -- the caller issues those
 # itself, in its own GRANT (identical syntax on 5.x and 8.0 once IDENTIFIED BY
 # is out of it), once per privilege set, so this function never needs to know
-# what they are or vary by DB.
+# what they are or vary by DB. PASSWORD is escaped (mysql_lit_escape) before
+# it is interpolated into either IDENTIFIED BY literal, not used raw (Fix
+# round 2) -- interpolating it raw would let an operator-typed password
+# containing "'" break out of the literal it lands in.
 mysql_user_sql(){
-  local ver="$1" user="$2" pw="$3" db="$4"
+  local ver="$1" user="$2" db="$4" esc_pw
+  esc_pw="$(mysql_lit_escape "$3")"
   case "$ver" in
     5.*)
       printf "GRANT USAGE ON %s.* TO '%s'@'%%' IDENTIFIED BY '%s';\nSET PASSWORD FOR '%s'@'%%' = PASSWORD('%s');\n" \
-        "$db" "$user" "$pw" "$user" "$pw"
+        "$db" "$user" "$esc_pw" "$user" "$esc_pw"
       ;;
     *)
       printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\nALTER USER '%s'@'%%' IDENTIFIED BY '%s';\n" \
-        "$user" "$pw" "$user" "$pw"
+        "$user" "$esc_pw" "$user" "$esc_pw"
       ;;
   esac
 }
