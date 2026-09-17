@@ -73,6 +73,15 @@ hub_base_container(){
   esac
 }
 
+# write_jaas OUT ADMIN_PW FLEET_PW : the broker's SASL/PLAIN users. Generated from
+# hub/.env at install time -- cloud/kafka_server_jaas.conf was TRACKED with literal
+# passwords since the repo's first commit (public repo), hence F-071.
+write_jaas(){
+  local out="$1" adm="$2" fleet="$3"
+  ( umask 077; printf 'KafkaServer {\n    org.apache.kafka.common.security.plain.PlainLoginModule required\n    username="admin"\n    password="%s"\n    user_admin="%s"\n    user_mirrormaker="%s";\n};\n' "$adm" "$adm" "$fleet" > "$out" )
+  chmod 600 "$out"
+}
+
 # binlog_ok FORMAT IMAGE RETENTION_S SERVER_ID INCREMENT OFFSET CONNECTOR_ID : the
 # base MySQL is fit for a Debezium source and the hub's striding (residue 0).
 binlog_ok(){
