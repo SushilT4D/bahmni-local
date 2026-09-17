@@ -7,6 +7,15 @@
 
 set -e
 
+# Fleet image pin (sync/versions.env) for the ad-hoc docker/podman kafka-console-producer
+# fallback below (KAFKA_IMAGE). Anchored on this script's own location so it works
+# regardless of the caller's cwd.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSIONS="$HERE/../../sync/versions.env"
+[ -f "$VERSIONS" ] || { echo "send-to-remote-kafka.sh: cannot find sync/versions.env (looked at $VERSIONS)" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$VERSIONS"
+
 TABLE="${1:-person}"
 RECORD_ID="${2:-$(date +%s)}"
 OP="${3:-create}"  # create, update, or delete
@@ -283,14 +292,14 @@ if command -v kafka-console-producer &> /dev/null; then
         --producer-property sasl.mechanism=PLAIN \
         --producer-property "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"$REMOTE_USER\" password=\"$REMOTE_PASS\";"
 elif command -v docker &> /dev/null; then
-    echo "$MESSAGE" | docker run -i --rm confluentinc/cp-kafka:7.6.0 kafka-console-producer \
+    echo "$MESSAGE" | docker run -i --rm "${KAFKA_IMAGE}" kafka-console-producer \
         --bootstrap-server "$REMOTE_KAFKA" \
         --topic "$TOPIC" \
         --producer-property security.protocol=SASL_PLAINTEXT \
         --producer-property sasl.mechanism=PLAIN \
         --producer-property "sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"$REMOTE_USER\" password=\"$REMOTE_PASS\";"
 elif command -v podman &> /dev/null; then
-    echo "$MESSAGE" | podman run -i --rm docker.io/confluentinc/cp-kafka:7.6.0 kafka-console-producer \
+    echo "$MESSAGE" | podman run -i --rm "docker.io/${KAFKA_IMAGE}" kafka-console-producer \
         --bootstrap-server "$REMOTE_KAFKA" \
         --topic "$TOPIC" \
         --producer-property security.protocol=SASL_PLAINTEXT \

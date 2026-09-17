@@ -322,6 +322,19 @@ services:
       KAFKA_LOG_DIRS: '/var/lib/kafka/data'
     volumes:
       - "${CONTAINER_DATA_PATH}/data/kafka-controller:/var/lib/kafka/data"
+    # 8.3.2 (AK 4.3) image defect for a controller-only KRaft node (see
+    # sync/tests/kafka-8-notes.md): the image bakes ENV KAFKA_ADVERTISED_LISTENERS=""
+    # (present but empty, not unset). /etc/confluent/docker/configure explicitly
+    # refuses a non-empty KAFKA_ADVERTISED_LISTENERS on a controller-only node
+    # ("is not supported on a KRaft controller"), but its own envToProps template
+    # dump still emits the baked-in empty value as `advertised.listeners=` (present,
+    # empty) into kafka.properties -- and AK 4.3's StorageTool preflight now rejects
+    # that with "Configuration 'advertised.listeners' must not be empty" (7.6 did
+    # not). Neither setting nor leaving the compose env var alone avoids this; the
+    # var must be truly unset (not merely empty) before the entrypoint's template
+    # render, which compose's `environment:` cannot express. Verified by hand with
+    # `docker run --entrypoint /etc/confluent/docker/configure` against both states.
+    command: ["/bin/bash", "-c", "unset KAFKA_ADVERTISED_LISTENERS; exec /etc/confluent/docker/run"]
 
   kafka:
     profiles: [ "debezium" ]
@@ -378,7 +391,14 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       LOG4J_LOGGERS: "io.confluent.rest-utils.requests=WARN"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      # 8.3.2's confluentinc/cp-schema-registry image no longer ships curl or
+      # wget (7.6 did) -- a curl-based CMD healthcheck permanently failed with
+      # "exec: curl: executable file not found in $PATH" even though the app
+      # itself was up and answering on 8081 (verified: curl to the published
+      # port from the host returned 200 the whole time). bash + /dev/tcp is
+      # available in the image and needs no external binary. See
+      # sync/tests/kafka-8-notes.md.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -406,8 +426,6 @@ services:
       STATUS_STORAGE_REPLICATION_FACTOR: 1
       CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
       CONNECT_PLUGIN_PATH: /kafka/connect
       CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
