@@ -24,7 +24,12 @@ for name in "$@"; do
          --data-binary @- "$CONNECT_URL/connectors/${name}/config")
   code="${resp##*$'\n'}"
   echo "  ${name}: HTTP ${code}"
+  # The value group below must consume JSON escapes ([^"\\]|\\.)* rather than
+  # stop at the first bare quote ([^"]*) -- a password containing an escaped
+  # quote (\") would otherwise end the match early and leak everything after
+  # it, e.g. "connection.password": "SEC\"RET" -> "connection.password":
+  # "***"RET" with the naive pattern (F-073 review, round 1).
   [ "$code" -lt 300 ] || printf '%s\n' "${resp%$'\n'*}" \
-    | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")[^"]*(")/\1***\3/g' \
+    | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' \
     | sed 's/^/    /'
 done
