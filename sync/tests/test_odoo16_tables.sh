@@ -32,7 +32,15 @@ done
 
 grep -qE '^\s+odoodb:' "$REPO/clinic/docker-compose.override.yml" && bad "odoodb service still defined" || ok "no private odoodb"
 grep -q 'bahmni/odoo-10' "$REPO/clinic/docker-compose.override.yml" && bad "override still pins bahmni/odoo-10" || ok "no bahmni/odoo-10 in override"
-grep -qE '^\s+odoo:\s*$' "$REPO/clinic/docker-compose.override.yml" && bad "override still defines its own odoo: service (odoo-10 image/platform pin likely follows)" || ok "no odoo: override block -- base odoo-16 service runs unmodified"
+# The override's odoo: block is gone (image/HOST/volumes/depends_on all come from the
+# base compose now) EXCEPT one line: `platform: linux/amd64`. The probe (this Mac,
+# arm64) proved that line is still load-bearing -- `docker manifest inspect
+# bahmni/odoo-16:1.0.0` carries no arm64 manifest, so a pull with no pin fails
+# outright ("no matching manifest for linux/arm64/v8"), same disease the odoo-10
+# image had. So: no odoo-10 image/HOST override, but the platform pin stays.
+odoo_block="$(awk '/^  odoo:$/{flag=1;next}/^  [a-zA-Z_-]+:$/{flag=0}flag' "$REPO/clinic/docker-compose.override.yml")"
+echo "$odoo_block" | grep -qE 'image:|HOST:|volumes:|depends_on:' && bad "override's odoo: block still carries image/HOST/volumes/depends_on (should be platform-only)" || ok "override's odoo: block is platform-only -- image/HOST/volumes/depends_on come from the base compose"
+echo "$odoo_block" | grep -q 'platform: linux/amd64' && ok "odoo: platform: linux/amd64 kept (bahmni/odoo-16:1.0.0 has no arm64 manifest -- proven by the probe)" || bad "override's odoo: block is missing platform: linux/amd64"
 
 # The removal comment is allowed to NAME the retired flag for context (it explains
 # why 1.2.0 no longer needs it) -- what must actually be gone is the flag itself,

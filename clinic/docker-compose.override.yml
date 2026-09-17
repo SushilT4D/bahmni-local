@@ -253,11 +253,26 @@ services:
   # could never sync with it) is gone because staging (bhs-sandbox.bahmni.in,
   # read 2026-09-17) runs bahmni/odoo-16:1.0.0, not odoo-10 -- the premise
   # flipped. The base compose's own `odoo` service (image ${ODOO_IMAGE_NAME},
-  # HOST ${ODOO_DB_HOST} = bahmni-postgres) now runs unmodified, and the
+  # HOST ${ODOO_DB_HOST} = bahmni-postgres) now runs almost unmodified, and the
   # private `odoodb` service + its volume are deleted with it: Odoo 16 lives on
   # the shared bahmni-postgres like OpenELIS always has, with its own
   # publication/slot (dbz_odoo_owned) controlled independently there, same as
   # before -- just without a second Postgres instance to get it.
+  #
+  # ONE LINE SURVIVES: platform. PROVEN by the Task 4 probe on this MacBook
+  # (arm64) -- `docker manifest inspect bahmni/odoo-16:1.0.0` carries only an
+  # amd64 manifest (plus an "unknown/unknown" attestation entry, no arm64), so
+  # a pull with no platform pin fails outright: "no matching manifest for
+  # linux/arm64/v8". The base compose's own `odoo` service has never carried
+  # this pin -- harmless on the fleet's actual amd64 Linux VMs, fatal on this
+  # arm64 dev/lab Mac. This is the pre-existing odoo-10 override's own comment
+  # turning out to be literally true ("Same disease as bahmni/odoo-16 and
+  # mysql:5.6"): the odoo-10 image needed the pin for the same reason odoo-16
+  # does, and removing the whole block would have silently dropped the pin
+  # along with everything else that block did carry a real reason to drop.
+  odoo:
+    platform: linux/amd64
+
   odoo-connect:
     logging: *rotate
     # Silences the image's root-DEBUG logback, whose CONSOLE appender has no
