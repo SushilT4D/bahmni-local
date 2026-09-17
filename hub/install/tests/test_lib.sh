@@ -30,4 +30,18 @@ assert_eq "hub_base_container mysql" "$(hub_base_container mysql)" "cloud-openmr
 assert_eq "hub_base_container pg" "$(hub_base_container pg)" "cloud-openelisdb-1"
 ( hub_base_container bogus ) >/dev/null 2>&1; rc=$?
 assert_eq "hub_base_container rejects an unknown role" "$rc" "1"
+
+# mysql_user_sql VERSION USER PASSWORD DB -- pure text generation, no docker
+# needed. 5.6.51 stands in for the Azure hub's base image, 8.0.39 for every
+# other target (sync/versions.env's MYSQL_IMAGE).
+assert_has(){ if printf '%s' "$2" | grep -qF "$3"; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: %q does not contain %q\n' "$1" "$2" "$3"; fails=$((fails+1)); fi; }
+assert_lacks(){ if printf '%s' "$2" | grep -qF "$3"; then printf '  FAIL %s: %q unexpectedly contains %q\n' "$1" "$2" "$3"; fails=$((fails+1)); else printf '  ok   %s\n' "$1"; fi; }
+out56="$(mysql_user_sql 5.6.51 sink 's3kret' openmrs)"
+out80="$(mysql_user_sql 8.0.39 sink 's3kret' openmrs)"
+assert_lacks "5.6.51: no CREATE USER IF NOT EXISTS" "$out56" 'CREATE USER IF NOT EXISTS'
+assert_has  "5.6.51: has IDENTIFIED BY"             "$out56" 'IDENTIFIED BY'
+assert_has  "5.6.51: has SET PASSWORD"              "$out56" 'SET PASSWORD'
+assert_has  "8.0.39: has CREATE USER IF NOT EXISTS" "$out80" 'CREATE USER IF NOT EXISTS'
+assert_has  "8.0.39: has IDENTIFIED BY"             "$out80" 'IDENTIFIED BY'
+assert_has  "8.0.39: has ALTER USER"                "$out80" 'ALTER USER'
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

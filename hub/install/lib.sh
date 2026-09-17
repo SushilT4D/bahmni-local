@@ -104,3 +104,28 @@ binlog_ok(){
   [ "$off" = 10 ] || bad="$bad auto_increment_offset=$off(the hub is residue 0)"
   [ -z "$bad" ] && return 0; printf '%s\n' "$bad"; return 1
 }
+
+# mysql_user_sql VERSION USER PASSWORD DB : SQL text (on stdout) that creates
+# the MySQL account named USER if it does not already exist, and converges
+# its password to PASSWORD either way -- version-branched because MySQL 8.0
+# removed `GRANT ... IDENTIFIED BY`, which is 5.x's idiom (still needed for the
+# Azure hub's MySQL 5.6 base image) for creating an account with a password in
+# one statement. DB scopes the placeholder grant 5.x needs to create an
+# account at all; USAGE is MySQL's "no real privilege" grant, so this carries
+# none of the privileges the caller actually wants -- the caller issues those
+# itself, in its own GRANT (identical syntax on 5.x and 8.0 once IDENTIFIED BY
+# is out of it), once per privilege set, so this function never needs to know
+# what they are or vary by DB.
+mysql_user_sql(){
+  local ver="$1" user="$2" pw="$3" db="$4"
+  case "$ver" in
+    5.*)
+      printf "GRANT USAGE ON %s.* TO '%s'@'%%' IDENTIFIED BY '%s';\nSET PASSWORD FOR '%s'@'%%' = PASSWORD('%s');\n" \
+        "$db" "$user" "$pw" "$user" "$pw"
+      ;;
+    *)
+      printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\nALTER USER '%s'@'%%' IDENTIFIED BY '%s';\n" \
+        "$user" "$pw" "$user" "$pw"
+      ;;
+  esac
+}
