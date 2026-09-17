@@ -15,8 +15,13 @@ til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIS
 bash scripts/generate-connectors.sh >/dev/null
 bash scripts/register-source-connector.sh >/dev/null
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
-bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres clinlims-source-connector >/dev/null
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all clinlims-clinic-sink-all >/dev/null
+# after register-odoo.sh, not before: the heartbeat script patches the two PG
+# source connectors' configs (GET then PUT), so they must exist, and it takes
+# BOTH source names (first live clinic, manpur: it was called with one name
+# and one line too early -- "$5: unbound variable"). Its DB half (heartbeat
+# table + publication membership) is idempotent; the seed already carries both.
+bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/generate-local-sink-connectors.sh >/dev/null
 bash scripts/register-local-sink-connectors.sh >/dev/null
 sleep 30
