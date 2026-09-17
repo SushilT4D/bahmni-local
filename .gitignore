@@ -106,3 +106,6 @@ clinic-*.env
 secrets.env
 # the installer's podman->docker shim (lib.sh mk_podman_shim); a per-node artifact, never config
 clinic/install/.bin/
+# rendered per-clinic clinlims up-sinks (install-clinic.sh join copies the tracked
+# clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
+cloud/connectors/clinlims-*.json
