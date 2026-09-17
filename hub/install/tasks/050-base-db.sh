@@ -21,7 +21,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "50 · base database prerequisites"
-[ "${DRY}" = 1 ] && { info "would: create/converge the mysql sink+debezium users and the postgres odoo_sink/clinlims_sink roles from hub/.env, prove each over the container network; derive dbz_odoo_owned/dbz_clinlims_owned from sync/subsystems.conf and converge the publications; apply clinic/odoo/apply-slot-heartbeat.sql to both databases; assert odoo+clinlims sequence striding (increment 10, residue 0); confirm no hub_% replication origin exists"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: create/converge the mysql sink+debezium users and the postgres odoo_sink/clinlims_sink roles from hub/.env (postgres roles also granted schema/table/sequence/default privileges), prove each over the container network; derive dbz_odoo_owned/dbz_clinlims_owned from sync/subsystems.conf and converge the publications; read back each sink role's privileges with has_schema_privilege/has_table_privilege; apply clinic/odoo/apply-slot-heartbeat.sql to both databases; assert odoo+clinlims sequence striding (increment 10, residue 0); confirm no hub_% replication origin exists"; exit 0; }
 setup_compose
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
 # shellcheck disable=SC1091
@@ -52,6 +52,10 @@ ver="$(printf 'select version()' | mysql_root | head -1)"
 [ -n "$ver" ] || fail "could not read MySQL version from ${MY}"
 ok "base mysql version ${ver}"
 
+# Both MySQL accounts are host-unscoped (@'%'), not pinned to the hub's own
+# address: the same convention clinic/install/tasks/050-databases.sh already
+# uses for 'debezium'@'%'/'sink'@'%', carried forward rather than tightened
+# here.
 {
   mysql_user_sql "$ver" "$REMOTE_MYSQL_USER" "$REMOTE_MYSQL_PASSWORD" "$REMOTE_MYSQL_DATABASE"
   printf "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, REFERENCES, INDEX, ALTER ON %s.* TO '%s'@'%%';\n" "$REMOTE_MYSQL_DATABASE" "$REMOTE_MYSQL_USER"
@@ -92,14 +96,30 @@ pg_admin_pw(){
   ct exec -i "$PG" psql -U "$BASE_PG_SUPERUSER" -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 \
     | sed "s/${ODOO_SINK_PASSWORD}/<hidden>/g; s/${CLINLIMS_SINK_PASSWORD}/<hidden>/g"
 }
-create_pg_sink_role(){ # ROLE PASSWORD DB
-  local role="$1" pw="$2" db="$3"
-  printf "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s LOGIN; END IF; END \$\$;\nALTER ROLE %s WITH LOGIN PASSWORD '%s';\n" \
-    "$role" "$role" "$role" "$pw" | pg_admin_pw "$db" >/dev/null
-  ok "postgres role ${role} present, password converged"
+# create_pg_sink_role ROLE PASSWORD DB SCHEMA : role create-when-absent +
+# password convergence, then the same schema/table/sequence/default-privilege
+# grants hub/odoo/create-odoo-sink-role.sh and
+# clinic/openelis/create-clinlims-sink-role.sh already give this exact role
+# (lines 67-71 and 74-78 respectively) -- the fleet's one convention for a
+# sink role, not a hub-specific invention. ALL TABLES/ALL SEQUENCES cover
+# what exists today; ALTER DEFAULT PRIVILEGES covers a table added to the
+# schema later, so a subsystems.conf addition does not also need a grants
+# re-run here. All four GRANTs are idempotent (re-granting an already-held
+# privilege is a no-op), so a rerun converges, never errors.
+create_pg_sink_role(){
+  local role="$1" pw="$2" db="$3" schema="$4"
+  pg_admin_pw "$db" <<SQL >/dev/null
+DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN CREATE ROLE ${role} LOGIN; END IF; END \$\$;
+ALTER ROLE ${role} WITH LOGIN PASSWORD '${pw}';
+GRANT USAGE ON SCHEMA ${schema} TO ${role};
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role};
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${role};
+ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role};
+SQL
+  ok "postgres role ${role} present, password converged, granted on schema ${schema}"
 }
-create_pg_sink_role odoo_sink "$ODOO_SINK_PASSWORD" odoo
-create_pg_sink_role clinlims_sink "$CLINLIMS_SINK_PASSWORD" openelis
+create_pg_sink_role odoo_sink "$ODOO_SINK_PASSWORD" odoo public
+create_pg_sink_role clinlims_sink "$CLINLIMS_SINK_PASSWORD" openelis clinlims
 
 # pg_login_ok HOST DB USER PASSWORD : same proof as mysql_login_ok, over psql.
 pg_login_ok(){
@@ -116,14 +136,13 @@ pg_login_ok "$pg_ip" openelis clinlims_sink "$CLINLIMS_SINK_PASSWORD" \
   || fail "postgres clinlims_sink@${pg_ip}/openelis did not authenticate"
 
 # --- Publications: derived from sync/subsystems.conf, not hand-copied ------
-SUBSYSTEMS="${REPO_DIR}/sync/subsystems.conf"
-[ -f "$SUBSYSTEMS" ] || fail "sync/subsystems.conf not found at ${SUBSYSTEMS}"
-# subsystem_tables PREFIX : the <prefix>:<table> rows, :all (a topic, not a
-# table) excluded -- same filter clinic/install/tasks/050-databases.sh and
-# 060-striding.sh apply to the same file, so there is exactly one place that
-# says which tables are synced.
-subsystem_tables(){ grep -E "^$1:" "$SUBSYSTEMS" | grep -v ':all$' | cut -d: -f2; }
-
+# subsystem_tables (clinic/install/lib.sh, sourced transitively) is the one
+# parser for sync/subsystems.conf's <prefix>:<table> rows -- trims each row,
+# strips a trailing comment, skips :all (a topic, not a table), and fails
+# naming the row if what is left is not a bare lowercase identifier. This
+# task supplies the other half: whether a syntactically-good name actually
+# exists as a table in the database today (to_regclass), which is knowledge
+# the shared parser has no business having.
 EXISTING_ODOO_TABLES=""; EXISTING_CLINLIMS_TABLES=""
 # build_publication DB PREFIX SCHEMA PUBNAME : the publication's FOR TABLE
 # list is the configured tables that actually exist in DB today
@@ -156,6 +175,32 @@ build_publication(){
 }
 build_publication odoo odoo public dbz_odoo_owned
 build_publication openelis clinlims clinlims dbz_clinlims_owned
+
+# --- Privilege read-back: a positive assertion, not a silent GRANT (AL-008) -
+# The GRANT statements in create_pg_sink_role succeed even against a role
+# that ends up with no matching privilege (a schema typo, the wrong
+# search_path) -- GRANT itself never fails that way. Ask Postgres directly,
+# per table that actually exists (EXISTING_ODOO_TABLES/EXISTING_CLINLIMS_TABLES,
+# the same filtered lists build_publication just computed), and fail naming
+# the first table found lacking a privilege rather than the whole set.
+check_sink_privileges(){ # ROLE DB SCHEMA TABLES...
+  local role="$1" db="$2" schema="$3"; shift 3
+  local t schema_ok priv_ok checked="" bad=""
+  schema_ok="$(printf "select has_schema_privilege('%s', '%s', 'USAGE')" "$role" "$schema" | pg_admin "$db" -At)"
+  [ "$schema_ok" = t ] || fail "${role} lacks USAGE on schema ${schema}"
+  for t in "$@"; do
+    priv_ok="$(printf "select has_table_privilege('%s', '%s.%s', 'SELECT,INSERT,UPDATE,DELETE')" "$role" "$schema" "$t" | pg_admin "$db" -At)"
+    if [ "$priv_ok" = t ]; then
+      checked="${checked}${checked:+,}${t}"
+    else
+      bad="$t"; break
+    fi
+  done
+  [ -z "$bad" ] || fail "${role} lacks SELECT/INSERT/UPDATE/DELETE on ${schema}.${bad}"
+  ok "${role} may SELECT/INSERT/UPDATE/DELETE: ${checked}"
+}
+check_sink_privileges odoo_sink odoo public $EXISTING_ODOO_TABLES
+check_sink_privileges clinlims_sink openelis clinlims $EXISTING_CLINLIMS_TABLES
 
 # --- Heartbeat: idle-slot WAL confirmation, both databases -----------------
 # clinic/odoo/apply-slot-heartbeat.sql stays where it is (shared with the

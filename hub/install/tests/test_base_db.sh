@@ -58,9 +58,23 @@ docker run -d --name "$PG_C" --network "$NET" -e POSTGRES_PASSWORD=throwaway \
   "$PG_IMAGE" -c wal_level=logical >/dev/null \
   && ok "postgres container ${PG_C} (${PG_IMAGE}) started" || { bad "postgres container failed to start"; exit 1; }
 
+# The official postgres image has the SAME two-phase startup as mysql's: a
+# temporary server (on the Unix socket only) runs the entrypoint's own setup
+# (password, encoding), gets stopped, then the real, long-running one starts
+# -- reproduced live: pg_isready succeeded once, and the very next `psql`
+# (the seed script below) got "connection ... failed: No such file or
+# directory" because the temp instance had just gone down for the handoff.
+# "PostgreSQL init process complete; ready for start up." is logged exactly
+# once, right at that handoff, so wait for it before trusting pg_isready.
+ready=0
+for i in $(seq 1 60); do
+  docker logs "$PG_C" 2>&1 | grep -q "PostgreSQL init process complete" && { ready=1; break; }
+  sleep 2
+done
+[ "$ready" = 1 ] || { bad "postgres never logged the temp-to-real handoff (init process complete)"; exit 1; }
 ready=0
 for i in $(seq 1 30); do docker exec "$PG_C" pg_isready -U postgres >/dev/null 2>&1 && { ready=1; break; }; sleep 2; done
-[ "$ready" = 1 ] && ok "postgres answers pg_isready" || { bad "postgres never answered pg_isready"; exit 1; }
+[ "$ready" = 1 ] && ok "postgres real server answers pg_isready (past the init-server handoff)" || { bad "postgres never answered pg_isready after the handoff"; exit 1; }
 
 # Seed: roles odoo/clinlims (LOGIN REPLICATION, matching the real base
 # stack's own application roles) and the two databases. A FEW conf tables in
@@ -115,25 +129,22 @@ docker run -d --name "$MY_C" --network "$NET" -e MYSQL_ROOT_PASSWORD=throwaway \
   "$MY_IMAGE" >/dev/null \
   && ok "mysql container ${MY_C} (${MY_IMAGE}) started" || { bad "mysql container failed to start"; exit 1; }
 
-
-# The official mysql image runs a TEMPORARY, socket-only server to execute
-# its own init scripts, shuts it down, then execs the real one -- a single
-# successful ping can land in that temporary instance's window, moments
-# before it goes down for the handoff (reproduced live: ping succeeded,
-# then the very next query attempt got "Can't connect ... through socket",
-# then the one after that succeeded for good). Debounce: only trust it after
-# two CONSECUTIVE successful pings, which reliably lands after the handoff.
-ready=0; consec=0
+# The official mysql image runs a TEMPORARY, socket-only server (logged
+# "ready for connections ... port: 0") to execute its own init scripts, shuts
+# it down, then execs the real, network-enabled one ("port: 3306"). A single
+# successful `mysqladmin ping` -- even two CONSECUTIVE ones a couple of
+# seconds apart -- can still land entirely inside the temporary instance's
+# window if it stays up that long (reproduced live both ways: a lone ping
+# succeeding right before the handoff, and two in a row both hitting the
+# temp instance before it went down). The unambiguous signal is the log
+# line itself: wait for "ready for connections" together with "port: 3306",
+# which only the final server ever prints.
+ready=0
 for i in $(seq 1 60); do
-  if docker exec "$MY_C" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin -uroot ping' >/dev/null 2>&1; then
-    consec=$((consec+1))
-    [ "$consec" -ge 2 ] && { ready=1; break; }
-  else
-    consec=0
-  fi
+  docker logs "$MY_C" 2>&1 | grep -q 'ready for connections.*port: 3306' && { ready=1; break; }
   sleep 2
 done
-[ "$ready" = 1 ] && ok "mysql answers mysqladmin ping (debounced past the init-server handoff)" || { bad "mysql never answered ping"; exit 1; }
+[ "$ready" = 1 ] && ok "mysql real server ready for connections on port 3306 (past the init-server handoff)" || { bad "mysql never logged the final server's ready-for-connections line"; exit 1; }
 
 # --- hub/.env for the task under test ---------------------------------------
 REMOTE_MYSQL_PW="$(gen_secret)"; DEBEZIUM_PW="$(gen_secret)"; ODOO_SINK_PW="$(gen_secret)"; CLINLIMS_SINK_PW="$(gen_secret)"
@@ -174,10 +185,20 @@ assert_line "sequence striding read-back printed"                               
 assert_line "no replication origins on the hub"                                   "origins: none (hub relays)"
 assert_line "task reaches its final summary line"                                 "base databases carry the sync identities, publications, heartbeats; striding at residue 0"
 
-# The odoo:/clinlims: tables NOT seeded (9 of odoo's 12, none of clinlims's 4)
-# must be WARNed as skipped, never silently dropped or hard-failed.
+# The odoo: tables NOT seeded (everything configured minus the 3 seeded here)
+# must be WARNed as skipped, never silently dropped or hard-failed. Derived
+# from subsystem_tables' live count, not a hardcoded 9 -- sync/subsystems.conf
+# is another session's in-flight work (never edited by this task) and its
+# odoo: row count has already moved once during this fix round. subsystem_tables
+# itself comes from clinic/install/lib.sh (sourced transitively via
+# hub/install/lib.sh above), the same parser 050-base-db.sh now calls, so this
+# count can never drift from what the task under test actually iterates over.
+total_odoo="$(subsystem_tables odoo | wc -l | tr -d ' ')"
+expected_warns=$((total_odoo - 3))
 warn_count="$(printf '%s\n' "$out1" | grep -c 'WARN.*does not exist in odoo')"
-[ "${warn_count:-0}" = 9 ] && ok "9 unseeded odoo tables warned as skipped, not failed" || bad "expected 9 'does not exist in odoo' warnings, got ${warn_count:-0}"
+[ "${warn_count:-0}" = "$expected_warns" ] \
+  && ok "${expected_warns} unseeded odoo tables (of ${total_odoo} configured, 3 seeded) warned as skipped, not failed" \
+  || bad "expected ${expected_warns} 'does not exist in odoo' warnings (of ${total_odoo} configured), got ${warn_count:-0}"
 
 # Independent check (not just trusting the task's own claim): the MySQL
 # accounts exist with the grants this task asked for.
@@ -186,6 +207,67 @@ grants_sink="$(printf "SHOW GRANTS FOR 'sink'@'%%'" | test_mysql_root)"
 grants_dbz="$(printf "SHOW GRANTS FOR 'debezium'@'%%'" | test_mysql_root)"
 case "$grants_sink" in *REFERENCES*ALTER*|*ALTER*REFERENCES*) ok "mysql sink grants include CREATE/REFERENCES/INDEX/ALTER" ;; *) bad "mysql sink grants missing expected privileges: ${grants_sink}" ;; esac
 case "$grants_dbz" in *"REPLICATION SLAVE"*"REPLICATION CLIENT"*) ok "mysql debezium grants include REPLICATION SLAVE/CLIENT" ;; *) bad "mysql debezium grants missing expected privileges: ${grants_dbz}" ;; esac
+
+# 050's own privilege read-back (AL-008): the ok line must name every seeded
+# table -- order is whatever sync/subsystems.conf lists them in, not
+# alphabetical, so check comma-delimited membership (a plain grep for e.g.
+# "sample" would also match inside "sample_item") with a case pattern rather
+# than lean on a word-boundary regex extension that varies by grep flavor.
+has_csv(){ case ",$1," in *",$2,"*) return 0 ;; *) return 1 ;; esac; } # HAYSTACK NEEDLE
+priv_line_odoo="$(printf '%s\n' "$out1" | grep 'odoo_sink may SELECT/INSERT/UPDATE/DELETE:')"
+csv_odoo="${priv_line_odoo#*DELETE: }"
+if [ -n "$priv_line_odoo" ] \
+  && has_csv "$csv_odoo" res_partner \
+  && has_csv "$csv_odoo" product_template \
+  && has_csv "$csv_odoo" sale_order; then
+  ok "odoo_sink privilege read-back names all 3 seeded tables"
+else
+  bad "odoo_sink privilege read-back missing or incomplete: ${priv_line_odoo}"
+fi
+priv_line_clinlims="$(printf '%s\n' "$out1" | grep 'clinlims_sink may SELECT/INSERT/UPDATE/DELETE:')"
+csv_clinlims="${priv_line_clinlims#*DELETE: }"
+if [ -n "$priv_line_clinlims" ] \
+  && has_csv "$csv_clinlims" sample \
+  && has_csv "$csv_clinlims" sample_item \
+  && has_csv "$csv_clinlims" analysis \
+  && has_csv "$csv_clinlims" result; then
+  ok "clinlims_sink privilege read-back names all 4 seeded tables"
+else
+  bad "clinlims_sink privilege read-back missing or incomplete: ${priv_line_clinlims}"
+fi
+
+# --- write-proof: prove it as the sink connector would, not just SELECT ----
+# has_table_privilege can be true and a write can still fail for reasons the
+# privilege check cannot see (search_path, a column-level default owned by
+# another role) -- so also actually write. A value that could not be there
+# otherwise (memory: presence-is-not-proof-of-sync), inserted then deleted
+# over the same network path the login-proof used, as the sink role itself,
+# never the superuser. The id is explicit on BOTH tables, res_partner
+# included, even though its id is `serial` -- an INSERT that omits id would
+# call nextval() on res_partner_id_seq and advance it from NULL to 1, which
+# is not a multiple of 10 and would fail the very next run's striding
+# assertion (caught live: it did, on the first draft of this test). Naming
+# id explicitly bypasses the default entirely, so the sequence this task
+# only ever asserts against is never touched by proving the grant.
+container_ip(){ docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$1" | awk '{print $1}'; }
+pg_write_ok(){ # HOST DB USER PASSWORD SQL
+  printf '%s\n' "$4" | docker exec -i -e PWHOST="$1" -e PWDB="$2" -e PWUSER="$3" -e PWSQL="$5" "$PG_C" sh -c \
+    'IFS= read -r pw && PGPASSWORD="$pw" psql -h "$PWHOST" -U "$PWUSER" -d "$PWDB" -v ON_ERROR_STOP=1 -q -c "$PWSQL"' 2>&1
+}
+pg_ip="$(container_ip "$PG_C")"
+MARKER="sinkproof-$(gen_secret)"
+
+wout="$(pg_write_ok "$pg_ip" odoo odoo_sink "$ODOO_SINK_PW" \
+  "INSERT INTO res_partner (id, name) VALUES (999001, '${MARKER}'); DELETE FROM res_partner WHERE id = 999001;")"
+wrc=$?
+[ "$wrc" = 0 ] && ok "odoo_sink inserted and deleted a marker row in res_partner over the network" \
+  || bad "odoo_sink could not insert+delete a marker row in res_partner: ${wout}"
+
+wout="$(pg_write_ok "$pg_ip" openelis clinlims_sink "$CLINLIMS_SINK_PW" \
+  "INSERT INTO clinlims.sample (id, name) VALUES (999001, '${MARKER}'); DELETE FROM clinlims.sample WHERE id = 999001;")"
+wrc=$?
+[ "$wrc" = 0 ] && ok "clinlims_sink inserted and deleted a marker row in clinlims.sample over the network" \
+  || bad "clinlims_sink could not insert+delete a marker row in clinlims.sample: ${wout}"
 
 # --- idempotency: run again, expect the same read-back facts ---------------
 out2="$(bash "$TASK" 2>&1)"; rc2=$?
