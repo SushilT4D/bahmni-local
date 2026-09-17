@@ -121,6 +121,11 @@ out="$(subsystem_tables odoo 2>&1 1>/dev/null)"; rc=$?
 assert_rc "subsystem_tables fails on a name that is not a bare identifier" "$rc" "1"
 case "$out" in *"Bad-Name"*) named=yes ;; *) named=no ;; esac
 assert_eq "subsystem_tables names the offending row in its failure" "$named" "yes"
+# A file with NO trailing newline on its last line -- bash's `read` returns
+# non-zero there, which would otherwise drop that last row silently (code
+# review, round 2, 2026-09-17).
+printf 'odoo:a\nodoo:b' > "$SUBS"
+assert_eq "subsystem_tables reads an unterminated last line too" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "a b"
 printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
 
 exit "$fails"

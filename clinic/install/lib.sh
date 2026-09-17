@@ -130,7 +130,13 @@ gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(st
 subsystem_tables(){
   local subsystem="$1" conf="${REPO_DIR}/sync/subsystems.conf" line name
   [ -f "$conf" ] || fail "subsystem_tables: no such file: $conf"
-  while IFS= read -r line; do
+  # `|| [ -n "$line" ]` : bash's `read` returns non-zero on a final line with no
+  # trailing newline, which would otherwise drop that last row silently (code
+  # review, round 2, 2026-09-17) -- the exact L-008 gap this file exists to close,
+  # just moved one line down. sync/subsystems.conf ends in a newline today, so this
+  # was dormant, but a hand-edit that saves without one must not silently lose the
+  # last odoo:/clinlims: row.
+  while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in "${subsystem}:"*) ;; *) continue ;; esac
     name="${line#*:}"                                                    # drop "<subsystem>:"
     name="${name%%#*}"                                                   # drop a trailing comment
