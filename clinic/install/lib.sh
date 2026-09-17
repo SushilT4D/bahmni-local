@@ -43,10 +43,12 @@ _on_err(){
   printf '  FAILED rc=%s: %s\n         at %s\n' "$rc" "$cmd" "${chain:-${BASH_SOURCE[0]##*/}}" >&2
   trap _on_err ERR
 }
-# bash 3.2 also fires ERR for a guarded probe inside $(...), which would print a
-# misleading FAILED line on a Mac dry run; arm it on bash 4+ only (every Linux
-# clinic), 3.2 keeps the plain STOPPED.
-[ "${BASH_VERSINFO[0]}" -ge 4 ] && { set -E; trap _on_err ERR; }
+# Armed only where set -e is already on (every task and install.sh set it before
+# sourcing): the trap exists to name what -e kills, and the test suites run
+# failing commands unguarded on purpose. bash 3.2 also fires ERR for a guarded
+# probe inside $(...), which would print a misleading FAILED line on a Mac dry
+# run; arm it on bash 4+ only (every Linux clinic), 3.2 keeps the plain STOPPED.
+case "$-" in *e*) [ "${BASH_VERSINFO[0]}" -ge 4 ] && { set -E; trap _on_err ERR; } ;; esac
 
 # run CMD... : in dry mode prints the command instead of executing it. Wrap
 # anything with side effects in it; keep reads outside it so a dry run still
