@@ -37,7 +37,12 @@ if grep -q '^CLINLIMS_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
   echo "  CLINLIMS_SINK_PASSWORD already present in .env -- reusing, not regenerating"
   PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "$CLINLIMS_SINK_PASSWORD")"
 else
-  PW="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
+  # Bounded input on purpose: `tr </dev/urandom | head -c 32` never lets tr
+  # finish, so head's exit sends it SIGPIPE and under pipefail the assignment
+  # fails with 141 on Linux AND macOS -- every fresh node died here, before the
+  # append (first live clinic, manpur, 2026-09-17). 512 bytes give ~124 [A-Za-z0-9].
+  PW="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32)"
+  [ "${#PW}" -eq 32 ] || { echo "  password generation produced ${#PW} chars, not 32" >&2; exit 1; }
   printf 'CLINLIMS_SINK_PASSWORD=%s\n' "$PW" >> "$ENV_FILE"
   echo "  generated CLINLIMS_SINK_PASSWORD and appended to .env (gitignored)"
 fi
