@@ -25,9 +25,16 @@ running="$(ct inspect --format '{{.State.Running}}' "$BASE_PG_CONTAINER" 2>/dev/
 # 2. base MySQL: fit for a Debezium source at residue 0 (root password comes
 # from the container's own environment -- MYSQL_PWD is expanded by the sh
 # inside the container, never by us, so it never appears on a command line).
+# Every read below is guarded (2>/dev/null || true), same as the retention
+# read: under set -e a bare x="$(failing_cmd)" aborts right there with a
+# generic trap message and never reaches the ok/fail line below it -- a
+# rotated root password or a container that died between the running-check
+# above and here must still produce a clean, named fail, not a trap (F-068
+# class). binlog_ok already treats an empty value as unfit and reports it by
+# name, so a guarded-empty read here still ends in a clean fail line.
 mysql_setting(){ printf 'select @@%s' "$1" | ct exec -i "$BASE_MYSQL_CONTAINER" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N'; }
-mf="$(mysql_setting binlog_format)"
-mi="$(mysql_setting binlog_row_image)"
+mf="$(mysql_setting binlog_format 2>/dev/null || true)"
+mi="$(mysql_setting binlog_row_image 2>/dev/null || true)"
 mr="$(mysql_setting binlog_expire_logs_seconds 2>/dev/null || true)"
 if [ -z "$mr" ]; then
   # MySQL 5.6 (the Azure hub's base image) has no binlog_expire_logs_seconds;
@@ -35,25 +42,26 @@ if [ -z "$mr" ]; then
   med="$(mysql_setting expire_logs_days 2>/dev/null || true)"
   mr=$(( med * 86400 ))
 fi
-ms="$(mysql_setting server_id)"
-minc="$(mysql_setting auto_increment_increment)"
-moff="$(mysql_setting auto_increment_offset)"
+ms="$(mysql_setting server_id 2>/dev/null || true)"
+minc="$(mysql_setting auto_increment_increment 2>/dev/null || true)"
+moff="$(mysql_setting auto_increment_offset 2>/dev/null || true)"
 bad="$(binlog_ok "$mf" "$mi" "$mr" "$ms" "$minc" "$moff" "$CLOUD_DEBEZIUM_SERVER_ID")" \
   && ok "base mysql fit: binlog_format=${mf} binlog_row_image=${mi} retention=${mr}s server_id=${ms} auto_increment_increment/offset=${minc}/${moff}" \
   || fail "base mysql unfit:${bad}"
 
-# 3. base Postgres: logical replication headroom
+# 3. base Postgres: logical replication headroom (reads guarded, same reason as above)
 pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -Atc "show $1"; }
-pv="$(pg_setting wal_level)"
+pv="$(pg_setting wal_level 2>/dev/null || true)"
 [ "$pv" = logical ] && ok "pg wal_level=${pv}" || fail "pg wal_level=${pv} (want logical)"
-pv="$(pg_setting max_replication_slots)"
+pv="$(pg_setting max_replication_slots 2>/dev/null || true)"
 [ "$pv" -ge 4 ] && ok "pg max_replication_slots=${pv}" || fail "pg max_replication_slots=${pv} (want >=4)"
-pv="$(pg_setting max_wal_senders)"
+pv="$(pg_setting max_wal_senders 2>/dev/null || true)"
 [ "$pv" -ge 4 ] && ok "pg max_wal_senders=${pv}" || fail "pg max_wal_senders=${pv} (want >=4)"
 
 # 4. host room (Linux-first: this installer's rehearsal and production targets
 # are both Linux hubs; df -Pk is POSIX-portable, free -m is Linux-only)
-root_dir="$(ct info --format '{{.DockerRootDir}}')"
+root_dir="$(ct info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+[ -n "$root_dir" ] || fail "docker root dir unreadable (ct info --format '{{.DockerRootDir}}' returned nothing)"
 avail_gb="$(( $(df -Pk "$root_dir" | awk 'NR==2{print $4}') / 1048576 ))"
 [ "$avail_gb" -ge 60 ] && ok "disk free at ${root_dir}: ${avail_gb} GB" || fail "disk free at ${root_dir}: ${avail_gb} GB (want >=60 GB)"
 mem_mb="$(free -m | awk '/^Mem:/{print $7}')"
