@@ -396,9 +396,14 @@ services:
       # "exec: curl: executable file not found in $PATH" even though the app
       # itself was up and answering on 8081 (verified: curl to the published
       # port from the host returned 200 the whole time). bash + /dev/tcp is
-      # available in the image and needs no external binary. See
+      # available in the image and needs no external binary. A bare TCP
+      # connect is not enough -- a bound port is not a serving registry, and
+      # kafka-connect gates on this via depends_on: service_healthy -- so this
+      # sends a real HTTP/1.0 request over the /dev/tcp fd and asserts the
+      # status line contains " 200 ". Proven on both 8.3.2 and 7.6.0 (the
+      # image this same compose file still runs on the live node) -- see
       # sync/tests/kafka-8-notes.md.
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /subjects HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
       interval: 10s
       timeout: 5s
       retries: 5
