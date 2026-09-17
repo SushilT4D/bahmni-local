@@ -33,14 +33,17 @@ require_cmd(){ command -v "$1" >/dev/null 2>&1 || fail "missing command: $1${2:+
 # failures (if / && / || / while) never trip an ERR trap, so ok/fail lines and
 # probes stay quiet.
 _on_err(){
-  local rc=$? cmd="$BASH_COMMAND" i=1 n chain=''
+  local rc=$? ps="${PIPESTATUS[*]}" cmd="$BASH_COMMAND" i=1 n chain='' pipe=''
   trap - ERR   # bash 3.2 fires ERR on a false (( )) or [ ] inside the handler itself
+  # BASH_COMMAND names the LAST command of a failed pipeline, not the one that
+  # failed (manpur: "sed" was blamed for a grep with no match) -- show them all.
+  case "$ps" in *' '*) pipe=" (pipeline statuses: ${ps}; the first non-zero is the culprit)" ;; esac
   while [ "$i" -lt "${#BASH_SOURCE[@]}" ]; do
     n="${FUNCNAME[$i]}"; case "$n" in main|source) n='' ;; esac
     chain="${chain}${chain:+ <- }${BASH_SOURCE[$i]##*/}:${BASH_LINENO[$((i-1))]}${n:+ ($n)}"
     i=$((i+1))
   done
-  printf '  FAILED rc=%s: %s\n         at %s\n' "$rc" "$cmd" "${chain:-${BASH_SOURCE[0]##*/}}" >&2
+  printf '  FAILED rc=%s%s: %s\n         at %s\n' "$rc" "$pipe" "$cmd" "${chain:-${BASH_SOURCE[0]##*/}}" >&2
   trap _on_err ERR
 }
 # Armed only where set -e is already on (every task and install.sh set it before

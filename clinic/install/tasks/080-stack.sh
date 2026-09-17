@@ -24,12 +24,22 @@ case "$rc" in
 esac
 # the markers are only safe to park while odoo-connect is down (F-066)
 [ "$(ct inspect --format '{{.State.Running}}' "$OC" 2>/dev/null || printf false)" = false ] || fail "odoo-connect is running before its markers are parked (F-066 replay risk)"
-feed(){ ct exec "$OM" curl -s -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "http://localhost:8080/openmrs/ws/atomfeed/$1/recent"; }
+feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
+  local out
+  out="$(ct exec "$OM" curl -s -w '\n%{http_code}' -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "http://localhost:8080/openmrs/ws/atomfeed/$1/recent" 2>/dev/null || true)"
+  FEED_CODE="${out##*$'\n'}"; FEED_BODY="${out%$'\n'*}"
+}
 for f in patient drug lab; do
-  body="$(feed "$f")"
-  page="$(printf '%s' "$body" | grep -oE 'rel="via" href="[^"]+"' | grep -oE 'https?://[^"]+' | head -1 | sed 's#localhost:8080#openmrs:8080#')"
-  entry="$(printf '%s' "$body" | grep -oE '<id>tag:atomfeed.ict4h.org:[^<]+' | head -1 | sed 's/<id>//')"
-  if [ -z "$page" ] || [ -z "$entry" ]; then warn "feed $f has no entries yet; marker left unset"; continue; fi
+  # /session answering does not prove every module is up: give the atomfeed
+  # module up to 10 more minutes before calling the credentials wrong. A feed
+  # that never reads is a STOP, not a skip: an unparked marker is the F-066
+  # replay (first live clinic, manpur: a bare grep in the $(...) below aborted
+  # the task before the empty-feed guard could even run).
+  for i in $(seq 1 40); do feed "$f"; [ "${FEED_CODE:-}" = 200 ] && break; sleep 15; done
+  [ "${FEED_CODE:-}" = 200 ] || fail "feed $f answered HTTP ${FEED_CODE:-none} for OPENMRS_ATOMFEED_USER=${OPENMRS_ATOMFEED_USER}: wrong atomfeed credentials, or the atomfeed module never came up (${COMPOSE_CMD} logs openmrs). The markers must be parked before odoo-connect starts (F-066)."
+  page="$(printf '%s' "$FEED_BODY" | grep -oE 'rel="via" href="[^"]+"' | grep -oE 'https?://[^"]+' | head -1 | sed 's#localhost:8080#openmrs:8080#' || true)"
+  entry="$(printf '%s' "$FEED_BODY" | grep -oE '<id>tag:atomfeed.ict4h.org:[^<]+' | head -1 | sed 's/<id>//' || true)"
+  if [ -z "$page" ] || [ -z "$entry" ]; then warn "feed $f is empty (HTTP 200, no entries); marker left unset"; continue; fi
   printf "insert into markers (feed_uri, last_read_entry_id, feed_uri_for_last_read_entry) values ('http://openmrs:8080/openmrs/ws/atomfeed/%s/recent', '%s', '%s') on conflict (feed_uri) do update set last_read_entry_id=excluded.last_read_entry_id, feed_uri_for_last_read_entry=excluded.feed_uri_for_last_read_entry\n" "$f" "$entry" "$page" \
     | ct exec -i "$OD" sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d odoo -q' 2>/dev/null \
     || printf "insert into markers (feed_uri, last_read_entry_id, feed_uri_for_last_read_entry) select 'http://openmrs:8080/openmrs/ws/atomfeed/%s/recent', '%s', '%s' where not exists (select 1 from markers where feed_uri='http://openmrs:8080/openmrs/ws/atomfeed/%s/recent')\n" "$f" "$entry" "$page" "$f" | ct exec -i "$OD" sh -c 'psql -U "${POSTGRES_USER:-postgres}" -d odoo -q'
