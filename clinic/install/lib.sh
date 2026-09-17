@@ -209,6 +209,61 @@ wait_for_http(){ # URL SECONDS : 200 or 401 counts as answering
   done
   return 1
 }
+
+# wait_for_http_or_restart URL SECONDS CONTAINER : like wait_for_http, but a
+# container Docker has restarted meanwhile is a crash loop, not a slow boot:
+# return 2 at once with its last log lines instead of burning the timeout
+# (first live clinic, manpur: OpenMRS looped for 25 min behind "Running").
+wait_for_http_or_restart(){
+  local url="$1" secs="${2:-300}" c="$3" i code r0 r
+  r0="$(ct inspect --format '{{.RestartCount}}' "$c" 2>/dev/null || printf 0)"
+  for i in $(seq 1 $((secs/5))); do
+    code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null)"
+    case "$code" in 200|401) return 0 ;; esac
+    r="$(ct inspect --format '{{.RestartCount}}' "$c" 2>/dev/null || printf 0)"
+    if [ "${r:-0}" -gt "${r0:-0}" ]; then
+      warn "$c restarted $((r - r0)) time(s) while we waited: a crash loop, not a slow boot. Its last log lines:"
+      ct logs --tail 15 "$c" 2>&1 | sed 's/^/    /' >&2
+      return 2
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+# ensure_stopped CONTAINER : stop it and PROVE it stayed down. A stop that
+# raced the restart policy left odoo-connect looping on manpur while task 080
+# believed it was parked (F-066 replay risk). A container that does not exist
+# counts as stopped.
+ensure_stopped(){
+  local c="$1" i
+  for i in 1 2 3; do
+    ct stop "$c" >/dev/null 2>&1 || true
+    [ "$(ct inspect --format '{{.State.Running}}' "$c" 2>/dev/null || printf false)" = false ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# --- OpenMRS JVM options ----------------------------------------------------
+# infoiplitin/openmrs:iplit-1.0.0-662-4 ships Java 8u372, whose cgroup v2
+# metrics code throws a NullPointerException on an Azure Ubuntu 24.04 host the
+# moment Tomcat registers its MBeans; the container restart-loops behind a green
+# "Running" (first live clinic, manpur, 2026-09-17; reproduced on the hub with
+# jrunscript). -XX:-UseContainerSupport skips that code, after which the JVM
+# sizes its heap from host RAM -- so the heap is pinned explicitly (Rawach's
+# proven cap, F-050). Task 080 calls this before it starts the stack, so a node
+# whose .env predates the fix is repaired on resume, not by hand. An operator's
+# own -Xmx is respected; the flag is only ever added, never duplicated.
+OMRS_CONTAINER_FLAG='-XX:-UseContainerSupport'
+OMRS_HEAP_CAP='-Xms512m -Xmx2048m -XX:NewSize=128m -XX:MaxMetaspaceSize=512m'
+ensure_openmrs_jvm_opts(){ # ENV_FILE
+  local f="$1" server mem changed=''
+  server="$(env_get "$f" OMRS_JAVA_SERVER_OPTS)"; mem="$(env_get "$f" OMRS_JAVA_MEMORY_OPTS)"
+  case " $server " in *" ${OMRS_CONTAINER_FLAG} "*) ;; *) env_put "$f" OMRS_JAVA_SERVER_OPTS "${server:+$server }${OMRS_CONTAINER_FLAG}"; changed="${changed} ${OMRS_CONTAINER_FLAG}" ;; esac
+  case " $mem " in *" -Xmx"*) ;; *) env_put "$f" OMRS_JAVA_MEMORY_OPTS "${OMRS_HEAP_CAP}"; changed="${changed} heap=${OMRS_HEAP_CAP}" ;; esac
+  if [ -n "$changed" ]; then ok "openmrs JVM opts pinned in .env:${changed}"; else skip "openmrs JVM opts already pinned"; fi
+}
 # Three repo scripts call `podman` by name; on a Docker host they get a shim
 # that forwards to docker for the duration of the run.
 mk_podman_shim(){

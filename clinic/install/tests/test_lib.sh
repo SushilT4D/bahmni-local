@@ -39,6 +39,21 @@ env_put "$f" B 'x&y/z#w'
 env_put "$f" D 'plain'
 env_put "$f" E 'has space'
 assert_eq "env_put replaces" "$(env_get "$f" B)" 'x&y/z#w'
+
+# ensure_openmrs_jvm_opts: repairs a template-era .env, respects an operator's own flags, idempotent
+j="$TMP/jvm.env"
+printf 'A=1\nOMRS_JAVA_MEMORY_OPTS="-XX:NewSize=128m"\nOMRS_JAVA_SERVER_OPTS="-Dfile.encoding=UTF-8 -server -Djava.awt.headless=true"\n' > "$j"
+ensure_openmrs_jvm_opts "$j" >/dev/null
+assert_eq "jvm opts: flag appended once" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-Dfile.encoding=UTF-8 -server -Djava.awt.headless=true -XX:-UseContainerSupport'
+assert_eq "jvm opts: heap pinned when no -Xmx" "$(env_get "$j" OMRS_JAVA_MEMORY_OPTS)" "$OMRS_HEAP_CAP"
+before="$(cat "$j")"; ensure_openmrs_jvm_opts "$j" >/dev/null
+assert_eq "jvm opts: second call changes nothing" "$(cat "$j")" "$before"
+printf 'OMRS_JAVA_MEMORY_OPTS="-Xms1g -Xmx3g"\nOMRS_JAVA_SERVER_OPTS="-server -XX:-UseContainerSupport -Dx=1"\n' > "$j"
+ensure_openmrs_jvm_opts "$j" >/dev/null
+assert_eq "jvm opts: operator heap kept" "$(env_get "$j" OMRS_JAVA_MEMORY_OPTS)" '-Xms1g -Xmx3g'
+assert_eq "jvm opts: flag present mid-string not duplicated" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-server -XX:-UseContainerSupport -Dx=1'
+printf 'A=1\n' > "$j"; ensure_openmrs_jvm_opts "$j" >/dev/null
+assert_eq "jvm opts: absent keys created" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" '-XX:-UseContainerSupport'
 assert_eq "env_put appends" "$(env_get "$f" D)" "plain"
 assert_eq "env_put quotes a space" "$(grep -E '^E=' "$f")" 'E="has space"'
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"

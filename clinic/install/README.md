@@ -25,7 +25,11 @@ until the operator allocates one. Secrets are never in the repo: it is public.
 Tasks run in order and each ends with a check read back from the live system;
 a failing check stops the run and prints how to resume (`--from NNN`); a bare
 command that fails under `set -e` prints a `FAILED rc=N: <command as written>` line
-with its call chain (bash 4+), so a STOPPED never arrives without a culprit. Every
+with its call chain (bash 4+), so a STOPPED never arrives without a culprit. Task 080
+pins the OpenMRS JVM options in `.env` before it starts the stack (a node composed
+before that fix is repaired on resume), proves odoo-connect is parked before it sets
+the feed markers, and treats a container Docker restarted during the OpenMRS wait as
+a crash loop: it fails at once with the log lines instead of after 25 minutes. Every
 task is idempotent (it skips what is already done), but this is a FRESH-INSTALL
 tool: an existing `clinic/.env` is a refusal.
 
