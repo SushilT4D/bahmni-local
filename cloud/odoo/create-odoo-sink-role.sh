@@ -26,9 +26,13 @@ ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 # while every consumer sources .env and gets the clean one, so Debezium failed with
 # "password authentication failed for user odoo" against a role that had just been
 # created successfully. Source it the same way the consumers do.
-if grep -q '^ODOO_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+# Reuse only a NON-EMPTY value: the .env template ships CLINLIMS_SINK_PASSWORD=""
+# and a bare `grep ^KEY=` took that blank as a password -- PostgreSQL then cleared
+# the role's password (first live clinic, manpur, 2026-09-17).
+[ -f "$ENV_FILE" ] || { echo "  no .env at $ENV_FILE" >&2; exit 1; }
+PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "${ODOO_SINK_PASSWORD:-}")"
+if [ -n "$PW" ]; then
   echo "  ODOO_SINK_PASSWORD already present in .env -- reusing, not regenerating"
-  PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "$ODOO_SINK_PASSWORD")"
 else
   # Bounded input on purpose: `tr </dev/urandom | head -c 32` never lets tr
   # finish, so head's exit sends it SIGPIPE and under pipefail the assignment
@@ -36,8 +40,16 @@ else
   # append (first live clinic, manpur, 2026-09-17). 512 bytes give ~124 [A-Za-z0-9].
   PW="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32)"
   [ "${#PW}" -eq 32 ] || { echo "  password generation produced ${#PW} chars, not 32" >&2; exit 1; }
-  printf 'ODOO_SINK_PASSWORD=%s\n' "$PW" >> "$ENV_FILE"
-  echo "  generated ODOO_SINK_PASSWORD and appended to .env (gitignored)"
+  if grep -q '^ODOO_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    # key present but blank: replace the line in place -- a second line would leave
+    # first-match readers on the blank one; write through cat to keep the file's mode
+    tmp="$(mktemp)"; grep -v '^ODOO_SINK_PASSWORD=' "$ENV_FILE" > "$tmp" || true
+    printf 'ODOO_SINK_PASSWORD=%s\n' "$PW" >> "$tmp"; cat "$tmp" > "$ENV_FILE"; rm -f "$tmp"
+    echo "  ODOO_SINK_PASSWORD was blank in .env -- generated and set (gitignored)"
+  else
+    printf 'ODOO_SINK_PASSWORD=%s\n' "$PW" >> "$ENV_FILE"
+    echo "  generated ODOO_SINK_PASSWORD and appended to .env (gitignored)"
+  fi
 fi
 
 # umask so the DDL file is not world-readable even for the moment it exists

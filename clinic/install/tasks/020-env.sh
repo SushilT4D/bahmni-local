@@ -57,6 +57,9 @@ oe="$(gen_secret)"; put OPENELIS_DB_PASSWORD "$oe"; put CLINLIMS_SOURCE_PASSWORD
 put OPENELIS_DB_USERNAME clinlims; put OPENELIS_DB_USER clinlims
 dz="$(gen_secret)"; put LOCAL_DEBEZIUM_PASSWORD "$dz"; put DEBEZIUM_DB_PASSWORD "$dz"
 put LOCAL_MYSQL_PASSWORD "$(gen_secret)"
+# the sink-role scripts (task 050) reuse these; the template ships
+# CLINLIMS_SINK_PASSWORD="" and a blank would have cleared the role's password
+put ODOO_SINK_PASSWORD "$(gen_secret)"; put CLINLIMS_SINK_PASSWORD "$(gen_secret)"
 put SNOWSTORM_LITE_ADMIN_PASSWORD "$(gen_secret)"
 
 left="$(has_placeholders "$T" "MAIL_USER MAIL_PASSWORD" | tr '\n' ' ')"

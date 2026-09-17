@@ -21,6 +21,10 @@ ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
 CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
 TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
 MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
+# MYSQL_CONTAINER: the exact container name, skipping the lookup below. Compose
+# names containers <project>-<service>-1 (podman-compose: <project>_<service>_1);
+# the installer passes its own (first live clinic, manpur, 2026-09-17).
+MYSQL_CONTAINER="${MYSQL_CONTAINER:-}"
 
 DRY_RUN=false
 for arg in "$@"; do
@@ -59,7 +63,7 @@ resolve_container() {
     echo "${service}"
     return 0
   fi
-  name="$(podman ps --format '{{.Names}}' | grep -E "(^|/)${service}$|_${service}$|-${service}$" | head -1 || true)"
+  name="$(podman ps --format '{{.Names}}' | grep -E "(^|/)${service}$|[-_]${service}([-_][0-9]+)?$" | head -1 || true)"
   [[ -n "$name" ]] || return 1
   echo "$name"
 }
@@ -136,7 +140,7 @@ done < "${CLINICS_FILE}"
 [[ "${OFFSET}" -ge 1 && "${OFFSET}" -le "${INCREMENT}" ]] \
   || fail "offset ${OFFSET} must be between 1 and INCREMENT (${INCREMENT})"
 
-MYSQL_CONTAINER="$(resolve_container "${MYSQL_SERVICE}" || true)"
+[[ -n "${MYSQL_CONTAINER}" ]] || MYSQL_CONTAINER="$(resolve_container "${MYSQL_SERVICE}" || true)"
 [[ -n "${MYSQL_CONTAINER}" ]] || fail "MySQL container '${MYSQL_SERVICE}' is not running"
 
 printf '%s\n' "${C_BOLD}configure-pk-offsets${C_RESET}"

@@ -13,7 +13,7 @@ E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 
-CLINICS_FILE="${LEDGER}" MYSQL_SERVICE=bahmni-mysql bash scripts/configure-pk-offsets.sh >/dev/null
+CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" bash scripts/configure-pk-offsets.sh >/dev/null
 inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' | mysql_root | tr '\t' ' ')"
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 
