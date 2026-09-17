@@ -61,3 +61,14 @@ hub_compose_env(){
   put REMOTE_SERVER_NAME bahmni-cloud
   for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || [ "$k" = BASE_PG_PASSWORD ] || fail "hub .env is missing $k"; done
 }
+
+# hub_base_container ROLE : the base stack's container name for the given
+# role, read back from hub/.env (hub_compose_env's OUT) -- for hub scripts
+# that docker/podman exec into the base stack's MySQL or Postgres.
+hub_base_container(){
+  case "$1" in
+    mysql) env_get "${HUB_DIR}/.env" BASE_MYSQL_CONTAINER ;;
+    pg)    env_get "${HUB_DIR}/.env" BASE_PG_CONTAINER ;;
+    *) fail "hub_base_container: unknown role $1" ;;
+  esac
+}
