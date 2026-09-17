@@ -6,6 +6,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 assert_eq(){ if [ "$2" = "$3" ]; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: got %q want %q\n' "$1" "$2" "$3"; fails=$((fails+1)); fi; }
 mkdir -p "$TMP/clinic"; cp "${HERE}/../../.env.example" "$TMP/clinic/.env.example"
+mkdir -p "$TMP/sync"; cp "${HERE}/../../../sync/versions.env" "$TMP/sync/"
 env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker \
   CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h.test \
   REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.test:9092 REMOTE_KAFKA_USERNAME=mirrormaker REMOTE_KAFKA_PASSWORD='p&w' \
@@ -21,6 +22,10 @@ assert_eq "COMPOSE_PROJECT_NAME" "$(env_get "$E" COMPOSE_PROJECT_NAME)" "bahmni-
 assert_eq "LOCAL_CLUSTER_ALIAS" "$(env_get "$E" LOCAL_CLUSTER_ALIAS)" "azure"
 assert_eq "MYSQL_SERVER_NAME" "$(env_get "$E" MYSQL_SERVER_NAME)" "bahmni-azure"
 assert_eq "DEBEZIUM_SERVER_ID" "$(env_get "$E" DEBEZIUM_SERVER_ID)" "184057"
+assert_eq "KAFKA_IMAGE pinned" "$(env_get "$E" KAFKA_IMAGE)" "confluentinc/cp-kafka:8.3.2"
+assert_eq "DEBEZIUM_CONNECT_IMAGE pinned" "$(env_get "$E" DEBEZIUM_CONNECT_IMAGE)" "quay.io/debezium/connect:3.6.2.Final"
+assert_eq "OPENMRS_IMAGE_NAME pinned" "$(env_get "$E" OPENMRS_IMAGE_NAME)" "infoiplitin/openmrs:iplit-1.2.0-1200-03"
+assert_eq "ODOO_CONNECT_IMAGE_TAG pinned" "$(env_get "$E" ODOO_CONNECT_IMAGE_TAG)" "1.0.0"
 assert_eq "REMOTE_KAFKA_PASSWORD quoted" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$E")" 'REMOTE_KAFKA_PASSWORD="p&w"'
 assert_eq "OPENELIS_DB_PASSWORD == CLINLIMS_SOURCE_PASSWORD" "$(env_get "$E" OPENELIS_DB_PASSWORD)" "$(env_get "$E" CLINLIMS_SOURCE_PASSWORD)"
 assert_eq "DEBEZIUM_DB_PASSWORD == LOCAL_DEBEZIUM_PASSWORD" "$(env_get "$E" DEBEZIUM_DB_PASSWORD)" "$(env_get "$E" LOCAL_DEBEZIUM_PASSWORD)"

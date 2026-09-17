@@ -13,7 +13,7 @@ services:
 
   # --- KRaft migration (KIP-866): dedicated controller quorum ---
   kafka-controller:
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${KAFKA_IMAGE:?}
     hostname: kafka-controller
     container_name: kafka-controller
     logging: *rotate
@@ -30,7 +30,7 @@ services:
       - kafka-controller-data:/var/lib/kafka/data
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${KAFKA_IMAGE:?}
     hostname: kafka
     container_name: kafka
     logging: *rotate
@@ -85,7 +85,7 @@ services:
       start_period: 40s
 
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.6.0
+    image: ${SCHEMA_REGISTRY_IMAGE:?}
     hostname: schema-registry
     container_name: schema-registry
     logging: *rotate
@@ -107,7 +107,7 @@ services:
       retries: 5
 
   kafka-connect:
-    image: quay.io/debezium/connect:3.2.4.Final
+    image: ${DEBEZIUM_CONNECT_IMAGE:?}
     hostname: kafka-connect
     container_name: kafka-connect
     logging: *rotate

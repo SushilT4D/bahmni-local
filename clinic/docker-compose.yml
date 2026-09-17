@@ -188,7 +188,7 @@ services:
   # Database Containers                                     #
   # #########################################################
   bahmni-mysql:
-    image: mysql:8.0
+    image: ${MYSQL_IMAGE:?}
     restart: always
     profiles: ["emr","local", "metabase", "bahmni-mart"]
     command: --character-set-server=utf8 --collation-server=utf8_general_ci --sql-mode=NO_ENGINE_SUBSTITUTION
@@ -308,7 +308,7 @@ services:
   # and dual-written until the broker is flipped to pure KRaft.
   kafka-controller:
     profiles: [ "debezium" ]
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${KAFKA_IMAGE:?}
     hostname: kafka-controller
     container_name: kafka-controller
     environment:
@@ -325,7 +325,7 @@ services:
 
   kafka:
     profiles: [ "debezium" ]
-    image: confluentinc/cp-kafka:7.6.0
+    image: ${KAFKA_IMAGE:?}
     hostname: kafka
     container_name: kafka
     depends_on:
@@ -364,7 +364,7 @@ services:
 
   schema-registry:
     profiles: [ "debezium" ]
-    image: confluentinc/cp-schema-registry:7.6.0
+    image: ${SCHEMA_REGISTRY_IMAGE:?}
     hostname: schema-registry
     container_name: schema-registry
     depends_on:
@@ -385,7 +385,7 @@ services:
 
   kafka-connect:
     profiles: [ "debezium" ]
-    image: quay.io/debezium/connect:3.2.4.Final
+    image: ${DEBEZIUM_CONNECT_IMAGE:?}
     hostname: kafka-connect
     container_name: kafka-connect
     depends_on:
@@ -428,7 +428,7 @@ services:
 
   mirrormaker-connect:
     profiles: [ "debezium" ]
-    image: confluentinc/cp-kafka-connect:7.7.0
+    image: ${MM2_IMAGE:?}
     hostname: mirrormaker-connect
     container_name: mirrormaker-connect
     # depends_on:

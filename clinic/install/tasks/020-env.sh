@@ -34,7 +34,8 @@ put OPENMRS_MEM_LIMIT 6g
 put REMOTE_SERVER_NAME bahmni-cloud
 put MM2_REMOTE_ALIAS remote
 put ODOO_HOST odoo; put ODOO_PORT 8069
-put ODOO_IMAGE_TAG latest; put ODOO_DB_IMAGE_TAG demo-latest; put ODOO_CONNECT_IMAGE_TAG latest
+put ODOO_IMAGE_TAG latest; put ODOO_DB_IMAGE_TAG demo-latest
+versions_put "$T"   # every fleet pin from sync/versions.env (L-005: one place)
 put ODOO_ATOMFEED_USER admin
 put HEIGHT_CONCEPT_UUID 5090AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put WEIGHT_CONCEPT_UUID 5089AAAAAAAAAAAAAAAAAAAAAAAAAAAA

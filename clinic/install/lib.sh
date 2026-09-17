@@ -276,3 +276,18 @@ mk_podman_shim(){
   export PATH="${INSTALL_DIR}/.bin:${PATH}"
 }
 check_eq(){ if [ "$2" = "$3" ]; then ok "$1 = $2"; else fail "$1: got '$2', want '$3'"; fi; }
+
+# The fleet's one pin file (L-005: lockstep, cloud first -- change here,
+# nowhere else). REPO_DIR may itself be overridden by a test harness pointing
+# at a tmp checkout, so this is resolved relative to REPO_DIR, not a fixed path.
+VERSIONS_FILE="${VERSIONS_FILE:-${REPO_DIR:-$(cd "${INSTALL_DIR}/../.." && pwd)}/sync/versions.env}"
+# versions_put FILE : copy every KEY=value of sync/versions.env into FILE (env_put semantics)
+versions_put(){
+  local f="$1" line k v
+  [ -f "${VERSIONS_FILE}" ] || fail "version pins missing: ${VERSIONS_FILE}"
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    k="${line%%=*}"; v="${line#*=}"; v="${v%%#*}"; v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+$//')"
+    env_put "$f" "$k" "$v"
+  done < "${VERSIONS_FILE}"
+}

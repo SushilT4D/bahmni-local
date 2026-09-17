@@ -121,7 +121,7 @@ services:
     # Side-by-side: the 15 cluster stays untouched at data/postgresql for rollback; 16 was
     # restored from a 16-client pg_dump into data/postgresql16 and verified identical
     # (counts, publications + row filters, triggers, strided sequences, roles, extensions).
-    image: postgres:16
+    image: ${POSTGRES_IMAGE:?}
     # Seed dumps + task 050 connect as the `postgres` superuser (Rawach's PG16
     # dir was a restore that had it). The base inits POSTGRES_USER=${ODOO_DB_USER}
     # (=odoo), so a FRESH clinic has no `postgres` role -> task 050 fails "role

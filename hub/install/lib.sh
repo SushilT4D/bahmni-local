@@ -59,6 +59,7 @@ hub_compose_env(){
   put ODOO_DB_PASSWORD "$(env_get "$base" ODOO_DB_PASSWORD)"
   put CLINLIMS_SOURCE_PASSWORD "$(env_get "$base" OPENELIS_DB_PASSWORD)"
   put REMOTE_SERVER_NAME bahmni-cloud
+  versions_put "$out"   # every fleet pin from sync/versions.env (L-005: one place)
   for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || [ "$k" = BASE_PG_PASSWORD ] || fail "hub .env is missing $k"; done
 }
 
