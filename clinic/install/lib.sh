@@ -113,7 +113,13 @@ env_get(){ { grep -E "^$2=" "$1" || true; } | head -1 | cut -d= -f2- | sed -e 's
 gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
 # Kafka cluster id: 22 chars of url-safe base64 over 16 random bytes, what
 # kafka-storage random-uuid produces, without needing the image.
-kafka_cluster_id(){ python3 -c 'import uuid,base64; print(base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("="))'; }
+# Kafka's own Uuid.randomUuid() rejects ids whose base64 form starts with "-":
+# `kafka-storage format -t <id>` (the runbook form) parses it as a flag. The
+# Confluent image uses --cluster-id=<id>, which is why manpur booted with one.
+kafka_cluster_id(){ python3 -c 'import uuid,base64
+while True:
+    s = base64.urlsafe_b64encode(uuid.uuid4().bytes).decode().rstrip("=")
+    if not s.startswith("-"): print(s); break'; }
 
 # derive_identity SLUG RESIDUE : sets the nine identity variables (global
 # constraints in the plan). Slug: lowercase letters and digits, 2-16 chars,
