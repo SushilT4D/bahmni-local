@@ -59,14 +59,17 @@ END \$\$;
 ALTER ROLE odoo WITH PASSWORD '${ODOO_DB_PASSWORD}';
 ALTER ROLE clinlims WITH PASSWORD '${OPENELIS_DB_PASSWORD}';
 SQL
-grep -q '^ODOO_SINK_PASSWORD=' "$E"     || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}" >/dev/null
-grep -q '^CLINLIMS_SINK_PASSWORD=' "$E" || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}" >/dev/null
 for db in odoo openelis; do
   if [ "$(printf "select count(*) from pg_database where datname='$db'" | ct exec -i "$PG" psql -U postgres -At)" = 1 ]; then skip "database $db exists"; else
     printf 'CREATE DATABASE %s OWNER odoo\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     gunzip -c "${SEED_DIR}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
   fi
 done
+# sink roles AFTER the databases exist and are restored: they connect with
+# `psql -d odoo` / `-d openelis` and GRANT ON ALL TABLES, so the DBs and their
+# tables must exist first (first live clinic, manpur: they ran before createdb).
+grep -q '^ODOO_SINK_PASSWORD=' "$E"     || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}" >/dev/null
+grep -q '^CLINLIMS_SINK_PASSWORD=' "$E" || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}" >/dev/null
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 pubs="$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d openelis -At),$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
