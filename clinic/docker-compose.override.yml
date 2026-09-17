@@ -122,6 +122,16 @@ services:
     # restored from a 16-client pg_dump into data/postgresql16 and verified identical
     # (counts, publications + row filters, triggers, strided sequences, roles, extensions).
     image: postgres:16
+    # Seed dumps + task 050 connect as the `postgres` superuser (Rawach's PG16
+    # dir was a restore that had it). The base inits POSTGRES_USER=${ODOO_DB_USER}
+    # (=odoo), so a FRESH clinic has no `postgres` role -> task 050 fails "role
+    # postgres does not exist" (first live clinic, manpur). Init `postgres` here;
+    # the odoo role + odoo/openelis DBs are made by task 050. Existing nodes are
+    # unaffected (POSTGRES_USER is read only on an empty datadir).
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?}
+      POSTGRES_DB: postgres
     volumes: !override
       - '${CONTAINER_DATA_PATH}/data/postgresql16:/var/lib/postgresql/data'
       - '${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro'
