@@ -10,6 +10,12 @@
   "//9": "emitting the correct, L-010-compliant config would have been REJECTED by",
   "//10": "its own validator. ${TABLE} and ${PRIMARY_KEY} are per-table; topics and",
   "//11": "the dropPrefix regex are per-clinic and checked for presence only.",
+  "//12": "2026-09-17: hibernate.c3p0.* pool tuning replaced by hibernate.agroal.*",
+  "//13": "(Debezium 3.6.2 dropped c3p0 for Agroal, DBZ-8899). No origin claim here",
+  "//14": "-- this is a MySQL sink (no PG replication-origin mechanism) and was never",
+  "//15": "wired to the customizer. generate-sink-connectors.sh (hub/scripts) still",
+  "//16": "emits the old hibernate.c3p0.* keys as of this edit and needs its own fix",
+  "//17": "to match -- not done here, flagged in task-2-report.md.",
   "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
   "tasks.max": "1",
 
@@ -36,15 +42,11 @@
   "errors.retry.delay.max.ms": "60000",
   "flush.max.retries": "10",
 
-  "hibernate.c3p0.timeout": "1800",
-  "hibernate.c3p0.idle_test_period": "300",
-  "hibernate.c3p0.preferredTestQuery": "SELECT 1",
-  "hibernate.c3p0.testConnectionOnCheckout": "true",
-
   "connection.pool.min_size": "1",
-  "connection.pool.max_size": "2",
-  "connection.pool.acquire_increment": "1",
-  "connection.pool.timeout": "300",
+  "connection.pool.max_size": "1",
+  "connection.pool.timeout": "1800",
+  "hibernate.agroal.validateOnBorrow": "true",
+  "hibernate.agroal.idleValidation_s": "300",
 
   "errors.tolerance": "none",
   "errors.log.enable": "true",

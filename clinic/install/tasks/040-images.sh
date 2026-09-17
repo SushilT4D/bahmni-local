@@ -4,7 +4,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "40 · images + jars"
-[ "${DRY}" = 1 ] && { info "would: pull every image in compose config, build bahmni-local/proxy and systemdate, fetch the scripting jars, verify the customizer jar"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: pull every image in compose config, build bahmni-local/proxy and systemdate, fetch the scripting jars"; exit 0; }
 setup_compose; mk_podman_shim
 cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"
@@ -41,14 +41,10 @@ done
 missing=""
 for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
 [ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
-# Connect plugin jars: scripting (fetched, gitignored) and the customizer (tracked)
+# Connect plugin jars: scripting (fetched, gitignored). The replication-origin claim
+# (was the c3p0 customizer here) is config-only since 2026-09-17 -- see the
+# hibernate.agroal.initialSQL key in each clinic-side sink connector's own JSON.
 J="${CLINIC_DIR}/config/kafka-connect"
-if ls "$J"/ext/groovy-4.0.22.jar "$J"/ext/groovy-jsr223-4.0.22.jar "$J"/ext/debezium-scripting-3.2.4.Final.jar >/dev/null 2>&1; then skip "scripting jars present"; else bash "$J/ext/fetch-scripting-jars.sh" >/dev/null; fi
-[ -f "$J/sync-origin-customizer.jar" ] || fail "customizer jar missing from the checkout: $J/sync-origin-customizer.jar (rebuild: $J/sync-origin/build.sh ${CT})"
-# a jar is a zip; check with python3 (already required) rather than unzip, which
-# is not installed on a fresh Ubuntu VM (first live run, manpur).
-if python3 -c 'import zipfile,sys; sys.exit(0 if "t4d/sync/SyncOriginCustomizer.class" in zipfile.ZipFile(sys.argv[1]).namelist() else 1)' "$J/sync-origin-customizer.jar" 2>/dev/null; then
-  ok "jars: 3 scripting + customizer"
-else
-  fail "customizer jar does not contain t4d.sync.SyncOriginCustomizer"
-fi
+GV="$(env_get "$E" GROOVY_VERSION)"; DSV="$(env_get "$E" DEBEZIUM_SCRIPTING_VERSION)"
+if ls "$J/ext/groovy-${GV}.jar" "$J/ext/groovy-jsr223-${GV}.jar" "$J/ext/debezium-scripting-${DSV}.jar" >/dev/null 2>&1; then skip "scripting jars present"; else bash "$J/ext/fetch-scripting-jars.sh" >/dev/null; fi
+ok "jars: 3 scripting"

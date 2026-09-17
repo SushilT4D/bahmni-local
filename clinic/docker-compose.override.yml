@@ -36,23 +36,23 @@ services:
     logging: *rotate
     ports: !override
       - '127.0.0.1:8083:8083'
-    # Replication-origin loop guard, clinic half (sync-core F-042 follow-on, 2026-09-09):
-    # every JDBC-sink connection calls pg_replication_origin_session_setup(SYNC_ORIGIN_NAME)
-    # on acquire, via a c3p0 ConnectionCustomizer. The jar must sit INSIDE the jdbc plugin
-    # directory: Connect isolates each plugin's classloader, and c3p0 loads the class from
-    # its own. Source: config/kafka-connect/sync-origin/, built with eclipse-temurin:17-jdk.
-    environment:
-      SYNC_ORIGIN_NAME: hub
+    # Replication-origin loop guard, clinic half (sync-core F-042 follow-on, 2026-09-09;
+    # moved off the c3p0 customizer 2026-09-17 -- Debezium 3.6.2 replaced c3p0 with Agroal,
+    # DBZ-8899). The claim is now config-only: each clinic-side PG sink's own connector
+    # JSON carries hibernate.agroal.initialSQL = pg_replication_origin_session_setup('hub_N'),
+    # one distinct origin per sink connector on this node, pool size 1 (PG allows one
+    # session per origin). Nothing to mount here for that anymore.
     volumes:
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/sync-origin-customizer.jar:/kafka/connect/debezium-connector-jdbc/sync-origin-customizer.jar:ro'
       # Filter SMT runtime (jsr223.groovy) for the mysql source and the PG sinks. Previously
       # docker-cp'd into the container and lost on recreate; see ext/fetch-scripting-jars.sh.
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-4.0.22.jar:/kafka/connect/debezium-connector-jdbc/groovy-4.0.22.jar:ro'
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-4.0.22.jar:/kafka/connect/debezium-connector-jdbc/groovy-jsr223-4.0.22.jar:ro'
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-3.2.4.Final.jar:/kafka/connect/debezium-connector-jdbc/debezium-scripting-3.2.4.Final.jar:ro'
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-4.0.22.jar:/kafka/connect/debezium-connector-mysql/groovy-4.0.22.jar:ro'
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-4.0.22.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-4.0.22.jar:ro'
-      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-3.2.4.Final.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-3.2.4.Final.jar:ro'
+      # Filenames follow sync/versions.env's GROOVY_VERSION / DEBEZIUM_SCRIPTING_VERSION,
+      # rendered into this node's live clinic/.env (still 4.0.22 / 3.2.4.Final there).
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
   mirrormaker-connect:
     logging: *rotate
     ports: !override
