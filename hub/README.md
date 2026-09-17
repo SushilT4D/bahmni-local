@@ -67,7 +67,11 @@ regenerates a secret.
 
 Every key below is blank in `hub/.env.example`; `hub_compose_env` fills them
 in (from the three sources above, or a fresh random value via `gen_secret`).
-Never hand-fill a real value into the example and commit it.
+Never hand-fill a real value into the example and commit it. A value cannot
+contain a single quote (`env_put` refuses it outright, naming the key) --
+`hub/.env` is read by both bash `.`-sourcing and docker compose's own dotenv
+parser, and a single-quoted literal with no `'` inside it is the only
+representation both read identically.
 
 | Key | What it is |
 |---|---|

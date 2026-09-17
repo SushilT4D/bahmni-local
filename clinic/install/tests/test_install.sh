@@ -61,7 +61,7 @@ assert_eq "RESIDUE comes from the ledger" "$(grep -E '^RESIDUE=' "$A")" "RESIDUE
 assert_eq "SITE_NUMBER defaults to the residue" "$(grep -E '^SITE_NUMBER=' "$A")" "SITE_NUMBER=7"
 assert_eq "CERT_HOSTNAME from the flag" "$(grep -E '^CERT_HOSTNAME=' "$A")" "CERT_HOSTNAME=azure.example.test"
 assert_eq "hub endpoint from hub.env" "$(grep -E '^REMOTE_KAFKA_BOOTSTRAP_SERVERS=' "$A")" "REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.example.test:9092"
-assert_eq "secret keeps its quoting" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$A")" 'REMOTE_KAFKA_PASSWORD="m&m"'
+assert_eq "secret keeps its quoting (Fix round 1: single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$A")" "REMOTE_KAFKA_PASSWORD='m&m'"
 out="$(F bash "$I" --clinic azure --seed "$TMP/seed" --dry-run --only 05 </dev/null 2>&1)"
 assert_contains "second run reuses the composed file" "$out" "answers: reusing $A"
 assert_contains "and still reaches the task" "$out" "T:bahmni-azure"

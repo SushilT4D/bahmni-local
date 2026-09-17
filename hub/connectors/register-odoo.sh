@@ -12,7 +12,15 @@ for name in "$@"; do
   f="$ROOT/connectors/${name}.json"
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
   body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
-         python3 "$ROOT/connectors/_render_connector.py" "$f") || { echo "$body" >&2; exit 1; }
+         python3 "$ROOT/connectors/_render_connector.py" "$f") || {
+    # Fix round 1 (code review, Minor): _render_connector.py substitutes
+    # every value (passwords included) into cfg BEFORE its own unresolved-
+    # placeholder check, so on some future failure path $body could carry
+    # the rendered config, passwords and all -- masked with the same
+    # JSON-escape-aware pattern used below, on the chance it ever does.
+    printf '%s\n' "$body" | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' >&2
+    exit 1
+  }
   # Connect's response echoes the connector config back, database.password and
   # connection.password included -- so the body is never written to disk (was
   # /tmp/.reg.out, a fixed, world-readable path: F-073, converged here on the

@@ -277,28 +277,18 @@ case "$ui_api_code" in
   esac ;;
   *) bad "hub kafka-ui /api/clusters answered HTTP ${ui_api_code:-<none>} unauthenticated (want 401/403, or a 302 to the login page)" ;;
 esac
-ui_login_body="$(mktemp "${HUB_DIR}/.kafka-ui-login-test.XXXXXX")"
-ui_cookie_jar="$(mktemp "${HUB_DIR}/.kafka-ui-cookies-test.XXXXXX")"
-chmod 600 "$ui_login_body" "$ui_cookie_jar"
-python3 -c '
-import sys, urllib.parse
-user, pw = sys.argv[1], sys.argv[2]
-sys.stdout.write("username=%s&password=%s" % (urllib.parse.quote_plus(user), urllib.parse.quote_plus(pw)))
-' "$(env_get "$env_path" KAFKA_UI_USER)" "$(env_get "$env_path" KAFKA_UI_PASSWORD)" > "$ui_login_body"
-ui_login_result="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 -c "$ui_cookie_jar" -d @"$ui_login_body" http://127.0.0.1:18080/login 2>/dev/null || true)"
-ui_login_code="${ui_login_result%% *}"; ui_login_redirect="${ui_login_result#* }"
-case "$ui_login_code" in
-  302) case "$ui_login_redirect" in
-    *login*) bad "hub kafka-ui login with KAFKA_UI_USER/KAFKA_UI_PASSWORD failed (redirected to ${ui_login_redirect})" ;;
-    *) ok "hub kafka-ui login succeeded (HTTP 302 -> ${ui_login_redirect})" ;;
-  esac ;;
-  *) bad "hub kafka-ui login POST answered HTTP ${ui_login_code:-<none>}, expected a 302 redirect" ;;
-esac
-ui_clusters_body="$(curl -s --max-time 10 -b "$ui_cookie_jar" http://127.0.0.1:18080/api/clusters 2>/dev/null || true)"
-printf '%s' "$ui_clusters_body" | grep -qF '"name":"hub"' \
-  && ok "hub kafka-ui authenticated session reads back cluster \"hub\" via /api/clusters" \
-  || bad "hub kafka-ui authenticated /api/clusters did not carry cluster \"hub\" (got: $(printf '%s' "$ui_clusters_body" | head -c 200))"
-rm -f "$ui_login_body" "$ui_cookie_jar"
+# kafka_ui_login_ok (hub/install/lib.sh) -- hoisted out of this test and task
+# 070 (code review fold-in, Fix round 1, Critical 1): the previous shape
+# here passed KAFKA_UI_USER/KAFKA_UI_PASSWORD as positional arguments to its
+# own `python3 -c` call, visible in `ps -ef`/`/proc/<pid>/cmdline` for that
+# process's lifetime, and duplicated 070's own copy near-verbatim. Exported
+# here (this test never otherwise `set -a`s the whole throwaway hub/.env into
+# its own process) so the shared function reads them from its environment,
+# never its own arguments.
+export KAFKA_UI_USER="$(env_get "$env_path" KAFKA_UI_USER)" KAFKA_UI_PASSWORD="$(env_get "$env_path" KAFKA_UI_PASSWORD)"
+reason="$(kafka_ui_login_ok "http://127.0.0.1:18080")" \
+  && ok "hub kafka-ui login succeeded and reads back cluster \"hub\" via /api/clusters" \
+  || bad "$reason"
 
 # --- run 050-base-db.sh for real (080 depends on its publications+heartbeats)
 # No container/URL overrides needed -- 050 never touches Kafka/Connect.

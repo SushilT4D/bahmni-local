@@ -24,18 +24,23 @@ done
 # shell that `.`-sources hub/.env agrees with env_get's own grep/cut/sed
 # parse of it -- every later task does exactly that (`set -a; . hub/.env; set
 # +a`), so THAT is the real test, not just env_get reading its own write
-# back. Re-source the file just written, once per key, each time in its own
-# subshell (never this task's own environment -- these values have no
-# business leaking into install.sh's remaining tasks except by reading
-# hub/.env again normally), and compare what bash's own quoting rules
-# produced against what env_get already read above.
+# back. Re-source the file just written, once per key, each time in a FRESH
+# bash process with an empty environment (`env -i`) -- never this task's own
+# environment or subshell, which both run under this task's own `set -euo
+# pipefail`: Fix round 1 (code review) found that a badly-quoted value
+# containing an unintended `$name` reference could make the `.`-source
+# itself abort under `set -u` before ever reaching the comparison below,
+# turning a quoting bug into a raw shell abort instead of the named `fail`
+# line this check exists to produce. `env -i bash -c '...'` starts with
+# bash's own default `set +u` (explicit here too, for clarity); indirect
+# expansion (`${!2}`) reads the dynamically-named key back without `eval`.
 mismatch=""
 for k in $HUB_KEYS; do
-  sourced="$(set -a; . "${HUB_DIR}/.env" >/dev/null 2>&1; eval "printf '%s' \"\${${k}:-}\"")"
+  sourced="$(env -i bash -c 'set +u; set -a; . "$1" >/dev/null 2>&1; set +a; printf "%s" "${!2}"' _ "${HUB_DIR}/.env" "$k" 2>/dev/null || true)"
   parsed="$(env_get "${HUB_DIR}/.env" "$k")"
   [ "$sourced" = "$parsed" ] || mismatch="${mismatch} ${k}"
 done
-[ -z "$mismatch" ] && ok "every HUB_KEYS value round-trips through sourcing hub/.env directly (subshell)" \
+[ -z "$mismatch" ] && ok "every HUB_KEYS value round-trips through sourcing hub/.env directly (fresh env, set +u)" \
   || fail "hub/.env: sourcing disagrees with env_get for:${mismatch} (a quoting bug -- would corrupt any shell that sources this file)"
 
 mode="$(stat -c %a "${HUB_DIR}/.env" 2>/dev/null || stat -f %Lp "${HUB_DIR}/.env")"

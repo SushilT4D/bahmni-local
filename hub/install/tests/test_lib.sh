@@ -23,8 +23,12 @@ assert_eq "remote server name" "$(env_get "$OUT" REMOTE_SERVER_NAME)" "bahmni-cl
 assert_eq "CLOUD_MYSQL_HOST defaults to BASE_MYSQL_CONTAINER" "$(env_get "$OUT" CLOUD_MYSQL_HOST)" "cloud-openmrsdb-1"
 assert_eq "CLOUD_MYSQL_PORT default" "$(env_get "$OUT" CLOUD_MYSQL_PORT)" "3306"
 assert_eq "CLOUD_MYSQL_DATABASE default" "$(env_get "$OUT" CLOUD_MYSQL_DATABASE)" "openmrs"
-assert_eq "clinlims sink password generated (32)" "$(env_get "$OUT" CLINLIMS_SINK_PASSWORD | wc -c | tr -d ' ')" "33"
-assert_eq "cluster id generated (22)" "$(env_get "$OUT" KAFKA_CLUSTER_ID | wc -c | tr -d ' ')" "23"
+# Fix round 1: env_get no longer appends an incidental trailing newline (the
+# old implementation's last pipeline stage was `sed`, which adds one whether
+# the input line had one or not; the new one ends in a bare `printf '%s'`) --
+# so these now count bytes in the value itself, not value+1.
+assert_eq "clinlims sink password generated (32)" "$(env_get "$OUT" CLINLIMS_SINK_PASSWORD | wc -c | tr -d ' ')" "32"
+assert_eq "cluster id generated (22)" "$(env_get "$OUT" KAFKA_CLUSTER_ID | wc -c | tr -d ' ')" "22"
 assert_eq "mode 600" "$(stat -c %a "$OUT" 2>/dev/null || stat -f %Lp "$OUT")" "600"
 before="$(cat "$OUT")"; HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT"
 assert_eq "second compose keeps generated values" "$(cat "$OUT")" "$before"
@@ -147,5 +151,24 @@ unset BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER
 got="$(pg_admin openelis -Atc 'select 1')"
 assert_eq "pg_admin openelis falls back to BASE_PG_CONTAINER/SUPERUSER when the ELIS pair is unset" "$got" "exec -i pg-c psql -U pgsu -d openelis -v ON_ERROR_STOP=1 -q -Atc select 1"
 unset CT BASE_PG_CONTAINER BASE_PG_SUPERUSER
+
+# kafka_ui_login_ok (Fix round 1, code review Critical 1): a static guard
+# over its own source in hub/install/lib.sh, not a live call (the live smoke
+# is the real proof) -- the whole point of the fix was that
+# KAFKA_UI_USER/KAFKA_UI_PASSWORD must never be visible in any process's own
+# argv (`ps -ef` / /proc/<pid>/cmdline) for as long as it runs, and the
+# previous shape passed both as positional arguments to `python3 -c`. Proving
+# the class: the function's python3 substep must read os.environ, and must
+# never reference sys.argv at all (there is nothing for it to read there --
+# the shell function itself takes only URL as an argument).
+fn_src="$(awk '/^kafka_ui_login_ok\(\)\{/{f=1} f{print} f && /^}/{exit}' "$HERE/../lib.sh")"
+assert_eq "kafka_ui_login_ok's python3 substep never references sys.argv" "$(printf '%s' "$fn_src" | grep -c 'sys\.argv')" "0"
+assert_eq "kafka_ui_login_ok's python3 substep reads os.environ instead (once for the user, once for the password)" "$(printf '%s' "$fn_src" | grep -c 'os\.environ')" "2"
+pat_url_arg='local url="$1"'
+assert_eq "kafka_ui_login_ok takes only URL as its own argument (no user/password params)" "$(printf '%s' "$fn_src" | grep -Fc "$pat_url_arg")" "1"
+pat_chmod='chmod 600 "$body" "$cookie_jar"'
+assert_eq "kafka_ui_login_ok's temp files are mode 600" "$(printf '%s' "$fn_src" | grep -Fc "$pat_chmod")" "1"
+pat_trap='trap '"'"'rm -f "$body" "$cookie_jar"'"'"' EXIT'
+assert_eq "kafka_ui_login_ok cleans up in a subshell-scoped trap (not a function-level one, which would replace the caller's own trap)" "$(printf '%s' "$fn_src" | grep -Fc "$pat_trap")" "1"
 
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

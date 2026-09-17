@@ -231,8 +231,20 @@ write_jaas(){
 # the caller's already-sourced hub/.env; requires setup_compose to have run
 # (uses ct). The check's own password never touches a command line, a log, or
 # a tracked file: written by the printf builtin (no subprocess ever sees it
-# in argv) to a mode-600 temp file under HUB_DIR, removed before this
-# function returns on every path.
+# in argv) to a mode-600 temp file under HUB_DIR.
+#
+# Fix round 1 (code review, Important 3): the body runs in its OWN subshell
+# with its OWN `trap ... EXIT`, not a plain `rm -f` after the `ct run` line --
+# a bare `rm -f` is skipped entirely if `ct run` (or anything before it)
+# crashes or is killed by a signal, leaving a mode-600 file holding the
+# escaped REMOTE_KAFKA_PASSWORD sitting under hub/ indefinitely. A
+# function-level `trap ... EXIT` was considered and rejected: bash's EXIT
+# trap is a single, script-wide slot, so setting one inside a function
+# REPLACES whatever trap the calling script (060, 090) already has installed
+# for its own cleanup, firing this function's cleanup instead of the
+# script's own on the script's eventual exit. A subshell's own `trap ... EXIT`
+# fires when the SUBSHELL exits -- on every path, including a crash or a
+# signal -- and never touches the calling script's own trap at all.
 #
 # SASL_LISTENER_PORT overrides which published host port is dialed (default
 # 9092, production's real value): hub/install/tests/test_sources.sh's
@@ -241,16 +253,74 @@ write_jaas(){
 # a throwaway host port instead and sets this to match -- the one legitimate
 # override, the same shape as KAFKA_CONTAINER/CONNECT_URL.
 sasl_listener_ok(){
-  local tmp esc_pw rc=0 port="${SASL_LISTENER_PORT:-9092}"
-  tmp="$(mktemp "${HUB_DIR}/.sasl-check.XXXXXX")"
-  chmod 600 "$tmp"
-  esc_pw="$(jaas_escape "${REMOTE_KAFKA_PASSWORD:?sasl_listener_ok: REMOTE_KAFKA_PASSWORD not set}")"
-  printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
-  ct run --rm --network host -v "${tmp}:/tmp/c.properties:ro" "${KAFKA_IMAGE:?sasl_listener_ok: KAFKA_IMAGE not set}" kafka-broker-api-versions --bootstrap-server "127.0.0.1:${port}" --command-config /tmp/c.properties >/dev/null 2>&1 || rc=$?
-  rm -f "$tmp"
-  [ "$rc" = 0 ] && return 0
-  printf 'SASL listener did not answer on 127.0.0.1:%s as mirrormaker (image %s)\n' "$port" "${KAFKA_IMAGE}"
-  return 1
+  local port="${SASL_LISTENER_PORT:-9092}"
+  (
+    local tmp esc_pw rc=0
+    tmp="$(mktemp "${HUB_DIR}/.sasl-check.XXXXXX")"
+    chmod 600 "$tmp"
+    trap 'rm -f "$tmp"' EXIT
+    esc_pw="$(jaas_escape "${REMOTE_KAFKA_PASSWORD:?sasl_listener_ok: REMOTE_KAFKA_PASSWORD not set}")"
+    printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
+    ct run --rm --network host -v "${tmp}:/tmp/c.properties:ro" "${KAFKA_IMAGE:?sasl_listener_ok: KAFKA_IMAGE not set}" kafka-broker-api-versions --bootstrap-server "127.0.0.1:${port}" --command-config /tmp/c.properties >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 0 ] && exit 0
+    printf 'SASL listener did not answer on 127.0.0.1:%s as mirrormaker (image %s)\n' "$port" "${KAFKA_IMAGE}"
+    exit 1
+  )
+}
+
+# kafka_ui_login_ok URL : proves the credentials in KAFKA_UI_USER/
+# KAFKA_UI_PASSWORD (the caller's own already-exported environment -- e.g.
+# after `set -a; . hub/.env; set +a`) actually log in to kafka-ui at URL
+# (e.g. http://127.0.0.1:8080) through Spring Security's own form-login
+# endpoint, and that the resulting session reads this hub's own cluster
+# ("hub", KAFKA_CLUSTERS_0_NAME) back via /api/clusters. Same ok-or-named-
+# reason contract as sasl_listener_ok above.
+#
+# Fix round 1 (code review, Critical 1): hoisted out of task 070 and the live
+# smoke, which each used to pass KAFKA_UI_USER/KAFKA_UI_PASSWORD as
+# positional arguments to their own `python3 -c` call -- visible in `ps -ef`
+# / /proc/<pid>/cmdline for that process's whole lifetime, and duplicated
+# near-verbatim between the two callers. This one function is now the only
+# place either value is ever handled: it reads them from ITS OWN inherited
+# environment (never its own arguments -- `kafka_ui_login_ok` takes only
+# URL), and the python3 substep reads them via `os.environ`, never
+# `sys.argv`, so neither value is ever visible in that process's argv at any
+# point. The url-encoded form body still goes to a mode-600 temp file (never
+# a command-line argument, since curl's `-d @file` needs a real file), the
+# cookie jar is mode 600, and -- like sasl_listener_ok above -- the whole
+# body runs in its own subshell with its own `trap ... EXIT`, so both temp
+# files are removed on every exit path without touching the calling script's
+# own trap.
+kafka_ui_login_ok(){
+  local url="$1"
+  (
+    local body cookie_jar login_result login_code login_redirect clusters_body
+    body="$(mktemp "${HUB_DIR}/.kafka-ui-login.XXXXXX")"
+    cookie_jar="$(mktemp "${HUB_DIR}/.kafka-ui-cookies.XXXXXX")"
+    chmod 600 "$body" "$cookie_jar"
+    trap 'rm -f "$body" "$cookie_jar"' EXIT
+    : "${KAFKA_UI_USER:?kafka_ui_login_ok: KAFKA_UI_USER not set}"
+    : "${KAFKA_UI_PASSWORD:?kafka_ui_login_ok: KAFKA_UI_PASSWORD not set}"
+    python3 -c '
+import os, sys, urllib.parse
+user = os.environ["KAFKA_UI_USER"]
+pw = os.environ["KAFKA_UI_PASSWORD"]
+sys.stdout.write("username=%s&password=%s" % (urllib.parse.quote_plus(user), urllib.parse.quote_plus(pw)))
+' > "$body"
+    login_result="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 -c "$cookie_jar" -d @"$body" "${url}/login" 2>/dev/null || true)"
+    login_code="${login_result%% *}"; login_redirect="${login_result#* }"
+    case "$login_code" in
+      302)
+        case "$login_redirect" in
+          *login*) printf 'kafka-ui login failed (redirected to %s -- check KAFKA_UI_USER/KAFKA_UI_PASSWORD in hub/.env)\n' "$login_redirect"; exit 1 ;;
+        esac ;;
+      *) printf 'kafka-ui login POST to %s/login answered HTTP %s, expected a 302 redirect\n' "$url" "${login_code:-<none>}"; exit 1 ;;
+    esac
+    clusters_body="$(curl -s --max-time 10 -b "$cookie_jar" "${url}/api/clusters" 2>/dev/null || true)"
+    printf '%s' "$clusters_body" | grep -qF '"name":"hub"' && exit 0
+    printf 'kafka-ui authenticated /api/clusters (%s) did not carry cluster "hub" (got: %s)\n' "$url" "$(printf '%s' "$clusters_body" | head -c 200)"
+    exit 1
+  )
 }
 
 # binlog_ok FORMAT IMAGE RETENTION_S SERVER_ID INCREMENT OFFSET CONNECTOR_ID : the

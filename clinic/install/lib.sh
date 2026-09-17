@@ -88,23 +88,35 @@ ct(){ "${CT:?setup_compose first}" "$@"; }
 # compose ARGS... : always from the clinic dir, always with the fleet's profiles.
 compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILES} "$@" ); }
 
-# .env editing. A value containing a space, &, !, #, $, ; or | is double-quoted
-# (the file is read both by compose interpolation and by scripts that `source`
-# it). Python does the replace so no character in the value needs escaping.
-#
-# The class also catches a bare "'" or "\" (Task 7 fold-in, code review): a
-# generated or operator-typed secret (hub/.env's KAFKA_UI_PASSWORD and
-# friends, or an operator hand-editing any .env) can legitimately carry
-# either, and an unquoted value written straight into the file corrupts
-# whichever shell later `.`-sources it -- a lone "'" opens an unterminated
-# quoted string that swallows everything up to the NEXT "'" anywhere later in
-# the file, silently merging keys together. Individually backslash-escaped
-# here (not wrapped in a second pair of single quotes) so the shell's own
-# parsing of this case pattern is not itself at the mercy of getting quote
-# nesting right.
+# .env editing. This file is read by TWO different parsers that do not agree
+# on quoting in general: bash `.`-sourcing (every task) and docker compose's
+# own dotenv reader (for ${VAR} interpolation in a compose file). Fix round 1
+# (code review, live PoC): the previous scheme double-quoted a value on
+# trigger characters but never escaped an embedded `"` -- a value like
+# `pass"; touch /tmp/x; echo "` was written to the file as literal shell
+# code, which RUNS the moment any task `.`-sources it. The one representation
+# both parsers read identically is a SINGLE-quoted value with no `'` inside
+# it: bash and docker compose's dotenv both treat everything between a pair
+# of `'` as fully literal, with no escape processing at all, so nothing in
+# the value -- `"`, `$`, `` ` ``, `\`, `#`, `;`, a space -- can ever be
+# reinterpreted by either reader. So:
+#   - a value using only [A-Za-z0-9_./:@+=-] is written bare, unquoted (the
+#     common case -- container names, urls, base64 ids -- unchanged from
+#     before).
+#   - any other character forces a single-quoted literal, KEY='value'.
+#   - a value containing a `'` cannot be represented identically for both
+#     readers (escaping it, e.g. bash's own '\'' trick, is not something
+#     docker compose's own dotenv parser is guaranteed to read the same way)
+#     -- refused outright, naming the key, rather than silently picking one
+#     reader's interpretation over the other's.
+# Python does the file rewrite so no character in the (already-quoted) value
+# needs further escaping there.
 env_put(){
   local f="$1" k="$2" v="$3"
-  case "$v" in *[\ \&\!\#\$\;\|\'\\]*) v="\"$v\"" ;; esac
+  case "$v" in
+    *"'"*) fail "env_put: ${k}: a value containing a single quote cannot be stored in .env (bash and docker compose disagree on its meaning); choose another value" ;;
+    *[!A-Za-z0-9_./:@+=-]*) v="'$v'" ;;
+  esac
   python3 - "$f" "$k" "$v" <<'PY'
 import sys, re
 f, k, v = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -122,8 +134,20 @@ PY
 }
 # Under `set -e -o pipefail` (every task), a grep with no match or a tr cut short
 # by head turns a pipeline non-zero and aborts the caller on the SUCCESS path.
-# Hence the `|| true` guards and python for the secret.
-env_get(){ { grep -E "^$2=" "$1" || true; } | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+# Hence the `|| true` guard. Strips a matching pair of quotes off the ends --
+# single (env_put's own output, Fix round 1) or double (an operator-hand-
+# written .env, or a file predating this change) -- never an unpaired quote,
+# and never spawns a subprocess just to do it (env_get is called very often,
+# e.g. once per HUB_KEYS entry in 020-env.sh's round-trip check).
+env_get(){
+  local v
+  v="$({ grep -E "^$2=" "$1" || true; } | head -1 | cut -d= -f2-)"
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s' "$v"
+}
 gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
 # subsystem_tables SUBSYSTEM : prints sync/subsystems.conf's `<SUBSYSTEM>:<table>`
 # rows' table names, one per line -- the ONE parsing path task 050 (publications)

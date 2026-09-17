@@ -55,37 +55,14 @@ case "$api_code" in
   *) fail "kafka-ui /api/clusters answered HTTP ${api_code:-<none>} unauthenticated (want 401/403, or a 302 to the login page)" ;;
 esac
 
-# kafka-ui: a POSITIVE proof the configured credentials actually work -- log
-# in through Spring Security's own form-login endpoint (POST /login,
-# username=/password= form-urlencoded) and use the session cookie it sets to
-# read /api/clusters back, expecting this hub's own cluster name. The
-# password never touches a command line or this task's own argv: the
-# url-encoded form body is written by python3 straight to a mode-600 temp
-# file (removed by a trap on every exit path from here on), and curl sends
-# it with `-d @file`, never as a literal argument. A wrong-credentials
-# attempt (proven live) redirects to /login?error, never to "/" -- so
-# checking the success redirect does NOT carry "login" is a reliable signal,
-# without needing to hardcode the exact success target.
-ui_login_body="$(mktemp "${HUB_DIR}/.kafka-ui-login.XXXXXX")"
-ui_cookie_jar="$(mktemp "${HUB_DIR}/.kafka-ui-cookies.XXXXXX")"
-chmod 600 "$ui_login_body" "$ui_cookie_jar"
-trap 'rm -f "$ui_login_body" "$ui_cookie_jar"' EXIT
-python3 -c '
-import sys, urllib.parse
-user, pw = sys.argv[1], sys.argv[2]
-sys.stdout.write("username=%s&password=%s" % (urllib.parse.quote_plus(user), urllib.parse.quote_plus(pw)))
-' "${KAFKA_UI_USER:?}" "${KAFKA_UI_PASSWORD:?}" > "$ui_login_body"
-login_result="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 10 -c "$ui_cookie_jar" -d @"$ui_login_body" http://127.0.0.1:8080/login 2>/dev/null || true)"
-login_code="${login_result%% *}"; login_redirect="${login_result#* }"
-case "$login_code" in
-  302)
-    case "$login_redirect" in
-      *login*) fail "kafka-ui login with KAFKA_UI_USER/KAFKA_UI_PASSWORD from hub/.env failed (redirected to ${login_redirect})" ;;
-      *) ok "kafka-ui login succeeded (HTTP 302 -> ${login_redirect})" ;;
-    esac ;;
-  *) fail "kafka-ui login POST answered HTTP ${login_code:-<none>}, expected a 302 redirect" ;;
-esac
-clusters_body="$(curl -s --max-time 10 -b "$ui_cookie_jar" http://127.0.0.1:8080/api/clusters 2>/dev/null || true)"
-printf '%s' "$clusters_body" | grep -qF '"name":"hub"' \
-  && ok "kafka-ui authenticated session reads back cluster \"hub\" via /api/clusters" \
-  || fail "kafka-ui authenticated /api/clusters did not carry cluster \"hub\" (got: $(printf '%s' "$clusters_body" | head -c 200))"
+# kafka-ui: a POSITIVE proof the configured credentials actually work --
+# kafka_ui_login_ok (hub/install/lib.sh), hoisted out of this task (code
+# review fold-in, Fix round 1, Critical 1): it reads KAFKA_UI_USER/
+# KAFKA_UI_PASSWORD from this task's own already-exported environment
+# (never as its own arguments), logs in through Spring Security's own
+# form-login endpoint, and reads /api/clusters back with the resulting
+# session. Shared with the live smoke so the two never drift into two
+# near-verbatim copies again.
+reason="$(kafka_ui_login_ok "http://127.0.0.1:8080")" \
+  && ok "kafka-ui login succeeded and reads back cluster \"hub\" via /api/clusters" \
+  || fail "$reason"

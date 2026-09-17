@@ -58,25 +58,61 @@ assert_eq "jvm opts: an operator's own flag is not stripped" "$(env_get "$j" OMR
 printf 'A=1\n' > "$j"; ensure_openmrs_jvm_opts "$j" >/dev/null
 assert_eq "jvm opts: server opts key not created when absent" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" ''
 assert_eq "env_put appends" "$(env_get "$f" D)" "plain"
-assert_eq "env_put quotes a space" "$(grep -E '^E=' "$f")" 'E="has space"'
+assert_eq "env_put single-quotes a space (Fix round 1: single, not double -- see below)" "$(grep -E '^E=' "$f")" "E='has space'"
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"
 assert_eq "env_put keeps other lines" "$(grep -c . "$f")" "6"
 
-# env_put quoting guard also triggers on a single quote or a backslash (Task
-# 7 fold-in, hub-side ruling; env_put itself is shared with the hub): a
-# generated or operator-typed secret carrying either character must survive
-# both env_get's own parse AND being `.`-sourced directly by a real shell --
-# hub/.env is `. `-sourced by every install task, not just read with
-# env_get, so the round trip through sourcing is the test that actually
-# matters. raw_pw mirrors the fixed test value hub/install/tests/test_lib.sh
-# already uses for pg_lit_escape/mysql_lit_escape: 5 chars, a ' b \ c.
-raw_pw="a'b\\c"
-f2="$TMP/e2.env"; : > "$f2"
-env_put "$f2" SECRET "$raw_pw"
-assert_eq "env_put quotes a value containing a single quote and a backslash" "$(grep -c '^SECRET="' "$f2")" "1"
-assert_eq "env_put round-trips a quote+backslash value through env_get" "$(env_get "$f2" SECRET)" "$raw_pw"
-( set -a; . "$f2"; set +a; [ "$SECRET" = "$raw_pw" ] )
-assert_rc "env_put-written value survives being sourced directly, not just env_get" $? 0
+# Fix round 1 (code review, live PoC): env_put's old double-quote-on-trigger
+# scheme never escaped an embedded `"`, so a value like the reviewer's own
+# `pass"; touch ...; echo "` was written as literal shell code that RUNS the
+# moment any task `.`-sources the file. The only representation bash and
+# docker compose's dotenv parser read identically is a single-quoted value
+# with no `'` inside it -- everything between a pair of `'` is fully literal
+# to both, so nothing in the value can be reinterpreted by either reader.
+#
+# Round-trips byte-for-byte through BOTH env_get's own parse AND actually
+# `.`-sourcing the file directly (hub/.env and clinic/.env are `.`-sourced by
+# every install task, not just read with env_get) -- and, for the injection
+# string specifically, PROVES no side effect occurred, rather than just
+# checking the string value came back unchanged (a value that round-trips
+# but was ALSO executed once on the way would still "pass" a naive
+# string-equality check).
+marker_dir="$TMP/marker"; mkdir -p "$marker_dir"
+check_env_put_value(){ # LABEL VALUE
+  local label="$1" val="$2" f3 got
+  f3="$TMP/e3-$$-${RANDOM}.env"; : > "$f3"
+  env_put "$f3" V "$val"
+  got="$(env_get "$f3" V)"
+  assert_eq "env_put round-trips ${label} through env_get" "$got" "$val"
+  got="$(set -a; . "$f3"; set +a; printf '%s' "$V")"
+  assert_eq "env_put round-trips ${label} through . sourcing directly" "$got" "$val"
+  rm -f "$f3"
+}
+check_env_put_value 'a value with a double quote'      'pass"word'
+check_env_put_value 'a value with a backslash'         'pass\word'
+check_env_put_value 'a value with a dollar sign'       'pass$word'
+check_env_put_value 'a value with a space'             'pass word'
+check_env_put_value 'a value with a hash'              'pass#word'
+check_env_put_value 'a value with a semicolon'         'pass;word'
+check_env_put_value "the reviewer's exact injection string" 'pass"; touch '"$marker_dir"'/PWNED; echo "'
+assert_eq "the injection string never actually ran (no marker file)" "$([ -e "$marker_dir/PWNED" ] && echo RAN || echo safe)" "safe"
+
+# A value containing a `'` cannot be represented identically for both
+# readers -- refused outright, naming the key, rather than silently picking
+# one reader's interpretation over the other's.
+f4="$TMP/e4.env"; : > "$f4"
+out="$(env_put "$f4" QUOTED "can't" 2>&1)"; rc=$?
+assert_rc "env_put refuses a value containing a single quote" "$rc" 1
+case "$out" in *"QUOTED"*"single quote"*) named=yes ;; *) named=no ;; esac
+assert_eq "the refusal names the key and the reason" "$named" "yes"
+assert_eq "nothing was written for the refused key" "$(grep -c '^QUOTED=' "$f4")" "0"
+
+# gen_secret must never itself produce a value env_put would have to refuse.
+bad_secret=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  case "$(gen_secret)" in *"'"*) bad_secret=yes ;; esac
+done
+assert_eq "gen_secret never emits a single quote (env_put would refuse it)" "${bad_secret:-no}" "no"
 
 # placeholders
 printf 'A=1\nB=<x>\nC=\nMAIL_USER=\n' > "$f"
@@ -107,7 +143,7 @@ assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" 
 ( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
 assert_eq "answers_write writes twelve keys" "$(grep -c '^[A-Z_]*=' "$a")" "12"
 assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
-assert_eq "answers_write quotes a space" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" 'REMOTE_KAFKA_PASSWORD="p w"'
+assert_eq "answers_write quotes a space (Fix round 1: single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" "REMOTE_KAFKA_PASSWORD='p w'"
 assert_eq "answers_write mode 600" "$(stat -f %Lp "$a" 2>/dev/null || stat -c %a "$a")" "600"
 # ask / ask_secret
 X=set; ask X "q" "d" "here" </dev/null; assert_eq "ask keeps a set value" "$X" "set"
