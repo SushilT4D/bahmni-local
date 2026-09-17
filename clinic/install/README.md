@@ -23,7 +23,9 @@ Registered today: manpur, bedawal, ghated, rawach, bagdunda, kojawada (residues
 until the operator allocates one. Secrets are never in the repo: it is public.
 
 Tasks run in order and each ends with a check read back from the live system;
-a failing check stops the run and prints how to resume (`--from NNN`). Every
+a failing check stops the run and prints how to resume (`--from NNN`); a bare
+command that fails under `set -e` prints a `FAILED rc=N: <command as written>` line
+with its call chain (bash 4+), so a STOPPED never arrives without a culprit. Every
 task is idempotent (it skips what is already done), but this is a FRESH-INSTALL
 tool: an existing `clinic/.env` is a refusal.
 

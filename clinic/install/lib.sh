@@ -24,6 +24,30 @@ fail(){  printf '  FAIL %s\n' "$*" >&2; exit 1; }
 begin_task(){ printf '\n== %s ==\n' "$*"; }
 require_cmd(){ command -v "$1" >/dev/null 2>&1 || fail "missing command: $1${2:+ -- $2}"; }
 
+# Every task runs under set -e, so a bare command that fails ends the task with
+# no FAIL line: the runner prints STOPPED and nothing names the culprit (first
+# live clinic, manpur: three silent stops in one evening -- df -g, a $(...)
+# assignment, a psql heredoc). Print the failing command AS WRITTEN (never
+# expanded, so no secret value can reach the log), its exit status and the call
+# chain. -E so the trap also fires inside functions and $(...); guarded
+# failures (if / && / || / while) never trip an ERR trap, so ok/fail lines and
+# probes stay quiet.
+_on_err(){
+  local rc=$? cmd="$BASH_COMMAND" i=1 n chain=''
+  trap - ERR   # bash 3.2 fires ERR on a false (( )) or [ ] inside the handler itself
+  while [ "$i" -lt "${#BASH_SOURCE[@]}" ]; do
+    n="${FUNCNAME[$i]}"; case "$n" in main|source) n='' ;; esac
+    chain="${chain}${chain:+ <- }${BASH_SOURCE[$i]##*/}:${BASH_LINENO[$((i-1))]}${n:+ ($n)}"
+    i=$((i+1))
+  done
+  printf '  FAILED rc=%s: %s\n         at %s\n' "$rc" "$cmd" "${chain:-${BASH_SOURCE[0]##*/}}" >&2
+  trap _on_err ERR
+}
+# bash 3.2 also fires ERR for a guarded probe inside $(...), which would print a
+# misleading FAILED line on a Mac dry run; arm it on bash 4+ only (every Linux
+# clinic), 3.2 keeps the plain STOPPED.
+[ "${BASH_VERSINFO[0]}" -ge 4 ] && { set -E; trap _on_err ERR; }
+
 # run CMD... : in dry mode prints the command instead of executing it. Wrap
 # anything with side effects in it; keep reads outside it so a dry run still
 # reports real facts.

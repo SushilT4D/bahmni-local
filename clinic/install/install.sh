@@ -115,7 +115,7 @@ for t in "${TASKS_DIR}"/[0-9]*-*.sh; do
     exec sg docker -c "$(printf '%q' "$0") ${sel} --seed $(printf '%q' "$SEED_DIR") --from ${num}"
   fi
   if [ "$rc" != 0 ]; then
-    printf '\n  STOPPED at task %s. Fix what its FAIL line names, then resume with: %s %s --seed %s --from %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" >&2
+    printf '\n  STOPPED at task %s. Fix what its FAIL (or FAILED rc=) line names, then resume with: %s %s --seed %s --from %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" >&2
     exit 1
   fi
 done
