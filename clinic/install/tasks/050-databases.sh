@@ -68,8 +68,12 @@ done
 # sink roles AFTER the databases exist and are restored: they connect with
 # `psql -d odoo` / `-d openelis` and GRANT ON ALL TABLES, so the DBs and their
 # tables must exist first (first live clinic, manpur: they ran before createdb).
-grep -q '^ODOO_SINK_PASSWORD=' "$E"     || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}" >/dev/null
-grep -q '^CLINLIMS_SINK_PASSWORD=' "$E" || NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}" >/dev/null
+# Always call these -- they are idempotent (reuse the .env password, CREATE-or-
+# ALTER the role). The old `grep .env ||` guard skipped them when the password was
+# present, which stranded a node whose earlier run appended the password but failed
+# before creating the role (exactly what the create-before-DB bug above caused).
+NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}"
+NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}"
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 pubs="$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d openelis -At),$(printf "select string_agg(pubname, ',') from pg_publication" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
