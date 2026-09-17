@@ -106,4 +106,21 @@ X=""; ( ask_secret X "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask_secret 
 out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: echo hello"
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"
 
+# subsystem_tables: one parsing path for sync/subsystems.conf, trimmed + validated
+# (code review, 2026-09-17 -- an untrimmed row used to silently leave a table
+# unstrided; see lib.sh's own comment on the function).
+mkdir -p "$REPO_DIR/sync"
+SUBS="$REPO_DIR/sync/subsystems.conf"
+printf 'odoo:all\nclinlims:all\n\nodoo:res_partner   \nodoo:account_move  # trailing inline comment\nodoo:uom_uom\nclinlims:sample\n' > "$SUBS"
+assert_eq "subsystem_tables trims trailing whitespace off a row" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "res_partner account_move uom_uom"
+assert_eq "subsystem_tables strips a trailing # comment" "$(subsystem_tables odoo | sed -n 2p)" "account_move"
+assert_eq "subsystem_tables skips the :all row" "$(subsystem_tables odoo | grep -c '^all$')" "0"
+assert_eq "subsystem_tables filters by subsystem prefix" "$(subsystem_tables clinlims)" "sample"
+printf 'odoo:Bad-Name\n' >> "$SUBS"
+out="$(subsystem_tables odoo 2>&1 1>/dev/null)"; rc=$?
+assert_rc "subsystem_tables fails on a name that is not a bare identifier" "$rc" "1"
+case "$out" in *"Bad-Name"*) named=yes ;; *) named=no ;; esac
+assert_eq "subsystem_tables names the offending row in its failure" "$named" "yes"
+printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
+
 exit "$fails"

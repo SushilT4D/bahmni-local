@@ -9,9 +9,10 @@
 -- keyed on the PK (L-010) that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
--- SCOPE. Only the 12 synced business tables plus the join/child tables that hang off
--- them. Framework sequences (ir_*) are deliberately untouched: they never travel, and
--- striding them would desynchronise module installation across nodes.
+-- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows -- 13 as of
+-- 2026-09-17, res_country_state included, F-053) plus the join/child tables that
+-- hang off them. Framework sequences (ir_*) are deliberately untouched: they never
+-- travel, and striding them would desynchronise module installation across nodes.
 --
 -- THE RESTART FORMULA. A sequence cannot simply RESTART WITH <residue>; existing rows
 -- already occupy low ids. We restart at the first value ABOVE the current maximum that
@@ -30,13 +31,14 @@
 -- F-005. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
 -- separately; this script does not pretend to fix it.
 --
--- TABLE LIST. The twelve synced Odoo tables are no longer hard-coded here (sync-core
--- Task 4, 2026-09-17): the caller (task 060) reads sync/subsystems.conf's odoo: rows --
--- the same file the publication and MirrorMaker whitelist derive from -- and passes them
--- in as a single comma-separated psql variable, split back into an array below. A
--- second source of truth for "which Odoo tables are synced" is exactly the bug this
--- repo's subsystems.conf already fixed once for the MirrorMaker regex (see that file's
--- own header); this script does not get to keep its own copy.
+-- TABLE LIST. The synced Odoo tables are no longer hard-coded here (sync-core Task
+-- 4, 2026-09-17): the caller (task 060) reads sync/subsystems.conf's odoo: rows,
+-- through lib.sh's subsystem_tables (trims, validates, skips :all) -- the same file
+-- the publication and MirrorMaker whitelist derive from -- and passes them in as a
+-- single comma-separated psql variable, split back into an array below. A second
+-- source of truth for "which Odoo tables are synced" is exactly the bug this repo's
+-- subsystems.conf already fixed once for the MirrorMaker regex (see that file's own
+-- header); this script does not get to keep its own copy.
 --
 -- Usage: psql -U postgres -d odoo -v residue=4 -v tables=res_partner,product_template,... \
 --          -f odoo/apply-odoo-sequence-striding.sql
@@ -69,10 +71,16 @@ BEGIN
   FOREACH v_tbl IN ARRAY v_tables LOOP
     -- pg_get_serial_sequence resolves the real owning sequence, which is not always
     -- <table>_id_seq (inherited and renamed tables differ). NULL means no serial PK.
+    --
+    -- A synced table with no serial sequence on id is a DEFECT, not something to
+    -- notice-and-skip (code review, 2026-09-17): this table is in the publication
+    -- and in the MirrorMaker whitelist by construction (same subsystems.conf list),
+    -- so it will be written from more than one node -- and if its ids are not
+    -- strided, two nodes CAN mint the same id (L-008). A quiet NOTICE let exactly
+    -- that gap through with a green task.
     v_seq := pg_get_serial_sequence('public.' || v_tbl, 'id');
     IF v_seq IS NULL THEN
-      RAISE NOTICE '  % : no serial sequence on id -- SKIPPED', v_tbl;
-      CONTINUE;
+      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id -- it cannot be strided and L-008 does not hold for it', v_tbl;
     END IF;
 
     EXECUTE format('SELECT COALESCE(MAX(id),0) FROM public.%I', v_tbl) INTO v_max;

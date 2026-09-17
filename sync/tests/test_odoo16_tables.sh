@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u; REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fails=0
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
-want="account_move account_move_line product_category product_product product_template res_partner sale_order sale_order_line stock_move stock_picking stock_quant uom_uom"
+want="account_move account_move_line product_category product_product product_template res_country_state res_partner sale_order sale_order_line stock_move stock_picking stock_quant uom_uom"
 have="$(grep -E '^odoo:' "$REPO/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2 | sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "subsystems.conf carries the Odoo 16 set" || bad "subsystems.conf odoo set is: $have"
 

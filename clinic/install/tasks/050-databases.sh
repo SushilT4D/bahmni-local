@@ -97,7 +97,7 @@ partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U
 # per piece of the publication.
 sync_publication(){ # db  subsystems-prefix  pg-schema  pubname
   local db="$1" prefix="$2" schema="$3" pub="$4" tables t parts=""
-  tables="$(grep -E "^${prefix}:" "${REPO_DIR}/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2)"
+  tables="$(subsystem_tables "${prefix}")"
   [ -n "${tables}" ] || fail "no ${prefix}: rows found in ${REPO_DIR}/sync/subsystems.conf"
   for t in ${tables}; do parts="${parts}${parts:+, }${schema}.${t}"; done
   ct exec -i "$PG" psql -U postgres -d "${db}" -v ON_ERROR_STOP=1 -q <<SQL
@@ -114,8 +114,8 @@ SQL
 sync_publication odoo odoo public dbz_odoo_owned
 sync_publication openelis clinlims clinlims dbz_clinlims_owned
 
-want_odoo="$(grep -E '^odoo:' "${REPO_DIR}/sync/subsystems.conf" | grep -vc ':all$')"
-want_clinlims="$(grep -E '^clinlims:' "${REPO_DIR}/sync/subsystems.conf" | grep -vc ':all$')"
+want_odoo="$(subsystem_tables odoo | wc -l | tr -d ' ')"
+want_clinlims="$(subsystem_tables clinlims | wc -l | tr -d ' ')"
 got_odoo="$(printf "select count(*) from pg_publication_tables where pubname='dbz_odoo_owned'" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 got_clinlims="$(printf "select count(*) from pg_publication_tables where pubname='dbz_clinlims_owned'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
 [ "${got_odoo:-0}" = "${want_odoo}" ] && ok "publication dbz_odoo_owned: ${got_odoo} tables" || fail "publication dbz_odoo_owned: ${got_odoo:-0} tables, want ${want_odoo}"

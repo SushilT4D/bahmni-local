@@ -114,6 +114,33 @@ PY
 # Hence the `|| true` guards and python for the secret.
 env_get(){ { grep -E "^$2=" "$1" || true; } | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
 gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
+# subsystem_tables SUBSYSTEM : prints sync/subsystems.conf's `<SUBSYSTEM>:<table>`
+# rows' table names, one per line -- the ONE parsing path task 050 (publications)
+# and task 060 (striding) both call, instead of each carrying its own
+# `grep | cut`. Fixes a real gap (code review, 2026-09-17): an untrimmed row --
+# trailing whitespace, or an inline `#` comment left on the line -- used to come
+# out with embedded whitespace in the table name. `pg_get_serial_sequence` then
+# returns NULL for that name, and the striding SQL only logged a NOTICE and
+# skipped it: a synced table silently left unstrided, with no failing check
+# anywhere -- an L-008 gap (two nodes could mint the same id for that table).
+# Now: strip a trailing `#...` comment, trim surrounding whitespace, skip the
+# `:all` aggregate row, and `fail` on any surviving name that is not a bare
+# lowercase identifier (naming the offending row) -- a typo'd or unquoted name
+# is a defect to catch here, not something to carry forward as a silent NOTICE.
+subsystem_tables(){
+  local subsystem="$1" conf="${REPO_DIR}/sync/subsystems.conf" line name
+  [ -f "$conf" ] || fail "subsystem_tables: no such file: $conf"
+  while IFS= read -r line; do
+    case "$line" in "${subsystem}:"*) ;; *) continue ;; esac
+    name="${line#*:}"                                                    # drop "<subsystem>:"
+    name="${name%%#*}"                                                   # drop a trailing comment
+    name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"  # trim
+    [ "$name" = "all" ] && continue
+    printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
+      || fail "sync/subsystems.conf: bad ${subsystem} table name '${name}' (row: ${line})"
+    printf '%s\n' "$name"
+  done < "$conf"
+}
 # Kafka cluster id: 22 chars of url-safe base64 over 16 random bytes, what
 # kafka-storage random-uuid produces, without needing the image.
 # Kafka's own Uuid.randomUuid() rejects ids whose base64 form starts with "-":

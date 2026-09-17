@@ -31,9 +31,10 @@ BEGIN
 END \$\$;
 SQL
 # Same table list the publication and MirrorMaker whitelist use (sync/subsystems.conf's
-# odoo: rows, the :all aggregate row excluded) -- one source of truth, passed to the SQL
-# as a comma-separated psql variable rather than duplicated as a second hard-coded array.
-ODOO_TABLES="$(grep -E '^odoo:' "${REPO_DIR}/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2 | tr '\n' ',' | sed 's/,$//')"
+# odoo: rows, the :all aggregate row excluded, trimmed and validated by subsystem_tables)
+# -- one source of truth, passed to the SQL as a comma-separated psql variable rather
+# than duplicated as a second hard-coded array.
+ODOO_TABLES="$(subsystem_tables odoo | tr '\n' ',' | sed 's/,$//')"
 [ -n "${ODOO_TABLES}" ] || fail "no odoo: rows found in ${REPO_DIR}/sync/subsystems.conf"
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < odoo/apply-odoo-sequence-striding.sql
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < odoo/apply-master-sequence-striding.sql
