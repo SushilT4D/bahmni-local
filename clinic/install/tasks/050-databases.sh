@@ -13,11 +13,11 @@ compose up -d bahmni-mysql bahmni-postgres >/dev/null
 # bahmni-mysql has no compose healthcheck; ask each server directly
 hm=0; hp=0
 for i in $(seq 1 60); do
-  ct exec "$MY" sh -c 'mysqladmin -uroot -p"$MYSQL_ROOT_PASSWORD" ping' >/dev/null 2>&1 && hm=1
-  ct exec "$PG" pg_isready -U postgres >/dev/null 2>&1 && hp=1
+  mysql_ready "$MY" && hm=1   # authenticated, over TCP: a ping passes against the image's temporary init server
+  ct exec "$PG" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 && hp=1   # over TCP: the postgres image's init server listens on the socket only
   [ "$hm" = 1 ] && [ "$hp" = 1 ] && break; sleep 5
 done
-[ "$hm" = 1 ] && [ "$hp" = 1 ] || fail "databases not answering after 5 min: mysql=$hm postgres=$hp"
+[ "$hm" = 1 ] && [ "$hp" = 1 ] || fail "databases not answering after 5 min: mysql=$hm postgres=$hp (mysql=0 means no authenticated answer over TCP yet: docker logs ${MY} | tail)"
 ok "bahmni-mysql and bahmni-postgres answer"
 # the flags must be in Config.Cmd, not only in the compose file (F-007)
 ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offset=${RESIDUE}" && ok "mysql runs with --auto-increment-offset=${RESIDUE}" || fail "mysql Config.Cmd lacks --auto-increment-offset=${RESIDUE}"

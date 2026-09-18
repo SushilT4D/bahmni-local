@@ -251,6 +251,13 @@ ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
 ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continue; basename "$f" .env; done; }
+# mysql_ready CONTAINER : true only when the FINAL server answers an authenticated query
+# over TCP. `mysqladmin ping` exits 0 even on "Access denied", and the official image's first
+# boot runs a temporary socket-only server whose root has no password yet; a wait built on
+# ping passes against it and the restore then dies with ERROR 1045 (manpur's fresh VM,
+# 2026-09-18; the hub rebuild met the same temp server). That server runs --skip-networking,
+# so 127.0.0.1 is the discriminator. MYSQL_PWD keeps the password off the command line.
+mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select 1"' 2>/dev/null)" = 1 ]; }
 # user_in_group_db GROUP : is $USER a member of GROUP in the group DATABASE? `id -nG`
 # with no argument lists the running PROCESS's groups, which never contain a group that
 # usermod added a moment ago -- and that is exactly the moment task 010 asks.

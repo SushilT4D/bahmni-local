@@ -203,4 +203,18 @@ assert_eq "no task or host layer reads group membership from the bare process li
 assert_eq "010 exits 75 only when the group is not yet activated for this run" "$(grep -c '_KRAFT_SG:-}" != 1 \] && \[ "$(detect_runtime)" = docker' "${HERE}/../tasks/010-host.sh")" "1"
 assert_eq "010 names the fault when docker is down after activation" "$(grep -c 'still does not answer after the docker group was activated' "${HERE}/../tasks/010-host.sh")" "1"
 
+# mysql_ready: an authenticated query over TCP, never `mysqladmin ping` -- ping exits 0 even on
+# "Access denied", so it passes against the image's temporary first-boot server (socket-only,
+# root not yet passworded) and the restore then dies with ERROR 1045 (manpur, 2026-09-18).
+: > "$TMP/ct.log"
+( ct(){ printf '%s\n' "$*" >> "$TMP/ct.log"; case "$*" in *-h127.0.0.1*"select 1"*) printf '1\n' ;; *) return 1 ;; esac; }
+  mysql_ready fake-mysql ); assert_rc "mysql_ready is true when the authenticated TCP query answers 1" "$?" 0
+assert_eq "mysql_ready asks over TCP (the temp server runs --skip-networking)" "$(grep -c -- '-h127.0.0.1' "$TMP/ct.log")" "1"
+assert_eq "mysql_ready never uses mysqladmin ping" "$(grep -c mysqladmin "$TMP/ct.log")" "0"
+assert_eq "mysql_ready keeps the password off the command line" "$(grep -cE -- ' -p"?\$' "$TMP/ct.log")" "0"
+( ct(){ printf 'ERROR 1045 (28000): Access denied\n' >&2; return 1; }; mysql_ready fake-mysql ); assert_rc "mysql_ready is false on access denied" "$?" 1
+( ct(){ return 0; }; mysql_ready fake-mysql ); assert_rc "mysql_ready is false when the server answers nothing" "$?" 1
+assert_eq "task 050 waits with mysql_ready, not mysqladmin" "$(grep -c mysqladmin "${HERE}/../tasks/050-databases.sh")/$(grep -c 'mysql_ready "\$MY"' "${HERE}/../tasks/050-databases.sh")" "0/1"
+assert_eq "task 050 asks postgres over TCP too (its init server is socket-only)" "$(grep -c 'pg_isready -h 127.0.0.1' "${HERE}/../tasks/050-databases.sh")" "1"
+
 exit "$fails"
