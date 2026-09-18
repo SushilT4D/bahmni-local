@@ -183,7 +183,7 @@ Each task is idempotent, ends with a value read back from the live system
 
 | Task | Proves |
 |---|---|
-| `000-preflight` | The base network and both containers exist; the declared Postgres superuser can actually log in (named in the failure if not); base MySQL/Postgres (and the ELIS Postgres too, when it's a separate container) meet the contract above, Postgres major >= 10 included; the docker storage pool has room and the host has memory. |
+| `000-preflight` | The base network and both containers exist; `CLOUD_MYSQL_HOST` (the down-source's dial target, normally `BASE_MYSQL_CONTAINER`'s own value) is itself a running container too, so a stale value can never reach `080` silently; the declared Postgres superuser can actually log in (named in the failure if not); base MySQL/Postgres (and the ELIS Postgres too, when it's a separate container) meet the contract above, Postgres major >= 10 included; the docker storage pool has room and the host has memory. |
 | `020-env` | `hub/.env` is composed, every `HUB_KEYS` entry is present and non-empty, the file is mode 600, and every value round-trips through actually `.`-sourcing the file (not just `env_get`'s own parse of it). |
 | `030-jaas` | `kafka_server_jaas.conf` is generated (never hand-written or committed) with the admin and mirrormaker users, mode 600; `hub/connectors/` exists. |
 | `040-images` | Every image `docker compose config --images` names is present locally. |

@@ -22,6 +22,21 @@ running="$(ct inspect --format '{{.State.Running}}' "$BASE_MYSQL_CONTAINER" 2>/d
 running="$(ct inspect --format '{{.State.Running}}' "$BASE_PG_CONTAINER" 2>/dev/null || true)"
 [ "$running" = true ] && ok "base pg container ${BASE_PG_CONTAINER} running" || fail "base pg container ${BASE_PG_CONTAINER} running=${running:-<not found>} (want true)"
 
+# 1b. CLOUD_MYSQL_HOST (residual fix round 2): the down-direction Debezium
+# source dials this name over Docker's own resolution on KAFKA_BASE_NETWORK
+# (hub_compose_env derives it from BASE_MYSQL_CONTAINER, and the two are
+# meant to track each other), so it must itself name a running container --
+# checked here, by name, exactly like BASE_MYSQL_CONTAINER just above,
+# because nothing else in this task, 020, or 050 ever reads it. Before this
+# check existed, a stale hub/.env (CLOUD_MYSQL_HOST left over from an
+# earlier attempt, pointing at a container that no longer applies -- e.g.
+# the documented Azure recovery, which moves BASE_MYSQL_CONTAINER but never
+# mentions CLOUD_MYSQL_HOST) sailed straight through 000/020/050, and 080
+# was the first thing to notice, 180s into its RUNNING wait, naming nothing
+# useful. The failure below names the actual (wrong) value.
+running="$(ct inspect --format '{{.State.Running}}' "$CLOUD_MYSQL_HOST" 2>/dev/null || true)"
+[ "$running" = true ] && ok "down-source host ${CLOUD_MYSQL_HOST} (CLOUD_MYSQL_HOST) running" || fail "down-source host ${CLOUD_MYSQL_HOST} (CLOUD_MYSQL_HOST) running=${running:-<not found>} (want true)"
+
 # 2. base MySQL: fit for a Debezium source at residue 0 (root password comes
 # from the container's own environment -- MYSQL_PWD is expanded by the sh
 # inside the container, never by us, so it never appears on a command line).

@@ -4,11 +4,16 @@
 # actually written. hub_compose_env's own put() only fills a key still empty,
 # so calling it again here is idempotent -- a resume never regenerates a
 # secret, and the runner having already composed hub/.env before the task
-# loop (install.sh) is not a problem, just a no-op refresh. The seven base
-# coordinates (put_coord, hub/install/lib.sh) are the deliberate exception:
-# the install command's environment overrides the stored value for those on
-# EVERY run, not just the first -- see the "taken from the environment" line
-# below.
+# loop (install.sh) is not a problem, just a no-op refresh. Eight base
+# coordinates (put_coord/put_derived, hub/install/lib.sh) are the deliberate
+# exception: the install command's environment overrides the stored value for
+# those on EVERY run, not just the first -- see the "taken from the
+# environment" line below. Three of the eight (BASE_ELIS_CONTAINER,
+# BASE_ELIS_SUPERUSER, CLOUD_MYSQL_HOST) can ALSO be silently rewritten with
+# no environment variable of their own set at all, when the coordinate they
+# derive from moved this run (residual fix round 2) -- that rewrite does not
+# add the derived key's own name to the line below (see put_derived's
+# comment): only a key whose OWN environment variable was read appears there.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "20 · hub/.env"
@@ -16,11 +21,14 @@ begin_task "20 · hub/.env"
 
 hub_compose_env "$BASE_ENV" "$SECRETS" "${HUB_DIR}/.env"
 
-# Names only, never values (final review residual fix, item 1): these seven
-# are not secrets, so the names -- which are all this prints -- expose
-# nothing. HUB_COMPOSE_ENV_FROM_ENV is set by hub_compose_env/put_coord,
-# space-separated, empty when none of the seven were set in the environment
-# this run.
+# Names only, never values: none of the eight coordinates are secrets, so
+# the names -- which are all this prints -- expose nothing. This line names
+# only the coordinates whose OWN environment variable was read this run, not
+# a derived one silently rewritten because its upstream moved (put_derived,
+# hub/install/lib.sh) -- the upstream's own name already appears when that
+# happens, which is what the operator actually set. HUB_COMPOSE_ENV_FROM_ENV
+# is set by hub_compose_env/put_coord/put_derived, space-separated, empty
+# when none of the eight were set in the environment this run.
 if [ -n "${HUB_COMPOSE_ENV_FROM_ENV:-}" ]; then
   info "base coordinates taken from the install command's environment this run:${HUB_COMPOSE_ENV_FROM_ENV}"
 else

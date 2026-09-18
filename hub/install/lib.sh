@@ -62,17 +62,27 @@ KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
 # (sync/hub.env), the base stack's .env (root credentials, existing sink
 # passwords) and the operator's secrets file (the fleet SASL password). Values
 # already in OUT are kept, so a resume never regenerates a secret -- with one
-# deliberate exception: the seven non-secret base-deployment coordinates
-# (KAFKA_BASE_NETWORK, BASE_MYSQL_CONTAINER, BASE_PG_CONTAINER,
-# BASE_PG_SUPERUSER, BASE_ELIS_CONTAINER, BASE_ELIS_SUPERUSER,
-# KAFKA_SASL_BIND) go through put_coord below, not put: the install command's
+# deliberate exception: eight non-secret base-deployment coordinates go
+# through put_coord/put_derived below, not put: the install command's
 # environment overrides whatever is already stored on EVERY run, not just the
-# first. Residual fix: `put`'s keep-existing rule made the "environment first"
-# precedence documented at each call site below a dead letter after the first
-# run -- a first attempt on the Azure hub that omitted BASE_PG_SUPERUSER baked
-# "postgres" into hub/.env, task 000 then failed telling the operator to set
-# BASE_PG_SUPERUSER in the environment, and doing so and rerunning changed
-# nothing, because `put` saw an already-non-empty slot and left it alone.
+# first. Five take the environment or a fixed/base-.env default
+# (KAFKA_BASE_NETWORK, BASE_MYSQL_CONTAINER, BASE_PG_CONTAINER,
+# BASE_PG_SUPERUSER, KAFKA_SASL_BIND); three also accept the environment but
+# otherwise DERIVE from another coordinate's CURRENT value, not a fixed one
+# (BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER from BASE_PG_CONTAINER/
+# BASE_PG_SUPERUSER; CLOUD_MYSQL_HOST from BASE_MYSQL_CONTAINER) -- see
+# put_derived's own comment below for why the derived three needed a second
+# round. Residual fix round 1: `put`'s keep-existing rule made the
+# "environment first" precedence documented at each call site below a dead
+# letter after the first run -- a first attempt on the Azure hub that omitted
+# BASE_PG_SUPERUSER baked "postgres" into hub/.env, task 000 then failed
+# telling the operator to set BASE_PG_SUPERUSER in the environment, and doing
+# so and rerunning changed nothing, because `put` saw an already-non-empty
+# slot and left it alone. Residual fix round 2: put_coord's fix was not
+# transitive -- BASE_ELIS_CONTAINER/CLOUD_MYSQL_HOST/etc. still read a
+# possibly-STALE upstream value out of OUT itself when they had no override
+# of their own, rather than the upstream's newly-overridden value from this
+# same run (see put_derived).
 hub_compose_env(){
   local base="$1" secrets="$2" out="$3" k v
   [ -f "$base" ] || fail "base .env not found: $base"
@@ -82,15 +92,22 @@ hub_compose_env(){
   # shellcheck disable=SC1090
   local bs="$(set -a; . "$HUB_ENV"; set +a; printf '%s' "${REMOTE_KAFKA_BOOTSTRAP_SERVERS:?}")"
   # HUB_COMPOSE_ENV_FROM_ENV (deliberately NOT local): 020-env.sh reads it
-  # back right after calling this function, to print which of the seven base
-  # coordinates below were taken from the install command's environment on
-  # THIS run (names only -- these seven are not secrets, so the names, which
-  # are all this prints, expose nothing). Reset on every call so a second
+  # back right after calling this function, to print which of the eight base
+  # coordinates below had THEIR OWN environment variable set this run (names
+  # only -- none of the eight are secrets, so the names, which are all this
+  # prints, expose nothing). A put_derived coordinate that was only
+  # re-derived from an upstream's new value -- not given its own override --
+  # does NOT get added here; the upstream's own name already appears, which
+  # is the fact worth telling an operator. Reset on every call so a second
   # call in the same process (tests, or a resume that re-composes hub/.env
   # before the task loop) never carries over stale names from an earlier call.
   HUB_COMPOSE_ENV_FROM_ENV=""
   put(){ [ -n "$(env_get "$out" "$1")" ] || env_put "$out" "$1" "$2"; }
-  # put_coord KEY ENV_VALUE DEFAULT : for the seven base coordinates only.
+  # put_coord KEY ENV_VALUE DEFAULT : for the five base coordinates whose
+  # non-environment default is fixed or comes from the base .env (the other
+  # three -- BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER/CLOUD_MYSQL_HOST -- use
+  # put_derived below instead, because their default is ANOTHER coordinate's
+  # value, which can itself change this run).
   # ENV_VALUE is the candidate already read from the install command's
   # environment (e.g. "${BASE_PG_SUPERUSER:-}"). Non-empty: written
   # unconditionally, EVERY run, overriding whatever is already stored in
@@ -107,6 +124,51 @@ hub_compose_env(){
       HUB_COMPOSE_ENV_FROM_ENV="${HUB_COMPOSE_ENV_FROM_ENV:+${HUB_COMPOSE_ENV_FROM_ENV} }${k}"
     else
       put "$k" "$dflt"
+    fi
+  }
+  # put_derived KEY ENV_VALUE UPSTREAM : for a coordinate whose default is
+  # ITSELF another coordinate's value, not a fixed/base-.env one --
+  # CLOUD_MYSQL_HOST (from BASE_MYSQL_CONTAINER) and the BASE_ELIS_* pair
+  # (from BASE_PG_*). Residual fix round 2: put_coord alone was not enough
+  # for these three -- its empty-ENV_VALUE branch called put() with
+  # UPSTREAM's CURRENT value, which only reached a fresh (never-before-
+  # written) slot; on a rerun where KEY already had a stored value from an
+  # earlier compose, put() kept that stale value even when UPSTREAM had just
+  # moved underneath it THIS run. Concretely: BASE_MYSQL_CONTAINER moves from
+  # cloud-openmrsdb-1 to the Azure hub's real iplit-base-openmrsdb-1, but a
+  # hub/.env already carrying CLOUD_MYSQL_HOST=cloud-openmrsdb-1 from a first
+  # attempt kept it -- 000/020/050 all pass (none of them read
+  # CLOUD_MYSQL_HOST), and 080 fails 180s later at its RUNNING wait, naming
+  # nothing (the down-source dials a container that does not exist).
+  #
+  # Three-way precedence, checked in order: (1) ENV_VALUE non-empty -- KEY's
+  # OWN environment variable is set, so it wins unconditionally, every run,
+  # exactly like put_coord, and is recorded in HUB_COMPOSE_ENV_FROM_ENV since
+  # it truly was taken from the environment. (2) ENV_VALUE empty but UPSTREAM
+  # was itself just taken from the environment THIS run (already present in
+  # HUB_COMPOSE_ENV_FROM_ENV, which every UPSTREAM this function is ever
+  # called with appends to via put_coord/put_derived BEFORE the derived call
+  # below it runs) -- KEY is force-rewritten to UPSTREAM's now-current value
+  # in OUT, unconditionally, so a stale KEY can never survive its upstream
+  # moving. This does NOT add KEY itself to HUB_COMPOSE_ENV_FROM_ENV: KEY was
+  # not taken from the environment, only re-derived from something that was
+  # -- UPSTREAM's own name already appears on that line, which is the
+  # meaningful fact for an operator reading it. (3) Neither -- put()'s
+  # ordinary keep-existing-else-UPSTREAM's-current-value rule, byte-identical
+  # to this function's behavior before round 2 (no regression for the
+  # nothing-changed path: a fresh OUT still gets KEY defaulted from UPSTREAM,
+  # and an unrelated rerun still keeps KEY's existing value).
+  put_derived(){
+    local k="$1" env_v="$2" upstream="$3" upstream_val
+    upstream_val="$(env_get "$out" "$upstream")"
+    if [ -n "$env_v" ]; then
+      env_put "$out" "$k" "$env_v"
+      HUB_COMPOSE_ENV_FROM_ENV="${HUB_COMPOSE_ENV_FROM_ENV:+${HUB_COMPOSE_ENV_FROM_ENV} }${k}"
+    else
+      case " ${HUB_COMPOSE_ENV_FROM_ENV} " in
+        *" ${upstream} "*) env_put "$out" "$k" "$upstream_val" ;;
+        *) put "$k" "$upstream_val" ;;
+      esac
     fi
   }
   put REMOTE_KAFKA_HOST "${bs%%:*}"
@@ -158,24 +220,40 @@ hub_compose_env(){
   put_coord BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-}" "cloud-openelisdb-1"
   # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
   # databases on the mini and every clinic, so these default straight from
-  # the BASE_PG_* values just set above (read back from $out, same reason
-  # CLOUD_MYSQL_HOST reads BASE_MYSQL_CONTAINER back below rather than the
-  # shell variable -- a pre-existing value already in $out must win over a
-  # fresh default). IPLIT's real hub base is the one deployment that differs:
-  # it runs Odoo and OpenELIS in two separate Postgres containers with
-  # different bootstrap superusers (iplit-base-odoodb-1/odoo,
-  # iplit-base-openelisdb-1/clinlims -- docs/sync-core/runbooks/hub-build-and-
-  # connect.md's container table), where an operator sets both keys
-  # explicitly before running the installer -- put_coord means that
-  # environment wins on every run here too, not just the first.
-  put_coord BASE_ELIS_CONTAINER "${BASE_ELIS_CONTAINER:-}" "$(env_get "$out" BASE_PG_CONTAINER)"
-  put_coord BASE_ELIS_SUPERUSER "${BASE_ELIS_SUPERUSER:-}" "$(env_get "$out" BASE_PG_SUPERUSER)"
-  # The down-source dials the base stack's own MySQL by container name on the
-  # shared KAFKA_BASE_NETWORK (Docker resolves it), so its default is simply
-  # whatever BASE_MYSQL_CONTAINER was just set to above -- read back from $out,
-  # not from the shell variable, so a pre-existing BASE_MYSQL_CONTAINER value
-  # already in $out (not just an env override) is still picked up correctly.
-  put CLOUD_MYSQL_HOST "$(env_get "$out" BASE_MYSQL_CONTAINER)"
+  # the BASE_PG_* values just set above. put_derived (residual fix round 2,
+  # displaced Important): when the operator gives BASE_PG_CONTAINER/
+  # BASE_PG_SUPERUSER in the environment this run but does NOT also give the
+  # ELIS pair (e.g. a resume that only touches the Odoo side, or an operator
+  # who assumes -- as the one-container default implies -- that ELIS "just
+  # follows"), the ELIS pair must move WITH BASE_PG_* rather than keep
+  # whatever was stored from an earlier run. IPLIT's real hub base is the one
+  # deployment that differs enough to matter: it runs Odoo and OpenELIS in
+  # two separate Postgres containers with different bootstrap superusers
+  # (iplit-base-odoodb-1/odoo, iplit-base-openelisdb-1/clinlims --
+  # docs/sync-core/runbooks/hub-build-and-connect.md's container table),
+  # where an operator sets all four explicitly (hub/README.md's documented
+  # command does) -- put_derived's own-environment branch (case 1, same as
+  # put_coord) covers that case unchanged.
+  put_derived BASE_ELIS_CONTAINER "${BASE_ELIS_CONTAINER:-}" BASE_PG_CONTAINER
+  put_derived BASE_ELIS_SUPERUSER "${BASE_ELIS_SUPERUSER:-}" BASE_PG_SUPERUSER
+  # CLOUD_MYSQL_HOST: the down-source dials the base stack's own MySQL by
+  # container name on the shared KAFKA_BASE_NETWORK (Docker resolves it), so
+  # it defaults to whatever BASE_MYSQL_CONTAINER resolved to above. Also
+  # put_derived, and also a coordinate now in its own right (residual fix
+  # round 2): the re-review's exact worked example. hub/README.md's Azure
+  # command never mentions CLOUD_MYSQL_HOST at all (nothing sets it), so a
+  # first attempt with no environment left it defaulted to
+  # cloud-openmrsdb-1; the documented recovery attempt then moved
+  # BASE_MYSQL_CONTAINER to iplit-base-openmrsdb-1 in the environment, and
+  # before this fix CLOUD_MYSQL_HOST -- never itself an environment
+  # candidate, and already non-empty in $out from attempt 1 -- silently kept
+  # dialing a container that does not exist on that host. 000/020/050 never
+  # read CLOUD_MYSQL_HOST, so all three passed; 080 was the first thing to
+  # notice, 180s into its RUNNING wait, naming nothing useful (000-preflight
+  # now also asserts it directly -- see the container-running check below).
+  # An operator CAN also set CLOUD_MYSQL_HOST directly (case 1) for a
+  # down-source host that genuinely is not BASE_MYSQL_CONTAINER.
+  put_derived CLOUD_MYSQL_HOST "${CLOUD_MYSQL_HOST:-}" BASE_MYSQL_CONTAINER
   put CLOUD_MYSQL_PORT 3306
   put CLOUD_MYSQL_DATABASE openmrs
   put ODOO_DB_PASSWORD "$(env_get "$base" ODOO_DB_PASSWORD)"

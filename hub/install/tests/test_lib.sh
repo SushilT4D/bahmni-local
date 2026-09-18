@@ -177,6 +177,67 @@ assert_eq "run 3: BASE_ELIS_SUPERUSER keeps run 2's value, not reverted" "$(env_
 assert_eq "run 3: KAFKA_SASL_BIND keeps run 2's value, not reverted" "$(env_get "$OUT4" KAFKA_SASL_BIND)" "127.0.0.1"
 assert_eq "run 3: KAFKA_ADMIN_PASSWORD still keeps run 1's first value" "$(env_get "$OUT4" KAFKA_ADMIN_PASSWORD)" "$run1_admin_pw"
 
+# --- residual fix round 2: the env-wins rewrite must be TRANSITIVE ----------
+# The re-review's displaced Important: round 1's put_coord only made a
+# coordinate's OWN environment variable win every run. CLOUD_MYSQL_HOST had
+# no such treatment at all (plain put, deriving from whatever
+# BASE_MYSQL_CONTAINER happened to be STORED in $out) and BASE_ELIS_CONTAINER/
+# BASE_ELIS_SUPERUSER's own put_coord fallback (no ELIS override given) also
+# read the STORED BASE_PG_* rather than this run's possibly-new one.
+# put_derived (hub/install/lib.sh) fixes both. Three scenarios below, kept
+# separate rather than folded into the run1/run2/run3 block above so each
+# maps onto exactly one sentence of the ruling.
+
+# Scenario A -- the re-review's own worked example, verbatim: the documented
+# Azure recovery is two attempts (hub/README.md's Install section), and
+# CLOUD_MYSQL_HOST is never part of that documented command at all (nothing
+# ever sets it directly) -- it must still follow BASE_MYSQL_CONTAINER on
+# attempt 2, not keep attempt 1's now-wrong value.
+mkdir -p "$TMP/hub-azure-recovery"; OUT5="$TMP/hub-azure-recovery/.env"
+( unset $coord_vars CLOUD_MYSQL_HOST
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT5" >/dev/null )
+assert_eq "azure recovery, attempt 1 (no environment): BASE_MYSQL_CONTAINER default" "$(env_get "$OUT5" BASE_MYSQL_CONTAINER)" "cloud-openmrsdb-1"
+assert_eq "azure recovery, attempt 1: CLOUD_MYSQL_HOST follows the default" "$(env_get "$OUT5" CLOUD_MYSQL_HOST)" "cloud-openmrsdb-1"
+attempt2_from_env="$( ( export KAFKA_BASE_NETWORK=iplit-base_default BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 \
+         BASE_PG_CONTAINER=iplit-base-odoodb-1 BASE_PG_SUPERUSER=odoo \
+         BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 BASE_ELIS_SUPERUSER=clinlims
+  unset CLOUD_MYSQL_HOST
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT5" >/dev/null
+  printf '%s' "$HUB_COMPOSE_ENV_FROM_ENV" ) )"
+assert_eq "azure recovery, attempt 2 (the documented full command): BASE_MYSQL_CONTAINER moves to the real container" "$(env_get "$OUT5" BASE_MYSQL_CONTAINER)" "iplit-base-openmrsdb-1"
+assert_eq "azure recovery, attempt 2: CLOUD_MYSQL_HOST follows it -- the re-review's exact bug (was: stuck on cloud-openmrsdb-1, a container that does not exist on this hub)" \
+  "$(env_get "$OUT5" CLOUD_MYSQL_HOST)" "iplit-base-openmrsdb-1"
+assert_eq "azure recovery, attempt 2: CLOUD_MYSQL_HOST's rewrite is NOT listed as environment-sourced (only BASE_MYSQL_CONTAINER's own name is -- CLOUD_MYSQL_HOST was derived, not itself overridden)" \
+  "$(case " $attempt2_from_env " in *' CLOUD_MYSQL_HOST '*) echo present ;; *) echo absent ;; esac)" "absent"
+assert_eq "azure recovery, attempt 2: BASE_MYSQL_CONTAINER IS listed as environment-sourced" \
+  "$(case " $attempt2_from_env " in *' BASE_MYSQL_CONTAINER '*) echo present ;; *) echo absent ;; esac)" "present"
+
+# Scenario B -- isolates the BASE_ELIS_* transitivity fix on its own, in the
+# one shape where it is not masked by an explicit ELIS override: the
+# operator moves BASE_PG_CONTAINER/BASE_PG_SUPERUSER via the environment on a
+# resume (e.g. correcting only the Odoo side) but does NOT also give
+# BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER -- as the one-container default
+# implies they need not. A stale ELIS pair from an earlier run must move
+# WITH BASE_PG_*, not stay put.
+mkdir -p "$TMP/hub-elis-transitive"; OUT6="$TMP/hub-elis-transitive/.env"
+( unset $coord_vars
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT6" >/dev/null )
+assert_eq "elis transitivity, attempt 1: BASE_ELIS_CONTAINER defaults from BASE_PG_CONTAINER" "$(env_get "$OUT6" BASE_ELIS_CONTAINER)" "cloud-openelisdb-1"
+( export BASE_PG_CONTAINER=iplit-base-odoodb-1 BASE_PG_SUPERUSER=odoo
+  unset BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT6" >/dev/null )
+assert_eq "elis transitivity, attempt 2: BASE_PG_CONTAINER moves via the environment" "$(env_get "$OUT6" BASE_PG_CONTAINER)" "iplit-base-odoodb-1"
+assert_eq "elis transitivity, attempt 2: BASE_ELIS_CONTAINER follows it, not the stale value (the displaced Important, generalized)" "$(env_get "$OUT6" BASE_ELIS_CONTAINER)" "iplit-base-odoodb-1"
+assert_eq "elis transitivity, attempt 2: BASE_ELIS_SUPERUSER follows BASE_PG_SUPERUSER, not the stale value" "$(env_get "$OUT6" BASE_ELIS_SUPERUSER)" "odoo"
+
+# Scenario C -- CLOUD_MYSQL_HOST given explicitly in the environment wins
+# over the derivation, even when BASE_MYSQL_CONTAINER also moves the same
+# run (own-environment precedence, same rule as every put_coord key).
+mkdir -p "$TMP/hub-cloudhost-explicit"; OUT7="$TMP/hub-cloudhost-explicit/.env"
+( export BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 CLOUD_MYSQL_HOST=explicit-down-source-host
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT7" >/dev/null )
+assert_eq "CLOUD_MYSQL_HOST given explicitly wins over the BASE_MYSQL_CONTAINER-derived value" "$(env_get "$OUT7" CLOUD_MYSQL_HOST)" "explicit-down-source-host"
+
 # --- git_dirty_hub_paths (final review, Minor 10): pure classifier ----------
 # Task 090 passes `git status --porcelain` through this and fails only on what
 # it prints, so that a hub host's own deliberate edits to the BASE stack's
