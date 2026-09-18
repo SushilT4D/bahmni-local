@@ -157,7 +157,7 @@ cleanup(){
     done
   fi
   [ -f "$env_path" ] && dc down -v >/dev/null 2>&1 || true
-  for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f "$c" >/dev/null 2>&1 || true; done
+  for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
   ct network rm "$NET" >/dev/null 2>&1 || true
   # The whole throwaway tree, secrets and rendered configs included. Nothing
   # under the real hub/ was ever written, so there is nothing to restore.
@@ -171,7 +171,7 @@ trap cleanup EXIT
 # creating anything new so a stale run never collides with this one. Temp
 # FILES need no such sweep any more: every one this run creates lives under
 # $TMP_ROOT, which nothing else shares.
-for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f "$c" >/dev/null 2>&1 || true; done
+for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
 ct network rm "$NET" >/dev/null 2>&1 || true
 docker volume rm -f "${PROJ}_kafka-data" "${PROJ}_kafka-controller-data" "${PROJ}_connect-data" >/dev/null 2>&1 || true
 ok "pre-run cleanup: no leftover hubtest-* containers, network or volumes"
