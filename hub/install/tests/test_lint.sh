@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pure static checks over the hub's own tracked files -- no docker, no network,
-# no hub/.env. Two classes, both found by the final whole-branch review:
+# no hub/.env. Three classes, all found by real rehearsals:
 #
 #  1. WAIT-LOOP LINT (Important 3). Every task runs under `set -euo pipefail`
 #     with lib.sh's ERR trap armed, so a BARE command substitution assignment
@@ -18,6 +18,16 @@
 #     IPLIT base would send Odoo's up-sinks at the OpenELIS instance), and every
 #     script that RENDERS a connector config with a live password substituted in
 #     must create it mode 600, never the default 644.
+#
+#  3. PREFLIGHT MAINTENANCE-DATABASE PIN (Azure rehearsal stop 2, 2026-09-18,
+#     037d284). libpq defaults an unqualified connection's database to the
+#     ROLE name -- true for postgres/odoo, but IPLIT's own clinlims role has
+#     no "clinlims" database (only openelis + postgres). Every psql read in
+#     000-preflight.sh's three Postgres-reading helpers must therefore name
+#     `-d postgres` (the maintenance database, present on every instance)
+#     explicitly, so a future edit can never drop it silently and reintroduce
+#     the exact defect hub/install/tests/test_sources.sh's two-instance base
+#     now exercises live.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HUB="$(cd "$HERE/../.." && pwd)"
@@ -119,5 +129,41 @@ done
 grep -q 'chmod 600 "\$GENERATED"' "$HUB/install/tasks/080-sources.sh" \
   && ok "080-sources.sh chmods the rendered mysql source config to 600" \
   || bad "080-sources.sh does not chmod the rendered mysql source config to 600"
+
+# --- 3. every 000-preflight.sh Postgres-reading helper names -d postgres ----
+# One assertion per helper: pg_connect_ok (multi-line function -- extracted
+# with sed between its opening line and the next line that is a bare `}`),
+# and pg_setting/elis_setting (both one-liners: `name(){ ...; }` on a single
+# line, so a whole-function sed range would never close). A future edit that
+# drops -d postgres from any one of the three must fail exactly this check,
+# not a live docker run five minutes into the smoke.
+PREFLIGHT="$HUB/install/tasks/000-preflight.sh"
+pg_connect_ok_body="$(sed -n '/^pg_connect_ok(){/,/^}/p' "$PREFLIGHT")"
+if [ -n "$pg_connect_ok_body" ]; then
+  case "$pg_connect_ok_body" in
+    *'-d postgres'*) ok "pg_connect_ok's psql read(s) name -d postgres explicitly" ;;
+    *) bad "pg_connect_ok no longer names -d postgres -- libpq would default the database to the role name (Azure rehearsal stop 2 regression)" ;;
+  esac
+else
+  bad "could not find pg_connect_ok(){ ... } in ${PREFLIGHT} to check"
+fi
+pg_setting_line="$(grep -F 'pg_setting(){' "$PREFLIGHT" || true)"
+if [ -n "$pg_setting_line" ]; then
+  case "$pg_setting_line" in
+    *'-d postgres'*) ok "pg_setting's psql read names -d postgres explicitly" ;;
+    *) bad "pg_setting no longer names -d postgres -- libpq would default the database to the role name (Azure rehearsal stop 2 regression)" ;;
+  esac
+else
+  bad "could not find pg_setting(){ ... } in ${PREFLIGHT} to check"
+fi
+elis_setting_line="$(grep -F 'elis_setting(){' "$PREFLIGHT" || true)"
+if [ -n "$elis_setting_line" ]; then
+  case "$elis_setting_line" in
+    *'-d postgres'*) ok "elis_setting's psql read names -d postgres explicitly" ;;
+    *) bad "elis_setting no longer names -d postgres -- libpq would default the database to the role name (Azure rehearsal stop 2 regression)" ;;
+  esac
+else
+  bad "could not find elis_setting(){ ... } in ${PREFLIGHT} to check"
+fi
 
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))
