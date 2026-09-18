@@ -77,11 +77,15 @@ bad="$(binlog_ok "$mf" "$mi" "$mr" "$ms" "$minc" "$moff" "$CLOUD_DEBEZIUM_SERVER
 # socket) so "role \"postgres\" does not exist" reaches the operator verbatim.
 pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
   local c="$1" su="$2" label="$3" out
-  out="$(ct exec "$c" psql -U "$su" -Atc 'select 1' 2>&1)" || true
+  # -d postgres: without -d, libpq defaults the database to the ROLE name, which
+  # exists for postgres/odoo but not for IPLIT's clinlims (databases openelis +
+  # postgres) -- the Azure rehearsal's second stop, 2026-09-18. The maintenance
+  # database exists on every instance; every read here is cluster-wide.
+  out="$(ct exec "$c" psql -U "$su" -d postgres -Atc 'select 1' 2>&1)" || true
   [ "$out" = 1 ] && return 0
   fail "${label}: cannot connect to container ${c} as Postgres role \"${su}\" -- psql said: ${out}. Set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the role that base actually bootstrapped (IPLIT's base: odoo and clinlims) in the install command's environment -- the environment overrides the stored value on every run, so this takes effect immediately on the next attempt."
 }
-pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -Atc "show $1"; }
+pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -d postgres -Atc "show $1"; }
 pg_connect_ok "$BASE_PG_CONTAINER" "$BASE_PG_SUPERUSER" "base pg"
 ok "base pg ${BASE_PG_CONTAINER} accepts role ${BASE_PG_SUPERUSER}"
 # Postgres major >= 10 (final review, Minor 14): pgoutput (every source here
@@ -110,7 +114,7 @@ if [ -n "${BASE_ELIS_CONTAINER:-}" ] && [ "${BASE_ELIS_CONTAINER}" != "${BASE_PG
   elis_su="${BASE_ELIS_SUPERUSER:-$BASE_PG_SUPERUSER}"
   running="$(ct inspect --format '{{.State.Running}}' "$BASE_ELIS_CONTAINER" 2>/dev/null || true)"
   [ "$running" = true ] && ok "base elis container ${BASE_ELIS_CONTAINER} running" || fail "base elis container ${BASE_ELIS_CONTAINER} running=${running:-<not found>} (want true)"
-  elis_setting(){ ct exec "$BASE_ELIS_CONTAINER" psql -U "$elis_su" -Atc "show $1"; }
+  elis_setting(){ ct exec "$BASE_ELIS_CONTAINER" psql -U "$elis_su" -d postgres -Atc "show $1"; }
   pg_connect_ok "$BASE_ELIS_CONTAINER" "$elis_su" "base elis"
   ok "base elis ${BASE_ELIS_CONTAINER} accepts role ${elis_su}"
   pvnum="$(elis_setting server_version_num 2>/dev/null || true)"
