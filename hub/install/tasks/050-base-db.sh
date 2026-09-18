@@ -144,6 +144,22 @@ SQL
 create_pg_sink_role odoo_sink "$ODOO_SINK_PASSWORD" odoo public
 create_pg_sink_role clinlims_sink "$CLINLIMS_SINK_PASSWORD" openelis clinlims
 
+# The SOURCE roles (the base's own odoo and clinlims, which the hub's Debezium
+# sources log in as) must carry REPLICATION to start a WAL sender. On IPLIT's
+# own images they do; on a stock postgres:16 substitute the owner role does
+# not (Azure rehearsal stop 6, 2026-09-18: clinlims-cloud-source's task FAILED
+# with "permission denied to start WAL sender"). Idempotent, read back.
+ensure_source_replication(){ # ROLE DB
+  local role="$1" db="$2" got
+  printf "ALTER ROLE %s WITH REPLICATION;\n" "$role" | pg_admin "$db" >/dev/null \
+    || fail "source role ${role} in ${db}: ALTER ROLE ... WITH REPLICATION was refused (is the declared superuser for this instance a real superuser?)"
+  got="$(printf "select rolreplication from pg_roles where rolname = '%s';" "$role" | pg_admin "$db" -At 2>/dev/null)" || true
+  [ "$got" = t ] && ok "source role ${role} in ${db} may start a WAL sender (rolreplication=t)" \
+    || fail "source role ${role} in ${db}: rolreplication=${got:-<none>} after the grant (does the role exist on this instance?)"
+}
+ensure_source_replication odoo odoo
+ensure_source_replication clinlims openelis
+
 # pg_login_ok HOST DB USER PASSWORD : same proof as mysql_login_ok, over psql
 # -- runs the psql CLIENT from inside the container that actually hosts DB
 # (PG for odoo, ELIS for openelis), same dispatch as pg_admin/pg_admin_pw

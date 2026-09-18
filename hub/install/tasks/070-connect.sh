@@ -31,9 +31,24 @@ UI_URL="${HUB_KAFKA_UI_URL_OVERRIDE:-http://127.0.0.1:8080}"
 
 compose up -d kafka-connect kafka-ui >/dev/null
 
-for i in $(seq 1 60); do curl -sf --max-time 5 "${CONNECT_URL}/connector-plugins" >/dev/null 2>&1 && break; sleep 5; done
-plugins="$(curl -s "${CONNECT_URL}/connector-plugins" | jq -r '.[].class' | grep -cE 'MySqlConnector|PostgresConnector|JdbcSinkConnector' || true)"
-[ "$plugins" = 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink" || fail "connect plugins missing (${plugins:-0}/3) -- are the jars mounted as files?"
+# Wait until the REST API lists the three connector classes -- not merely
+# until the port answers: while Jetty binds, /connector-plugins answers 404
+# (or an empty list while plugins load), and a single read after a bare
+# port wait failed the Azure rehearsal's first 070 run. Bound 10 min, a
+# progress line every 30 s, the last HTTP code and count in the failure.
+plugins=0; code=000
+for i in $(seq 1 120); do
+  code="$(curl -s -o /tmp/.hub-plugins.$$ -w '%{http_code}' --max-time 5 "${CONNECT_URL}/connector-plugins" 2>/dev/null)" || code=000
+  if [ "$code" = 200 ]; then
+    plugins="$(jq -r '.[].class' /tmp/.hub-plugins.$$ 2>/dev/null | grep -cE 'MySqlConnector|PostgresConnector|JdbcSinkConnector')" || plugins=0
+    [ "${plugins:-0}" -ge 3 ] && break
+  fi
+  [ $((i % 6)) -eq 0 ] && info "still waiting for kafka-connect's plugin list (${i}x5s; last HTTP ${code}, ${plugins:-0}/3 classes)"
+  sleep 5
+done
+rm -f /tmp/.hub-plugins.$$
+[ "${plugins:-0}" -ge 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink (${plugins} classes listed)" \
+  || fail "kafka-connect did not list the three connector classes within 600s (last HTTP ${code}, ${plugins:-0}/3) -- are the jars mounted as files, and is the worker still starting?"
 
 # kafka-ui: the login page answers -- `-L` follows LOGIN_FORM's redirect from
 # "/" to "/login", so a 200 here proves the app is actually serving, not just
