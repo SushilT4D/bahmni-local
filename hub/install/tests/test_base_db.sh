@@ -45,7 +45,7 @@ tmp_versions="${TMP_ROOT}/versions.env"
 : > "$tmp_versions"   # env_put reads the file before rewriting it, so it must exist
 
 cleanup(){
-  docker rm -f "$PG_C" "$MY_C" >/dev/null 2>&1 || true
+  docker rm -f -v "$PG_C" "$MY_C" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
   # The throwaway hub tree, .env included. Nothing under the real hub/ was
   # written, so there is nothing to restore.
