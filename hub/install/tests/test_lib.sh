@@ -11,7 +11,13 @@ printf 'REMOTE_KAFKA_BOOTSTRAP_SERVERS=kafka.example:9092\nREMOTE_KAFKA_USERNAME
 HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT"
 assert_eq "REMOTE_KAFKA_HOST from sync/hub.env" "$(env_get "$OUT" REMOTE_KAFKA_HOST)" "kafka.example"
 assert_eq "fleet password from secrets" "$(env_get "$OUT" REMOTE_KAFKA_PASSWORD)" "fleetpw"
-assert_eq "base root password carried" "$(env_get "$OUT" BASE_MYSQL_ROOT_PASSWORD)" "r00t"
+# BASE_MYSQL_ROOT_PASSWORD and BASE_PG_PASSWORD are NOT composed any more
+# (final review, Important 7): nothing read either one, so hub/.env no longer
+# carries a copy of the base stack's root credentials. Asserted as an absence,
+# so a future re-add has to come past this line.
+assert_eq "base root password NOT copied into hub/.env (dropped: no reader)" "$(env_get "$OUT" BASE_MYSQL_ROOT_PASSWORD)" ""
+assert_eq "base pg password NOT copied into hub/.env (dropped: no reader)" "$(env_get "$OUT" BASE_PG_PASSWORD)" ""
+assert_eq "KAFKA_SASL_BIND defaults to the public 0.0.0.0" "$(env_get "$OUT" KAFKA_SASL_BIND)" "0.0.0.0"
 assert_eq "existing sink password reused" "$(env_get "$OUT" ODOO_SINK_PASSWORD)" "os"
 assert_eq "odoo db password carried" "$(env_get "$OUT" ODOO_DB_PASSWORD)" "od"
 assert_eq "clinlims source password from base OPENELIS_DB_PASSWORD" "$(env_get "$OUT" CLINLIMS_SOURCE_PASSWORD)" "oe"
@@ -68,6 +74,77 @@ assert_eq "hub/.env.example key count matches HUB_KEYS (${hub_keys_count})" "$ex
 example_sorted="$(grep -oE '^[A-Z_0-9]+=' "$example_file" | sed 's/=$//' | sort)"
 hub_keys_sorted="$(printf '%s\n' $HUB_KEYS | sort)"
 assert_eq "hub/.env.example key set is exactly HUB_KEYS" "$example_sorted" "$hub_keys_sorted"
+
+# --- CLINIC_DIR really survives the nested source ---------------------------
+# (found live: `VAR=x . file` is a TEMPORARY assignment outside POSIX mode, so
+# CLINIC_DIR reverted to unset the moment hub/install/lib.sh's nested source of
+# clinic/install/lib.sh returned -- and every compose() call in tasks 040, 060
+# and 070 then died on `cd "${CLINIC_DIR}"` under set -u.) compose() is what
+# reads it, so the assertion is on the value, in this already-sourced shell.
+assert_eq "CLINIC_DIR survives the nested source and equals HUB_DIR" "${CLINIC_DIR:-<unset>}" "$HUB_DIR"
+assert_eq "INSTALL_DIR survives the nested source and points at clinic/install" "${INSTALL_DIR:-<unset>}" "${REPO_DIR}/clinic/install"
+assert_eq "PROFILES is empty for the hub (never the clinic's --profile list)" "${PROFILES:-}" ""
+
+# --- the four base-stack coordinates come from the ENVIRONMENT first --------
+# (final review, Important 6) A stock Bahmni base .env carries no POSTGRES_USER,
+# so the old order silently produced "postgres" on IPLIT's real hub, where the
+# superusers are odoo and clinlims -- with no way for an operator to say so.
+# Composed into a SEPARATE file, since $OUT's values are already set and `put`
+# keeps what is already there.
+mkdir -p "$TMP/hub-env-first"
+OUT2="$TMP/hub-env-first/.env"
+( export BASE_PG_SUPERUSER=odoo BASE_ELIS_SUPERUSER=clinlims \
+         BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 BASE_PG_CONTAINER=iplit-base-odoodb-1 \
+         BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 KAFKA_SASL_BIND=127.0.0.1
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT2" >/dev/null )
+assert_eq "BASE_PG_SUPERUSER from the install command's environment" "$(env_get "$OUT2" BASE_PG_SUPERUSER)" "odoo"
+assert_eq "BASE_ELIS_SUPERUSER from the environment (not defaulted from BASE_PG_SUPERUSER)" "$(env_get "$OUT2" BASE_ELIS_SUPERUSER)" "clinlims"
+assert_eq "BASE_PG_CONTAINER from the environment" "$(env_get "$OUT2" BASE_PG_CONTAINER)" "iplit-base-odoodb-1"
+assert_eq "BASE_ELIS_CONTAINER from the environment" "$(env_get "$OUT2" BASE_ELIS_CONTAINER)" "iplit-base-openelisdb-1"
+assert_eq "BASE_MYSQL_CONTAINER from the environment" "$(env_get "$OUT2" BASE_MYSQL_CONTAINER)" "iplit-base-openmrsdb-1"
+assert_eq "CLOUD_MYSQL_HOST follows the environment's BASE_MYSQL_CONTAINER" "$(env_get "$OUT2" CLOUD_MYSQL_HOST)" "iplit-base-openmrsdb-1"
+assert_eq "KAFKA_SASL_BIND from the environment (a lab hub behind a tunnel)" "$(env_get "$OUT2" KAFKA_SASL_BIND)" "127.0.0.1"
+# The base .env's own POSTGRES_USER still wins over the fixed default when the
+# environment says nothing -- the middle source of the three.
+printf 'MYSQL_ROOT_PASSWORD=r00t\nOPENMRS_DB_NAME=openmrs\nPOSTGRES_USER=basefile\nODOO_DB_PASSWORD=od\nOPENELIS_DB_PASSWORD=oe\n' > "$TMP/base-pguser.env"
+mkdir -p "$TMP/hub-base-second"; OUT3="$TMP/hub-base-second/.env"
+( unset BASE_PG_SUPERUSER; HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base-pguser.env" "$TMP/secrets.env" "$OUT3" >/dev/null )
+assert_eq "BASE_PG_SUPERUSER falls back to the base .env's POSTGRES_USER" "$(env_get "$OUT3" BASE_PG_SUPERUSER)" "basefile"
+
+# --- git_dirty_hub_paths (final review, Minor 10): pure classifier ----------
+# Task 090 passes `git status --porcelain` through this and fails only on what
+# it prints, so that a hub host's own deliberate edits to the BASE stack's
+# files do not read as "the hub install left its tree dirty".
+porcelain=' M hub/install/lib.sh
+ M cloud/docker-compose.override.yml
+?? docs/notes.md
+R  hub/old.sh -> hub/new.sh
+ M sync/versions.env'
+assert_eq "git_dirty_hub_paths keeps only the hub/ paths" "$(printf '%s\n' "$porcelain" | git_dirty_hub_paths | tr '\n' ' ')" "hub/install/lib.sh hub/new.sh "
+assert_eq "git_dirty_hub_paths prints nothing when the dirt is all outside hub/" "$(printf ' M cloud/docker-compose.override.yml\n?? docs/notes.md\n' | git_dirty_hub_paths)" ""
+assert_eq "git_dirty_hub_paths on an empty status prints nothing" "$(printf '' | git_dirty_hub_paths)" ""
+
+# --- env_put never puts a VALUE on argv (final review, Critical 1) ----------
+# A static guard over clinic/install/lib.sh's env_put, the one function every
+# secret this fleet writes passes through -- hub/.env's eleven, every clinic
+# answer file's four. argv is world-readable for the life of the process
+# (`ps -ef`, /proc/<pid>/cmdline), so the value goes through the environment
+# instead. Proving the class, not one call: the python3 substep must read the
+# value from os.environ, and must never read a third sys.argv element (the
+# file and the key, neither secret, are argv 1 and 2).
+env_put_src="$(awk '/^env_put\(\)\{/{f=1} f{print} f && /^}/{exit}' "${REPO_DIR}/clinic/install/lib.sh")"
+assert_eq "env_put's python3 substep reads the value from the environment" "$(printf '%s' "$env_put_src" | grep -c 'os\.environ\["ENV_PUT_VALUE"\]')" "1"
+assert_eq "env_put's python3 substep never reads a third argv element" "$(printf '%s' "$env_put_src" | grep -c 'sys\.argv\[3\]')" "0"
+assert_eq "env_put passes only the file and the key on the command line" "$(printf '%s' "$env_put_src" | grep -c 'python3 - "\$f" "\$k" "\$v"')" "0"
+assert_eq "env_put hands the value over as ENV_PUT_VALUE" "$(printf '%s' "$env_put_src" | grep -c 'ENV_PUT_VALUE="\$v" python3 - "\$f" "\$k"')" "1"
+# ...and it still round-trips a value with shell metacharacters, and still
+# refuses a single quote outright (the quoting contract is unchanged).
+rt="$TMP/roundtrip.env"; : > "$rt"
+env_put "$rt" TRICKY 'a b"c$d`e;f#g'
+assert_eq "env_put round-trips a value full of shell metacharacters" "$(env_get "$rt" TRICKY)" 'a b"c$d`e;f#g'
+assert_eq "the written line is single-quoted" "$(grep '^TRICKY=' "$rt")" "TRICKY='a b\"c\$d\`e;f#g'"
+( env_put "$rt" QUOTED "it's" ) >/dev/null 2>&1; rc=$?
+assert_eq "env_put still refuses a value containing a single quote" "$rc" "1"
 
 # mysql_user_sql VERSION USER PASSWORD DB -- pure text generation, no docker
 # needed. 5.6.51 stands in for the Azure hub's base image, 8.0.39 for every

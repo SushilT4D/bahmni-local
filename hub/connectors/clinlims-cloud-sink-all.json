@@ -26,6 +26,6 @@
     "consumer.override.auto.offset.reset": "earliest",
     "value.converter.schemas.enable": "true",
     "errors.tolerance": "none",
-    "connection.url": "jdbc:postgresql://openelisdb:5432/openelis"
+    "connection.url": "jdbc:postgresql://${BASE_ELIS_CONTAINER}:5432/openelis"
   }
 }

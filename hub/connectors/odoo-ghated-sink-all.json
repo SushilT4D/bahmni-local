@@ -25,6 +25,6 @@
     "delete.enabled": "true",
     "consumer.override.auto.offset.reset": "earliest",
     "value.converter.schemas.enable": "true",
-    "connection.url": "jdbc:postgresql://openelisdb:5432/odoo"
+    "connection.url": "jdbc:postgresql://${BASE_PG_CONTAINER}:5432/odoo"
   }
 }

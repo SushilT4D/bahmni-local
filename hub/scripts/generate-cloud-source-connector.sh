@@ -5,17 +5,33 @@
 # table.include.list comes from hub/tables.conf via generate-table-config.sh,
 # so the whitelist can never drift from the declared ownership split (L-001).
 set -euo pipefail
+# The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
+# is created mode 600, not the default 644 (final review, Important 8). umask
+# here rather than a chmod afterwards: a chmod leaves a window in which the
+# rendered file is world-readable, however short.
+umask 077
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEMPLATE="${ROOT}/hub/connectors/mysql-cloud-source-connector.json.template"
-OUT="${1:-${ROOT}/hub/connectors/generated/mysql-cloud-source-connector.json}"
+# Two roots, resolved separately (final review, Important 9):
+#   ROOT     the REPO checkout -- clinic/scripts/generate-table-config.sh and
+#            sync/local/tables.conf, which are repo files wherever the hub tree
+#            happens to live;
+#   HUB_ROOT the HUB directory -- the template, hub/.env and the default output.
+# Both fall back to this script's own location, which is what every production
+# call resolves to, so nothing changes there. They are separable because the
+# live smoke runs the installer against a temp COPY of hub/ (HUB_DIR): with one
+# combined root, this script would have looked for clinic/scripts inside that
+# copy (absent) and, worse, sourced the REAL hub/.env of a live hub.
+ROOT="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+HUB_ROOT="${HUB_DIR:-${ROOT}/hub}"
+TEMPLATE="${HUB_ROOT}/connectors/mysql-cloud-source-connector.json.template"
+OUT="${1:-${HUB_ROOT}/connectors/generated/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
 # Env: repo root first, then hub/.env (which wins).
 # The sync layer is deployed from hub/, so DEBEZIUM_DB_PASSWORD and the
 # other hub-side values live in hub/.env, not at the repo root.
 # shellcheck disable=SC1091
-for envf in "${ROOT}/.env" "${ROOT}/hub/.env"; do
+for envf in "${ROOT}/.env" "${HUB_ROOT}/.env"; do
   [[ -f "$envf" ]] && set -a && source "$envf" && set +a
 done
 

@@ -27,13 +27,16 @@ MY="$BASE_MYSQL_CONTAINER"
 # review: pg_admin, hub/install/lib.sh, now dispatches BASE_PG_CONTAINER vs.
 # BASE_ELIS_CONTAINER itself from the db name it's given -- "odoo" or
 # "openelis" below, the same two names 050-base-db.sh already passes it).
-# CONNECT_URL: an already-exported value wins (hub/install/tests/test_sources.sh
-# sets one to reach its own renamed, differently-published Connect instance)
-# before falling back to hub/.env's own KAFKA_CONNECT_URL (an operator's real
-# customization), before the bare default -- in that order, so a test override
-# is never shadowed by hub/.env, and an operator's real KAFKA_CONNECT_URL is
-# never shadowed by a bare default either.
-CONNECT_URL="${CONNECT_URL:-${KAFKA_CONNECT_URL:-http://localhost:8083}}"
+# HUB_CONNECT_URL_OVERRIDE: an already-exported value wins (the live smokes
+# set one to reach their own renamed, differently-published Connect instance)
+# before hub/.env's own KAFKA_CONNECT_URL (an operator's real customization),
+# before the bare default -- in that order, so a test override is never
+# shadowed by hub/.env and an operator's KAFKA_CONNECT_URL is never shadowed
+# by a bare default. Renamed from a bare CONNECT_URL (final review, Minor 13):
+# connectors/register-odoo.sh has its OWN CONNECT_URL contract, which this
+# task sets explicitly when it calls it, and one ambient name serving two
+# different scopes is how a test harness silently redirects a real install.
+CONNECT_URL="${HUB_CONNECT_URL_OVERRIDE:-${KAFKA_CONNECT_URL:-http://localhost:8083}}"
 
 TMP_DIR="$(mktemp -d "${HUB_DIR}/.task080.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -44,7 +47,8 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # actionable failure instead of a connector that silently never comes up.
 # mysql_major_ok (hub/install/lib.sh) is the pure comparison, extracted so it
 # has a test of its own (code review fold-in, Task 6 review).
-mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
+# mysql_root: hub/install/lib.sh (final review, Minor 20 -- this task and
+# 050-base-db.sh each carried an identical copy).
 ver="$(printf 'select version()' | mysql_root | head -1)"
 bad="$(mysql_major_ok "$ver")" \
   && ok "base mysql version ${ver} fit for Debezium 3.6.2 (major >= 8)" \
@@ -52,8 +56,19 @@ bad="$(mysql_major_ok "$ver")" \
 
 # --- 2. MySQL down-source: render to a gitignored file, PUT-of-config ------
 GENERATED="${HUB_DIR}/connectors/mysql-cloud-source-connector.json"
-bash "${HUB_DIR}/scripts/generate-cloud-source-connector.sh" "$GENERATED" >/dev/null
-ok "mysql-cloud-source-connector.json rendered from hub/tables.conf (${GENERATED}, gitignored)"
+# HUB_DIR/REPO_DIR passed explicitly (final review, Important 9): the
+# generator needs the HUB tree (template, .env) and the REPO tree
+# (clinic/scripts/generate-table-config.sh, sync/local/tables.conf) as two
+# separate roots, and it can only derive one of them from its own path.
+HUB_DIR="$HUB_DIR" REPO_DIR="$REPO_DIR" bash "${HUB_DIR}/scripts/generate-cloud-source-connector.sh" "$GENERATED" >/dev/null
+# Belt and braces on the generator's own umask 077 (final review, Important 8):
+# this file holds DEBEZIUM_DB_PASSWORD in plaintext, and a re-render over a
+# file an older version of this installer already created 644 would keep that
+# mode -- umask only applies to a file being CREATED.
+chmod 600 "$GENERATED"
+gen_mode="$(stat -c %a "$GENERATED" 2>/dev/null || stat -f %Lp "$GENERATED")"
+[ "$gen_mode" = 600 ] || fail "${GENERATED} mode is ${gen_mode}, want 600 (it carries DEBEZIUM_DB_PASSWORD)"
+ok "mysql-cloud-source-connector.json rendered from hub/tables.conf (${GENERATED}, gitignored, mode ${gen_mode})"
 body="$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -96,7 +111,11 @@ ok "odoo-cloud-source, clinlims-cloud-source registered via connectors/register-
 wait_running(){ # NAME MAX_SECONDS
   local name="$1" secs="${2:-180}" i state good
   for i in $(seq 1 $((secs/5))); do
-    state="$(curl -s "${CONNECT_URL}/connectors/${name}/status" 2>/dev/null)"
+    # `|| true` OUTSIDE the substitution (final review, Important 3): under
+    # `set -euo pipefail` a refused connection here (Connect still starting,
+    # or a momentary blip) aborted the task on the first iteration instead of
+    # retrying -- the failure this loop exists to absorb.
+    state="$(curl -s "${CONNECT_URL}/connectors/${name}/status" 2>/dev/null)" || true
     if printf '%s' "$state" | jq -e 'select((.connector.state=="RUNNING") and ((.tasks|length)>0) and ([.tasks[].state]|all(.=="RUNNING")))' >/dev/null 2>&1; then
       ok "${name}: connector RUNNING, tasks $(printf '%s' "$state" | jq -c '[.tasks[].state]')"
       return 0
@@ -130,7 +149,12 @@ bash "${REPO_DIR}/clinic/scripts/set-schema-history-retention.sh" "$CT" kafka:29
 # exact-string compare below on the doubled output. clinic/scripts/set-
 # schema-history-retention.sh's own read-back already guards this
 # (`grep -oE '...' | head -1`); mirrored here for the same reason.
-ret="$(ct exec "$KAFKA_CONTAINER" kafka-configs --bootstrap-server kafka:29092 --entity-type topics --entity-name "$schema_topic" --describe | grep -oE 'retention.ms=-1' | head -1)"
+# `|| true` (final review, Minor 11): the whole point of this read is the
+# NEGATIVE case -- retention that is not -1 -- and in exactly that case the
+# grep matches nothing, which under `set -o pipefail` aborted the task through
+# the ERR trap before the fail line naming F-045 could ever print. An
+# unreachable failure message is not a check.
+ret="$(ct exec "$KAFKA_CONTAINER" kafka-configs --bootstrap-server kafka:29092 --entity-type topics --entity-name "$schema_topic" --describe | grep -oE 'retention.ms=-1' | head -1)" || true
 [ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention -1" || fail "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention is not -1 (F-045)"
 
 # --- 6. Postgres replication slots: both present and active ----------------
@@ -173,8 +197,11 @@ wait_slot(){ # SLOT DB MAX_SECONDS
   # of its own (code review fold-in, Task 6 review).
   local slot="$1" db="$2" secs="${3:-900}" i row state elapsed=0
   for i in $(seq 1 $((secs/5))); do
-    row="$(pg_admin "$db" -Atc "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")"
-    state="$(slot_wait_state "$row" "$slot")"
+    # `|| true` OUTSIDE the substitution, same reason as wait_running above
+    # (final review, Important 3) -- and note the `||` INSIDE this one is
+    # Postgres string concatenation, not a shell guard.
+    row="$(pg_admin "$db" -Atc "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")" || true
+    state="$(slot_wait_state "$row" "$slot")" || true
     [ "$state" = active ] && { ok "replication slot ${slot} active"; return 0; }
     elapsed=$((elapsed+5))
     [ $((elapsed % 30)) -eq 0 ] && info "still waiting on replication slot ${slot} to become active (${elapsed}s/${secs}s elapsed; last read: ${row:-<not found>})"

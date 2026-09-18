@@ -16,7 +16,7 @@ n=0
 for k in $HUB_KEYS; do
   n=$((n+1))
   [ "$k" = BASE_PG_PASSWORD ] && continue   # may legitimately be empty (no network password)
-  v="$(env_get "${HUB_DIR}/.env" "$k")"
+  v="$(env_get "${HUB_DIR}/.env" "$k")" || true   # guard outside the substitution (hub/install/tests/test_lint.sh)
   [ -n "$v" ] || fail "hub/.env: $k is empty or missing"
 done
 
@@ -36,8 +36,8 @@ done
 # expansion (`${!2}`) reads the dynamically-named key back without `eval`.
 mismatch=""
 for k in $HUB_KEYS; do
-  sourced="$(env -i bash -c 'set +u; set -a; . "$1" >/dev/null 2>&1; set +a; printf "%s" "${!2}"' _ "${HUB_DIR}/.env" "$k" 2>/dev/null || true)"
-  parsed="$(env_get "${HUB_DIR}/.env" "$k")"
+  sourced="$(env -i bash -c 'set +u; set -a; . "$1" >/dev/null 2>&1; set +a; printf "%s" "${!2}"' _ "${HUB_DIR}/.env" "$k" 2>/dev/null)" || true
+  parsed="$(env_get "${HUB_DIR}/.env" "$k")" || true
   [ "$sourced" = "$parsed" ] || mismatch="${mismatch} ${k}"
 done
 [ -z "$mismatch" ] && ok "every HUB_KEYS value round-trips through sourcing hub/.env directly (fresh env, set +u)" \

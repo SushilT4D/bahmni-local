@@ -1,3 +1,16 @@
+-- =============================================================================
+-- NOT RUN BY THE HUB INSTALLER -- KEPT FOR HISTORY (F-072).
+--
+-- This file predates the F-049/F-051 cleanup (the fleet-wide drop of the
+-- sync_origin column and its triggers, 2026-09-09) and encodes the pre-F-049
+-- design. It cannot run anywhere today. hub/install/tasks/050-base-db.sh owns
+-- what it used to do, and derives it live instead: both hub publications are
+-- built as UNFILTERED `FOR TABLE` lists from sync/subsystems.conf -- the hub
+-- relays everything, so a row filter here would silently drop the very rows
+-- the layer exists to move (hub/README.md, "The origin model: none, on the
+-- hub"). Nothing in hub/install/ references this file; do not wire it back in
+-- without closing F-072 first.
+-- =============================================================================
 -- ADDED 2026-09-04 (sync-core F-025). Makes the CLOUD relay clinic-authored lab rows
 -- onward, which it does not do today.
 --

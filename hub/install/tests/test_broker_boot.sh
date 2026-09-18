@@ -19,8 +19,23 @@
 # logs) use the renamed names -- compose service names, hostnames and every
 # internal reference in hub/docker-compose.yml (KAFKA_CONTROLLER_QUORUM_VOTERS,
 # the advertised listeners, --bootstrap-server kafka:29092) are unchanged.
+#
+# It runs against a temp COPY of hub/ (final review, Important 9): this test
+# used to write its throwaway JAAS file over the real hub/kafka_server_jaas.conf
+# and restore it from a backup in its EXIT trap -- a kill -9 between the two
+# left a live broker's credentials replaced by testadmin/testfleet. HUB_DIR is
+# pointed at the copy BEFORE lib.sh is sourced, and the compose file it runs is
+# the copy's, so the relative bind mount (./kafka_server_jaas.conf) resolves
+# inside the copy too.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REAL_HUB="$(cd "$HERE/../.." && pwd)"
+TMP_ROOT="$(mktemp -d)"
+export HUB_DIR="${TMP_ROOT}/hub"
+mkdir -p "$HUB_DIR"
+for item in docker-compose.yml connectors; do
+  [ -e "${REAL_HUB}/${item}" ] && cp -R "${REAL_HUB}/${item}" "${HUB_DIR}/${item}"
+done
 . "$HERE/../lib.sh"
 fails=0
 bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
@@ -33,25 +48,17 @@ COMPOSE_F="${HUB_DIR}/docker-compose.yml"
 OVERRIDE_F="${HERE}/boot-override.yml"
 CKAFKA=hubtest-kafka
 CCTRL=hubtest-kafka-controller
-tmp_env="$(mktemp "${HUB_DIR}/.broker-boot-test.XXXXXX")"
-up_log="$(mktemp "${HUB_DIR}/.broker-boot-up.XXXXXX")"
+tmp_env="${TMP_ROOT}/broker-boot.env"
+up_log="${TMP_ROOT}/broker-boot-up.log"
 jaas_path="${HUB_DIR}/kafka_server_jaas.conf"
-jaas_backup=""
 dc(){ docker compose -p "$PROJ" -f "$COMPOSE_F" -f "$OVERRIDE_F" --env-file "$tmp_env" "$@"; }
-# A real (or leftover) JAAS at the exact path the compose file's own relative
-# bind mount (./kafka_server_jaas.conf) resolves to is backed up and restored,
-# never just overwritten -- this test's throwaway credentials must not become
-# the last thing on disk if one existed before.
-if [ -f "$jaas_path" ]; then
-  jaas_backup="$(mktemp "${HUB_DIR}/.jaas-backup.XXXXXX")"
-  cp -p "$jaas_path" "$jaas_backup"
-fi
 
 cleanup(){
   dc down -v >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
-  if [ -n "$jaas_backup" ]; then cp -p "$jaas_backup" "$jaas_path"; rm -f "$jaas_backup"; else rm -f "$jaas_path"; fi
-  rm -f "$tmp_env" "$up_log"
+  # The throwaway hub tree, JAAS file included. The real hub/'s own JAAS was
+  # never touched, so there is nothing to restore.
+  rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT
 
@@ -79,10 +86,15 @@ env_put "$tmp_env" KAFKA_CLUSTER_ID "$CID"
 env_put "$tmp_env" KAFKA_BASE_NETWORK "$NET"
 env_put "$tmp_env" KAFKA_UI_USER admin
 env_put "$tmp_env" KAFKA_UI_PASSWORD "$(gen_secret)"
+# KAFKA_SASL_BIND (final review, Critical 2): kafka's ports entry interpolates
+# it, and boot-override.yml resets that list to empty anyway -- but compose
+# interpolates the WHOLE file before deciding what to start, so it still needs
+# a valid value or `up` refuses outright.
+env_put "$tmp_env" KAFKA_SASL_BIND 127.0.0.1
 ok "temp .env written with the fleet's image pins + cluster id ${CID} + network ${NET}"
 
 write_jaas "$jaas_path" testadmin testfleet
-ok "temp JAAS written at hub/kafka_server_jaas.conf (restored on exit)"
+ok "temp JAAS written at ${jaas_path} (a throwaway copy; the real hub/kafka_server_jaas.conf is never written)"
 
 if dc up -d kafka-controller kafka >"$up_log" 2>&1; then
   ok "docker compose up -d kafka-controller kafka (containers ${CCTRL}, ${CKAFKA})"

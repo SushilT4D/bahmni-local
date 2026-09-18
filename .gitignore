@@ -133,3 +133,23 @@ hub/connectors/generated/
 !hub/connectors/clinlims-cloud-sink-all.json
 !hub/connectors/odoo-ghated-sink-all.json
 !hub/connectors/clinlims-ghated-sink-all.json
+
+# hub/ scratch files (final review, Important 9). Every one of these is a
+# mktemp'd name created UNDER hub/ -- by lib.sh's own probes (the SASL client
+# properties file and the kafka-ui login body/cookie jar, each mode 600 and
+# each holding a live password for the seconds it exists), by task 080's
+# render directory, and by the live smokes. They are all removed by their own
+# EXIT traps; these patterns exist for the run that is killed outright, so a
+# leftover can never be committed by accident and never makes task 090's
+# git-clean check read as a dirty hub tree. (The smokes themselves no longer
+# write into the real hub/ at all -- they run against a temp COPY of it, via
+# the HUB_DIR override -- but lib.sh's probes still do during a real install.)
+hub/.sasl-check.*
+hub/.kafka-ui-login*
+hub/.kafka-ui-cookies*
+hub/.task080.*
+hub/.env-backup.*
+hub/.jaas-backup.*
+hub/.src-*
+hub/.broker-boot-*
+hub/.versions.*

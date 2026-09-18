@@ -16,15 +16,16 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "90 · exit checks"
-[ "${DRY}" = 1 ] && { info "would: disk free under the broker's data volume >=20 GB (ct exec into \$KAFKA_CONTAINER); every connector+task RUNNING (from Connect's REST API); both base Postgres replication slots (dbz_odoo_down, dbz_clinlims_down) retain <2 GB; the SASL listener still answers; hub/.env and kafka_server_jaas.conf mode 600; git status --porcelain empty"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: disk free under the broker's data volume >=20 GB (ct exec into \$KAFKA_CONTAINER); every connector+task RUNNING (from Connect's REST API); both base Postgres replication slots (dbz_odoo_down, dbz_clinlims_down) retain <2 GB; port 9092 still published on the declared KAFKA_SASL_BIND and the SASL listener still answers; the base openmrs event_records count (informational); hub/.env and kafka_server_jaas.conf mode 600; git status --porcelain carrying nothing under hub/"; exit 0; }
 setup_compose
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
-# Same override precedence as 080-sources.sh: an already-exported CONNECT_URL
-# (the live smoke, addressing its own throwaway Connect) wins over hub/.env's
-# KAFKA_CONNECT_URL, which wins over the bare default.
-CONNECT_URL="${CONNECT_URL:-${KAFKA_CONNECT_URL:-http://localhost:8083}}"
+# Same override precedence as 080-sources.sh: an already-exported
+# HUB_CONNECT_URL_OVERRIDE (the live smoke, addressing its own throwaway
+# Connect) wins over hub/.env's KAFKA_CONNECT_URL, which wins over the bare
+# default. Renamed from a bare CONNECT_URL (final review, Minor 13).
+CONNECT_URL="${HUB_CONNECT_URL_OVERRIDE:-${KAFKA_CONNECT_URL:-http://localhost:8083}}"
 
 FAILS=0
 bad(){ printf '  FAIL %s\n' "$*" >&2; FAILS=$((FAILS+1)); }
@@ -69,7 +70,7 @@ if [ -z "$names" ]; then
   bad "no connectors registered at ${CONNECT_URL}/connectors (raw response: ${raw:-<empty>})"
 else
   for name in $names; do
-    state="$(curl -s --max-time 10 "${CONNECT_URL}/connectors/${name}/status" 2>/dev/null || true)"
+    state="$(curl -s --max-time 10 "${CONNECT_URL}/connectors/${name}/status" 2>/dev/null)" || true
     if printf '%s' "$state" | jq -e 'select((.connector.state=="RUNNING") and ((.tasks|length)>0) and ([.tasks[].state]|all(.=="RUNNING")))' >/dev/null 2>&1; then
       ok "${name}: connector RUNNING, tasks $(printf '%s' "$state" | jq -c '[.tasks[].state]')"
     else
@@ -98,15 +99,36 @@ check_slot_retention(){ # SLOT DB CONTAINER_FOR_DISPLAY
 check_slot_retention dbz_odoo_down odoo "${BASE_PG_CONTAINER}"
 check_slot_retention dbz_clinlims_down openelis "${BASE_ELIS_CONTAINER:-$BASE_PG_CONTAINER}"
 
-# --- 4. The SASL listener still answers -------------------------------------
-# sasl_listener_ok (lib.sh): 060's own check, reused rather than duplicated,
-# so "did it come up" and "is it still up at the end" can never drift apart
-# (code review fold-in, Task 6/7 review).
+# --- 4. The SASL listener is published where hub/.env says, and answers -----
+# sasl_bind_ok + sasl_listener_ok (lib.sh): 060's own two checks, reused
+# rather than duplicated, so "did it come up" and "is it still up at the end"
+# can never drift apart (code review fold-in, Task 6/7 review). The bind
+# read-back is the half sasl_listener_ok structurally cannot do: it dials
+# 127.0.0.1, which answers whether 9092 is published to the world or to
+# loopback only (final review, Critical 2).
+if bind_published="$(sasl_bind_ok)"; then
+  ok "clinic-facing 9092 published on ${bind_published} (declared KAFKA_SASL_BIND=${KAFKA_SASL_BIND:-0.0.0.0})"
+else
+  bad "$bind_published"
+fi
 reason="$(sasl_listener_ok)" && ok "SASL listener answers on the published ${SASL_LISTENER_PORT:-9092} as mirrormaker" || bad "$reason"
+
+# --- 4b. Informational: the base OpenMRS event_records backlog --------------
+# Not a pass/fail check -- a number the operator wants in the install log.
+# event_records is OpenMRS's own atomfeed publication table: it grows while a
+# feed consumer is behind and is the first place a stalled Bahmni-side
+# integration shows up, independent of anything Kafka does. Read through
+# mysql_root (lib.sh), so the root password stays inside the container and
+# everything printed back is masked.
+ev="$(printf 'select count(*) from openmrs.event_records' | mysql_root | head -1)" || true
+case "$ev" in
+  ''|*[!0-9]*) info "base openmrs event_records: not readable (${ev:-<no answer>}) -- informational only" ;;
+  *)           info "base openmrs event_records: ${ev} row(s) (informational)" ;;
+esac
 
 # --- 5. hub/.env and kafka_server_jaas.conf mode 600 ------------------------
 for f in "${HUB_DIR}/.env" "${HUB_DIR}/kafka_server_jaas.conf"; do
-  mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null || true)"
+  mode="$(stat -c %a "$f" 2>/dev/null || stat -f %Lp "$f" 2>/dev/null)" || true
   [ "$mode" = 600 ] && ok "$(basename "$f") mode 600" || bad "$(basename "$f") mode is ${mode:-<missing>}, want 600"
 done
 
@@ -119,8 +141,22 @@ done
 if [ "${HUB_EXIT_CHECKS_SKIP_GIT:-0}" = 1 ]; then
   skip "git status --porcelain (HUB_EXIT_CHECKS_SKIP_GIT=1 -- set only by the live smoke)"
 else
-  status="$(git -C "${REPO_DIR}" status --porcelain 2>&1 || true)"
-  [ -z "$status" ] && ok "git status --porcelain empty" || bad "git status --porcelain is not empty:$(printf '\n%s' "$status" | sed 's/^/    /')"
+  status="$(git -C "${REPO_DIR}" status --porcelain 2>&1)" || true
+  if [ -z "$status" ]; then
+    ok "git status --porcelain empty"
+  else
+    # The pre-flight ruling: a hub host legitimately carries edits to the BASE
+    # stack's own tracked files beside this checkout (the Azure hub keeps
+    # cloud/docker-compose.override.yml modified on purpose), and those say
+    # nothing about whether THIS install left its own tree dirty. So: name
+    # every dirty path either way, and fail only on the ones under hub/.
+    dirty_hub="$(printf '%s\n' "$status" | git_dirty_hub_paths)" || true
+    if [ -n "$dirty_hub" ]; then
+      bad "git status --porcelain: $(printf '%s' "$dirty_hub" | tr '\n' ' ')dirty under hub/ (whole tree:$(printf '\n%s' "$status" | sed 's/^/      /'))"
+    else
+      ok "git status --porcelain: nothing dirty under hub/ (outside it:$(printf '%s' "$status" | sed 's/^/ /' | tr '\n' ';'))"
+    fi
+  fi
 fi
 
 [ "$FAILS" = 0 ] && ok "exit checks: all green" || fail "exit checks: ${FAILS} check(s) failed (see FAIL lines above)"

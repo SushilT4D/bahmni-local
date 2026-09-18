@@ -111,15 +111,25 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 #     reader's interpretation over the other's.
 # Python does the file rewrite so no character in the (already-quoted) value
 # needs further escaping there.
+#
+# The VALUE is handed to python3 through the ENVIRONMENT (ENV_PUT_VALUE), never
+# as an argv element (final review, Critical 1): argv is world-readable while
+# the process lives (`ps -ef`, /proc/<pid>/cmdline), and every secret this fleet
+# generates -- all of hub/.env's, every clinic answer file's -- is written
+# through this one function, so the old `python3 - "$f" "$k" "$v"` form put each
+# of them on the process list of the machine composing the file. Only the FILE
+# and the KEY (neither secret) stay in argv. hub/install/tests/test_lib.sh keeps
+# a static guard over this function's source: its python3 substep must read the
+# value from os.environ and must never read a third sys.argv element.
 env_put(){
   local f="$1" k="$2" v="$3"
   case "$v" in
     *"'"*) fail "env_put: ${k}: a value containing a single quote cannot be stored in .env (bash and docker compose disagree on its meaning); choose another value" ;;
     *[!A-Za-z0-9_./:@+=-]*) v="'$v'" ;;
   esac
-  python3 - "$f" "$k" "$v" <<'PY'
-import sys, re
-f, k, v = sys.argv[1], sys.argv[2], sys.argv[3]
+  ENV_PUT_VALUE="$v" python3 - "$f" "$k" <<'PY'
+import os, sys, re
+f, k, v = sys.argv[1], sys.argv[2], os.environ["ENV_PUT_VALUE"]
 lines = open(f).read().split("\n")
 pat = re.compile(r"^" + re.escape(k) + r"=")
 done = False

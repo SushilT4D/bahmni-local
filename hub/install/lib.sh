@@ -14,10 +14,31 @@ REPO_DIR="${REPO_DIR:-$(cd "${HUB_INSTALL_DIR}/../.." && pwd)}"
 # The clinic lib derives CLINIC_DIR from its own path and runs compose there with
 # the clinic profiles; for the hub both are overridden before sourcing. Nothing
 # clinic-specific it defines is called from hub tasks.
-CLINIC_DIR="${HUB_DIR}" PROFILES="" INSTALL_DIR="${REPO_DIR}/clinic/install" . "${REPO_DIR}/clinic/install/lib.sh"
+#
+# PLAIN assignments, not a `VAR=x . file` prefix (found live by the first smoke
+# run that ever executed task 060 as a script): outside POSIX mode bash treats
+# assignments prefixed to a command -- `.` included -- as TEMPORARY, so
+# CLINIC_DIR reverted to unset the moment the source returned, and the clinic
+# lib's own `CLINIC_DIR="${CLINIC_DIR:-...}"` only ever updated that temporary
+# binding. Every compose() call in tasks 040, 060 and 070 then died on
+# `cd "${CLINIC_DIR}"` with "CLINIC_DIR: unbound variable" under set -u. It
+# stayed latent because those three tasks are exactly the ones no test had ever
+# run (final review, Important 3b).
+CLINIC_DIR="${HUB_DIR}"
+PROFILES=""
+INSTALL_DIR="${REPO_DIR}/clinic/install"
+. "${REPO_DIR}/clinic/install/lib.sh"
 PROFILES=""
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
-HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_MYSQL_ROOT_PASSWORD BASE_PG_SUPERUSER BASE_PG_PASSWORD BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE KAFKA_UI_USER KAFKA_UI_PASSWORD"
+HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_SASL_BIND KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_PG_SUPERUSER BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE KAFKA_UI_USER KAFKA_UI_PASSWORD"
+# Dropped from HUB_KEYS (final review, Important 7): BASE_MYSQL_ROOT_PASSWORD
+# and BASE_PG_PASSWORD. Both were composed into hub/.env from the base stack's
+# own .env -- the first one REQUIRED to be non-empty -- and then read by
+# nothing: every task that needs MySQL root goes through the container's own
+# MYSQL_ROOT_PASSWORD environment (mysql_root below, so the value never
+# reaches this host's argv), and every psql call goes over the Postgres socket
+# inside the container, which the image trusts. Copying two more live
+# credentials into a second file on disk for no reader is pure exposure.
 
 # KAFKA_CONTAINER: the docker/podman container NAME hub tasks `exec` into for
 # kafka-configs/kafka-topics calls (080-sources.sh, and
@@ -51,6 +72,16 @@ hub_compose_env(){
   local bs="$(set -a; . "$HUB_ENV"; set +a; printf '%s' "${REMOTE_KAFKA_BOOTSTRAP_SERVERS:?}")"
   put(){ [ -n "$(env_get "$out" "$1")" ] || env_put "$out" "$1" "$2"; }
   put REMOTE_KAFKA_HOST "${bs%%:*}"
+  # KAFKA_SASL_BIND (final review, Critical 2): the host interface the
+  # clinic-facing SASL_PLAINTEXT listener is PUBLISHED on (hub/docker-compose.yml
+  # renders `${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092`). A real hub must be
+  # dialable by its clinics, so the default is 0.0.0.0 -- the compose file used
+  # to pin 127.0.0.1 outright, which no operator could change without editing a
+  # tracked file that task 090's own git-clean check then refused. A lab hub
+  # that fronts 9092 with `tailscale serve` sets 127.0.0.1 here deliberately;
+  # tasks 060 and 090 read the binding back from the running container and warn
+  # loudly when it is loopback.
+  put KAFKA_SASL_BIND "${KAFKA_SASL_BIND:-0.0.0.0}"
   put KAFKA_BASE_NETWORK "${KAFKA_BASE_NETWORK:-cloud_default}"
   put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
   put KAFKA_ADMIN_PASSWORD "$(gen_secret)"
@@ -68,9 +99,16 @@ hub_compose_env(){
   put CLOUD_MYSQL_SERVER_NAME bahmni-cloud
   put CLOUD_DEBEZIUM_SERVER_ID 184060
   put KAFKA_CONNECT_URL http://localhost:8083
-  put BASE_MYSQL_ROOT_PASSWORD "$(env_get "$base" MYSQL_ROOT_PASSWORD)"
-  put BASE_PG_SUPERUSER "$(v="$(env_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")"
-  put BASE_PG_PASSWORD "$(env_get "$base" POSTGRES_PASSWORD)"
+  # The four base-stack coordinates (two containers, two superusers) resolve in
+  # ONE order, the same for each (final review, Important 6): the environment of
+  # the install command first, the base stack's own .env second, a fixed default
+  # last. The environment has to come first because a stock Bahmni base .env
+  # carries no POSTGRES_USER at all, so the middle source silently produced
+  # "postgres" on IPLIT's real hub, where the two superusers are `odoo` and
+  # `clinlims` -- an operator had no way to say so, and 000-preflight's psql
+  # then failed as a bare wal_level mismatch. hub/README.md and the P2 runbook
+  # carry the full command with all four set.
+  put BASE_PG_SUPERUSER "${BASE_PG_SUPERUSER:-$(v="$(env_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")}"
   put BASE_MYSQL_CONTAINER "${BASE_MYSQL_CONTAINER:-cloud-openmrsdb-1}"
   put BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-cloud-openelisdb-1}"
   # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
@@ -84,8 +122,8 @@ hub_compose_env(){
   # iplit-base-openelisdb-1/clinlims -- docs/sync-core/runbooks/hub-build-and-
   # connect.md's container table), where an operator sets both keys
   # explicitly before running the installer.
-  put BASE_ELIS_CONTAINER "$(env_get "$out" BASE_PG_CONTAINER)"
-  put BASE_ELIS_SUPERUSER "$(env_get "$out" BASE_PG_SUPERUSER)"
+  put BASE_ELIS_CONTAINER "${BASE_ELIS_CONTAINER:-$(env_get "$out" BASE_PG_CONTAINER)}"
+  put BASE_ELIS_SUPERUSER "${BASE_ELIS_SUPERUSER:-$(env_get "$out" BASE_PG_SUPERUSER)}"
   # The down-source dials the base stack's own MySQL by container name on the
   # shared KAFKA_BASE_NETWORK (Docker resolves it), so its default is simply
   # whatever BASE_MYSQL_CONTAINER was just set to above -- read back from $out,
@@ -105,7 +143,10 @@ hub_compose_env(){
   put KAFKA_UI_USER admin
   put KAFKA_UI_PASSWORD "$(gen_secret)"
   versions_put "$out"   # every fleet pin from sync/versions.env (L-005: one place)
-  for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || [ "$k" = BASE_PG_PASSWORD ] || fail "hub .env is missing $k"; done
+  # No key is exempt from the non-empty check any more (final review,
+  # Important 7): BASE_PG_PASSWORD -- the one key that could legitimately be
+  # empty, since the base Postgres takes no network password -- is gone.
+  for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || fail "hub .env is missing $k"; done
 }
 
 # hub_base_container ROLE : the base stack's container name for the given
@@ -153,6 +194,83 @@ pg_admin(){
   fi
   shift
   ct exec -i "$ct_name" psql -U "$su" -d "$db" -v ON_ERROR_STOP=1 -q "$@"
+}
+
+# mysql_root : run the SQL on stdin as root in the base stack's MySQL
+# container, tab-separated, header-less (-N). Hoisted here (final review,
+# Minor 20) from 050-base-db.sh and 080-sources.sh, which carried
+# byte-identical copies. One contract:
+#   - the root password is expanded by the `sh` INSIDE the container, from
+#     that container's OWN environment (MYSQL_ROOT_PASSWORD), so it never
+#     appears in this host's argv or process list;
+#   - stderr is folded into stdout and both are pushed through
+#     mask_env_secrets, because a MySQL syntax error near a password clause
+#     echoes the clause back, secret included;
+#   - the container comes from BASE_MYSQL_CONTAINER in the caller's already-
+#     sourced hub/.env; requires setup_compose to have run (uses ct).
+mysql_root(){ ct exec -i "${BASE_MYSQL_CONTAINER:?mysql_root: BASE_MYSQL_CONTAINER not set}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
+
+# container_ip CONTAINER : its address on whichever docker/podman network(s)
+# it is attached to. Hoisted here (final review, Minor 20) from
+# 050-base-db.sh and hub/install/tests/test_base_db.sh, which each had their
+# own copy -- one through `ct`, one through a bare `docker`. Used to dial
+# MySQL/Postgres from inside their OWN container by IP rather than by
+# "localhost": the postgres image's pg_hba.conf special-cases 127.0.0.1/::1
+# as trust regardless of POSTGRES_HOST_AUTH_METHOD, so a localhost round-trip
+# would "succeed" without ever checking the password just set. The
+# container's real address falls through to the catch-all host line instead,
+# so only that path actually exercises the password.
+container_ip(){ ct inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$1" | awk '{print $1}'; }
+
+# sasl_bind_ok : the clinic-facing SASL listener is PUBLISHED on the interface
+# hub/.env declares (KAFKA_SASL_BIND, default 0.0.0.0). On success prints the
+# published binding(s) and returns 0; on failure prints the reason and returns
+# 1 -- so a caller reads it as `if b="$(sasl_bind_ok)"; then ok ...; else fail
+# "$b"; fi`.
+#
+# Why this check exists at all (final review, Critical 2): sasl_listener_ok
+# above proves the listener AUTHENTICATES, but it dials 127.0.0.1, which
+# answers whether the port is published on loopback only or on every
+# interface. So a hub published on 127.0.0.1:9092 -- which no clinic can dial
+# -- passed every check in tasks 060 and 090 while being useless to the fleet.
+# This reads the binding docker/podman actually installed and compares it with
+# what hub/.env declares, and warns loudly (never silently) when the declared
+# value is a loopback address.
+sasl_bind_ok(){
+  local declared="${KAFKA_SASL_BIND:-0.0.0.0}" published line matched=0
+  case "$declared" in
+    127.*|localhost|::1|'[::1]') warn "KAFKA_SASL_BIND=${declared} publishes the clinic-facing SASL listener on loopback: clinics cannot dial this hub directly (only something already on this host, e.g. a tunnel or \`tailscale serve\`, can reach it). A hub clinics dial sets KAFKA_SASL_BIND=0.0.0.0." ;;
+  esac
+  published="$(ct port "${KAFKA_CONTAINER}" 9092 2>/dev/null)" || true
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in "${declared}:"*) matched=1 ;; esac
+  done <<EOF
+${published}
+EOF
+  [ "$matched" = 1 ] && { printf '%s' "$(printf '%s' "$published" | tr '\n' ' ')"; return 0; }
+  printf 'container %s publishes port 9092 as "%s", which does not match the declared KAFKA_SASL_BIND=%s (hub/.env) -- clinics dial %s:9092\n' \
+    "${KAFKA_CONTAINER}" "$(printf '%s' "$published" | tr '\n' ' ')" "$declared" "${REMOTE_KAFKA_HOST:-<REMOTE_KAFKA_HOST unset>}"
+  return 1
+}
+
+# git_dirty_hub_paths : reads `git status --porcelain` output on stdin and
+# prints only the paths under hub/ (renames counted by their destination).
+# Pure text, so it is unit-tested directly (hub/install/tests/test_lib.sh).
+# Task 090's tree check uses it to make the distinction the pre-flight ruling
+# called for: a hub host legitimately carries edits to the BASE stack's own
+# files beside this checkout's hub/ tree, and those must not read as "the hub
+# install left the repo dirty" -- but a dirty file under hub/ must.
+git_dirty_hub_paths(){
+  local line path
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    path="$(printf '%s' "$line" | cut -c4-)"
+    case "$path" in *' -> '*) path="${path##* -> }" ;; esac
+    path="${path%\"}"; path="${path#\"}"
+    case "$path" in hub/*) printf '%s\n' "$path" ;; esac
+  done
+  return 0
 }
 
 # jaas_escape STR : backslash-escapes a value for safe embedding inside a
@@ -261,7 +379,13 @@ sasl_listener_ok(){
     trap 'rm -f "$tmp"' EXIT
     esc_pw="$(jaas_escape "${REMOTE_KAFKA_PASSWORD:?sasl_listener_ok: REMOTE_KAFKA_PASSWORD not set}")"
     printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
-    ct run --rm --network host -v "${tmp}:/tmp/c.properties:ro" "${KAFKA_IMAGE:?sasl_listener_ok: KAFKA_IMAGE not set}" kafka-broker-api-versions --bootstrap-server "127.0.0.1:${port}" --command-config /tmp/c.properties >/dev/null 2>&1 || rc=$?
+    # --user (final review, Important 9): the properties file is mode 600 and
+    # owned by whoever runs the installer, while the cp-kafka image's own
+    # entrypoint user is a fixed in-image uid -- which on a Linux hub cannot
+    # read it, so the probe would fail for a permission reason and be reported
+    # as a broken SASL listener. Running the probe as the caller's own uid:gid
+    # makes the mount readable on any host without loosening the file.
+    ct run --rm --network host --user "$(id -u):$(id -g)" -v "${tmp}:/tmp/c.properties:ro" "${KAFKA_IMAGE:?sasl_listener_ok: KAFKA_IMAGE not set}" kafka-broker-api-versions --bootstrap-server "127.0.0.1:${port}" --command-config /tmp/c.properties >/dev/null 2>&1 || rc=$?
     [ "$rc" = 0 ] && exit 0
     printf 'SASL listener did not answer on 127.0.0.1:%s as mirrormaker (image %s)\n' "$port" "${KAFKA_IMAGE}"
     exit 1

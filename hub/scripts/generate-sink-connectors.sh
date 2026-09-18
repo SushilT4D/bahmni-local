@@ -14,6 +14,11 @@
 # table listed in this directory's tables.conf, and person/person_name were
 # added there on 2026-09-14, so the loop exited 1 on person.
 set -e
+# Every file this script writes carries REMOTE_MYSQL_PASSWORD in plaintext, so
+# they are created mode 600, not the default 644 (final review, Important 8).
+# umask rather than a chmod per file: a chmod leaves a window in which the
+# rendered config is world-readable, however short.
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."

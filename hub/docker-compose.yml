@@ -43,7 +43,16 @@ services:
       kafka-controller:
         condition: service_started
     ports:
-      - '127.0.0.1:9092:9092'
+      # The CLINIC-FACING SASL_PLAINTEXT listener. KAFKA_SASL_BIND (hub/.env,
+      # default 0.0.0.0) is the host interface it is published on: a real hub
+      # must be dialable by every clinic, so 9092 is public by default. This
+      # line used to pin 127.0.0.1 outright -- a hub no clinic could reach,
+      # which no operator could fix without editing this tracked file (which
+      # task 090's own git-clean check then refused). A lab hub that fronts
+      # 9092 with `tailscale serve` sets KAFKA_SASL_BIND=127.0.0.1 on purpose;
+      # tasks 060 and 090 read this binding back from the running container
+      # and warn loudly when it is loopback.
+      - '${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092'
       - '127.0.0.1:9093:9093'
     environment:
       # --- KRaft (KIP-866) stage 2: pure KRaft; ZooKeeper no longer consulted ---

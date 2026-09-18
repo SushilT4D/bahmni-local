@@ -44,6 +44,15 @@
 # running 090. 9093 (the base file's other kafka mapping) is not needed by
 # anything here and stays unpublished.
 #
+# schema-registry (final review, Important 3b): task 060 brings it up for real
+# now that the live smoke runs the INSTALLER rather than a hand-picked pair of
+# tasks, so it needs the same treatment as every other service here -- renamed
+# (this Mac already runs a real container called schema-registry) and
+# republished on 18082 instead of the base file's own 127.0.0.1:8082, which
+# that real one already holds. 060 dials it through
+# HUB_SCHEMA_REGISTRY_URL_OVERRIDE. The heap trim is the same reasoning as
+# kafka's above: nothing here stores a single Avro schema.
+#
 # kafka-ui (Ruling 9): the only real proof of Ruling 3 -- a throwaway
 # instance, renamed and republished on 18080 rather than the real 8080, so
 # task 070's own two checks (login page 200, /api/clusters refused
@@ -56,6 +65,12 @@ services:
   kafka:
     ports: !override
       - '127.0.0.1:19092:9092'
+  schema-registry:
+    container_name: hubtest-schema-registry
+    ports: !override
+      - '127.0.0.1:18082:8081'
+    environment:
+      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms256m -Xmx512m"
   kafka-connect:
     container_name: hubtest-kafka-connect
     depends_on: !override

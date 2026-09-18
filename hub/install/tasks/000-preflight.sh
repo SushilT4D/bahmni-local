@@ -8,7 +8,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "0 · preflight"
-[ "${DRY}" = 1 ] && { info "would: check the base network + containers, base MySQL/Postgres CDC fitness (binlog format/image/retention/server_id/striding, wal_level/replication slots/senders), the ELIS Postgres too when it is a separate container, disk and memory"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: check the base network + containers, base MySQL/Postgres CDC fitness (binlog format/image/retention/server_id/striding, postgres major >= 10, wal_level/replication slots/senders), the ELIS Postgres too when it is a separate container, disk and memory"; exit 0; }
 setup_compose
 
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
@@ -50,7 +50,34 @@ bad="$(binlog_ok "$mf" "$mi" "$mr" "$ms" "$minc" "$moff" "$CLOUD_DEBEZIUM_SERVER
   || fail "base mysql unfit:${bad}"
 
 # 3. base Postgres: logical replication headroom (reads guarded, same reason as above)
+#
+# pg_connect_ok CONTAINER SUPERUSER LABEL: before any setting is read, prove we
+# can log in AT ALL, and name the role when we cannot (final review, Important
+# 6). A stock Bahmni base .env carries no POSTGRES_USER, so BASE_PG_SUPERUSER
+# used to default to "postgres" -- which does not exist on IPLIT's base, where
+# the two bootstrap superusers are `odoo` and `clinlims`. Every read below then
+# came back empty and this task failed as `pg wal_level= (want logical)`: true,
+# useless, and pointing at the wrong thing entirely. psql's own error text is
+# echoed (it carries no password: the connection is over the container's local
+# socket) so "role \"postgres\" does not exist" reaches the operator verbatim.
+pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
+  local c="$1" su="$2" label="$3" out
+  out="$(ct exec "$c" psql -U "$su" -Atc 'select 1' 2>&1)" || true
+  [ "$out" = 1 ] && return 0
+  fail "${label}: cannot connect to container ${c} as Postgres role \"${su}\" -- psql said: ${out}. Set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the role that base actually bootstrapped (IPLIT's base: odoo and clinlims) in the install command's environment."
+}
 pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -Atc "show $1"; }
+pg_connect_ok "$BASE_PG_CONTAINER" "$BASE_PG_SUPERUSER" "base pg"
+ok "base pg ${BASE_PG_CONTAINER} accepts role ${BASE_PG_SUPERUSER}"
+# Postgres major >= 10 (final review, Minor 14): pgoutput (every source here
+# uses it) arrived in 10, and so did the pg_sequences view task 050's striding
+# assertion reads. IPLIT's own OpenELIS image shipped 9.6 as recently as the
+# staging audit, so this is a live possibility, not a theoretical one.
+pvnum="$(pg_setting server_version_num 2>/dev/null || true)"
+case "$pvnum" in
+  ''|*[!0-9]*) fail "pg server_version_num unreadable on ${BASE_PG_CONTAINER} (got '${pvnum}')" ;;
+esac
+[ "$pvnum" -ge 100000 ] && ok "pg major $((pvnum / 10000)) (>=10: pgoutput and pg_sequences)" || fail "pg major $((pvnum / 10000)) on ${BASE_PG_CONTAINER} (want >=10 -- pgoutput logical decoding and the pg_sequences view are both 10+)"
 pv="$(pg_setting wal_level 2>/dev/null || true)"
 [ "$pv" = logical ] && ok "pg wal_level=${pv}" || fail "pg wal_level=${pv} (want logical)"
 pv="$(pg_setting max_replication_slots 2>/dev/null || true)"
@@ -69,6 +96,13 @@ if [ -n "${BASE_ELIS_CONTAINER:-}" ] && [ "${BASE_ELIS_CONTAINER}" != "${BASE_PG
   running="$(ct inspect --format '{{.State.Running}}' "$BASE_ELIS_CONTAINER" 2>/dev/null || true)"
   [ "$running" = true ] && ok "base elis container ${BASE_ELIS_CONTAINER} running" || fail "base elis container ${BASE_ELIS_CONTAINER} running=${running:-<not found>} (want true)"
   elis_setting(){ ct exec "$BASE_ELIS_CONTAINER" psql -U "$elis_su" -Atc "show $1"; }
+  pg_connect_ok "$BASE_ELIS_CONTAINER" "$elis_su" "base elis"
+  ok "base elis ${BASE_ELIS_CONTAINER} accepts role ${elis_su}"
+  pvnum="$(elis_setting server_version_num 2>/dev/null || true)"
+  case "$pvnum" in
+    ''|*[!0-9]*) fail "elis server_version_num unreadable on ${BASE_ELIS_CONTAINER} (got '${pvnum}')" ;;
+  esac
+  [ "$pvnum" -ge 100000 ] && ok "elis pg major $((pvnum / 10000)) (>=10)" || fail "elis pg major $((pvnum / 10000)) on ${BASE_ELIS_CONTAINER} (want >=10 -- pgoutput and pg_sequences; IPLIT's stock openelis-db image is 9.6)"
   pv="$(elis_setting wal_level 2>/dev/null || true)"
   [ "$pv" = logical ] && ok "elis wal_level=${pv}" || fail "elis wal_level=${pv} (want logical)"
   pv="$(elis_setting max_replication_slots 2>/dev/null || true)"
@@ -77,22 +111,38 @@ if [ -n "${BASE_ELIS_CONTAINER:-}" ] && [ "${BASE_ELIS_CONTAINER}" != "${BASE_PG
   [ "$pv" -ge 4 ] && ok "elis max_wal_senders=${pv}" || fail "elis max_wal_senders=${pv} (want >=4)"
 fi
 
-# 4. host room (Linux-first: this installer's rehearsal and production targets
-# are both Linux hubs; df -Pk is POSIX-portable, free -m is Linux-only). Read
-# and validated as a plain digit string BEFORE the arithmetic (found live
-# while proving task 090 the same way): on a host where DockerRootDir names a
-# path only the docker daemon's own VM can see (Docker Desktop on macOS, not
-# a production Linux hub), `df -Pk` fails and prints nothing, and
-# `$(( EMPTY / 1048576 ))` is a bash arithmetic SYNTAX error that `fail`
-# never gets a chance to name -- unlike a guarded `[ "$pv" -ge N ]` read,
-# which just returns false, this aborts the whole task with a raw shell error.
-root_dir="$(ct info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
-[ -n "$root_dir" ] || fail "docker root dir unreadable (ct info --format '{{.DockerRootDir}}' returned nothing)"
-avail_kb="$(df -Pk "$root_dir" 2>/dev/null | awk 'NR==2{print $4}' || true)"
+# 4. host room. Measured from INSIDE the base MySQL container, on the
+# filesystem docker itself gives a container -- Ruling R1b, the same correction
+# task 090 already carries: a host-level `df` on `ct info`'s DockerRootDir
+# reads nothing at all on Docker Desktop (the path lives inside the daemon's
+# VM), and on a Linux hub it reads the same pool this does. It is also the
+# number that actually matters: the disk the hub's own volumes and the base's
+# data grow on. HUB_MIN_DISK_GB overrides the 60 GB floor for the live smoke
+# (the same documented, test-only override 090 takes); never lower it on a
+# real hub. Read and validated as a plain digit string BEFORE the arithmetic:
+# `$(( EMPTY / 1048576 ))` is a bash SYNTAX error that `fail` never gets to
+# name, unlike a guarded `[ "$x" -ge N ]`, which simply returns false.
+avail_kb="$(ct exec "$BASE_MYSQL_CONTAINER" df -Pk / 2>/dev/null | awk 'NR==2{print $4}')" || true
 case "$avail_kb" in
-  ''|*[!0-9]*) fail "disk free at ${root_dir}: could not read available space (df -Pk returned no numeric value -- on Docker Desktop, DockerRootDir names a path inside the VM, not this host's own filesystem)" ;;
+  ''|*[!0-9]*) fail "disk free on the docker storage pool: could not read available space (ct exec ${BASE_MYSQL_CONTAINER} df -Pk / returned no numeric value)" ;;
 esac
 avail_gb=$((avail_kb / 1048576))
-[ "$avail_gb" -ge 60 ] && ok "disk free at ${root_dir}: ${avail_gb} GB" || fail "disk free at ${root_dir}: ${avail_gb} GB (want >=60 GB)"
-mem_mb="$(free -m | awk '/^Mem:/{print $7}')"
-[ "$mem_mb" -ge 4096 ] && ok "memory available ${mem_mb} MB" || fail "memory available ${mem_mb} MB (want >=4096 MB)"
+min_disk_gb="${HUB_MIN_DISK_GB:-60}"
+[ "$avail_gb" -ge "$min_disk_gb" ] && ok "disk free on the docker storage pool (read inside ${BASE_MYSQL_CONTAINER}): ${avail_gb} GB (want >= ${min_disk_gb})" \
+  || fail "disk free on the docker storage pool (read inside ${BASE_MYSQL_CONTAINER}): ${avail_gb} GB (want >= ${min_disk_gb} GB)"
+# Guarded and validated as a plain digit string before the comparison, the
+# same way avail_kb above is (final review, Minor 12): an unguarded
+# `mem_mb="$(free -m | ...)"` followed by `[ "" -ge 4096 ]` aborts the task
+# with a raw shell diagnostic instead of a named line. free(1) is Linux-only
+# and every real hub is Linux, so its ABSENCE is not a failure of the host
+# under test -- it means this check does not apply here (the live smoke runs
+# this task for real on a Mac). A present-but-unreadable `free` still fails.
+if command -v free >/dev/null 2>&1; then
+  mem_mb="$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')" || true
+  case "$mem_mb" in
+    ''|*[!0-9]*) fail "memory available: free -m returned no numeric value" ;;
+  esac
+  [ "$mem_mb" -ge 4096 ] && ok "memory available ${mem_mb} MB" || fail "memory available ${mem_mb} MB (want >=4096 MB)"
+else
+  warn "free(1) not available -- memory headroom unchecked (this check is Linux-only; every production hub is Linux)"
+fi

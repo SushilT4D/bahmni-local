@@ -13,10 +13,24 @@
 # subprocess it launches must agree on the same runtime, or the subprocess's
 # `ct exec` would look for these containers under the wrong tool and find
 # nothing.
+#
+# It runs against a temp COPY of hub/ (final review, Important 9): this test
+# used to overwrite the real hub/.env in place and restore it from a backup in
+# its EXIT trap, so a kill -9 between the two left a live hub configured with
+# throwaway credentials. HUB_DIR is pointed at the copy BEFORE lib.sh is
+# sourced, so no library function ever sees the real hub/ at all.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REAL_HUB="$(cd "$HERE/../.." && pwd)"
+TMP_ROOT="$(mktemp -d)"
+export HUB_DIR="${TMP_ROOT}/hub"
+mkdir -p "$HUB_DIR"
+for item in docker-compose.yml tables.conf connectors scripts odoo openelis install; do
+  [ -e "${REAL_HUB}/${item}" ] && cp -R "${REAL_HUB}/${item}" "${HUB_DIR}/${item}"
+done
 . "$HERE/../lib.sh"
 export RUNTIME=docker
+setup_compose   # CT/COMPOSE_CMD, so this test can use lib.sh's own container_ip
 fails=0
 bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 
@@ -27,19 +41,15 @@ PG_C=hubtest-basedb-pg
 MY_C=hubtest-basedb-mysql
 TASK="${REPO_DIR}/hub/install/tasks/050-base-db.sh"
 env_path="${HUB_DIR}/.env"
-env_backup=""
-tmp_versions="$(mktemp "${HUB_DIR}/.versions.XXXXXX")"
-
-if [ -f "$env_path" ]; then
-  env_backup="$(mktemp "${HUB_DIR}/.env-backup.XXXXXX")"
-  cp -p "$env_path" "$env_backup"
-fi
+tmp_versions="${TMP_ROOT}/versions.env"
+: > "$tmp_versions"   # env_put reads the file before rewriting it, so it must exist
 
 cleanup(){
   docker rm -f "$PG_C" "$MY_C" >/dev/null 2>&1 || true
   docker network rm "$NET" >/dev/null 2>&1 || true
-  if [ -n "$env_backup" ]; then cp -p "$env_backup" "$env_path"; rm -f "$env_backup"; else rm -f "$env_path"; fi
-  rm -f "$tmp_versions"
+  # The throwaway hub tree, .env included. Nothing under the real hub/ was
+  # written, so there is nothing to restore.
+  rm -rf "$TMP_ROOT"
 }
 trap cleanup EXIT
 
@@ -268,7 +278,8 @@ fi
 # assertion (caught live: it did, on the first draft of this test). Naming
 # id explicitly bypasses the default entirely, so the sequence this task
 # only ever asserts against is never touched by proving the grant.
-container_ip(){ docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$1" | awk '{print $1}'; }
+# container_ip: hub/install/lib.sh's (final review, Minor 20) -- this test
+# used to carry a third copy of it, through a bare `docker` rather than `ct`.
 pg_write_ok(){ # HOST DB USER PASSWORD SQL
   printf '%s\n' "$4" | docker exec -i -e PWHOST="$1" -e PWDB="$2" -e PWUSER="$3" -e PWSQL="$5" "$PG_C" sh -c \
     'IFS= read -r pw && PGPASSWORD="$pw" psql -h "$PWHOST" -U "$PWUSER" -d "$PWDB" -v ON_ERROR_STOP=1 -q -c "$PWSQL"' 2>&1

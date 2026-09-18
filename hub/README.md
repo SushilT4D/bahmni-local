@@ -20,16 +20,26 @@ asserts the striding half of it again once the sync identities exist. The
 hub never fixes a violation here -- striding an already-written base is a
 data-moving operation, not a prerequisite check's job.
 
-- **MySQL (OpenMRS)**: `binlog_format=ROW`, `binlog_row_image=FULL`, at least
-  7 days of binlog retention, a `server_id` distinct from the Debezium
+- **MySQL (OpenMRS) -- 8.0.x**: `binlog_format=ROW`, `binlog_row_image=FULL`,
+  at least 7 days of binlog retention, a `server_id` distinct from the Debezium
   connector's own id (F-059), and **striding**: `auto_increment_increment=10`,
   `auto_increment_offset=10` -- the hub is residue 0. The base stack's owner
-  strides it; the installer only asserts.
-- **Postgres (Odoo, OpenELIS/clinlims)**: `wal_level=logical`,
+  strides it; the installer only asserts. The version floor is Debezium 3.6.2's
+  (MySQL 8.0.x only): task `000` still reads 5.6/5.7's binlog settings, but task
+  `080` refuses to register a source against anything below major 8.
+- **Postgres (Odoo, OpenELIS/clinlims) -- 10 or newer**: `wal_level=logical`,
   `max_replication_slots>=4`, `max_wal_senders>=4`, and the same striding
   contract on every synced sequence (`increment_by=10`, `last_value` a
   multiple of 10 or unused) -- checked per table, derived from
-  `sync/subsystems.conf`, never hand-copied.
+  `sync/subsystems.conf`, never hand-copied. The major-version floor is
+  checked on **both** instances: `pgoutput` (every source here decodes with it)
+  and the `pg_sequences` view the striding assertion reads both arrived in 10,
+  and IPLIT's stock `openelis-db` image still ships 9.6.
+- **The superusers**: whatever role each base actually bootstrapped --
+  `postgres` on the mini and every clinic, `odoo` and `clinlims` on IPLIT's
+  base. Task `000` connects as it before reading anything else and names the
+  role when it cannot (`role "postgres" does not exist`), rather than failing
+  later as an empty setting.
 - **One Postgres container or two**: the mini and every clinic run Odoo and
   OpenELIS in one shared Postgres container/superuser. IPLIT's real hub base
   runs them as two separate containers with different bootstrap superusers.
@@ -63,6 +73,52 @@ stack's own `.env`, and the operator's `--secrets` file. A value already
 present in `hub/.env` is kept on every subsequent run -- a resume never
 regenerates a secret.
 
+**Where the base stack is described**: five values have no home in any of
+those three files, because they describe the base *deployment* rather than its
+configuration -- its network and its container/superuser names. They are read
+from the install command's own environment (then the base `.env`, then a
+default). For the Azure hub on IPLIT's base -- two Postgres containers, two
+different bootstrap superusers -- that is the whole command:
+
+```
+KAFKA_BASE_NETWORK=iplit-base_default \
+BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 \
+BASE_PG_CONTAINER=iplit-base-odoodb-1 BASE_PG_SUPERUSER=odoo \
+BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 BASE_ELIS_SUPERUSER=clinlims \
+hub/install/install.sh --hub azure \
+  --base-env /home/bahmni-hub/iplit-base/.env \
+  --secrets ~/azure.secrets.env
+```
+
+On the mini or a clinic acting as the hub -- one Postgres container for both
+databases, superuser `postgres` -- only `KAFKA_BASE_NETWORK` and the two
+container names differ from their defaults, and the `BASE_ELIS_*` pair can be
+left out entirely: each defaults from its `BASE_PG_*` counterpart.
+
+Add `KAFKA_SASL_BIND=127.0.0.1` for a lab hub whose 9092 is fronted by
+`tailscale serve` or another local proxy -- see the next section.
+
+## The clinic-facing listener: 9092 is public by default
+
+The broker publishes two ports. `9093` (the KRaft controller) is bound to
+`127.0.0.1` and stays that way. `9092` -- the SASL_PLAINTEXT listener every
+clinic's MirrorMaker dials -- is published on **`KAFKA_SASL_BIND`, which
+defaults to `0.0.0.0`**: a hub exists to be dialled, and a hub bound to
+loopback is a hub no clinic can reach.
+
+A lab hub whose 9092 is fronted by `tailscale serve` (or any other local
+proxy) sets `KAFKA_SASL_BIND=127.0.0.1` deliberately, in `hub/.env` or in the
+install command's environment.
+
+Both task `060` (right after the broker comes up) and task `090` (the exit
+checks) read the binding back from the running container -- `docker port kafka
+9092` -- and **fail** unless it matches what `hub/.env` declares. When the
+declared value is a loopback address they also print a loud warning that
+clinics cannot dial this hub directly. This is deliberately separate from the
+SASL authentication check beside it: that one dials `127.0.0.1`, which answers
+identically whether the port is published to the world or to loopback only, so
+it structurally cannot catch a hub nobody can reach.
+
 ## hub/.env keys
 
 Every key below is blank in `hub/.env.example`; `hub_compose_env` fills them
@@ -77,6 +133,7 @@ representation both read identically.
 |---|---|
 | `KAFKA_CLUSTER_ID` | KRaft cluster id for this hub's broker; must match the `kafka-data` volume's `meta.properties`. |
 | `REMOTE_KAFKA_HOST` | Hostname/IP this hub's broker advertises on its SASL_PLAINTEXT listener, for clinics to dial. |
+| `KAFKA_SASL_BIND` | Host interface that listener's port 9092 is published on. `0.0.0.0` (the default) is public; `127.0.0.1` is the lab-hub-behind-a-proxy case. |
 | `KAFKA_BASE_NETWORK` | Docker network name of the base stack this hub attaches to. |
 | `KAFKA_ADMIN_PASSWORD` | SASL PLAIN password for the broker's own `admin` JAAS user. |
 | `REMOTE_KAFKA_PASSWORD` | SASL PLAIN password clinics present when authenticating to this hub. |
@@ -93,13 +150,18 @@ representation both read identically.
 | `CLOUD_MYSQL_SERVER_NAME` | Debezium logical server name (topic prefix) for the down-direction MySQL source. |
 | `CLOUD_DEBEZIUM_SERVER_ID` | MySQL replication server-id the down-direction source presents; unique fleet-wide. |
 | `KAFKA_CONNECT_URL` | Base URL the register/generate scripts use to reach Kafka Connect's REST API. |
-| `BASE_MYSQL_ROOT_PASSWORD` | Root password of the base stack's MySQL. |
-| `BASE_PG_SUPERUSER` | Postgres superuser name on the base's Odoo Postgres. |
-| `BASE_PG_PASSWORD` | Password for `BASE_PG_SUPERUSER`; may be blank (no network password). |
+| `BASE_PG_SUPERUSER` | Postgres superuser on the base's Odoo Postgres (`postgres`; `odoo` on IPLIT's base). From the install command's environment, then the base `.env`'s `POSTGRES_USER`, then the default. |
 | `BASE_MYSQL_CONTAINER` | Container name of the base stack's MySQL service. |
 | `BASE_PG_CONTAINER` | Container name of the base stack's Postgres service (Odoo's). |
 | `BASE_ELIS_CONTAINER` | Container name of the Postgres hosting OpenELIS/clinlims; defaults from `BASE_PG_CONTAINER`. |
 | `BASE_ELIS_SUPERUSER` | Superuser on that container; defaults from `BASE_PG_SUPERUSER`. |
+
+`BASE_MYSQL_ROOT_PASSWORD` and `BASE_PG_PASSWORD` were **removed** from this
+list: nothing read either one. MySQL root is only ever used through the base
+container's own `MYSQL_ROOT_PASSWORD` environment (so the value never reaches
+the hub's process list), and `psql` runs over the container's local socket,
+which its image trusts. Copying the base stack's root credentials into a
+second file on disk bought nothing but exposure.
 | `CLOUD_MYSQL_HOST` | Hostname the down-direction source dials; defaults from `BASE_MYSQL_CONTAINER`. |
 | `CLOUD_MYSQL_PORT` | Port of the base's MySQL server the down-direction source reads from. |
 | `CLOUD_MYSQL_DATABASE` | Database on the base's MySQL server the down-direction source captures from. |
@@ -121,15 +183,15 @@ Each task is idempotent, ends with a value read back from the live system
 
 | Task | Proves |
 |---|---|
-| `000-preflight` | The base network and both containers exist; base MySQL/Postgres (and the ELIS Postgres too, when it's a separate container) meet the contract above; the host has disk and memory to start. |
+| `000-preflight` | The base network and both containers exist; the declared Postgres superuser can actually log in (named in the failure if not); base MySQL/Postgres (and the ELIS Postgres too, when it's a separate container) meet the contract above, Postgres major >= 10 included; the docker storage pool has room and the host has memory. |
 | `020-env` | `hub/.env` is composed, every `HUB_KEYS` entry is present and non-empty, the file is mode 600, and every value round-trips through actually `.`-sourcing the file (not just `env_get`'s own parse of it). |
 | `030-jaas` | `kafka_server_jaas.conf` is generated (never hand-written or committed) with the admin and mirrormaker users, mode 600; `hub/connectors/` exists. |
 | `040-images` | Every image `docker compose config --images` names is present locally. |
 | `050-base-db` | The MySQL sink+debezium accounts and the Postgres `odoo_sink`/`clinlims_sink` roles exist, are granted, and authenticate over the network; the two ownership publications are converged from `sync/subsystems.conf`; a heartbeat table exists in both databases; sequence striding holds; no `hub_%` replication origin exists on either Postgres instance. |
-| `060-kafka` | The KRaft controller + broker + Schema Registry come up; the broker's cluster id matches; the published SASL_PLAINTEXT listener authenticates the mirrormaker user; Schema Registry answers. |
+| `060-kafka` | The KRaft controller + broker + Schema Registry come up; the broker's cluster id matches; port 9092 is published on the declared `KAFKA_SASL_BIND` (read back from the container); the published SASL_PLAINTEXT listener authenticates the mirrormaker user; Schema Registry answers. |
 | `070-connect` | Kafka Connect comes up with all three plugin classes (MySQL source, Postgres source, JDBC sink) resolved; kafka-ui comes up behind a real login -- the login page answers, an unauthenticated API call is refused, and `KAFKA_UI_USER`/`KAFKA_UI_PASSWORD` actually log in and read the cluster back. |
 | `080-sources` | The base MySQL is fit for Debezium 3.6.2 (major version 8+); the down-direction MySQL source and the two up-direction Postgres relay sources are registered, all RUNNING (connector and every task); both down-direction replication slots are active; schema-history retention is `-1`; the heartbeat keys are present in both Postgres sources' configs. |
-| `090-exit-checks` | Everything above still holds, read fresh: disk free under the broker's own data volume; every connector and task still RUNNING; both replication slots retain under 2 GB; the SASL listener still answers; `hub/.env` and the JAAS file are still mode 600; the git checkout is clean. |
+| `090-exit-checks` | Everything above still holds, read fresh: disk free under the broker's own data volume; every connector and task still RUNNING; both replication slots retain under 2 GB; 9092 is still published on the declared bind and the SASL listener still answers; `hub/.env` and the JAAS file are still mode 600; nothing under `hub/` is dirty in git (edits elsewhere in the checkout are named, not failed -- a hub host legitimately carries its own base-stack changes). It also prints the base OpenMRS `event_records` count, informationally. |
 | `100-join` | Nothing about the hub itself -- prints the operator hand-off (see below). |
 
 ## Joining and leaving a clinic

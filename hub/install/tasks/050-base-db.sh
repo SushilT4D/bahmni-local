@@ -37,28 +37,18 @@ MY="$BASE_MYSQL_CONTAINER"; PG="$BASE_PG_CONTAINER"
 # collapses back onto $PG/$BASE_PG_SUPERUSER exactly as before.
 ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE_PG_SUPERUSER}"
 
-# container_ip CONTAINER : its address on whichever docker/podman network(s)
-# it is attached to. Used to dial MySQL/Postgres from inside their OWN
-# container by IP rather than by "localhost" -- the postgres image's
-# pg_hba.conf special-cases 127.0.0.1/::1 as trust regardless of
-# POSTGRES_HOST_AUTH_METHOD, so a localhost round-trip would "succeed"
-# without ever checking the password we just set. The container's real
-# address falls through to the catch-all host line instead, so only that
-# path actually exercises the password.
-container_ip(){ ct inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$1" | awk '{print $1}'; }
+# container_ip (CONTAINER -> its address on the docker/podman network) and
+# mysql_root (SQL on stdin, run as root inside $MY) both live in
+# hub/install/lib.sh now, with their contracts (final review, Minor 20): this
+# task and 080-sources.sh each used to carry its own identical copy, and
+# test_base_db.sh a third through a bare `docker`.
 
 # --- MySQL: sink + debezium accounts ---------------------------------------
-# MYSQL_PWD is expanded by the sh INSIDE the container, from that container's
-# own environment -- never by us, so the root password never appears on a
-# command line or in this script's own argv. REMOTE_MYSQL_PASSWORD and
-# DEBEZIUM_DB_PASSWORD are masked in anything mysql_root prints back: a
-# syntax error near a password clause otherwise echoes the clause, secret
-# included (the same failure mode create-odoo-sink-role.sh's header records
-# for Postgres ERROR CONTEXT lines). mask_env_secrets (hub/install/lib.sh), not
-# `sed "s/${SECRET}/.../g"` -- a literal replace can't be broken by a secret
-# that happens to contain a sed/regex-special character, "/" (the delimiter)
-# included (Fix round 2).
-mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
+# mysql_root (hub/install/lib.sh) runs the SQL on stdin as root inside
+# $BASE_MYSQL_CONTAINER: the password is expanded by the `sh` inside the
+# container from its own environment, never by us, and everything it prints
+# back is pushed through mask_env_secrets (a MySQL syntax error near a
+# password clause otherwise echoes the clause, secret included).
 
 ver="$(printf 'select version()' | mysql_root | head -1)"
 [ -n "$ver" ] || fail "could not read MySQL version from ${MY}"
@@ -198,7 +188,14 @@ build_publication(){
   # capture-then-loop propagates the failure correctly.
   tables="$(subsystem_tables "$prefix")"
   for t in $tables; do
-    exists="$(printf "select (to_regclass('%s.%s') is not null)" "$schema" "$t" | pg_admin "$db" -At)"
+    # Every psql read inside a loop body carries its guard OUTSIDE the
+    # substitution (final review, Important 3; hub/install/tests/test_lint.sh):
+    # unguarded, a connection that drops mid-loop ends the task through the ERR
+    # trap with no named line -- and swallowing it with `|| true` would be worse
+    # here, since an empty read means "the table does not exist" and would
+    # silently drop that table from the publication. So: name it and stop.
+    exists="$(printf "select (to_regclass('%s.%s') is not null)" "$schema" "$t" | pg_admin "$db" -At)" \
+      || fail "publication ${pub}: could not read whether ${schema}.${t} exists in ${db} (psql failed)"
     if [ "$exists" = t ]; then
       parts="${parts}${parts:+, }${schema}.${t}"; list="${list}${list:+ }${t}"
     else
@@ -231,7 +228,8 @@ check_sink_privileges(){ # ROLE DB SCHEMA TABLES...
   schema_ok="$(printf "select has_schema_privilege('%s', '%s', 'USAGE')" "$role" "$schema" | pg_admin "$db" -At)"
   [ "$schema_ok" = t ] || fail "${role} lacks USAGE on schema ${schema}"
   for t in "$@"; do
-    priv_ok="$(printf "select has_table_privilege('%s', '%s.%s', 'SELECT,INSERT,UPDATE,DELETE')" "$role" "$schema" "$t" | pg_admin "$db" -At)"
+    priv_ok="$(printf "select has_table_privilege('%s', '%s.%s', 'SELECT,INSERT,UPDATE,DELETE')" "$role" "$schema" "$t" | pg_admin "$db" -At)" \
+      || fail "${role}: could not read privileges on ${schema}.${t} in ${db} (psql failed)"
     if [ "$priv_ok" = t ]; then
       checked="${checked}${checked:+,}${t}"
     else
@@ -271,7 +269,8 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
       # Odoo ids carry a nextval() default; pg_get_serial_sequence resolves
       # the real owning sequence (not always <table>_id_seq -- inherited or
       # renamed tables differ). NULL means no serial default at all.
-      seqname="$(printf "select pg_get_serial_sequence('%s.%s','id')" "$schema" "$t" | pg_admin "$db" -At)"
+      seqname="$(printf "select pg_get_serial_sequence('%s.%s','id')" "$schema" "$t" | pg_admin "$db" -At)" \
+        || fail "could not resolve the serial sequence for ${schema}.${t} in ${db} (psql failed)"
       if [ -z "$seqname" ]; then SEQ_BAD="${SEQ_BAD} ${schema}.${t}(no serial sequence on id)"; continue; fi
       seqname="${seqname##*.}"
     else
@@ -280,7 +279,8 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
       # <table>_seq Module 28's striding SQL created directly.
       seqname="${t}_seq"
     fi
-    row="$(printf "select increment_by || '|' || coalesce(last_value::text,'NULL') from pg_sequences where schemaname = '%s' and sequencename = '%s'" "$schema" "$seqname" | pg_admin "$db" -At)"
+    row="$(printf "select increment_by || '|' || coalesce(last_value::text,'NULL') from pg_sequences where schemaname = '%s' and sequencename = '%s'" "$schema" "$seqname" | pg_admin "$db" -At)" \
+      || fail "could not read ${schema}.${seqname} from pg_sequences in ${db} (psql failed)"
     if [ -z "$row" ]; then SEQ_BAD="${SEQ_BAD} ${schema}.${seqname}(missing)"; continue; fi
     inc="${row%%|*}"; last="${row#*|}"
     [ "$inc" = 10 ] || SEQ_BAD="${SEQ_BAD} ${schema}.${seqname}(increment_by=${inc})"

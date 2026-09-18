@@ -6,7 +6,14 @@ ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((f
 # KAFKA_IMAGE, SCHEMA_REGISTRY_IMAGE and DEBEZIUM_CONNECT_IMAGE are fleet pins
 # (sync/versions.env) the example does not carry -- hub_compose_env's
 # versions_put writes them at render time (hub/install/lib.sh), not this file.
-env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') $(grep -oE '^[A-Z_]+=[^ ]*' "$HUB/../sync/versions.env" | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet docker compose -f "$HUB/docker-compose.yml" config >/tmp/hubcfg.yml 2>/tmp/hubcfg.err \
+# KAFKA_SASL_BIND is given a REAL value rather than the placeholder "x" every
+# other key gets: it renders inside a ports entry, and compose rejects the
+# whole file with "invalid IP address: x" (final review, Critical 2 -- the
+# ports line is `${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092` now, not a pinned
+# 127.0.0.1). `env` applies assignments in order, so this one wins over the
+# generated placeholder ahead of it.
+hubcfg(){ local bind="$1"; shift; env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') $(grep -oE '^[A-Z_]+=[^ ]*' "$HUB/../sync/versions.env" | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet KAFKA_SASL_BIND="$bind" docker compose -f "$HUB/docker-compose.yml" config "$@"; }
+hubcfg 0.0.0.0 >/tmp/hubcfg.yml 2>/tmp/hubcfg.err \
   && ok "hub compose validates with the example keys" || { bad "hub compose does not validate: $(head -3 /tmp/hubcfg.err)"; }
 for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  ${s}:" /tmp/hubcfg.yml && ok "service $s" || bad "service $s missing"; done
 grep -qE 'name: testnet' /tmp/hubcfg.yml && grep -qE 'external: true' /tmp/hubcfg.yml && ok "attaches to the base network" || bad "external network not declared"
@@ -36,6 +43,29 @@ fi
 n_ports="$(printf '%s' "$ports_block" | grep -cE '^\s*-\s')"
 [ "$n_ports" = 1 ] && ok "kafka-ui publishes exactly one port (no non-loopback exposure)" || bad "kafka-ui publishes ${n_ports:-0} port entries, want exactly 1"
 printf '%s' "$kafka_ui_block" | grep -qE 'AUTH_TYPE: ?LOGIN_FORM' && ok "kafka-ui AUTH_TYPE is LOGIN_FORM" || bad "kafka-ui AUTH_TYPE is not LOGIN_FORM"
+# --- the clinic-facing SASL listener is publishable (final review, C2) ------
+# In the source: the ports entry is the variable with a PUBLIC default, never
+# a pinned loopback address. The pattern is SINGLE-quoted: in double quotes
+# the shell would expand ${KAFKA_SASL_BIND:-0.0.0.0} and grep for its value.
+grep -qF -e 'KAFKA_SASL_BIND:-0.0.0.0}:9092:9092' "$HUB/docker-compose.yml" \
+  && ok "kafka's 9092 mapping is \${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092 (public by default)" \
+  || bad "kafka's 9092 mapping is not \${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092 -- a hub clinics cannot dial"
+grep -qE "^ *- '127\\.0\\.0\\.1:9092:9092'" "$HUB/docker-compose.yml" \
+  && bad "kafka still pins a loopback 9092 mapping" || ok "no pinned loopback 9092 mapping left in the compose file"
+# Rendered: what compose actually installs for the 9092 mapping specifically
+# (9093, the controller port, stays loopback on purpose and must not be read
+# here by accident) -- read as JSON, so this depends on no output shape.
+bind_of(){ hubcfg "$1" --format json 2>/dev/null | jq -r '.services.kafka.ports[] | select(.target==9092) | .host_ip'; }
+got="$(bind_of 0.0.0.0)"
+[ "$got" = "0.0.0.0" ] && ok "KAFKA_SASL_BIND=0.0.0.0 renders host_ip 0.0.0.0 on the 9092 mapping" || bad "KAFKA_SASL_BIND=0.0.0.0 rendered host_ip '${got:-<none>}' on 9092"
+got="$(bind_of 127.0.0.1)"
+[ "$got" = "127.0.0.1" ] && ok "KAFKA_SASL_BIND=127.0.0.1 renders a loopback 9092 mapping (the lab-hub case)" || bad "KAFKA_SASL_BIND=127.0.0.1 rendered host_ip '${got:-<none>}' on 9092"
+got="$(bind_of '')"
+[ "$got" = "0.0.0.0" ] && ok "an empty KAFKA_SASL_BIND falls back to the public 0.0.0.0 default" || bad "an empty KAFKA_SASL_BIND rendered host_ip '${got:-<none>}' on 9092, want the 0.0.0.0 default"
+# 9093 (the controller port) is untouched by all of this and stays loopback.
+got="$(hubcfg 0.0.0.0 --format json 2>/dev/null | jq -r '.services.kafka.ports[] | select(.target==9093) | .host_ip')"
+[ "$got" = "127.0.0.1" ] && ok "the controller port 9093 is still bound to 127.0.0.1 only" || bad "9093's host_ip is '${got:-<none>}', want 127.0.0.1"
+
 git -C "$HUB/.." ls-files cloud/kafka_server_jaas.conf | grep -q . && bad "JAAS still tracked" || ok "JAAS not tracked"
 # `check-ignore -q` refuses more than one pathname ("--quiet is only valid
 # with a single pathname", confirmed on git 2.39.5) -- split into two calls,

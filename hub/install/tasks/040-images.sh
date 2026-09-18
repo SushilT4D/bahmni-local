@@ -20,7 +20,19 @@ setup_compose
 # never a literal tag here. Per-image pull (not `compose pull`, which is
 # all-or-nothing) skips what is already present and retries a transient
 # failure a few times before giving up on that one image.
-for img in $(compose config --images 2>/dev/null | sort -u); do
+# Captured ONCE into a variable, and an EMPTY list is a failure, not a pass
+# (found live by the first smoke run that ever executed this task as a script):
+# `compose config` failing left `for img in $(...)` iterating zero times, after
+# which `missing` was empty and this task reported "every image present (0)" --
+# a check that had verified nothing announcing success, over a compose
+# invocation that had actually died (AL-008). stderr is kept and shown in that
+# failure rather than sent to /dev/null, since it names the reason.
+images_err="$(mktemp -t hub-images.XXXXXX)"
+trap 'rm -f "$images_err"' EXIT
+images="$(compose config --images 2>"$images_err" | sort -u)" || true
+[ -n "$images" ] || fail "compose config --images listed no image at all -- compose itself failed: $(tr '\n' ' ' < "$images_err")"
+n_images="$(printf '%s\n' "$images" | wc -l | tr -d ' ')"
+for img in $images; do
   ct image inspect "$img" >/dev/null 2>&1 && continue
   for attempt in 1 2 3; do
     if ct pull "$img"; then break; fi
@@ -28,5 +40,5 @@ for img in $(compose config --images 2>/dev/null | sort -u); do
   done
 done
 missing=""
-for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
-[ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
+for img in $images; do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
+[ -z "$missing" ] && ok "every image present (${n_images}): $(printf '%s' "$images" | tr '\n' ' ')" || fail "images missing:${missing}"
