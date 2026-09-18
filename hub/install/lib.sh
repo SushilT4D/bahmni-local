@@ -61,7 +61,18 @@ KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
 # hub_compose_env BASE_ENV SECRETS OUT : write hub/.env from the fleet pointer
 # (sync/hub.env), the base stack's .env (root credentials, existing sink
 # passwords) and the operator's secrets file (the fleet SASL password). Values
-# already in OUT are kept, so a resume never regenerates a secret.
+# already in OUT are kept, so a resume never regenerates a secret -- with one
+# deliberate exception: the seven non-secret base-deployment coordinates
+# (KAFKA_BASE_NETWORK, BASE_MYSQL_CONTAINER, BASE_PG_CONTAINER,
+# BASE_PG_SUPERUSER, BASE_ELIS_CONTAINER, BASE_ELIS_SUPERUSER,
+# KAFKA_SASL_BIND) go through put_coord below, not put: the install command's
+# environment overrides whatever is already stored on EVERY run, not just the
+# first. Residual fix: `put`'s keep-existing rule made the "environment first"
+# precedence documented at each call site below a dead letter after the first
+# run -- a first attempt on the Azure hub that omitted BASE_PG_SUPERUSER baked
+# "postgres" into hub/.env, task 000 then failed telling the operator to set
+# BASE_PG_SUPERUSER in the environment, and doing so and rerunning changed
+# nothing, because `put` saw an already-non-empty slot and left it alone.
 hub_compose_env(){
   local base="$1" secrets="$2" out="$3" k v
   [ -f "$base" ] || fail "base .env not found: $base"
@@ -70,7 +81,34 @@ hub_compose_env(){
   ( umask 077; [ -f "$out" ] || : > "$out" ); chmod 600 "$out"
   # shellcheck disable=SC1090
   local bs="$(set -a; . "$HUB_ENV"; set +a; printf '%s' "${REMOTE_KAFKA_BOOTSTRAP_SERVERS:?}")"
+  # HUB_COMPOSE_ENV_FROM_ENV (deliberately NOT local): 020-env.sh reads it
+  # back right after calling this function, to print which of the seven base
+  # coordinates below were taken from the install command's environment on
+  # THIS run (names only -- these seven are not secrets, so the names, which
+  # are all this prints, expose nothing). Reset on every call so a second
+  # call in the same process (tests, or a resume that re-composes hub/.env
+  # before the task loop) never carries over stale names from an earlier call.
+  HUB_COMPOSE_ENV_FROM_ENV=""
   put(){ [ -n "$(env_get "$out" "$1")" ] || env_put "$out" "$1" "$2"; }
+  # put_coord KEY ENV_VALUE DEFAULT : for the seven base coordinates only.
+  # ENV_VALUE is the candidate already read from the install command's
+  # environment (e.g. "${BASE_PG_SUPERUSER:-}"). Non-empty: written
+  # unconditionally, EVERY run, overriding whatever is already stored in
+  # OUT -- unlike put() above, which only ever fills an empty slot, so this
+  # is what makes the environment's precedence real on a rerun, not only the
+  # first attempt. Empty: falls through to put()'s existing keep-first-write
+  # behavior with DEFAULT (so the existing value in OUT still wins over
+  # DEFAULT, which is itself the base .env's value or a fixed default,
+  # per the expression the call site passes).
+  put_coord(){
+    local k="$1" env_v="$2" dflt="$3"
+    if [ -n "$env_v" ]; then
+      env_put "$out" "$k" "$env_v"
+      HUB_COMPOSE_ENV_FROM_ENV="${HUB_COMPOSE_ENV_FROM_ENV:+${HUB_COMPOSE_ENV_FROM_ENV} }${k}"
+    else
+      put "$k" "$dflt"
+    fi
+  }
   put REMOTE_KAFKA_HOST "${bs%%:*}"
   # KAFKA_SASL_BIND (final review, Critical 2): the host interface the
   # clinic-facing SASL_PLAINTEXT listener is PUBLISHED on (hub/docker-compose.yml
@@ -80,9 +118,10 @@ hub_compose_env(){
   # tracked file that task 090's own git-clean check then refused. A lab hub
   # that fronts 9092 with `tailscale serve` sets 127.0.0.1 here deliberately;
   # tasks 060 and 090 read the binding back from the running container and warn
-  # loudly when it is loopback.
-  put KAFKA_SASL_BIND "${KAFKA_SASL_BIND:-0.0.0.0}"
-  put KAFKA_BASE_NETWORK "${KAFKA_BASE_NETWORK:-cloud_default}"
+  # loudly when it is loopback. put_coord (not put): the environment wins on
+  # every run, not just the first (residual fix item 1).
+  put_coord KAFKA_SASL_BIND "${KAFKA_SASL_BIND:-}" "0.0.0.0"
+  put_coord KAFKA_BASE_NETWORK "${KAFKA_BASE_NETWORK:-}" "cloud_default"
   put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
   put KAFKA_ADMIN_PASSWORD "$(gen_secret)"
   put REMOTE_KAFKA_PASSWORD "$(env_get "$secrets" REMOTE_KAFKA_PASSWORD)"
@@ -99,18 +138,24 @@ hub_compose_env(){
   put CLOUD_MYSQL_SERVER_NAME bahmni-cloud
   put CLOUD_DEBEZIUM_SERVER_ID 184060
   put KAFKA_CONNECT_URL http://localhost:8083
-  # The four base-stack coordinates (two containers, two superusers) resolve in
-  # ONE order, the same for each (final review, Important 6): the environment of
-  # the install command first, the base stack's own .env second, a fixed default
-  # last. The environment has to come first because a stock Bahmni base .env
-  # carries no POSTGRES_USER at all, so the middle source silently produced
-  # "postgres" on IPLIT's real hub, where the two superusers are `odoo` and
-  # `clinlims` -- an operator had no way to say so, and 000-preflight's psql
-  # then failed as a bare wal_level mismatch. hub/README.md and the P2 runbook
-  # carry the full command with all four set.
-  put BASE_PG_SUPERUSER "${BASE_PG_SUPERUSER:-$(v="$(env_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")}"
-  put BASE_MYSQL_CONTAINER "${BASE_MYSQL_CONTAINER:-cloud-openmrsdb-1}"
-  put BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-cloud-openelisdb-1}"
+  # The base-stack coordinates (two containers, two superusers, plus the
+  # network and SASL bind above) resolve in ONE order, the same for each
+  # (final review, Important 6; residual fix item 1): the environment of the
+  # install command wins whenever it is set and non-empty, and it wins on
+  # EVERY run, not just the first -- rewriting whatever is already stored.
+  # Below that: the existing value already in $out (a resume must not
+  # regenerate what an earlier run already resolved), then the base stack's
+  # own .env, then a fixed default. The environment has to be checked first,
+  # on every run, because a stock Bahmni base .env carries no POSTGRES_USER at
+  # all, so the middle source silently produced "postgres" on IPLIT's real
+  # hub, where the two superusers are `odoo` and `clinlims` -- an operator who
+  # reran the installer after setting BASE_PG_SUPERUSER in the environment
+  # used to see no effect at all, because `put`'s own keep-existing guard had
+  # already baked "postgres" into hub/.env on the first (failing) attempt.
+  # hub/README.md and the P2 runbook carry the full command with all seven set.
+  put_coord BASE_PG_SUPERUSER "${BASE_PG_SUPERUSER:-}" "$(v="$(env_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")"
+  put_coord BASE_MYSQL_CONTAINER "${BASE_MYSQL_CONTAINER:-}" "cloud-openmrsdb-1"
+  put_coord BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-}" "cloud-openelisdb-1"
   # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
   # databases on the mini and every clinic, so these default straight from
   # the BASE_PG_* values just set above (read back from $out, same reason
@@ -121,9 +166,10 @@ hub_compose_env(){
   # different bootstrap superusers (iplit-base-odoodb-1/odoo,
   # iplit-base-openelisdb-1/clinlims -- docs/sync-core/runbooks/hub-build-and-
   # connect.md's container table), where an operator sets both keys
-  # explicitly before running the installer.
-  put BASE_ELIS_CONTAINER "${BASE_ELIS_CONTAINER:-$(env_get "$out" BASE_PG_CONTAINER)}"
-  put BASE_ELIS_SUPERUSER "${BASE_ELIS_SUPERUSER:-$(env_get "$out" BASE_PG_SUPERUSER)}"
+  # explicitly before running the installer -- put_coord means that
+  # environment wins on every run here too, not just the first.
+  put_coord BASE_ELIS_CONTAINER "${BASE_ELIS_CONTAINER:-}" "$(env_get "$out" BASE_PG_CONTAINER)"
+  put_coord BASE_ELIS_SUPERUSER "${BASE_ELIS_SUPERUSER:-}" "$(env_get "$out" BASE_PG_SUPERUSER)"
   # The down-source dials the base stack's own MySQL by container name on the
   # shared KAFKA_BASE_NETWORK (Docker resolves it), so its default is simply
   # whatever BASE_MYSQL_CONTAINER was just set to above -- read back from $out,

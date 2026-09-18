@@ -111,6 +111,72 @@ mkdir -p "$TMP/hub-base-second"; OUT3="$TMP/hub-base-second/.env"
 ( unset BASE_PG_SUPERUSER; HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base-pguser.env" "$TMP/secrets.env" "$OUT3" >/dev/null )
 assert_eq "BASE_PG_SUPERUSER falls back to the base .env's POSTGRES_USER" "$(env_get "$OUT3" BASE_PG_SUPERUSER)" "basefile"
 
+# --- residual fix item 1: the environment overrides on EVERY run, not just
+# the first (final whole-branch re-review's New Important finding) ---------
+# `put`'s own keep-existing guard used to make the "environment first"
+# precedence above a dead letter after run 1: a first attempt that omitted
+# BASE_PG_SUPERUSER baked "postgres" into hub/.env, and setting it and
+# rerunning changed nothing -- put() saw an already-non-empty slot. put_coord
+# (hub/install/lib.sh) fixes this for exactly the seven non-secret base
+# coordinates. Three composes into ONE file, the shape a real resume
+# exercises: run 1 with nothing in the environment, run 2 with all seven set
+# (must override despite existing values), run 3 with the environment unset
+# again (must KEEP run 2's values, not revert). A secret
+# (KAFKA_ADMIN_PASSWORD, pure gen_secret, no base .env counterpart) rides
+# along on all three runs to prove put_coord's refactor left secrets on the
+# unchanged keep-existing path.
+mkdir -p "$TMP/hub-resume"; OUT4="$TMP/hub-resume/.env"
+coord_vars="KAFKA_BASE_NETWORK BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_PG_SUPERUSER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER KAFKA_SASL_BIND"
+
+# Run 1: nothing in the environment -- the same fixed defaults asserted
+# against $OUT above land here too.
+run1_from_env="$( ( unset $coord_vars
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT4" >/dev/null
+  printf '%s' "$HUB_COMPOSE_ENV_FROM_ENV" ) )"
+assert_eq "run 1 (no environment): HUB_COMPOSE_ENV_FROM_ENV is empty" "$run1_from_env" ""
+assert_eq "run 1 (no environment): KAFKA_SASL_BIND default lands" "$(env_get "$OUT4" KAFKA_SASL_BIND)" "0.0.0.0"
+assert_eq "run 1 (no environment): BASE_PG_SUPERUSER default lands" "$(env_get "$OUT4" BASE_PG_SUPERUSER)" "postgres"
+assert_eq "run 1 (no environment): BASE_MYSQL_CONTAINER default lands" "$(env_get "$OUT4" BASE_MYSQL_CONTAINER)" "cloud-openmrsdb-1"
+run1_admin_pw="$(env_get "$OUT4" KAFKA_ADMIN_PASSWORD)"
+assert_eq "run 1: KAFKA_ADMIN_PASSWORD generated (32)" "$(printf '%s' "$run1_admin_pw" | wc -c | tr -d ' ')" "32"
+
+# Run 2: all seven set in the environment -- every one overridden IN THE
+# FILE even though $OUT4 already carries a DIFFERENT value for each from run
+# 1. This is the exact scenario the finding named: a rerun after setting the
+# environment must actually take effect, not silently no-op.
+run2_from_env="$( ( export KAFKA_BASE_NETWORK=iplit-base_default BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 \
+         BASE_PG_CONTAINER=iplit-base-odoodb-1 BASE_PG_SUPERUSER=odoo \
+         BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 BASE_ELIS_SUPERUSER=clinlims \
+         KAFKA_SASL_BIND=127.0.0.1
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT4" >/dev/null
+  printf '%s' "$HUB_COMPOSE_ENV_FROM_ENV" ) )"
+assert_eq "run 2: HUB_COMPOSE_ENV_FROM_ENV names all seven, in call order (020-env.sh's read-back line)" \
+  "$run2_from_env" "KAFKA_SASL_BIND KAFKA_BASE_NETWORK BASE_PG_SUPERUSER BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER"
+assert_eq "run 2: KAFKA_BASE_NETWORK overridden despite an existing value" "$(env_get "$OUT4" KAFKA_BASE_NETWORK)" "iplit-base_default"
+assert_eq "run 2: BASE_MYSQL_CONTAINER overridden despite an existing value" "$(env_get "$OUT4" BASE_MYSQL_CONTAINER)" "iplit-base-openmrsdb-1"
+assert_eq "run 2: BASE_PG_CONTAINER overridden despite an existing value" "$(env_get "$OUT4" BASE_PG_CONTAINER)" "iplit-base-odoodb-1"
+assert_eq "run 2: BASE_PG_SUPERUSER overridden despite an existing value (the exact Azure-hub scenario)" "$(env_get "$OUT4" BASE_PG_SUPERUSER)" "odoo"
+assert_eq "run 2: BASE_ELIS_CONTAINER overridden despite an existing value" "$(env_get "$OUT4" BASE_ELIS_CONTAINER)" "iplit-base-openelisdb-1"
+assert_eq "run 2: BASE_ELIS_SUPERUSER overridden despite an existing value" "$(env_get "$OUT4" BASE_ELIS_SUPERUSER)" "clinlims"
+assert_eq "run 2: KAFKA_SASL_BIND overridden despite an existing value" "$(env_get "$OUT4" KAFKA_SASL_BIND)" "127.0.0.1"
+assert_eq "run 2: a secret key (KAFKA_ADMIN_PASSWORD) composed twice keeps its first value" "$(env_get "$OUT4" KAFKA_ADMIN_PASSWORD)" "$run1_admin_pw"
+
+# Run 3: environment unset again -- run 2's values are KEPT, not reverted to
+# the run-1/fixed defaults (put_coord falls through to put()'s own
+# keep-existing rule when the environment says nothing this run).
+run3_from_env="$( ( unset $coord_vars
+  HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT4" >/dev/null
+  printf '%s' "$HUB_COMPOSE_ENV_FROM_ENV" ) )"
+assert_eq "run 3 (environment unset again): HUB_COMPOSE_ENV_FROM_ENV is empty" "$run3_from_env" ""
+assert_eq "run 3: KAFKA_BASE_NETWORK keeps run 2's value, not reverted" "$(env_get "$OUT4" KAFKA_BASE_NETWORK)" "iplit-base_default"
+assert_eq "run 3: BASE_MYSQL_CONTAINER keeps run 2's value, not reverted" "$(env_get "$OUT4" BASE_MYSQL_CONTAINER)" "iplit-base-openmrsdb-1"
+assert_eq "run 3: BASE_PG_CONTAINER keeps run 2's value, not reverted" "$(env_get "$OUT4" BASE_PG_CONTAINER)" "iplit-base-odoodb-1"
+assert_eq "run 3: BASE_PG_SUPERUSER keeps run 2's value, not reverted" "$(env_get "$OUT4" BASE_PG_SUPERUSER)" "odoo"
+assert_eq "run 3: BASE_ELIS_CONTAINER keeps run 2's value, not reverted" "$(env_get "$OUT4" BASE_ELIS_CONTAINER)" "iplit-base-openelisdb-1"
+assert_eq "run 3: BASE_ELIS_SUPERUSER keeps run 2's value, not reverted" "$(env_get "$OUT4" BASE_ELIS_SUPERUSER)" "clinlims"
+assert_eq "run 3: KAFKA_SASL_BIND keeps run 2's value, not reverted" "$(env_get "$OUT4" KAFKA_SASL_BIND)" "127.0.0.1"
+assert_eq "run 3: KAFKA_ADMIN_PASSWORD still keeps run 1's first value" "$(env_get "$OUT4" KAFKA_ADMIN_PASSWORD)" "$run1_admin_pw"
+
 # --- git_dirty_hub_paths (final review, Minor 10): pure classifier ----------
 # Task 090 passes `git status --porcelain` through this and fails only on what
 # it prints, so that a hub host's own deliberate edits to the BASE stack's

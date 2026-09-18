@@ -155,13 +155,6 @@ representation both read identically.
 | `BASE_PG_CONTAINER` | Container name of the base stack's Postgres service (Odoo's). |
 | `BASE_ELIS_CONTAINER` | Container name of the Postgres hosting OpenELIS/clinlims; defaults from `BASE_PG_CONTAINER`. |
 | `BASE_ELIS_SUPERUSER` | Superuser on that container; defaults from `BASE_PG_SUPERUSER`. |
-
-`BASE_MYSQL_ROOT_PASSWORD` and `BASE_PG_PASSWORD` were **removed** from this
-list: nothing read either one. MySQL root is only ever used through the base
-container's own `MYSQL_ROOT_PASSWORD` environment (so the value never reaches
-the hub's process list), and `psql` runs over the container's local socket,
-which its image trusts. Copying the base stack's root credentials into a
-second file on disk bought nothing but exposure.
 | `CLOUD_MYSQL_HOST` | Hostname the down-direction source dials; defaults from `BASE_MYSQL_CONTAINER`. |
 | `CLOUD_MYSQL_PORT` | Port of the base's MySQL server the down-direction source reads from. |
 | `CLOUD_MYSQL_DATABASE` | Database on the base's MySQL server the down-direction source captures from. |
@@ -170,6 +163,13 @@ second file on disk bought nothing but exposure.
 | `REMOTE_SERVER_NAME` | Debezium logical server name the two Postgres relay sources reference. |
 | `KAFKA_UI_USER` | Login for kafka-ui (127.0.0.1:8080 only); defaults to `admin`. |
 | `KAFKA_UI_PASSWORD` | Password for `KAFKA_UI_USER`; generated like every other secret here. |
+
+`BASE_MYSQL_ROOT_PASSWORD` and `BASE_PG_PASSWORD` were **removed** from this
+list: nothing read either one. MySQL root is only ever used through the base
+container's own `MYSQL_ROOT_PASSWORD` environment (so the value never reaches
+the hub's process list), and `psql` runs over the container's local socket,
+which its image trusts. Copying the base stack's root credentials into a
+second file on disk bought nothing but exposure.
 
 Every fleet image pin (`KAFKA_IMAGE`, `DEBEZIUM_CONNECT_IMAGE`,
 `KAFKA_UI_IMAGE`, ...) is copied in from `sync/versions.env` at compose time

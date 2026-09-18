@@ -4,7 +4,11 @@
 # actually written. hub_compose_env's own put() only fills a key still empty,
 # so calling it again here is idempotent -- a resume never regenerates a
 # secret, and the runner having already composed hub/.env before the task
-# loop (install.sh) is not a problem, just a no-op refresh.
+# loop (install.sh) is not a problem, just a no-op refresh. The seven base
+# coordinates (put_coord, hub/install/lib.sh) are the deliberate exception:
+# the install command's environment overrides the stored value for those on
+# EVERY run, not just the first -- see the "taken from the environment" line
+# below.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "20 · hub/.env"
@@ -12,10 +16,20 @@ begin_task "20 · hub/.env"
 
 hub_compose_env "$BASE_ENV" "$SECRETS" "${HUB_DIR}/.env"
 
+# Names only, never values (final review residual fix, item 1): these seven
+# are not secrets, so the names -- which are all this prints -- expose
+# nothing. HUB_COMPOSE_ENV_FROM_ENV is set by hub_compose_env/put_coord,
+# space-separated, empty when none of the seven were set in the environment
+# this run.
+if [ -n "${HUB_COMPOSE_ENV_FROM_ENV:-}" ]; then
+  info "base coordinates taken from the install command's environment this run:${HUB_COMPOSE_ENV_FROM_ENV}"
+else
+  info "base coordinates taken from the install command's environment this run: none (kept their stored/base/default value)"
+fi
+
 n=0
 for k in $HUB_KEYS; do
   n=$((n+1))
-  [ "$k" = BASE_PG_PASSWORD ] && continue   # may legitimately be empty (no network password)
   v="$(env_get "${HUB_DIR}/.env" "$k")" || true   # guard outside the substitution (hub/install/tests/test_lint.sh)
   [ -n "$v" ] || fail "hub/.env: $k is empty or missing"
 done

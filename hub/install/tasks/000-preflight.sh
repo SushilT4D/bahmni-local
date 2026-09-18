@@ -64,7 +64,7 @@ pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
   local c="$1" su="$2" label="$3" out
   out="$(ct exec "$c" psql -U "$su" -Atc 'select 1' 2>&1)" || true
   [ "$out" = 1 ] && return 0
-  fail "${label}: cannot connect to container ${c} as Postgres role \"${su}\" -- psql said: ${out}. Set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the role that base actually bootstrapped (IPLIT's base: odoo and clinlims) in the install command's environment."
+  fail "${label}: cannot connect to container ${c} as Postgres role \"${su}\" -- psql said: ${out}. Set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the role that base actually bootstrapped (IPLIT's base: odoo and clinlims) in the install command's environment -- the environment overrides the stored value on every run, so this takes effect immediately on the next attempt."
 }
 pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -Atc "show $1"; }
 pg_connect_ok "$BASE_PG_CONTAINER" "$BASE_PG_SUPERUSER" "base pg"
