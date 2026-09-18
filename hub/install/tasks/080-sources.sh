@@ -124,6 +124,7 @@ wait_running(){ # NAME MAX_SECONDS
   done
   fail "${name} did not reach RUNNING (connector+tasks) within ${secs}s -- last status: $(printf '%s' "${state:-}" | jq -c '{connector: .connector.state, tasks: [.tasks[].state]}' 2>/dev/null || printf 'unreachable/unparseable')"
 }
+for name in mysql-cloud-source-connector odoo-cloud-source clinlims-cloud-source; do connect_restart_failed "$name"; done
 wait_running mysql-cloud-source-connector 180
 wait_running odoo-cloud-source 180
 wait_running clinlims-cloud-source 180

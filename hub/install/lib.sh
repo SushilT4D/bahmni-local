@@ -413,6 +413,32 @@ git_dirty_hub_paths(){
 # re-escaped by the quote pass (Fix round 1, code review Finding 1): an
 # operator-typed REMOTE_KAFKA_PASSWORD containing a '"' or '\' would otherwise
 # break the quoting of whatever file it lands in.
+# connect_failed_task_ids : reads a Connect /connectors/NAME/status JSON on
+# stdin and prints the ids of tasks in FAILED, one per line (nothing when
+# none, nothing on unparsable input). Pure; tested in test_lib.sh.
+connect_failed_task_ids(){
+  python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(0)
+for t in d.get("tasks") or []:
+    if t.get("state")=="FAILED": print(t.get("id"))'
+}
+# connect_restart_failed NAME : a PUT of an UNCHANGED connector config answers
+# 200 and Connect does NOT restart a FAILED task for it, so a resume after an
+# external fix (a grant, a password) stayed FAILED forever (Azure rehearsal
+# stop 7, 2026-09-18). After registering, restart the failed tasks once via
+# POST /connectors/NAME/restart?includeTasks=true&onlyFailed=true (KIP-745,
+# Connect >= 3.0), then the caller's bounded wait decides. Reads CONNECT_URL.
+connect_restart_failed(){
+  local name="$1" ids code
+  ids="$(curl -s --max-time 10 "${CONNECT_URL}/connectors/${name}/status" 2>/dev/null | connect_failed_task_ids | tr '\n' ' ')" || ids=""
+  [ -n "${ids// /}" ] || return 0
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "${CONNECT_URL}/connectors/${name}/restart?includeTasks=true&onlyFailed=true" 2>/dev/null)" || code=000
+  case "$code" in
+    2*) info "${name}: restarted FAILED task(s) ${ids}(HTTP ${code}) -- an unchanged PUT does not restart a failed task" ;;
+    *)  warn "${name}: restart of FAILED task(s) ${ids}answered HTTP ${code}; the wait below decides" ;;
+  esac
+}
 # placeholder_value VALUE : true when VALUE is a sample/placeholder no real hub
 # would carry (the clinic package's .env ships unused.invalid / unused; task
 # 020 refuses them so a placeholder can never become an account or a host).
