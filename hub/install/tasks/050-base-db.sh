@@ -123,7 +123,11 @@ pg_admin_pw(){
 create_pg_sink_role(){
   local role="$1" pw db="$3" schema="$4"
   pw="$(pg_lit_escape "$2")"
-  pg_admin_pw "$db" <<SQL >/dev/null
+  # The masked psql output is kept and shown only when the SQL is refused, so
+  # the ERR line names the cause (Azure rehearsal stop 4: a non-superuser
+  # BASE_ELIS_SUPERUSER made ALTER ROLE fail behind a >/dev/null).
+  local sql_out
+  if ! sql_out="$(pg_admin_pw "$db" <<SQL
 DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN CREATE ROLE ${role} LOGIN; END IF; END \$\$;
 ALTER ROLE ${role} WITH LOGIN PASSWORD '${pw}';
 GRANT USAGE ON SCHEMA ${schema} TO ${role};
@@ -131,6 +135,10 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${role};
 ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role};
 SQL
+)"; then
+    printf '%s\n' "$sql_out" >&2
+    fail "postgres role ${role}: the SQL above was refused in ${db} (psql output, masked) -- is the declared superuser for this instance a real superuser?"
+  fi
   ok "postgres role ${role} present, password converged, granted on schema ${schema}"
 }
 create_pg_sink_role odoo_sink "$ODOO_SINK_PASSWORD" odoo public

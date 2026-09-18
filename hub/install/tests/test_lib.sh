@@ -375,4 +375,21 @@ assert_eq "kafka_ui_login_ok's temp files are mode 600" "$(printf '%s' "$fn_src"
 pat_trap='trap '"'"'rm -f "$body" "$cookie_jar"'"'"' EXIT'
 assert_eq "kafka_ui_login_ok cleans up in a subshell-scoped trap (not a function-level one, which would replace the caller's own trap)" "$(printf '%s' "$fn_src" | grep -Fc "$pat_trap")" "1"
 
+
+# --- Azure rehearsal stop 4 (2026-09-18): the hub's REMOTE_MYSQL_* never inherit
+# the clinic package's placeholders from the base .env (they described the
+# hub's OWN MySQL for the up-sinks), and placeholder values are refused.
+mkdir -p "$TMP/hub-ph"; OUTP="$TMP/hub-ph/.env"
+cp "$TMP/base.env" "$TMP/base-ph.env"
+printf 'REMOTE_MYSQL_HOST=unused.invalid\nREMOTE_MYSQL_USER=unused\nREMOTE_MYSQL_PASSWORD=unused\n' >> "$TMP/base-ph.env"
+( unset REMOTE_MYSQL_HOST REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD; HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base-ph.env" "$TMP/secrets.env" "$OUTP" >/dev/null )
+assert_eq "REMOTE_MYSQL_HOST derives from BASE_MYSQL_CONTAINER, not the base .env placeholder" "$(env_get "$OUTP" REMOTE_MYSQL_HOST)" "$(env_get "$OUTP" BASE_MYSQL_CONTAINER)"
+assert_eq "REMOTE_MYSQL_USER defaults to the fleet user, not the base .env placeholder" "$(env_get "$OUTP" REMOTE_MYSQL_USER)" "sink"
+pwv="$(env_get "$OUTP" REMOTE_MYSQL_PASSWORD)"
+[ -n "$pwv" ] && [ "$pwv" != unused ] && ok "REMOTE_MYSQL_PASSWORD is generated, never the base .env placeholder" || { bad "REMOTE_MYSQL_PASSWORD inherited a placeholder or is empty"; fails=$((fails+1)); }
+( REMOTE_MYSQL_USER=custom_sink HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base-ph.env" "$TMP/secrets.env" "$OUTP" >/dev/null )
+assert_eq "REMOTE_MYSQL_USER from the install command's environment wins on a rerun" "$(env_get "$OUTP" REMOTE_MYSQL_USER)" "custom_sink"
+for v in unused unused.invalid db.example.com XXXX changeme; do placeholder_value "$v" && ok "placeholder_value rejects '$v'" || { bad "placeholder_value accepted '$v'"; fails=$((fails+1)); }; done
+for v in sink iplit-base-openmrsdb-1 openmrs 3306; do placeholder_value "$v" && { bad "placeholder_value rejected the real value '$v'"; fails=$((fails+1)); } || ok "placeholder_value accepts '$v'"; done
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

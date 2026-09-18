@@ -40,6 +40,12 @@ for k in $HUB_KEYS; do
   n=$((n+1))
   v="$(env_get "${HUB_DIR}/.env" "$k")" || true   # guard outside the substitution (hub/install/tests/test_lint.sh)
   [ -n "$v" ] || fail "hub/.env: $k is empty or missing"
+  if placeholder_value "$v"; then
+    case "$k" in
+      *PASSWORD*|*SECRET*) fail "hub/.env: $k holds a placeholder value -- set a real one (the clinic package's sample .env ships placeholders; the hub must not inherit them)" ;;
+      *) fail "hub/.env: $k holds the placeholder value '${v}' -- set a real one (the clinic package's sample .env ships placeholders; the hub must not inherit them)" ;;
+    esac
+  fi
 done
 
 # Round-trip proof (code review fold-in): env_put's quoting only matters if a

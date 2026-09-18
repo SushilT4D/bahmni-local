@@ -189,11 +189,18 @@ hub_compose_env(){
   put REMOTE_KAFKA_PASSWORD "$(env_get "$secrets" REMOTE_KAFKA_PASSWORD)"
   put DEBEZIUM_DB_USER debezium
   put DEBEZIUM_DB_PASSWORD "$(v="$(env_get "$base" DEBEZIUM_DB_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
-  put REMOTE_MYSQL_HOST "$(v="$(env_get "$base" REMOTE_MYSQL_HOST)"; printf '%s' "${v:-openmrsdb}")"
-  put REMOTE_MYSQL_PORT "$(v="$(env_get "$base" REMOTE_MYSQL_PORT)"; printf '%s' "${v:-3306}")"
+  # REMOTE_MYSQL_* on the HUB describe the hub's OWN MySQL as the up-sinks'
+  # target (the fleet `sink` user), so they derive from the base coordinates
+  # and never inherit the base .env's REMOTE_MYSQL_* -- on IPLIT's base those
+  # are the clinic package's sample placeholders (unused.invalid / unused),
+  # and inheriting them made task 050 create a MySQL account named `unused`
+  # with openmrs grants (Azure rehearsal stop 4, 2026-09-18). The host follows
+  # BASE_MYSQL_CONTAINER like CLOUD_MYSQL_HOST does; the user is a coordinate
+  # with the fleet default; the password is generated here and kept.
+  put REMOTE_MYSQL_PORT "3306"
   put REMOTE_MYSQL_DATABASE "$(v="$(env_get "$base" OPENMRS_DB_NAME)"; printf '%s' "${v:-openmrs}")"
-  put REMOTE_MYSQL_USER "$(v="$(env_get "$base" REMOTE_MYSQL_USER)"; printf '%s' "${v:-sink}")"
-  put REMOTE_MYSQL_PASSWORD "$(v="$(env_get "$base" REMOTE_MYSQL_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
+  put_coord REMOTE_MYSQL_USER "${REMOTE_MYSQL_USER:-}" "sink"
+  put REMOTE_MYSQL_PASSWORD "$(gen_secret)"
   put REMOTE_MYSQL_USE_SSL false
   put ODOO_SINK_PASSWORD "$(v="$(env_get "$base" ODOO_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
   put CLINLIMS_SINK_PASSWORD "$(v="$(env_get "$base" CLINLIMS_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
@@ -254,6 +261,9 @@ hub_compose_env(){
   # An operator CAN also set CLOUD_MYSQL_HOST directly (case 1) for a
   # down-source host that genuinely is not BASE_MYSQL_CONTAINER.
   put_derived CLOUD_MYSQL_HOST "${CLOUD_MYSQL_HOST:-}" BASE_MYSQL_CONTAINER
+  # REMOTE_MYSQL_HOST (the up-sinks' target = the hub's own MySQL) derives from
+  # the same coordinate, so it must follow it here, after the coordinate exists.
+  put_derived REMOTE_MYSQL_HOST "${REMOTE_MYSQL_HOST:-}" BASE_MYSQL_CONTAINER
   put CLOUD_MYSQL_PORT 3306
   put CLOUD_MYSQL_DATABASE openmrs
   put ODOO_DB_PASSWORD "$(env_get "$base" ODOO_DB_PASSWORD)"
@@ -403,6 +413,16 @@ git_dirty_hub_paths(){
 # re-escaped by the quote pass (Fix round 1, code review Finding 1): an
 # operator-typed REMOTE_KAFKA_PASSWORD containing a '"' or '\' would otherwise
 # break the quoting of whatever file it lands in.
+# placeholder_value VALUE : true when VALUE is a sample/placeholder no real hub
+# would carry (the clinic package's .env ships unused.invalid / unused; task
+# 020 refuses them so a placeholder can never become an account or a host).
+placeholder_value(){
+  local v; v="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$v" in
+    unused|changeme|change_me|change-me|placeholder|todo|example|xxx*|*.invalid|*.example|*.example.com|*.example.org) return 0 ;;
+  esac
+  return 1
+}
 jaas_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 # pg_lit_escape STR : doubles every single quote, for safe embedding inside a

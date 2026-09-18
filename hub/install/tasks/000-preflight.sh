@@ -82,7 +82,17 @@ pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
   # postgres) -- the Azure rehearsal's second stop, 2026-09-18. The maintenance
   # database exists on every instance; every read here is cluster-wide.
   out="$(ct exec "$c" psql -U "$su" -d postgres -Atc 'select 1' 2>&1)" || true
-  [ "$out" = 1 ] && return 0
+  if [ "$out" = 1 ]; then
+    # Connecting is not enough: task 050 creates roles and publications as this
+    # role, which only a superuser may do (Azure rehearsal stop 4, 2026-09-18:
+    # a stock postgres:16 OpenELIS instance has superuser postgres, and
+    # clinlims is merely the database owner -- clinlims is the bootstrap
+    # superuser only on IPLIT's own openelis-db image).
+    local su_ok
+    su_ok="$(ct exec "$c" psql -U "$su" -d postgres -Atc 'select rolsuper from pg_roles where rolname = current_user' 2>&1)" || true
+    [ "$su_ok" = t ] && return 0
+    fail "${label}: Postgres role \"${su}\" on ${c} connects but is not a superuser (rolsuper=${su_ok:-?}) -- set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the instance's bootstrap superuser (postgres on a stock postgres image; clinlims only on IPLIT's own openelis-db image); the environment overrides the stored value on every run"
+  fi
   fail "${label}: cannot connect to container ${c} as Postgres role \"${su}\" -- psql said: ${out}. Set BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER to the role that base actually bootstrapped (IPLIT's base: odoo and clinlims) in the install command's environment -- the environment overrides the stored value on every run, so this takes effect immediately on the next attempt."
 }
 pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -d postgres -Atc "show $1"; }

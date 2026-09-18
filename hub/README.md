@@ -92,11 +92,18 @@ different bootstrap superusers -- that is the whole command:
 KAFKA_BASE_NETWORK=iplit-base_default \
 BASE_MYSQL_CONTAINER=iplit-base-openmrsdb-1 \
 BASE_PG_CONTAINER=iplit-base-odoodb-1 BASE_PG_SUPERUSER=odoo \
-BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 BASE_ELIS_SUPERUSER=clinlims \
+BASE_ELIS_CONTAINER=iplit-base-openelisdb-1 BASE_ELIS_SUPERUSER=postgres \
 hub/install/install.sh --hub azure \
   --base-env /home/bahmni-hub/iplit-base/.env \
   --secrets ~/azure.secrets.env
 ```
+
+`BASE_*_SUPERUSER` is each instance's *bootstrap* superuser, which task 000
+proves (`rolsuper`): `postgres` on a stock postgres image (the rebuilt Azure
+hub's OpenELIS instance, whose `clinlims` role only owns the database), `odoo`
+on `odoo-16-db`, and `clinlims` only when IPLIT's own `openelis-db` image is
+the instance. The install command's environment overrides a stored value on
+every run, so a wrong first guess is corrected by re-running with it set.
 
 On the mini or a clinic acting as the hub -- one Postgres container for both
 databases, superuser `postgres` -- only `KAFKA_BASE_NETWORK` and the two
