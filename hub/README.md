@@ -51,6 +51,14 @@ data-moving operation, not a prerequisite check's job.
   given (`odoo` vs. `openelis`).
 - **The network**: `KAFKA_BASE_NETWORK` must already exist and be the base
   stack's own compose network -- the hub attaches to it, never creates it.
+- **Disk -- two floors, two filesystems**: at least 60 GB free where Docker's
+  volumes live (task 000 reads it inside the base MySQL container at its data
+  volume's mount point, falling back to the host's DockerRootDir) -- that is
+  the disk the hub's Kafka data and the base's databases grow on (F-066) --
+  and at least 8 GB free on the image store (the container rootfs; the four
+  hub images are ~4 GB and a pull needs headroom). A hub with a small OS disk
+  and a large data disk passes on its real numbers. `HUB_MIN_DISK_GB` and
+  `HUB_MIN_IMAGE_DISK_GB` are test-only overrides; never lower them on a hub.
 
 ## Install
 

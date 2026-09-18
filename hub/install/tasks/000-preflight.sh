@@ -130,25 +130,49 @@ if [ -n "${BASE_ELIS_CONTAINER:-}" ] && [ "${BASE_ELIS_CONTAINER}" != "${BASE_PG
   [ "$pv" -ge 4 ] && ok "elis max_wal_senders=${pv}" || fail "elis max_wal_senders=${pv} (want >=4)"
 fi
 
-# 4. host room. Measured from INSIDE the base MySQL container, on the
-# filesystem docker itself gives a container -- Ruling R1b, the same correction
-# task 090 already carries: a host-level `df` on `ct info`'s DockerRootDir
-# reads nothing at all on Docker Desktop (the path lives inside the daemon's
-# VM), and on a Linux hub it reads the same pool this does. It is also the
-# number that actually matters: the disk the hub's own volumes and the base's
-# data grow on. HUB_MIN_DISK_GB overrides the 60 GB floor for the live smoke
-# (the same documented, test-only override 090 takes); never lower it on a
-# real hub. Read and validated as a plain digit string BEFORE the arithmetic:
-# `$(( EMPTY / 1048576 ))` is a bash SYNTAX error that `fail` never gets to
-# name, unlike a guarded `[ "$x" -ge N ]`, which simply returns false.
-avail_kb="$(ct exec "$BASE_MYSQL_CONTAINER" df -Pk / 2>/dev/null | awk 'NR==2{print $4}')" || true
-case "$avail_kb" in
-  ''|*[!0-9]*) fail "disk free on the docker storage pool: could not read available space (ct exec ${BASE_MYSQL_CONTAINER} df -Pk / returned no numeric value)" ;;
+# 4. host room -- two floors, two filesystems (Azure rehearsal stop 3,
+# 2026-09-18). A base container's ROOT filesystem is the image/overlay store,
+# which on a hub with a small OS disk and a big data disk is the small one;
+# the disk that actually fills (F-066) is the one Docker's VOLUMES live on.
+# So: the volume pool is measured inside the base MySQL container at its own
+# data volume's mount point (a named or anonymous volume; the image's
+# VOLUME /var/lib/mysql gives one on every stock base), falling back to the
+# host's DockerRootDir when the container has no volume, and to the rootfs
+# figure -- with a warn -- when neither can be read (Docker Desktop's
+# DockerRootDir lives inside the daemon's VM). The image store gets its own,
+# smaller floor: the four hub images are ~4 GB together and a pull needs
+# headroom. HUB_MIN_DISK_GB (60) and HUB_MIN_IMAGE_DISK_GB (8) are the
+# documented, test-only overrides; never lower them on a real hub. Every read
+# is validated as a plain digit string BEFORE the arithmetic: `$(( EMPTY /
+# 1048576 ))` is a bash SYNTAX error that `fail` never gets to name.
+read_avail_kb(){ # prints the available KB of a df -Pk output on stdin, or nothing
+  awk 'NR==2{print $4}' | grep -E '^[0-9]+$' || true
+}
+root_kb="$(ct exec "$BASE_MYSQL_CONTAINER" df -Pk / 2>/dev/null | read_avail_kb)"
+case "$root_kb" in
+  '') fail "image store: could not read available space (ct exec ${BASE_MYSQL_CONTAINER} df -Pk / returned no numeric value)" ;;
 esac
-avail_gb=$((avail_kb / 1048576))
-min_disk_gb="${HUB_MIN_DISK_GB:-60}"
-[ "$avail_gb" -ge "$min_disk_gb" ] && ok "disk free on the docker storage pool (read inside ${BASE_MYSQL_CONTAINER}): ${avail_gb} GB (want >= ${min_disk_gb})" \
-  || fail "disk free on the docker storage pool (read inside ${BASE_MYSQL_CONTAINER}): ${avail_gb} GB (want >= ${min_disk_gb} GB)"
+vol_mount="$(ct inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' "$BASE_MYSQL_CONTAINER" 2>/dev/null | head -n 1 || true)"
+pool_kb=""; pool_src=""
+if [ -n "$vol_mount" ]; then
+  pool_kb="$(ct exec "$BASE_MYSQL_CONTAINER" df -Pk "$vol_mount" 2>/dev/null | read_avail_kb)"
+  pool_src="volume ${vol_mount} in ${BASE_MYSQL_CONTAINER}"
+fi
+if [ -z "$pool_kb" ]; then
+  droot="$(ct info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+  [ -n "$droot" ] && pool_kb="$(df -Pk "$droot" 2>/dev/null | read_avail_kb)"
+  pool_src="host ${droot:-<unknown DockerRootDir>}"
+fi
+if [ -z "$pool_kb" ]; then
+  warn "volume pool: neither a data volume in ${BASE_MYSQL_CONTAINER} nor the host's DockerRootDir could be measured (Docker Desktop?) -- using the container rootfs figure"
+  pool_kb="$root_kb"; pool_src="container rootfs of ${BASE_MYSQL_CONTAINER} (fallback)"
+fi
+pool_gb=$((pool_kb / 1048576)); root_gb=$((root_kb / 1048576))
+min_disk_gb="${HUB_MIN_DISK_GB:-60}"; min_image_gb="${HUB_MIN_IMAGE_DISK_GB:-8}"
+[ "$pool_gb" -ge "$min_disk_gb" ] && ok "disk free on the volume pool (${pool_src}): ${pool_gb} GB (want >= ${min_disk_gb})" \
+  || fail "disk free on the volume pool (${pool_src}): ${pool_gb} GB (want >= ${min_disk_gb} GB) -- this is where the hub's Kafka data and the base's databases grow"
+[ "$root_gb" -ge "$min_image_gb" ] && ok "disk free on the image store (container rootfs of ${BASE_MYSQL_CONTAINER}): ${root_gb} GB (want >= ${min_image_gb})" \
+  || fail "disk free on the image store (container rootfs of ${BASE_MYSQL_CONTAINER}): ${root_gb} GB (want >= ${min_image_gb} GB) -- the four hub images are ~4 GB and a pull needs headroom"
 # Guarded and validated as a plain digit string before the comparison, the
 # same way avail_kb above is (final review, Minor 12): an unguarded
 # `mem_mb="$(free -m | ...)"` followed by `[ "" -ge 4096 ]` aborts the task
