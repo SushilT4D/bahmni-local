@@ -15,11 +15,15 @@ if ! ct info >/dev/null 2>&1; then
   # the group DATABASE (user_in_group_db): the process's own list cannot show it yet. Signal install.sh to
   # re-exec the rest under the group (exit 75) instead of failing -- no manual
   # re-login/newgrp. Any other cause still fails loudly.
-  if [ "$(detect_runtime)" = docker ] && command -v docker >/dev/null 2>&1 \
+  # Only on the FIRST pass: once the runner has re-executed us under `sg docker`
+  # (_KRAFT_SG=1) the group is active, so a docker that still does not answer is a
+  # real fault and must reach the FAIL line below, not another silent exit 75.
+  if [ "${_KRAFT_SG:-}" != 1 ] && [ "$(detect_runtime)" = docker ] && command -v docker >/dev/null 2>&1 \
      && user_in_group_db docker; then
     info "docker installed and ${USER} added to the docker group; activating it and continuing"
     exit 75
   fi
+  [ "${_KRAFT_SG:-}" != 1 ] || fail "${CT} still does not answer after the docker group was activated for this run (sg docker): is the docker service running? try: sudo systemctl status docker"
   fail "${CT} is not answering (podman machine down? docker service stopped? user not in docker group?)"
 fi
 ok "${CT} answers"

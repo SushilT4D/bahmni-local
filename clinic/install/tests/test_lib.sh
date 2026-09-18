@@ -197,7 +197,10 @@ printf 'A=1\nB=2\n' > "$TMP/sync/versions.env"   # leave a clean file behind
   USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db sees a group added this minute" "$?" 0
 ( id(){ case "$*" in "-nG"|"-nG tester") echo "adm sudo";; "-un") echo tester;; esac; }
   USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db says no when the database lacks it" "$?" 1
-bare="$(grep -nE 'id -nG' "${HERE}/../tasks/"*.sh "${HERE}/../host-linux.sh" "${HERE}/../host-macos.sh" 2>/dev/null | grep -v 'id -nG "\$' || true)"
+bare="$(grep -nE 'id -nG' "${HERE}/../tasks/"*.sh "${HERE}/../host-linux.sh" "${HERE}/../host-macos.sh" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*#' | grep -v 'id -nG "\$' || true)"
 assert_eq "no task or host layer reads group membership from the bare process list" "$bare" ""
+# second pass under sg: 010 must reach a FAIL line, never a second silent exit 75
+assert_eq "010 exits 75 only when the group is not yet activated for this run" "$(grep -c '_KRAFT_SG:-}" != 1 \] && \[ "$(detect_runtime)" = docker' "${HERE}/../tasks/010-host.sh")" "1"
+assert_eq "010 names the fault when docker is down after activation" "$(grep -c 'still does not answer after the docker group was activated' "${HERE}/../tasks/010-host.sh")" "1"
 
 exit "$fails"

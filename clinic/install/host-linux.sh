@@ -9,7 +9,7 @@ host_linux(){
     if command -v docker >/dev/null 2>&1; then skip "docker installed ($(docker --version | cut -d, -f1))"; else
       run sh -c 'curl -fsSL https://get.docker.com | sudo sh'
     fi
-    if id -nG "$USER" | grep -qw docker; then skip "$USER in group docker"; else
+    if user_in_group_db docker; then skip "$USER in group docker"; else
       run sudo usermod -aG docker "$USER"
       if command -v sg >/dev/null 2>&1; then info "added $USER to group docker; the installer activates it for the rest of this run (sg docker), no re-login needed"
       else warn "added $USER to group docker -- log out and in (or run: newgrp docker), then resume with --from 010"; fi
