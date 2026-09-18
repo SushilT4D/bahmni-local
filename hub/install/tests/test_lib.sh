@@ -399,4 +399,24 @@ assert_eq "connect_failed_task_ids: none failed" "$(printf '{"name":"x","connect
 assert_eq "connect_failed_task_ids: two of three failed" "$(printf '{"tasks":[{"id":0,"state":"FAILED"},{"id":1,"state":"RUNNING"},{"id":2,"state":"FAILED"}]}' | connect_failed_task_ids | tr '\n' ',')" "0,2,"
 assert_eq "connect_failed_task_ids: garbage input prints nothing" "$(printf 'not json' | connect_failed_task_ids)" ""
 
+# --- Azure rehearsal 2026-09-18 (peer note): a resume may omit --base-env/--secrets.
+# install.sh accepts a bare `--hub NAME --from NNN` once hub/.env exists and the
+# README promises it, but hub_compose_env failed at "base .env not found: " (an
+# empty path) the moment a resume re-ran task 020. A resume keeps every stored
+# value; a key that is not stored fails by name with the recovery; a first
+# compose still needs both files.
+OUTR="$TMP/hub-resume.env"; cp "$OUT" "$OUTR"; before="$(cat "$OUTR")"
+( unset KAFKA_SASL_BIND KAFKA_BASE_NETWORK BASE_PG_SUPERUSER BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER CLOUD_MYSQL_HOST REMOTE_MYSQL_HOST REMOTE_MYSQL_USER
+  HUB_ENV="$TMP/hub.env" hub_compose_env "" "" "$OUTR" >/dev/null 2>&1 ); rc=$?
+assert_eq "resume without --base-env/--secrets succeeds once hub/.env exists" "$rc" "0"
+assert_eq "resume without --base-env/--secrets keeps every stored value byte for byte" "$(cat "$OUTR")" "$before"
+OUTM="$TMP/hub-resume-missing.env"; grep -v '^REMOTE_KAFKA_PASSWORD=' "$OUTR" > "$OUTM"
+out="$( HUB_ENV="$TMP/hub.env" hub_compose_env "" "" "$OUTM" 2>&1 )"; rc=$?
+assert_eq "resume without --secrets fails when a key is not stored" "$rc" "1"
+assert_eq "...naming the key and the recovery" "$(printf '%s' "$out" | grep -c 'missing REMOTE_KAFKA_PASSWORD (a resume without --base-env/--secrets')" "1"
+out="$( HUB_ENV="$TMP/hub.env" hub_compose_env "" "" "$TMP/never-composed.env" 2>&1 )"; rc=$?
+assert_eq "first compose without --base-env fails" "$rc" "1"
+assert_eq "...naming the missing flag" "$(printf '%s' "$out" | grep -c -- '--base-env is required')" "1"
+assert_eq "first compose without --base-env writes nothing" "$([ -e "$TMP/never-composed.env" ] && echo exists || echo absent)" "absent"
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

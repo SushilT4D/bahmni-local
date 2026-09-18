@@ -85,8 +85,25 @@ KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
 # same run (see put_derived).
 hub_compose_env(){
   local base="$1" secrets="$2" out="$3" k v
-  [ -f "$base" ] || fail "base .env not found: $base"
-  [ -f "$secrets" ] || fail "secrets file not found: $secrets"
+  # A resume may omit either source file: install.sh accepts a bare
+  # `--hub NAME --from NNN` once hub/.env exists and hub/README.md promises
+  # it, because every value a source file would supply is already stored in
+  # OUT and kept by put() below -- an empty BASE/SECRETS simply contributes
+  # nothing. Before OUT exists there is nothing to keep, so both are
+  # required. Azure rehearsal 2026-09-18 (peer session): a full idempotent
+  # re-run without the two flags passed install.sh's own check and then died
+  # here at "base .env not found: " (an empty path) the moment task 020 ran.
+  if [ -f "$out" ]; then
+    [ -z "$base" ] || [ -f "$base" ] || fail "base .env not found: $base"
+    [ -z "$secrets" ] || [ -f "$secrets" ] || fail "secrets file not found: $secrets"
+  else
+    [ -n "$base" ] || fail "--base-env is required: $out does not exist yet, so there is nothing to resume from"
+    [ -f "$base" ] || fail "base .env not found: $base"
+    [ -n "$secrets" ] || fail "--secrets is required: $out does not exist yet, so there is nothing to resume from"
+    [ -f "$secrets" ] || fail "secrets file not found: $secrets"
+  fi
+  # src_get FILE KEY: env_get that reads nothing from an omitted source file.
+  src_get(){ [ -n "$1" ] && env_get "$1" "$2" || true; }
   [ -f "$HUB_ENV" ] || fail "hub endpoint file missing: $HUB_ENV"
   ( umask 077; [ -f "$out" ] || : > "$out" ); chmod 600 "$out"
   # shellcheck disable=SC1090
@@ -186,9 +203,9 @@ hub_compose_env(){
   put_coord KAFKA_BASE_NETWORK "${KAFKA_BASE_NETWORK:-}" "cloud_default"
   put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
   put KAFKA_ADMIN_PASSWORD "$(gen_secret)"
-  put REMOTE_KAFKA_PASSWORD "$(env_get "$secrets" REMOTE_KAFKA_PASSWORD)"
+  put REMOTE_KAFKA_PASSWORD "$(src_get "$secrets" REMOTE_KAFKA_PASSWORD)"
   put DEBEZIUM_DB_USER debezium
-  put DEBEZIUM_DB_PASSWORD "$(v="$(env_get "$base" DEBEZIUM_DB_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
+  put DEBEZIUM_DB_PASSWORD "$(v="$(src_get "$base" DEBEZIUM_DB_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
   # REMOTE_MYSQL_* on the HUB describe the hub's OWN MySQL as the up-sinks'
   # target (the fleet `sink` user), so they derive from the base coordinates
   # and never inherit the base .env's REMOTE_MYSQL_* -- on IPLIT's base those
@@ -198,12 +215,12 @@ hub_compose_env(){
   # BASE_MYSQL_CONTAINER like CLOUD_MYSQL_HOST does; the user is a coordinate
   # with the fleet default; the password is generated here and kept.
   put REMOTE_MYSQL_PORT "3306"
-  put REMOTE_MYSQL_DATABASE "$(v="$(env_get "$base" OPENMRS_DB_NAME)"; printf '%s' "${v:-openmrs}")"
+  put REMOTE_MYSQL_DATABASE "$(v="$(src_get "$base" OPENMRS_DB_NAME)"; printf '%s' "${v:-openmrs}")"
   put_coord REMOTE_MYSQL_USER "${REMOTE_MYSQL_USER:-}" "sink"
   put REMOTE_MYSQL_PASSWORD "$(gen_secret)"
   put REMOTE_MYSQL_USE_SSL false
-  put ODOO_SINK_PASSWORD "$(v="$(env_get "$base" ODOO_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
-  put CLINLIMS_SINK_PASSWORD "$(v="$(env_get "$base" CLINLIMS_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
+  put ODOO_SINK_PASSWORD "$(v="$(src_get "$base" ODOO_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
+  put CLINLIMS_SINK_PASSWORD "$(v="$(src_get "$base" CLINLIMS_SINK_PASSWORD)"; printf '%s' "${v:-$(gen_secret)}")"
   put CLOUD_MYSQL_SERVER_NAME bahmni-cloud
   put CLOUD_DEBEZIUM_SERVER_ID 184060
   put KAFKA_CONNECT_URL http://localhost:8083
@@ -222,7 +239,7 @@ hub_compose_env(){
   # used to see no effect at all, because `put`'s own keep-existing guard had
   # already baked "postgres" into hub/.env on the first (failing) attempt.
   # hub/README.md and the P2 runbook carry the full command with all seven set.
-  put_coord BASE_PG_SUPERUSER "${BASE_PG_SUPERUSER:-}" "$(v="$(env_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")"
+  put_coord BASE_PG_SUPERUSER "${BASE_PG_SUPERUSER:-}" "$(v="$(src_get "$base" POSTGRES_USER)"; printf '%s' "${v:-postgres}")"
   put_coord BASE_MYSQL_CONTAINER "${BASE_MYSQL_CONTAINER:-}" "cloud-openmrsdb-1"
   put_coord BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-}" "cloud-openelisdb-1"
   # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
@@ -266,8 +283,8 @@ hub_compose_env(){
   put_derived REMOTE_MYSQL_HOST "${REMOTE_MYSQL_HOST:-}" BASE_MYSQL_CONTAINER
   put CLOUD_MYSQL_PORT 3306
   put CLOUD_MYSQL_DATABASE openmrs
-  put ODOO_DB_PASSWORD "$(env_get "$base" ODOO_DB_PASSWORD)"
-  put CLINLIMS_SOURCE_PASSWORD "$(env_get "$base" OPENELIS_DB_PASSWORD)"
+  put ODOO_DB_PASSWORD "$(src_get "$base" ODOO_DB_PASSWORD)"
+  put CLINLIMS_SOURCE_PASSWORD "$(src_get "$base" OPENELIS_DB_PASSWORD)"
   put REMOTE_SERVER_NAME bahmni-cloud
   # kafka-ui (Ruling 3): a login the operator actually knows, not a bare
   # generated username -- "admin" is not a secret, so it is a fixed default
@@ -280,7 +297,11 @@ hub_compose_env(){
   # No key is exempt from the non-empty check any more (final review,
   # Important 7): BASE_PG_PASSWORD -- the one key that could legitimately be
   # empty, since the base Postgres takes no network password -- is gone.
-  for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || fail "hub .env is missing $k"; done
+  # A resume that omitted the source files can only keep what OUT already
+  # stores, so a missing key names that recovery instead of a bare key.
+  local missing_hint=""
+  [ -n "$base" ] && [ -n "$secrets" ] || missing_hint=" (a resume without --base-env/--secrets keeps only what hub/.env already stores -- re-run with both)"
+  for k in $HUB_KEYS; do [ -n "$(env_get "$out" "$k")" ] || fail "hub .env is missing ${k}${missing_hint}"; done
 }
 
 # hub_base_container ROLE : the base stack's container name for the given

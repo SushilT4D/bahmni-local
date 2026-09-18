@@ -68,8 +68,11 @@ hub/install/install.sh --hub <name> --base-env <path> --secrets <path> [--from N
 
 `--base-env` is the base stack's own `.env` (root credentials, existing sink
 passwords); `--secrets` is the operator's file holding the fleet SASL
-password. Both are only required the first time (before `hub/.env` exists) --
-a resume after task `NNN` needs neither:
+password. Both are only required the first time (before `hub/.env` exists).
+A resume needs neither, whichever task it starts from -- including a full
+re-run that re-composes `hub/.env` in task 020: every value is already stored
+and kept, and a key that is somehow not stored fails 020 by name with
+`re-run with both`:
 
 ```
 hub/install/install.sh --hub <name> --from 060
