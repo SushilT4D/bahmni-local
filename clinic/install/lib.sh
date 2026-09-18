@@ -251,6 +251,10 @@ ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
 ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continue; basename "$f" .env; done; }
+# user_in_group_db GROUP : is $USER a member of GROUP in the group DATABASE? `id -nG`
+# with no argument lists the running PROCESS's groups, which never contain a group that
+# usermod added a moment ago -- and that is exactly the moment task 010 asks.
+user_in_group_db(){ id -nG "${USER:-$(id -un)}" 2>/dev/null | tr ' ' '\n' | grep -qx "$1"; }
 fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [ -f "$f" ] && printf '%s\n' "$f"; }
 # fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }

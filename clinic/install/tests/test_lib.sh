@@ -190,4 +190,14 @@ assert_eq "versions_put reads an unterminated last line too (A)" "$(env_get "$tg
 assert_eq "versions_put reads an unterminated last line too (B)" "$(env_get "$tgt" B)" "2"
 printf 'A=1\nB=2\n' > "$TMP/sync/versions.env"   # leave a clean file behind
 
+# user_in_group_db reads the group DATABASE (id -nG USER), not the process's groups: right
+# after usermod the process list lacks the new group while the database already has it --
+# exactly what task 010 must see to hand over to the runner's `sg docker` re-exec.
+( id(){ case "$*" in "-nG") echo "adm sudo";; "-nG tester") echo "adm sudo docker";; "-un") echo tester;; esac; }
+  USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db sees a group added this minute" "$?" 0
+( id(){ case "$*" in "-nG"|"-nG tester") echo "adm sudo";; "-un") echo tester;; esac; }
+  USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db says no when the database lacks it" "$?" 1
+bare="$(grep -nE 'id -nG' "${HERE}/../tasks/"*.sh "${HERE}/../host-linux.sh" "${HERE}/../host-macos.sh" 2>/dev/null | grep -v 'id -nG "\$' || true)"
+assert_eq "no task or host layer reads group membership from the bare process list" "$bare" ""
+
 exit "$fails"

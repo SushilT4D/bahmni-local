@@ -11,11 +11,12 @@ esac
 setup_compose
 if ! ct info >/dev/null 2>&1; then
   # Most common cause on a fresh Linux host: we just added this user to the docker
-  # group (above) and the current shell has not activated it. Signal install.sh to
+  # group (above) and the current shell has not activated it. Membership is read from
+  # the group DATABASE (user_in_group_db): the process's own list cannot show it yet. Signal install.sh to
   # re-exec the rest under the group (exit 75) instead of failing -- no manual
   # re-login/newgrp. Any other cause still fails loudly.
   if [ "$(detect_runtime)" = docker ] && command -v docker >/dev/null 2>&1 \
-     && id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+     && user_in_group_db docker; then
     info "docker installed and ${USER} added to the docker group; activating it and continuing"
     exit 75
   fi

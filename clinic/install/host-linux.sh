@@ -11,7 +11,8 @@ host_linux(){
     fi
     if id -nG "$USER" | grep -qw docker; then skip "$USER in group docker"; else
       run sudo usermod -aG docker "$USER"
-      warn "added $USER to group docker -- log out and in (or run: newgrp docker) before continuing"
+      if command -v sg >/dev/null 2>&1; then info "added $USER to group docker; the installer activates it for the rest of this run (sg docker), no re-login needed"
+      else warn "added $USER to group docker -- log out and in (or run: newgrp docker), then resume with --from 010"; fi
     fi
     docker compose version >/dev/null 2>&1 || fail "docker compose v2 plugin missing (get.docker.com installs it; check the docker-compose-plugin package)"
   else
