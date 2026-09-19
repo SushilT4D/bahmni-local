@@ -51,6 +51,12 @@ avail_gb="$(( $(df -Pk "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
 [ "$avail_gb" -ge 60 ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < 60 GB (the seed restores to ~11 GB of MySQL, Kafka and logs need the rest)"
 if [ "${PLATFORM}" = macos ]; then ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"; else ram_mb="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"; fi
 [ "$ram_mb" -ge 8192 ] && ok "RAM ${ram_mb} MB" || fail "RAM ${ram_mb} MB < 8192 MB"
+# cpu-budget:begin
+# A warning, not a refusal: one CPU installs, but OpenMRS's first boot took
+# 36 min on manpur's 1-vCPU VM against 7 min on the hub's four.
+if [ -n "${PREFLIGHT_CPUS:-}" ]; then cpus="${PREFLIGHT_CPUS}"; elif [ "${PLATFORM}" = macos ]; then cpus="$(sysctl -n hw.ncpu)"; else cpus="$(nproc 2>/dev/null || printf 1)"; fi
+if [ "${cpus:-1}" -ge 2 ]; then ok "CPUs ${cpus}"; else warn "CPUs ${cpus}: OpenMRS's first boot took 36 min on one vCPU. Task 080 waits 60 min (OPENMRS_BOOT_TIMEOUT_S); two or more CPUs are recommended for a clinic"; fi
+# cpu-budget:end
 for p in 8081 9443 9444 5433 8052 8083 9092; do
   if (command -v lsof >/dev/null && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1) || (command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":$p "); then
     fail "port $p is already in use on this host"

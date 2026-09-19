@@ -15,12 +15,22 @@ OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-bahmni-postg
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
 url="https://localhost:${BAHMNI_PROXY_HTTPS_PORT:-9443}/openmrs/ws/rest/v1/session"
-info "waiting for OpenMRS through the proxy (cold boot took 17 min on Rawach)"
-rc=0; wait_for_http_or_restart "$url" 1500 "$OM" || rc=$?
+# The FIRST boot is the long one: the Initializer loads the masterdata CSVs into
+# the seeded database once (checksums persist under CONTAINER_DATA_PATH, later
+# boots skip them). Measured: 17 min on Rawach, 36 min on manpur's 1-vCPU VM --
+# which a fixed 25 min budget cut off while OpenMRS was still starting.
+boot_s="${OPENMRS_BOOT_TIMEOUT_S:-3600}"
+info "waiting up to $((boot_s/60)) min for OpenMRS through the proxy (first boot: 17 min on Rawach, 36 min on a 1-vCPU VM; OPENMRS_BOOT_TIMEOUT_S overrides)"
+rc=0; wait_for_http_or_restart "$url" "$boot_s" "$OM" || rc=$?
 case "$rc" in
   0) ok "OpenMRS answers at ${url}" ;;
   2) fail "OpenMRS is crash-looping (its log lines are above): ${COMPOSE_CMD} logs openmrs" ;;
-  *) fail "OpenMRS did not answer within 25 min: ${COMPOSE_CMD} logs openmrs proxy" ;;
+  *) last="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
+     if [ "$last" = 302 ]; then
+       fail "OpenMRS is still starting after $((boot_s/60)) min (the proxy answers 302, its startup page) -- not a crash. Let it finish, then resume --from 080; a larger OPENMRS_BOOT_TIMEOUT_S waits longer"
+     else
+       fail "OpenMRS did not answer within $((boot_s/60)) min (last HTTP code: ${last:-none}): ${COMPOSE_CMD} logs openmrs proxy"
+     fi ;;
 esac
 # the markers are only safe to park while odoo-connect is down (F-066)
 [ "$(ct inspect --format '{{.State.Running}}' "$OC" 2>/dev/null || printf false)" = false ] || fail "odoo-connect is running before its markers are parked (F-066 replay risk)"
