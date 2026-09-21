@@ -21,7 +21,7 @@
     "database.dbname": "odoo",
     "time.precision.mode": "connect",
     "heartbeat.interval.ms": "60000",
-    "transforms.agg.regex": "${REMOTE_SERVER_NAME}\\.odoo\\.(res_partner|res_country_state|product_template|product_product|product_category|uom_uom|sale_order|sale_order_line|stock_move|stock_quant|stock_picking|account_move|account_move_line)$",
+    "transforms.agg.regex": "${REMOTE_SERVER_NAME}\\.odoo\\.(res_partner|res_country_state|product_template|product_product|product_category|uom_uom|sale_order|sale_order_line|stock_move|stock_quant|stock_picking|account_move|account_move_line|state_district|district_subdistrict|village_village|res_partner_attributes|product_taxes_rel|product_supplier_taxes_rel|stock_route_product)$",
     "database.port": "5432",
     "plugin.name": "pgoutput",
     "key.converter.schemas.enable": "true",
@@ -29,7 +29,7 @@
     "database.password": "${ODOO_DB_PASSWORD}",
     "value.converter.schemas.enable": "true",
     "transforms.agg.replacement": "${REMOTE_SERVER_NAME}.odoo.all",
-    "table.include.list": "public.res_country_state,public.res_partner,public.product_template,public.product_product,public.product_category,public.uom_uom,public.sale_order,public.sale_order_line,public.stock_move,public.stock_quant,public.stock_picking,public.account_move,public.account_move_line,public.dbz_heartbeat",
+    "table.include.list": "public.res_country_state,public.res_partner,public.product_template,public.product_product,public.product_category,public.uom_uom,public.sale_order,public.sale_order_line,public.stock_move,public.stock_quant,public.stock_picking,public.account_move,public.account_move_line,public.state_district,public.district_subdistrict,public.village_village,public.res_partner_attributes,public.product_taxes_rel,public.product_supplier_taxes_rel,public.stock_route_product,public.dbz_heartbeat",
     "snapshot.mode": "no_data",
     "custom.metric.tags": "database=odoo"
   }
