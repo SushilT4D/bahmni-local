@@ -67,6 +67,9 @@ if [ -z "$REPO" ]; then
     [ -n "$wd" ] && [ -d "$wd" ] && { REPO="$wd"; break; }
   done
 fi
+# The compose project lives in <repo>/clinic; sync/ is a sibling of clinic/,
+# so the paths below need the repository root, not the compose directory.
+if [ -n "$REPO" ] && [ ! -d "$REPO/sync" ] && [ -d "$(dirname "$REPO")/sync" ]; then REPO="$(dirname "$REPO")"; fi
 
 # --- VM disk + memory -------------------------------------------------------
 # The container VM, not the host: on macOS the engine runs in a Linux VM and it
