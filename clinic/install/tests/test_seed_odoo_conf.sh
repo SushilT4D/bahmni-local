@@ -107,4 +107,9 @@ D3="$C3/config/odoo/odoo.conf"
 [ ! -e "$D3" ] && ok_ "DRY run wrote nothing" || bad "DRY run wrote a file: $D3"
 printf '%s' "$out" | grep -q 'would copy acme/odoo:1' && ok_ "DRY names the image it would copy from" || bad "DRY output missing the would-copy line: $out"
 
+# the node preflight fails on an untracked path, so what the installer creates must be ignored
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+for f in clinic/config/odoo/odoo.conf clinic/files/odoo/filestore/x clinic/files/postgresql/x; do
+  ( cd "$REPO_ROOT" && git check-ignore -q "$f" ) && printf '  ok   %s is gitignored\n' "$f" || { printf '  FAIL %s is not gitignored\n' "$f"; fails=$((fails+1)); }
+done
 exit "$fails"
