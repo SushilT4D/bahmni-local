@@ -96,4 +96,35 @@ out="$(runf macos podman x86_64 '' 18432)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "no machine yet: no FAIL" || bad "no machine yet still failed: $out"
 printf '%s' "$out" | grep -qi 'no podman machine yet' && ok_ "no-machine case is named explicitly" || bad "no-machine output unclear: $out"
 
+# ============================================================================
+# host-macos.sh: size a NEW machine from host RAM; never resize an existing
+# one; dry run without podman prints no FAILED line
+# ============================================================================
+HM="${HERE}/../host-macos.sh"
+mem_of(){ ( . "$HM"; podman_machine_size "$1" 8; printf '%s' "$MACHINE_MIB" ); }
+cpu_of(){ ( . "$HM"; podman_machine_size 24576 "$1"; printf '%s' "$MACHINE_CPUS" ); }
+[ "$(mem_of 18432)" = 9216 ] && ok_ "sizing: 18432 MiB host -> 9216 MiB machine (below the 10 GiB floor)" || bad "sizing 18432 gave $(mem_of 18432)"
+[ "$(mem_of 24576)" = 12288 ] && ok_ "sizing: 24576 MiB host -> 12288 MiB machine" || bad "sizing 24576 gave $(mem_of 24576)"
+[ "$(mem_of 65536)" = 12288 ] && ok_ "sizing: 65536 MiB host -> 12288 MiB machine (capped)" || bad "sizing 65536 gave $(mem_of 65536)"
+[ "$(cpu_of 4)" = 2 ] && ok_ "sizing: 4 host cpus -> 2 machine cpus" || bad "sizing cpus=4 gave $(cpu_of 4)"
+[ "$(cpu_of 10)" = 8 ] && ok_ "sizing: 10 host cpus -> 8 machine cpus" || bad "sizing cpus=10 gave $(cpu_of 10)"
+[ "$(cpu_of 15)" = 8 ] && ok_ "sizing: 15 host cpus -> 8 machine cpus" || bad "sizing cpus=15 gave $(cpu_of 15)"
+
+# A dry run on a Mac with no podman on PATH must never crash with the rc=127
+# "podman machine inspect" FAILED line (seen 2026-09-21). PATH keeps Homebrew's
+# own directory (so the install-Homebrew branch, which shells out to curl even
+# under DRY to build its would-print string, is skipped outright) but excludes
+# anywhere podman could live; HOME is a scratch dir so a fresh LaunchAgent
+# plist check never touches the real developer machine; HOST_MIB/HOST_CPUS are
+# overridden well above the 10 GiB floor so this exercises the rc=127 fix, not
+# the (unrelated, legitimate) undersized-host refusal tested above.
+TMPHM="$(mktemp -d)"; mkdir -p "$TMPHM/clinic"
+brewbin=""; [ -x /opt/homebrew/bin/brew ] && brewbin="/opt/homebrew/bin"; [ -x /usr/local/bin/brew ] && brewbin="${brewbin:+$brewbin:}/usr/local/bin"
+out="$(env -i PATH="${brewbin:+$brewbin:}/usr/bin:/bin:/usr/sbin:/sbin" HOME="$TMPHM" DRY=1 HOST_MIB=24576 HOST_CPUS=8 \
+  CLINIC_DIR="$TMPHM/clinic" INSTALL_DIR="${HERE}/.." \
+  bash -c ". '${HERE}/../lib.sh'; . '${HM}'; host_macos" 2>&1)"; rc=$?
+rm -rf "$TMPHM"
+printf '%s' "$out" | grep -q 'FAILED' && bad "dry run without podman printed a FAILED line: $out" || ok_ "dry run without podman prints no FAILED line"
+[ "$rc" -eq 0 ] && ok_ "dry run without podman exits 0" || bad "dry run without podman exits $rc: $out"
+
 exit "$fails"
