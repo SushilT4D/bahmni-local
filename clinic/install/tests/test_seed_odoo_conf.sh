@@ -62,6 +62,11 @@ D1="$C1/config/odoo/odoo.conf"
 [ "$rc" -eq 0 ] && ok_ "seeds when missing: exits 0" || bad "rc=$rc: $out"
 [ -f "$D1" ] && ok_ "odoo.conf written at config/odoo/odoo.conf" || bad "no file at $D1: $out"
 grep -q '^db_name = odoo$' "$D1" 2>/dev/null && grep -q 'bahmni-addons' "$D1" 2>/dev/null && ok_ "seeded file carries the image's own db_name and addons_path" || bad "seeded file content wrong: $(cat "$D1" 2>/dev/null)"
+# A clinic runs Odoo on the SHARED PostgreSQL beside openelis: the image's own
+# `dbfilter = .*` then matches two databases and /web/login answers 303 to the
+# database selector (manpur, 2026-09-21, WITH the image's conf in place).
+grep -q '^dbfilter = \^odoo\$$' "$D1" 2>/dev/null && ok_ "dbfilter pinned to the conf's own db_name (^odoo$)" || bad "dbfilter not pinned: $(grep '^dbfilter' "$D1" 2>/dev/null)"
+[ "$(grep -c '^dbfilter' "$D1" 2>/dev/null)" = 1 ] && ok_ "exactly one dbfilter line" || bad "dbfilter line count is not 1"
 printf '%s' "$out" | grep -q 'seeded from acme/odoo:1' && ok_ "ok line names the source image" || bad "no ok line naming the image: $out"
 grep -q '^create acme/odoo:1$' "$TMP/calls.log" && ok_ "a create container ran for the image" || bad "no create call: $(cat "$TMP/calls.log")"
 perm="$(stat -f '%Lp' "$D1" 2>/dev/null || stat -c '%a' "$D1" 2>/dev/null)"
@@ -72,6 +77,16 @@ perm="$(stat -f '%Lp' "$D1" 2>/dev/null || stat -c '%a' "$D1" 2>/dev/null)"
 out="$(run "$C1" acme/odoo:1 DRY=0)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "second run (file present) exits 0" || bad "rc=$rc: $out"
 printf '%s' "$out" | grep -qi 'skip.*config/odoo/odoo.conf already exists' && ok_ "existing conf: skip, an operator's edits win" || bad "no skip line for an existing conf: $out"
+# an existing file that still carries the image's match-everything default is the
+# known-bad case (a node seeded by hand from the image): corrected in place, and
+# nothing else in the file is touched; any OTHER dbfilter is an operator's choice.
+printf '[options]\ndb_name = odoo\ndbfilter = .*\nmy_own = kept\n' > "$D1"
+out="$(run "$C1" acme/odoo:1)"
+grep -q '^dbfilter = \^odoo\$$' "$D1" && grep -q '^my_own = kept$' "$D1" && ok_ "existing conf with 'dbfilter = .*' is pinned in place, the rest kept" || bad "existing default dbfilter not corrected: $(cat "$D1")"
+printf '[options]\ndb_name = odoo\ndbfilter = ^(odoo|test)$\n' > "$D1"
+out="$(run "$C1" acme/odoo:1)"
+grep -qF 'dbfilter = ^(odoo|test)$' "$D1" && ok_ "an operator's own dbfilter is left alone" || bad "operator's dbfilter was changed: $(cat "$D1")"
+: > "$TMP/calls.log"; out="$(run "$C1" acme/odoo:1)"
 grep -q '^create' "$TMP/calls.log" && bad "a container was created even though the conf already existed" || ok_ "no create call when the conf already exists"
 
 # === refused when the image's conf is not Bahmni's own =======================

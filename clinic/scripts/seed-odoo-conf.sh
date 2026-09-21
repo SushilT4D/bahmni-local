@@ -47,7 +47,26 @@ export CT COMPOSE_CMD
 begin_task "seed-odoo-conf: the odoo image's own /etc/odoo/odoo.conf"
 
 DEST="${CLINIC_DIR}/config/odoo/odoo.conf"
+# pin_dbfilter FILE : a clinic runs Odoo on the SHARED PostgreSQL, beside the
+# openelis database. The image's conf says `dbfilter = .*` -- right on staging,
+# where Odoo's PostgreSQL holds one database, wrong here: two databases match,
+# so /web/login answers 303 to /web/database/selector and XML-RPC callers must
+# name a database Odoo would not pick by itself (manpur, 2026-09-21: still 303
+# with the image's conf in place; /web/database/list returned odoo AND
+# openelis). Only the image's match-everything default is rewritten, to the
+# conf's own db_name; any other value is an operator's choice and stays.
+pin_dbfilter(){
+  local f="$1" db t
+  db="$(sed -nE 's/^db_name[[:space:]]*=[[:space:]]*([A-Za-z0-9_-]+)[[:space:]]*$/\1/p' "$f" | head -1)"
+  [ -n "$db" ] || return 0
+  grep -qE '^dbfilter[[:space:]]*=[[:space:]]*\.\*[[:space:]]*$' "$f" || return 0
+  t="$(mktemp "${f}.XXXXXX")"
+  sed -E "s/^dbfilter[[:space:]]*=[[:space:]]*\.\*[[:space:]]*\$/dbfilter = ^${db}\$/" "$f" > "$t" && chmod 644 "$t" && mv "$t" "$f"
+  ok "config/odoo/odoo.conf: dbfilter pinned to ^${db}\$ (shared PostgreSQL also holds openelis)"
+}
+
 if [ -f "$DEST" ]; then
+  if [ "${DRY}" = 1 ]; then info "would pin dbfilter in the existing config/odoo/odoo.conf if it is still the image's '.*'"; else pin_dbfilter "$DEST"; fi
   skip "config/odoo/odoo.conf already exists -- an operator's edits win"
   exit 0
 fi
@@ -101,3 +120,4 @@ fi
 
 chmod 644 "${tmp}/odoo.conf"; mv "${tmp}/odoo.conf" "$DEST"; rm -rf "$tmp"
 ok "config/odoo/odoo.conf seeded from ${image}"
+pin_dbfilter "$DEST"
