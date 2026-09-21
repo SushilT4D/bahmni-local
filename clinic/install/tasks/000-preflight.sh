@@ -39,6 +39,50 @@ ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))
   || fail "seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)"
 ok "seed shape: openmrs iplit-1.2.0, odoo 16"
 
+# ADR-005 gate: a seed dumped before the hub strode village_village and
+# res_partner_attributes would hand a clinic built from it ids the hub also
+# uses (F-083: a clinic-minted village_village row already stopped one sink).
+# Checked here, before a single byte of the seed reaches a database.
+#
+# pg_dump emits a serial id's owning sequence in one of two shapes: a plain
+# "CREATE SEQUENCE ... INCREMENT BY n" a couple of lines after the table, or,
+# for an identity column, a multi-line "ALTER TABLE ... ADD GENERATED ... AS
+# IDENTITY ( SEQUENCE NAME ... INCREMENT BY n ... )". Both name the sequence
+# on one line and carry INCREMENT BY within the next handful -- read the ~8
+# lines following the first line that names it and take the first INCREMENT
+# BY found. Streamed straight from the gz (one gzip -dc | awk pass covering
+# both tables), never unpacked to disk -- the real dump is 7.6 MB.
+adr005_out="$(gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null | awk '
+  function chk(tbl) { if ($0 ~ ("CREATE TABLE (public\\.)?" tbl "[[:space:](]")) print "TABLE_FOUND=" tbl }
+  { chk("village_village"); chk("res_partner_attributes") }
+  index($0, "village_village_id_seq") > 0 && w1 == 0 { w1 = 9 }
+  w1 > 0 {
+    if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=village_village_id_seq=" n; w1 = 0 }
+    else w1--
+  }
+  index($0, "res_partner_attributes_id_seq") > 0 && w2 == 0 { w2 = 9 }
+  w2 > 0 {
+    if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=res_partner_attributes_id_seq=" n; w2 = 0 }
+    else w2--
+  }
+')" || true
+adr005_check(){ # TABLE SEQ
+  local table="$1" seq="$2" tfound inc
+  # `|| true` on each read: grep exits 1 on zero matches, a legitimate result
+  # here (a wrong-shape seed), not an error -- under this task's set -e -o
+  # pipefail a bare grep -c/grep|head|cut miss would otherwise abort through
+  # the generic ERR trap instead of this function's own named fail() message.
+  tfound="$(printf '%s\n' "${adr005_out}" | grep -c "^TABLE_FOUND=${table}\$" || true)"
+  inc="$(printf '%s\n' "${adr005_out}" | grep "^INC=${seq}=" | head -1 | cut -d= -f3 || true)"
+  [ "${tfound:-0}" -ge 1 ] \
+    || fail "seed odoo.sql.gz has no ${table} table -- wrong-shape seed (ADR-005, 2026-09-21 partitioned this table's ids); take a fresh seed with skills/install-clinic.sh seed"
+  [ "$inc" = 10 ] \
+    || fail "seed odoo.sql.gz: ${seq} is not INCREMENT BY 10 (found ${inc:-none}) -- this seed was dumped before the hub partitioned its address and customer-attribute ids (ADR-005, 2026-09-21); a clinic built from it would hand out ${table} ids the hub also uses; take a fresh seed with skills/install-clinic.sh seed"
+}
+adr005_check village_village village_village_id_seq
+adr005_check res_partner_attributes res_partner_attributes_id_seq
+ok "seed shape: village_village, res_partner_attributes sequences step 10 (ADR-005)"
+
 [ "${PREFLIGHT_SKIP_HOST:-0}" = 1 ] && { ok "host facts skipped (PREFLIGHT_SKIP_HOST)"; exit 0; }
 
 # 4. host facts
