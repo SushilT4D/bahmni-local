@@ -5,13 +5,20 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
-[ "${DRY}" = 1 ] && { info "would: fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park odoo-connect markers; start odoo-connect"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park odoo-connect markers; start odoo-connect"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 # BEFORE sourcing .env: compose gives an exported shell variable precedence over
 # the file, so a stale export here would hide the repaired value from `up`.
 ensure_openmrs_jvm_opts "$E"
 set -a; . "$E"; set +a
 OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"; OC="${COMPOSE_PROJECT_NAME}-odoo-connect-1"
+# The clinic mounts CONTAINER_DATA_PATH/config/odoo read-write at /etc/odoo;
+# task 030 creates it empty, which hides the odoo image's OWN odoo.conf (no
+# db_name, no addons_path -- /web/login 303s to /web/database/selector rather
+# than answering 200, fix-round-1 review vs. staging). Seed it BEFORE the
+# ownership sweep below, so the file this creates gets chowned along with the
+# rest of config/odoo rather than needing its own pass.
+bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh reported a FAIL above"
 # Odoo answered HTTP 500 on every request on manpur (2026-09-21): its image
 # runs as uid 101, task 030 makes this node's bind-mount data dirs with a
 # plain mkdir -p (owned by the login user), and uid 101 could not write

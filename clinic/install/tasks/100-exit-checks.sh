@@ -12,7 +12,9 @@ bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL a
 # every request, including XML-RPC, which curl-retries into looking like a
 # slow start rather than a permanent failure) -- so prove the login PAGE
 # itself answers first. Odoo 16 builds its asset bundle on the first hit, so
-# this is retried, not a single probe.
+# this is retried, not a single probe. A 303 to /web/database/selector here
+# (instead of 200) means odoo.conf is missing under config/odoo -- run
+# scripts/seed-odoo-conf.sh.
 odoo_port="${BAHMNI_ODOO_HTTPS_PORT:-9444}"
 odoo_up=0
 for i in $(seq 1 12); do
