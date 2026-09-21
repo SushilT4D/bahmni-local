@@ -100,10 +100,20 @@ BEGIN
     -- collision-free without striding, so it gets a NOTICE and a skip, not the
     -- EXCEPTION below. The column count comes from pg_index/pg_constraint (the
     -- catalog), never from the table's name -- a name is not proof of shape.
-    v_seq := pg_get_serial_sequence('public.' || v_tbl, 'id');
+    -- pg_get_serial_sequence does NOT return NULL for a table without an `id`
+    -- column: it RAISES ("column id of relation ... does not exist"), which rolls
+    -- back this whole transaction and leaves even the id tables listed beside it
+    -- unstrided (found on a real PostgreSQL, 2026-09-21; fixture tests could not
+    -- see it). So ask the catalog whether the column exists first.
+    IF EXISTS (SELECT 1 FROM pg_attribute
+               WHERE attrelid = ('public.' || v_tbl)::regclass AND attname = 'id' AND NOT attisdropped) THEN
+      v_seq := pg_get_serial_sequence('public.' || v_tbl, 'id');
+    ELSE
+      v_seq := NULL;
+    END IF;
     IF v_seq IS NULL THEN
       v_pkcols := (
-        SELECT array_length(ix.indkey, 1)
+        SELECT ix.indnkeyatts
         FROM pg_index ix
         WHERE ix.indrelid = ('public.' || v_tbl)::regclass AND ix.indisprimary
       );

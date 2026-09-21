@@ -293,7 +293,10 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
       # Odoo ids carry a nextval() default; pg_get_serial_sequence resolves
       # the real owning sequence (not always <table>_id_seq -- inherited or
       # renamed tables differ). NULL means no serial default at all.
-      seqname="$(printf "select pg_get_serial_sequence('%s.%s','id')" "$schema" "$t" | pg_admin "$db" -At)" \
+      # pg_get_serial_sequence RAISES for a table with no `id` column (it does not
+      # return NULL), so the column's existence is asked first -- the three
+      # composite-key link tables have none (found on a real PostgreSQL 2026-09-21).
+      seqname="$(printf "select case when exists (select 1 from pg_attribute where attrelid = '%s.%s'::regclass and attname = 'id' and not attisdropped) then pg_get_serial_sequence('%s.%s','id') end" "$schema" "$t" "$schema" "$t" | pg_admin "$db" -At)" \
         || fail "could not resolve the serial sequence for ${schema}.${t} in ${db} (psql failed)"
       if [ -z "$seqname" ]; then
         # ADR-005 (repo change, 2026-09-21): a table with no serial id is only a
@@ -305,7 +308,7 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
         # construction, nothing to stride. Same rule the clinic installer's
         # apply-odoo-sequence-striding.sql applies; column count read from
         # pg_index, never guessed from the table's name.
-        pkcols="$(printf "select array_length(ix.indkey,1) from pg_index ix where ix.indrelid = '%s.%s'::regclass and ix.indisprimary" "$schema" "$t" | pg_admin "$db" -At)" \
+        pkcols="$(printf "select ix.indnkeyatts from pg_index ix where ix.indrelid = '%s.%s'::regclass and ix.indisprimary" "$schema" "$t" | pg_admin "$db" -At)" \
           || fail "could not read the primary-key column count for ${schema}.${t} in ${db} (psql failed)"
         if [ -n "$pkcols" ] && [ "$pkcols" -ge 2 ] 2>/dev/null; then
           continue
