@@ -51,9 +51,24 @@ apply_prefix(){ # DIR : the node's registration prefix, if one was given
   chmod 644 "$t"; mv "$t" "$app"
 }
 
+hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
+  # The config image ships OCL export zips under masterdata/configuration/ocl.
+  # The Initializer imports any zip it has no checksum for -- a full CIEL load,
+  # 282,699 items, and OpenMRS answers nothing until it ends. IPLIT's own stack
+  # never runs it (the hub's live ocl/ dir is empty, no import row since the
+  # seed's 2026-08-28 one); a clinic's checksum dir starts empty, so it did:
+  # manpur, 2026-09-21, ~110 items a minute on one vCPU = about two days. The seed
+  # already carries the dictionary (54,700 CIEL-mapped concepts on hub and clinic
+  # alike). The zips are moved, not deleted: KEEP_OCL_ZIPS=1 leaves them in place.
+  local d="$1/bahmni_config/masterdata/configuration/ocl" z
+  [ "${KEEP_OCL_ZIPS:-0}" = 1 ] && return 0
+  [ -d "$d" ] || return 0
+  for z in "$d"/*.zip; do [ -f "$z" ] || continue; mkdir -p "$1/ocl-held"; mv "$z" "$1/ocl-held/"; done
+}
+
 if [ "$FORCE" = 0 ] && [ -f "$OUT/.source" ] && [ "$(cat "$OUT/.source")" = "$want" ] \
    && [ -f "$OUT/htdocs/bahmni/home/index.html" ] && [ -d "$OUT/bahmni_config/openmrs" ]; then
-  apply_prefix "$OUT"
+  apply_prefix "$OUT"; hold_ocl "$OUT"
   say "skip extracted/ already holds ${WEB} and ${CFG}"; exit 0
 fi
 
@@ -69,7 +84,7 @@ pull_tree "$CFG" /etc/bahmni_config "$NEW/bahmni_config"
 # a tree is accepted only if it looks like what the services will ask it for
 [ -f "$NEW/htdocs/bahmni/home/index.html" ] || die "${WEB} carries no bahmni/home/index.html under /usr/local/apache2/htdocs -- not a Bahmni UI image"
 [ -d "$NEW/bahmni_config/openmrs/apps" ] && [ -d "$NEW/bahmni_config/masterdata/configuration" ] || die "${CFG} carries no openmrs/apps + masterdata/configuration under /etc/bahmni_config -- not a Bahmni config image"
-apply_prefix "$NEW"
+apply_prefix "$NEW"; hold_ocl "$NEW"
 chmod -R u+rwX,go+rX,go-w "$NEW"   # the UI image ships world-writable dirs
 printf '%s\n' "$want" > "$NEW/.source"
 if [ -e "$OUT" ]; then rm -rf "${OUT}.prev"; mv "$OUT" "${OUT}.prev"; fi

@@ -35,6 +35,7 @@ mkimg(){ # NAME ID
 U="$(mkimg acme/web:1 aaa)"; mkdir -p "$U/usr/local/apache2/htdocs/bahmni/home"; echo "<html>v1</html>" > "$U/usr/local/apache2/htdocs/bahmni/home/index.html"; echo idx > "$U/usr/local/apache2/htdocs/index.html"
 C="$(mkimg acme/config:1 bbb)"; mkdir -p "$C/etc/bahmni_config/openmrs/apps/registration" "$C/etc/bahmni_config/masterdata/configuration" "$C/etc/bahmni_config/openelis"
 printf '{"id":"bahmni.registration","config":{"defaultIdentifierPrefix":"GAN","other":1}}\n' > "$C/etc/bahmni_config/openmrs/apps/registration/app.json"
+mkdir -p "$C/etc/bahmni_config/masterdata/configuration/ocl"; echo zipbytes > "$C/etc/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip"; echo keepme > "$C/etc/bahmni_config/masterdata/configuration/ocl/README.txt"
 run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" bash "$S" "$@" 2>&1; }
 X="$TMP/clinic/extracted"
 
@@ -44,6 +45,8 @@ out="$(run)"; rc=$?
 [ -d "$X/bahmni_config/masterdata/configuration" ] && [ -d "$X/bahmni_config/openelis" ] && ok_ "config extracted to extracted/bahmni_config" || bad "no config tree"
 grep -q 'acme/web:1@sha256:aaa' "$X/.source" 2>/dev/null && grep -q 'acme/config:1@sha256:bbb' "$X/.source" && ok_ "source recorded with image ids" || bad ".source does not record both images: $(cat "$X/.source" 2>/dev/null)"
 [ "$(jq -r .config.defaultIdentifierPrefix "$X/bahmni_config/openmrs/apps/registration/app.json")" = MAN ] && ok_ "MRN prefix written (GAN -> MAN)" || bad "prefix not written"
+[ ! -e "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && [ -f "$X/ocl-held/CIEL_v1.zip" ] && ok_ "OCL dictionary zip held out of the served tree, kept at extracted/ocl-held" || bad "OCL zip still in the tree OpenMRS reads (a two-day CIEL import on a small node)"
+[ -f "$X/bahmni_config/masterdata/configuration/ocl/README.txt" ] && ok_ "only zips are held; other ocl files stay" || bad "non-zip ocl file was moved"
 [ "$(jq -r .config.other "$X/bahmni_config/openmrs/apps/registration/app.json")" = 1 ] && ok_ "the rest of app.json is untouched" || bad "app.json lost its other keys"
 
 : > "$FAKE_LOG"; out="$(run)"; rc=$?
@@ -54,6 +57,13 @@ out="$(run)"; rc=$?
 grep -q v2 "$X/htdocs/bahmni/home/index.html" && ok_ "changed image id: re-extracted" || bad "did not pick up the new image: $out"
 grep -q v1 "$X.prev/htdocs/bahmni/home/index.html" 2>/dev/null && ok_ "previous extraction kept at extracted.prev" || bad "previous extraction not kept"
 [ "$(jq -r .config.defaultIdentifierPrefix "$X/bahmni_config/openmrs/apps/registration/app.json")" = MAN ] && ok_ "prefix re-applied after re-extraction" || bad "prefix lost on re-extraction"
+
+# a tree extracted BEFORE this rule existed (manpur) is fixed by the skip path too
+mv "$X/ocl-held/CIEL_v1.zip" "$X/bahmni_config/masterdata/configuration/ocl/"; out="$(run)"
+[ ! -e "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && ok_ "an already-extracted tree gets its zips held on the next run" || bad "skip path left the zip in place"
+out="$(env KEEP_OCL_ZIPS=1 true; PFX=MAN; env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE=acme/web:1 BAHMNI_CONFIG_IMAGE=acme/config:1 MRN_PREFIX=MAN KEEP_OCL_ZIPS=1 bash "$S" --force 2>&1)"
+[ -f "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && ok_ "KEEP_OCL_ZIPS=1 leaves the zips in place" || bad "KEEP_OCL_ZIPS=1 ignored"
+out="$(run --force)"   # back to the default for the checks below
 
 B="$(mkimg acme/web:broken ddd)"; mkdir -p "$B/usr/local/apache2/htdocs"   # no bahmni/ inside
 out="$(WEB=acme/web:broken run)"; rc=$?
