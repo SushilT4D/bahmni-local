@@ -110,6 +110,20 @@ for name in services:
 PY
 )"
 
+# tracked_dir DIR : true if `git` tracks any file under DIR in this checkout.
+# No candidate directory is tracked today (checked: data/*, files/odoo,
+# odoo-addons, config/odoo are all untracked), but a directory that starts
+# tracking files later and gets chowned to a container uid would make the
+# next `git pull` fail for the login user -- so this is checked before every
+# chown, not just today's known-safe set. A node with no `git` binary, or a
+# CLINIC_DIR outside any checkout, has no tracked files by definition; guard
+# the call so either behaves as "no tracked files" rather than failing the
+# whole sweep over an absent binary or a plain (non-git) deployment.
+tracked_dir(){
+  command -v git >/dev/null 2>&1 || return 1
+  [ -n "$(git -C "${CLINIC_DIR}" ls-files -- "$1" 2>/dev/null || true)" ]
+}
+
 # stat -c is GNU (Linux); -f is BSD (macOS). Prints "uid gid", empty on error.
 owner_of(){
   local d="$1" u g
@@ -133,6 +147,10 @@ while true; do
     DIR)
       service="$a"; image="$b"; dir="$c"
       rel="${dir#${CLINIC_DIR}/}"
+      if tracked_dir "$dir"; then
+        skip "${service}: ${rel} holds git-tracked files -- left to the login user"
+        continue
+      fi
       if [ "$service" != "$prev_service" ]; then
         prev_service="$service"; svc_root=0
         if [ "${DRY}" = 1 ]; then

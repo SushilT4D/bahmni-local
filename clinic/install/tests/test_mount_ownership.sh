@@ -178,4 +178,22 @@ out="$(run "$TMP/clinic4" env DRY=0 PLATFORM=linux FAKE_NOOP_CHOWN=1)"; rc=$?
 [ "$rc" -ne 0 ] && ok_ "Linux: a chown that does not take exits non-zero" || bad "Linux no-op chown rc=$rc (wanted non-zero): $out"
 printf '%s' "$out" | grep -qi 'FAIL.*odoo: data/odoo' && ok_ "Linux: a chown that does not take is a FAIL" || bad "Linux: no FAIL for the no-op chown: $out"
 
+# === scenario 5: a directory holding git-tracked files is never chowned -----
+# (fix-round-1: a tracked dir chowned to a container uid would break the next
+# `git pull` for the login user -- no candidate directory is tracked today,
+# but the sweep must not assume that stays true).
+GC="$TMP/clinicgit"
+mk_fixture "$GC"
+echo tracked > "$GC/data/odoo/.gitkeep"
+( cd "$GC" && git init -q && git -c user.email=t@t -c user.name=t add data/odoo/.gitkeep && git -c user.email=t@t -c user.name=t commit -q -m seed ) >/dev/null
+: > "$TMP/owners.tsv"
+printf '%s\t1000\t1000\n' "$(cd "$GC/data/odoo" && pwd)" >> "$TMP/owners.tsv"
+printf '%s\t1000\t1000\n' "$(cd "$GC/data/kafka" && pwd)" >> "$TMP/owners.tsv"
+printf '%s\t1000\t1000\n' "$(cd "$GC/data/kafka-connect" && pwd)" >> "$TMP/owners.tsv"
+: > "$TMP/calls.log"
+out="$(run "$GC" env DRY=0 PLATFORM=linux)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "a run against a checkout with a tracked dir still exits 0" || bad "rc=$rc: $out"
+printf '%s' "$out" | grep -qi 'skip.*odoo: data/odoo holds git-tracked files' && ok_ "a git-tracked directory is skipped, not chowned, and the login user keeps it" || bad "no skip line for the tracked directory: $out"
+grep -q 'data/odoo:/fix' "$TMP/calls.log" && bad "chown ran for a directory that holds git-tracked files" || ok_ "no chown call for the git-tracked directory"
+
 exit "$fails"
