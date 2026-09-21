@@ -162,3 +162,10 @@ clinic/extracted.new.*/
 # trees, plus Dockerfile.native) -- removed by its own EXIT trap on every
 # path; this rule is for the run that is killed outright.
 clinic/.build-native.*/
+
+# Rendered env files the clinic installer leaves beside clinic/.env. Each holds
+# generated passwords and none is named exactly ".env", so the rule at the top
+# did not cover them (found 2026-09-21; this repository is public).
+clinic/.env.dryrun.*
+clinic/.env.rejected
+clinic/.env.render.*

@@ -68,6 +68,13 @@ left="$(has_placeholders "$T" "MAIL_USER MAIL_PASSWORD" | tr '\n' ' ')"
 [ -z "$left" ] || { rm -f "$T"; fail "placeholders left unfilled: ${left}"; }
 chmod 600 "$T"
 if [ "${DRY}" = 1 ] || [ "${ENV_SKIP_COMPOSE:-0}" = 1 ]; then
+  if [ "${DRY}" = 1 ]; then
+    # stamped so task 000 of the real run knows this file is a leftover and
+    # moves it aside instead of refusing the node (manpur rebuild, 2026-09-21)
+    S="$(mktemp "${CLINIC_DIR}/.env.render.XXXXXX")"
+    { printf '# DRY-RUN RENDER -- written by a dry run, not a live env; the next real run moves it aside\n'; cat "$T"; } > "$S"
+    chmod 600 "$S"; rm -f "$T"; T="$S"
+  fi
   mv "$T" "$E"; ok "rendered ${E} (compose config gate skipped: dry run)"; exit 0
 fi
 setup_compose

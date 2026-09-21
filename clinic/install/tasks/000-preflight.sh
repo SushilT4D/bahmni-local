@@ -14,8 +14,28 @@ ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}"
 
 # 2. fresh install only
-[ ! -e "${CLINIC_DIR}/.env" ] || fail "${CLINIC_DIR}/.env already exists -- this installer does fresh installs only; remove it consciously if this node is being rebuilt"
-ok "no clinic/.env yet"
+# fresh-only:begin
+# A dry run renders a real clinic/.env (later tasks read it to say what they
+# would do), and the real run that followed refused it as "already exists"
+# (manpur rebuild, 2026-09-21). Task 020 stamps a dry-run render on its first
+# line; a stamped file is a leftover, not a live node, so a real run moves it
+# aside -- never deletes it -- and carries on. An unstamped .env is a live
+# node's and is still refused.
+if [ -e "${CLINIC_DIR}/.env" ]; then
+  if head -n 1 "${CLINIC_DIR}/.env" | grep -q '^# DRY-RUN RENDER'; then
+    if [ "${DRY}" = 1 ]; then
+      info "clinic/.env is a dry-run leftover; this dry run will render over it"
+    else
+      aside="${CLINIC_DIR}/.env.dryrun.$(date -u +%Y%m%dT%H%M%SZ)"
+      mv "${CLINIC_DIR}/.env" "$aside"
+      info "clinic/.env was a dry-run leftover; moved aside to ${aside}"
+    fi
+  else
+    fail "${CLINIC_DIR}/.env already exists -- this installer does fresh installs only; remove it consciously if this node is being rebuilt"
+  fi
+fi
+ok "no live clinic/.env yet"
+# fresh-only:end
 
 # 3. the seed
 for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
