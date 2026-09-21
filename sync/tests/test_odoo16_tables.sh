@@ -25,6 +25,8 @@ old_name_files="$(grep -rlE "account_invoice|product_uom\b" "$REPO/sync" "$REPO/
 hits=""
 for f in $old_name_files; do
   case "$f" in */test_odoo16_tables.sh) continue ;; esac
+  # the seed-shape gate names the Odoo 10 table in order to REFUSE a dump that has it
+  case "$f" in */clinic/install/tasks/000-preflight.sh|*/clinic/install/tests/test_preflight.sh) continue ;; esac
   grep -q 'HISTORICAL, FROZEN' "$f" && continue
   hits="$hits $f"
 done
