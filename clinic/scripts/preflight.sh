@@ -54,6 +54,20 @@ resolve(){ "$CT" ps --format '{{.Names}}' 2>/dev/null \
 
 MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFKA_SERVICE")
 
+# Find the repo the way AL-023 says: ask a running container which directory its
+# compose project came from. Works regardless of how this script was invoked --
+# the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
+# Resolved here (not down by the checkout-drift section that originally read
+# it) so the unsynced-tables section below -- which needs sync/subsystems.conf,
+# same as checkout drift needs the git repo -- has it too.
+REPO=${PREFLIGHT_REPO:-}
+if [ -z "$REPO" ]; then
+  for c in $("$CT" ps --format '{{.Names}}' 2>/dev/null | head -5); do
+    wd=$("$CT" inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null)
+    [ -n "$wd" ] && [ -d "$wd" ] && { REPO="$wd"; break; }
+  done
+fi
+
 # --- VM disk + memory -------------------------------------------------------
 # The container VM, not the host: on macOS the engine runs in a Linux VM and it
 # is that VM's disk that fills. nsenter into pid 1 reads the VM's own view.
@@ -136,6 +150,131 @@ if [ -n "$PG" ]; then
   done <<< "$slots"
 else bad "postgres service '$PG_SERVICE' not running"; fi
 
+# --- Unsynced tables tied to synced ones (ADR-005, F-085) -------------------
+# village_village stopped a sink because a table nobody had listed grew rows
+# that referenced, and were referenced by, a synced table (F-083). The
+# inventory this check comes from
+# (docs/sync-core/reports/2026-09-21-unsynced-tables-inventory.md) found that
+# is a CLASS, not a one-off: a table outside sync/subsystems.conf's synced set
+# that (a) touches a synced table by a foreign key in EITHER direction and
+# (b) has gained rows is a future village_village until a human gives it a
+# verdict in sync/unsynced-allowlist.conf. WARN, not FAIL: this is a
+# data-quality question for a person, not a broken node -- warn_ never
+# touches rc.
+#
+# The functions between the markers below are pure (no psql, no side effects)
+# so clinic/install/tests/test_unsynced_check.sh can pull them out and
+# exercise the SQL-building and the allowlist/subsystems parsing without a
+# database. Not sourced from clinic/install/lib.sh: this script also runs
+# piped over ssh from another host (see the file header), where lib.sh and
+# its REPO_DIR are not on the far side.
+# unsynced-check:begin
+warn_(){ echo "  WARN $*"; }
+
+# subsystems_conf_tables PREFIX CONF : sync/subsystems.conf's <PREFIX>:<table>
+# rows, one per line -- the same parse clinic/install/lib.sh's
+# subsystem_tables does (trim, drop a trailing comment, skip :all, skip
+# blank/comment lines). A missing CONF prints nothing rather than erroring --
+# the caller decides whether that is a note or a real problem.
+subsystems_conf_tables(){ # PREFIX CONF
+  local prefix="$1" conf="$2" line name
+  [ -f "$conf" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in "${prefix}:"*) ;; *) continue ;; esac
+    name="${line#*:}"; name="${name%%#*}"
+    name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -z "$name" ] && continue
+    [ "$name" = "all" ] && continue
+    printf '%s\n' "$name"
+  done < "$conf"
+}
+
+# unsynced_check_sql SCHEMA TABLE... : the query that finds a table in SCHEMA
+# that is (a) not one of the given synced TABLEs, (b) linked to one by a
+# foreign key in EITHER direction (an FK FROM it TO a synced table, or an FK
+# FROM a synced table TO it), and (c) has rows. Both directions matter --
+# village_village is pointed TO by res_partner (itself synced), but a future
+# case could equally be a table a synced row points AT. Printed, never eval'd
+# blind here, so a test can inspect it without a database.
+unsynced_check_sql(){ # SCHEMA TABLE...
+  local schema="$1"; shift
+  local synced_csv="" t
+  for t in "$@"; do synced_csv="${synced_csv}${synced_csv:+,}'${t}'"; done
+  cat <<SQL
+WITH fk_to_synced AS (
+  SELECT DISTINCT tc.table_name AS tbl, 'FK->synced' AS direction
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.constraint_column_usage ccu
+    ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+  WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = '${schema}'
+    AND ccu.table_name IN (${synced_csv}) AND tc.table_name NOT IN (${synced_csv})
+), fk_from_synced AS (
+  SELECT DISTINCT ccu.table_name AS tbl, 'synced->FK' AS direction
+  FROM information_schema.table_constraints tc
+  JOIN information_schema.constraint_column_usage ccu
+    ON tc.constraint_name = ccu.constraint_name AND tc.table_schema = ccu.table_schema
+  WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = '${schema}'
+    AND tc.table_name IN (${synced_csv}) AND ccu.table_name NOT IN (${synced_csv})
+), candidates AS (
+  SELECT tbl, direction FROM fk_to_synced UNION SELECT tbl, direction FROM fk_from_synced
+)
+SELECT c.tbl || '|' || c.direction || '|' || s.n_live_tup
+FROM candidates c
+JOIN pg_stat_user_tables s ON s.schemaname = '${schema}' AND s.relname = c.tbl
+WHERE s.n_live_tup > 0
+ORDER BY c.tbl;
+SQL
+}
+
+# filter_unsynced_allowlist DB ALLOWFILE : reads "table|direction|rows" lines
+# on stdin, drops any whose "DB:table" appears in ALLOWFILE (a bare substring
+# match is not enough -- openelis and odoo can share a table name, e.g.
+# "test"), prints the rest unchanged. A missing ALLOWFILE allowlists nothing
+# (keeps every line), never passes everything through silently.
+filter_unsynced_allowlist(){ # DB ALLOWFILE
+  local db="$1" allow="$2" line tbl
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    tbl="${line%%|*}"
+    if [ -f "$allow" ] && grep -qE "^${db}:${tbl}([[:space:]]|\$)" "$allow"; then
+      continue
+    fi
+    printf '%s\n' "$line"
+  done
+}
+# unsynced-check:end
+
+if [ -z "${REPO:-}" ]; then
+  echo "  note unsynced-tables check NOT RUN: no repo checkout found on this node yet (needed for sync/subsystems.conf)"
+else
+  CONF_F="${REPO}/sync/subsystems.conf"; ALLOW_F="${REPO}/sync/unsynced-allowlist.conf"
+  if [ ! -f "$CONF_F" ]; then
+    echo "  note unsynced-tables check NOT RUN: ${CONF_F} not found"
+  else
+    check_unsynced(){ # LABEL DB SCHEMA PREFIX
+      local label="$1" db="$2" schema="$3" prefix="$4" synced sql out filtered
+      synced="$(subsystems_conf_tables "$prefix" "$CONF_F")"
+      if [ -z "$synced" ]; then echo "  note unsynced-tables check ($label): no ${prefix}: rows in $CONF_F"; return; fi
+      if [ -z "$PG" ]; then echo "  note unsynced-tables check ($label): postgres service '$PG_SERVICE' not running"; return; fi
+      # shellcheck disable=SC2086
+      sql="$(unsynced_check_sql "$schema" $synced)"
+      out="$("$CT" exec -i "$PG" psql -U odoo -d "$db" -At -c "$sql" 2>/dev/null)"
+      filtered="$(printf '%s\n' "$out" | filter_unsynced_allowlist "$label" "$ALLOW_F")"
+      if [ -z "$filtered" ]; then
+        ok "unsynced-tables check ($label): none outside sync/unsynced-allowlist.conf"
+      else
+        printf '%s\n' "$filtered" | while IFS='|' read -r tbl dir rows; do
+          [ -z "$tbl" ] && continue
+          warn_ "${label}.${tbl} not synced, ${dir}, ${rows} row(s) -- give it a verdict in sync/unsynced-allowlist.conf"
+        done
+      fi
+    }
+    check_unsynced odoo odoo public odoo
+    check_unsynced openelis openelis clinlims clinlims
+  fi
+fi
+
 # --- Kafka ------------------------------------------------------------------
 if [ -n "$KF" ]; then
   kt=$("$CT" exec "$KF" kafka-topics --bootstrap-server "$KAFKA_BOOTSTRAP" --list 2>/dev/null | wc -l | tr -d ' ')
@@ -189,17 +328,8 @@ fi
 # Set PREFLIGHT_FETCH=yes to refresh it first.
 REF_MAX_AGE_H=${REF_MAX_AGE_H:-24}
 
-# Find the repo the way AL-023 says: ask a running container which directory its
-# compose project came from. Works regardless of how this script was invoked --
-# the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
-REPO=${PREFLIGHT_REPO:-}
-if [ -z "$REPO" ]; then
-  for c in $("$CT" ps --format '{{.Names}}' 2>/dev/null | head -5); do
-    wd=$("$CT" inspect "$c" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null)
-    [ -n "$wd" ] && [ -d "$wd" ] && { REPO="$wd"; break; }
-  done
-fi
-
+# REPO is resolved once, near the top of this script (the unsynced-tables
+# section below needs it too) -- reused here, not recomputed.
 if [ -z "${REPO:-}" ] || ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   bad "checkout drift NOT MEASURED: no git repo found (set PREFLIGHT_REPO)"
 else
