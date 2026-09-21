@@ -74,4 +74,13 @@ out="$(run "cat '$TMP/lines.txt' | filter_unsynced_allowlist odoo '$TMP/no-such-
 n="$(printf '%s\n' "$out" | grep -c '.')"
 [ "$n" -eq 3 ] && ok_ "filter_unsynced_allowlist: missing allowlist file allowlists nothing (keeps all 3)" || bad "filter_unsynced_allowlist: missing allowlist file changed the count ($n)"
 
+# the compose project runs from <repo>/clinic; the repo root, where sync/ lives, is its parent
+blk="$(sed -n '/^# The compose project lives in <repo>\/clinic/,/^if \[ -n "\$REPO" \].*then REPO=.*fi$/p' "$PF")"
+[ -n "$blk" ] || bad "preflight has no compose-dir -> repo-root step"
+R="$TMP/repo"; mkdir -p "$R/clinic" "$R/sync"
+out="$(REPO="$R/clinic" bash -c "$blk; printf '%s' \"\$REPO\"")"
+[ "$out" = "$R" ] && ok_ "REPO climbs from clinic/ to the repo root" || bad "REPO stayed at [$out]"
+out="$(REPO="$R" bash -c "$blk; printf '%s' \"\$REPO\"")"
+[ "$out" = "$R" ] && ok_ "a repo root is left alone" || bad "repo root became [$out]"
+
 printf '%s failure(s)\n' "$fails"; exit $((fails>0))
