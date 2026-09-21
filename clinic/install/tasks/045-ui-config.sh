@@ -21,6 +21,21 @@ CT="${CT}" CLINIC_DIR="${CLINIC_DIR}" VERSIONS_FILE="${VERSIONS_FILE}" MRN_PREFI
   bash "${CLINIC_DIR}/scripts/extract-ui-config.sh" || fail "extraction failed (its FAIL line is above)"
 [ -f "$UI/home/index.html" ] && ok "UI: $(find "$UI" -type f | wc -l | tr -d ' ') files from $(env_get "$E" BAHMNI_WEB_IMAGE)" || fail "no UI at ${UI}"
 [ -d "$CF/masterdata/configuration" ] && ok "config: $(find "$CF" -type f | wc -l | tr -d ' ') files from $(env_get "$E" BAHMNI_CONFIG_IMAGE)" || fail "no config at ${CF}"
+# ocl-proof:begin
+# Belt and braces on top of extract-ui-config.sh's own hold_ocl: a first boot
+# imported the CIEL dictionary for hours because two OCL zips sat in the
+# config tree OpenMRS reads (manpur, 2026-09-21). Prove they are really out of
+# the served tree rather than trusting the extraction script's own move.
+ocl_zips="$(find "$CF/masterdata/configuration/ocl" -name '*.zip' 2>/dev/null)"
+if [ "${KEEP_OCL_ZIPS:-0}" = 1 ]; then
+  skip "OCL dictionary zip check skipped (KEEP_OCL_ZIPS=1)"
+elif [ -z "$ocl_zips" ]; then
+  ocl_held="$(find "$(dirname "$CF")/ocl-held" -name '*.zip' 2>/dev/null | wc -l | tr -d ' ')"
+  ok "no OCL dictionary zip in the tree OpenMRS reads (${ocl_held:-0} held aside)"
+else
+  fail "OCL dictionary zip(s) still in the tree OpenMRS reads -- a days-long CIEL import on a small node (manpur, 2026-09-21): $(printf '%s' "$ocl_zips" | tr '\n' ' ')"
+fi
+# ocl-proof:end
 WL="$CF/openmrs/apps/home/whiteLabel.json"
 [ -f "$WL" ] && [ "$(jq -r '.landingPage[]? | select(.name=="odoo") | .linkPort' "$WL")" = "${ODOO_PORT}" ] \
   && ok "landing page: odoo tile linkPort ${ODOO_PORT}" || fail "landing page odoo tile does not carry linkPort ${ODOO_PORT}: ${WL}"
