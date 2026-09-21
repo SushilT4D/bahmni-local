@@ -77,8 +77,10 @@ d7_block(){
     # bahmni-nginx.conf runs the same regex twice for this reason)
     # mod_rewrite has no repeat-until-clean loop -- falling through to the
     # single-comma rule only when the two-comma pattern does not match.
+    RewriteCond %{REQUEST_URI} ^/openmrs/
     RewriteCond %{QUERY_STRING} ^(.*)(?:,|%2C)(\)|%29)(.*)(?:,|%2C)(\)|%29)(.*)$ [NC]
-    RewriteRule ^(.*)$ $1?%1%2%3%4%5%6 [PT,NE]
+    RewriteRule ^(.*)$ $1?%1%2%3%4%5 [PT,NE]
+    RewriteCond %{REQUEST_URI} ^/openmrs/
     RewriteCond %{QUERY_STRING} ^(.*)(?:,|%2C)(\)|%29)(.*)$ [NC]
     RewriteRule ^(.*)$ $1?%1%2%3 [PT,NE]
     # F-080 end
@@ -104,15 +106,22 @@ sys.stdout.write(pat.sub(lambda m: m.group(1), s))
 # comma-strip-ref:end
 
 # d7-insert:begin
-# d7_insert FILE : idempotent. FILE already carrying the F-080 marker is a
-# no-op ("ok", nothing touched). Otherwise: find the first `ProxyPass
-# /openmrs` line (the anchor -- FAIL naming FILE if none exists, since
-# inserting blind into an unknown layout is worse than refusing), and under
-# DRY stop there, having read real facts and written nothing. For a real run:
-# back FILE up once (never overwrite an existing backup) and insert d7_block
-# immediately before the anchor line.
+# d7_insert FILE : idempotent. Checked against the live hub's file, read-only,
+# 2026-09-21 -- the first draft of this task anchored on `ProxyPass /openmrs`,
+# which in IPLIT's file sits at SERVER scope (lines 20 and 36, before any
+# <VirtualHost>); mod_rewrite rules there are not inherited by the vhosts, so
+# the block would have been inserted and done nothing. The block that works on
+# the hub sits INSIDE the first <VirtualHost *:443>, directly after the
+# secure reporting_session cookie rule (the RewriteRule carrying
+# `CO=reporting_session` and ending `:true:true]`). That rule is the anchor;
+# FAIL naming FILE if it is missing, since inserting blind into an unknown
+# layout is worse than refusing. A file that already carries EITHER this
+# task's marker OR the block applied by hand on 2026-09-21 ("F-080 stopgap")
+# is a no-op -- a second copy of the rules is never added. Under DRY: read real
+# facts, write nothing. For a real run: back FILE up once (never overwrite an
+# existing backup) and insert d7_block immediately AFTER the anchor line.
 d7_insert(){
-  local f="$1" marker="# F-080 login stopgap (hub/install 085)" anchor_ln tmp blockfile backup
+  local f="$1" marker="# F-080 login stopgap (hub/install 085)" hand="F-080 stopgap" anchor_ln tmp blockfile backup
   # backup's own value expands ${f} -- assigned in its OWN statement, never on
   # the same `local NAME=VALUE ...` line as f itself: bash expands every
   # value on a single `local`/`declare` line against the state BEFORE that
@@ -124,22 +133,26 @@ d7_insert(){
     ok "D7: ${f} already carries the login stopgap"
     return 0
   fi
-  anchor_ln="$(grep -nE 'ProxyPass[[:space:]]+/openmrs' "$f" 2>/dev/null | head -n1 | cut -d: -f1)"
-  [ -n "$anchor_ln" ] || fail "D7: no 'ProxyPass /openmrs' line found in ${f} -- cannot anchor the rewrite block (is BASE_DIR=${BASE_DIR:-<unset>} really the base stack's own proxy-config?)"
+  if grep -qF "$hand" "$f" 2>/dev/null; then
+    ok "D7: ${f} already carries the login stopgap (the block applied by hand on 2026-09-21)"
+    return 0
+  fi
+  anchor_ln="$(grep -nE 'RewriteRule.*CO=reporting_session.*:true:true\]' "$f" 2>/dev/null | head -n1 | cut -d: -f1)"
+  [ -n "$anchor_ln" ] || fail "D7: no secure reporting_session cookie rule (RewriteRule ... CO=reporting_session ... :true:true]) found in ${f} -- cannot anchor the rewrite block inside the 443 vhost (is BASE_DIR=${BASE_DIR:-<unset>} really the base stack's own proxy-config?)"
   if [ "${DRY}" = 1 ]; then
-    info "would: back up ${f} to ${backup} (if not already present) and insert the F-080 rewrite block before line ${anchor_ln} (ProxyPass /openmrs)"
+    info "would: back up ${f} to ${backup} (if not already present) and insert the F-080 rewrite block after line ${anchor_ln} (the reporting_session cookie rule, inside the 443 vhost)"
     return 0
   fi
   [ -f "$backup" ] || cp "$f" "$backup"
   blockfile="$(mktemp "${f}.d7block.XXXXXX")"
-  d7_block > "$blockfile"
+  { printf '\n'; d7_block; } > "$blockfile"
   tmp="$(mktemp "${f}.d7insert.XXXXXX")"
   awk -v ln="$anchor_ln" -v bf="$blockfile" \
-    'NR==ln{while ((getline line < bf) > 0) print line} {print}' \
+    '{print} NR==ln{while ((getline line < bf) > 0) print line}' \
     "$f" > "$tmp"
   rm -f "$blockfile"
   mv "$tmp" "$f"
-  ok "D7: inserted the login-stopgap rewrite block into ${f} before line ${anchor_ln}"
+  ok "D7: inserted the login-stopgap rewrite block into ${f} after line ${anchor_ln}"
 }
 # d7-insert:end
 

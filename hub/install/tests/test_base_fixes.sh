@@ -126,19 +126,24 @@ d7_insert "$1"
 EOF
 )"
 
-mk_fixture(){ # DIR
+mk_fixture(){ # DIR -- the live hub's layout (read 2026-09-21): ProxyPass at
+  # SERVER scope, the rewrite rules inside the 443 vhost after the cookie rule
   mkdir -p "$1"
   cat > "$1/bahmni-proxy.conf" <<'EOF'
+ProxyPass /openmrs/auth http://patient-documents:80/openmrs/auth
+ProxyPass /openmrs http://openmrs:8080/openmrs
+
 <VirtualHost *:443>
     ServerName bahmni.xoyo.ad
     SSLEngine on
+    RewriteEngine on
 
-    <Location /openmrs>
-        Header always edit Set-Cookie ^(.*)$ $1;HttpOnly
-    </Location>
+    RewriteCond %{REQUEST_URI} ^/openmrs/*
+    RewriteCond %{HTTP_COOKIE} ^.*JSESSIONID=([^;]+)
+    RewriteRule ^.*$ - [CO=reporting_session:%1:%{HTTP_HOST}:86400:/:true:true]
 
-    ProxyPass /openmrs http://openmrs:8080/openmrs
-    ProxyPassReverse /openmrs http://openmrs:8080/openmrs
+    RewriteCond %{HTTP_HOST} ^erp-[^.]+
+    RewriteRule (.*) http://odoo:8069$1 [P]
 </VirtualHost>
 EOF
 }
@@ -154,6 +159,26 @@ assert_eq "d7_insert: the backup holds the ORIGINAL, unmodified file" "$(cat "${
 after_first="$(cat "${d7dir}/bahmni-proxy.conf")"
 backup_first="$(cat "${d7dir}/bahmni-proxy.conf.bak-pre-f080")"
 
+# placement: inside the vhost, directly after the cookie rule, before the next rule -- never at server scope
+cookie_ln="$(grep -n 'CO=reporting_session' "${d7dir}/bahmni-proxy.conf" | head -n1 | cut -d: -f1)"
+mark_ln="$(grep -n 'F-080 login stopgap (hub/install 085)' "${d7dir}/bahmni-proxy.conf" | head -n1 | cut -d: -f1)"
+vhost_ln="$(grep -n '<VirtualHost \*:443>' "${d7dir}/bahmni-proxy.conf" | head -n1 | cut -d: -f1)"
+erp_ln="$(grep -n 'erp-\[' "${d7dir}/bahmni-proxy.conf" | head -n1 | cut -d: -f1)"
+[ "$mark_ln" -gt "$cookie_ln" ] && [ "$mark_ln" -gt "$vhost_ln" ] && [ "$mark_ln" -lt "$erp_ln" ] \
+  && ok "d7_insert: the block sits inside the 443 vhost, after the cookie rule" || bad "d7_insert: block at line $mark_ln (vhost $vhost_ln, cookie rule $cookie_ln, next rule $erp_ln)"
+[ "$(grep -c 'RewriteCond %{REQUEST_URI} ^/openmrs/$' "${d7dir}/bahmni-proxy.conf")" = 2 ] && ok "d7_block: both rules are scoped to /openmrs/" || bad "d7_block: rules not scoped to /openmrs/"
+grep -q '%1%2%3%4%5%6' "${d7dir}/bahmni-proxy.conf" && bad "d7_block: references a sixth group that does not exist" || ok "d7_block: five groups, five back-references"
+
+# the block applied BY HAND on the hub (2026-09-21) counts as present: no second copy
+d7hand="${TMP_ROOT}/d7-hand"; mk_fixture "$d7hand"
+sed -i.x 's|^    RewriteCond %{HTTP_HOST} ^erp-|    # F-080 stopgap (T4D, 2026-09-21; a recorded deviation from IPLIT'"'"'s file).\
+&|' "${d7hand}/bahmni-proxy.conf"; rm -f "${d7hand}/bahmni-proxy.conf.x"
+hand_before="$(cat "${d7hand}/bahmni-proxy.conf")"
+outh="$(DRY=0 bash "$D7_HARNESS" "${d7hand}/bahmni-proxy.conf" 2>&1)"; rch=$?
+assert_rc "d7_insert: a hand-applied block exits 0" "$rch" 0
+assert_contains "d7_insert: a hand-applied block is recognised" "$outh" "applied by hand"
+assert_eq "d7_insert: a hand-applied block is left byte-identical" "$(cat "${d7hand}/bahmni-proxy.conf")" "$hand_before"
+
 out2="$(DRY=0 bash "$D7_HARNESS" "${d7dir}/bahmni-proxy.conf" 2>&1)"; rc2=$?
 assert_rc "d7_insert: second run exits 0" "$rc2" 0
 assert_contains "d7_insert: second run is a no-op (already carries the stopgap)" "$out2" "already carries the login stopgap"
@@ -162,13 +187,13 @@ assert_eq "d7_insert: second run leaves the file byte-identical" "$after_second"
 backup_second="$(cat "${d7dir}/bahmni-proxy.conf.bak-pre-f080")"
 assert_eq "d7_insert: backup is never overwritten by a second run" "$backup_second" "$backup_first"
 
-# no ProxyPass /openmrs anchor -> non-zero, names the file
+# no reporting_session cookie rule to anchor on -> non-zero, names the file
 d7dir_noanchor="${TMP_ROOT}/d7-noanchor"; mkdir -p "$d7dir_noanchor"
 printf '<VirtualHost *:443>\n    ServerName bahmni.xoyo.ad\n</VirtualHost>\n' > "${d7dir_noanchor}/bahmni-proxy.conf"
 out3="$(DRY=0 bash "$D7_HARNESS" "${d7dir_noanchor}/bahmni-proxy.conf" 2>&1)"; rc3=$?
-assert_rc "d7_insert: no ProxyPass /openmrs anchor -> non-zero" "$rc3" 1
+assert_rc "d7_insert: no anchor -> non-zero" "$rc3" 1
 assert_contains "d7_insert: failure names the file" "$out3" "${d7dir_noanchor}/bahmni-proxy.conf"
-assert_contains "d7_insert: failure names the missing anchor" "$out3" "ProxyPass /openmrs"
+assert_contains "d7_insert: failure names the missing anchor" "$out3" "reporting_session"
 
 # --- (iv, D7 half) DRY leaves the temp dir byte-identical -------------------
 d7dir_dry="${TMP_ROOT}/d7-dry"; mk_fixture "$d7dir_dry"
@@ -222,6 +247,21 @@ services:
       - './proxy-config/bahmni-proxy.conf:/usr/local/apache2/conf/extra/bahmni-proxy.conf'
 EOF
 orig_override_content="$(cat "${d8dir_existing}/docker-compose.override.yml")"
+# the form live on the hub (read 2026-09-21): a single-quoted entry under odoo-connect -> already present, untouched
+d8dir_live="${TMP_ROOT}/d8-live"; mkdir -p "$d8dir_live"
+cat > "${d8dir_live}/docker-compose.override.yml" <<EOF
+services:
+  odoo-connect:
+    logging: *rotate
+    volumes:
+      - './odoo-connect-logback.xml:${TARGET}:ro'
+EOF
+live_before="$(cat "${d8dir_live}/docker-compose.override.yml")"
+outl="$(DRY=0 bash "$D8_HARNESS" "${d8dir_live}/docker-compose.override.yml" "$TARGET" 2>&1)"; rcl=$?
+assert_rc "d8_override_ensure: the hub's live quoted entry exits 0" "$rcl" 0
+assert_contains "d8_override_ensure: the hub's live quoted entry is recognised" "$outl" "already mounts"
+assert_eq "d8_override_ensure: the hub's live file is left byte-identical" "$(cat "${d8dir_live}/docker-compose.override.yml")" "$live_before"
+
 out="$(DRY=0 bash "$D8_HARNESS" "${d8dir_existing}/docker-compose.override.yml" "$TARGET" 2>&1)"; rc=$?
 assert_rc "d8_override_ensure: editing an existing odoo-connect: service exits 0" "$rc" 0
 oc_count="$(grep -c '^  odoo-connect:' "${d8dir_existing}/docker-compose.override.yml")"
