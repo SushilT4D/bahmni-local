@@ -26,11 +26,12 @@ mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N';
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 
 # restore-rules:begin
-# The openmrs restore on manpur (2026-09-21) ran for hours in silence at 85%
-# iowait: stock MySQL (128 MB buffer pool, 100 MB redo log) checkpoints
-# constantly while loading 7 GB onto a 500-IOPS cloud disk. And the old skip
-# rule -- "the person table exists" -- is also true of a restore that was
-# interrupted at table `q`, so a rerun would have carried on with half a
+# Stock MySQL (128 MB buffer pool, 100 MB redo log) checkpoints constantly
+# while loading a multi-gigabyte dump, and on a small cloud disk (about 500
+# IOPS) the restore then takes hours at near-total iowait -- so the load runs
+# with a larger pool and redo log, set for the restore only. The skip rule
+# cannot be "the person table exists": that is also true of a restore that was
+# interrupted at a later table, and a rerun would carry on with half a
 # database. Pure functions, tested in tests/test_restore_050.sh.
 restore_pool_mb(){ # MEM_MB the database server can see -> buffer pool MB for the restore
   local mem="${1:-0}" mb

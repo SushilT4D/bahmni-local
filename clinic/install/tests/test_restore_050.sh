@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# The openmrs restore (manpur rebuild, 2026-09-21): three hours of silence at
-# 85% iowait on stock MySQL settings (128 MB buffer pool, 100 MB redo log), and
-# a skip rule -- "the person table exists" -- that an interrupted restore also
-# satisfies, so a rerun would have carried on with half a database.
+# The openmrs restore: stock MySQL settings (128 MB buffer pool, 100 MB redo
+# log) make a multi-gigabyte load take hours on a small cloud disk, a silent
+# restore cannot be told from a hung one, and "the person table exists" is
+# also true of an interrupted restore -- a rerun must not carry on with half a
+# database.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fails=0
