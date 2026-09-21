@@ -57,4 +57,43 @@ else
   ok_ "compose-config checks skipped (no docker binary here)"
 fi
 
+# ============================================================================
+# preflight (000): say what this host is, before anything is pulled
+# ============================================================================
+T00="${HERE}/../tasks/000-preflight.sh"
+LIBSH="${HERE}/../lib.sh"
+blk="$(sed -n '/# macos-facts:begin/,/# macos-facts:end/p' "$T00")"
+[ -n "$blk" ] || bad "000 has no macos-facts block"
+# A restricted PATH (no /usr/local/bin, /opt/homebrew/bin, ...) so a real
+# podman on the machine running this test can never leak into the "no
+# machine" case below; PREFLIGHT_MACHINE_MIB/PREFLIGHT_HOST_MIB override the
+# rest, the same way PREFLIGHT_CPUS stands in for the host in test_boot_budget.sh.
+runf(){ # PLATFORM RUNTIME ARCH MACHINE_MIB HOST_MIB
+  env -i PATH="/usr/bin:/bin:/usr/sbin:/sbin" PLATFORM="$1" RUNTIME="$2" PREFLIGHT_ARCH="$3" PREFLIGHT_MACHINE_MIB="$4" PREFLIGHT_HOST_MIB="$5" bash -c ". '${LIBSH}'; ${blk}" 2>&1
+}
+
+out="$(runf linux docker arm64 '' '')"
+printf '%s' "$out" | grep -q 'bahmni/odoo-16' && printf '%s' "$out" | grep -q 'bahmni/atomfeed-console' && ok_ "arm64 names the two emulated images" || bad "arm64 output missing emulated image names: $out"
+printf '%s' "$out" | grep -qi 'rebuilt natively' && ok_ "arm64 names the native-build line" || bad "arm64 output missing the native-build line: $out"
+
+out="$(runf linux docker x86_64 '' '')"
+printf '%s' "$out" | grep -q 'bahmni/odoo-16' && bad "x86_64 output names emulated images" || ok_ "x86_64 does not name emulated images"
+printf '%s' "$out" | grep -qi 'rebuilt natively' && bad "x86_64 output names the native-build line" || ok_ "x86_64 does not name the native-build line"
+
+out="$(runf macos podman x86_64 8192 24576)"; rc=$?
+[ "$rc" -ne 0 ] && ok_ "podman machine 8192 MiB < 10240: FAIL" || bad "machine 8192 MiB did not fail: $out"
+printf '%s' "$out" | grep -qi '10 GiB\|10240' && ok_ "FAIL names the 10 GiB floor" || bad "FAIL message unclear: $out"
+
+out="$(runf macos podman x86_64 12288 24576)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "machine 12288 MiB / host 24576 MiB: passes" || bad "machine 12288/host 24576 failed: $out"
+printf '%s' "$out" | grep -q 'WARN' && bad "machine 12288/host 24576 warns" || ok_ "machine 12288/host 24576: no WARN"
+
+out="$(runf macos podman x86_64 15360 18432)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "machine 15360 MiB / host 18432 MiB: passes (a warning, not a refusal)" || bad "machine 15360/host 18432 failed: $out"
+printf '%s' "$out" | grep -q 'WARN' && printf '%s' "$out" | grep -q '55%' && ok_ "machine 15360/host 18432: WARN naming 55%" || bad "no WARN naming 55%: $out"
+
+out="$(runf macos podman x86_64 '' 18432)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "no machine yet: no FAIL" || bad "no machine yet still failed: $out"
+printf '%s' "$out" | grep -qi 'no podman machine yet' && ok_ "no-machine case is named explicitly" || bad "no-machine output unclear: $out"
+
 exit "$fails"

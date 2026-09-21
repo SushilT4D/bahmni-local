@@ -57,6 +57,42 @@ if [ "${PLATFORM}" = macos ]; then ram_mb="$(( $(sysctl -n hw.memsize) / 1048576
 if [ -n "${PREFLIGHT_CPUS:-}" ]; then cpus="${PREFLIGHT_CPUS}"; elif [ "${PLATFORM}" = macos ]; then cpus="$(sysctl -n hw.ncpu)"; else cpus="$(nproc 2>/dev/null || printf 1)"; fi
 if [ "${cpus:-1}" -ge 2 ]; then ok "CPUs ${cpus}"; else warn "CPUs ${cpus}: OpenMRS's first boot took 36 min on one vCPU. Task 080 waits 60 min (OPENMRS_BOOT_TIMEOUT_S); two or more CPUs are recommended for a clinic"; fi
 # cpu-budget:end
+# macos-facts:begin
+# Say what this host is before anything is pulled. IPLIT's OpenMRS image is
+# linux/amd64 only: 26,153 ms emulated vs 2,394/2,330 ms native for bare
+# Tomcat+WAR, measured on Ghated (Apple M5 Pro, podman, 2026-09-21) -- task 040
+# rebuilds it natively on arm64. bahmni/odoo-16 and bahmni/atomfeed-console
+# have no arm64 build and run emulated regardless (Odoo 10 did the same for
+# three weeks on Ghated; usable, not fast).
+arch="${PREFLIGHT_ARCH:-$(uname -m)}"
+case "$arch" in
+  arm64|aarch64)
+    info "arch ${arch}: OpenMRS will be rebuilt natively by task 040 (IPLIT's image is amd64-only: 26 s emulated vs 2.3 s native for bare Tomcat, measured on Ghated). These images have no arm64 build and will run emulated: bahmni/odoo-16, bahmni/atomfeed-console"
+    ;;
+  *) ok "arch ${arch}" ;;
+esac
+# The podman machine's own memory, not the DRY-safe defaults task 010 uses to
+# CREATE one: a machine that already exists and is undersized is a live
+# problem today, not a future one -- checked here, before anything is pulled
+# into it. No machine yet is fine (task 010 creates one, sized by
+# host-macos.sh's own rule) and is not a FAIL.
+if [ "${PLATFORM}" = macos ] && [ "$(detect_runtime)" = podman ]; then
+  machine_mib="${PREFLIGHT_MACHINE_MIB:-}"
+  [ -n "$machine_mib" ] || machine_mib="$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || true)"
+  if [ -n "${machine_mib:-}" ]; then
+    host_mib="${PREFLIGHT_HOST_MIB:-}"
+    [ -n "$host_mib" ] || host_mib="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+    [ "$machine_mib" -ge 10240 ] || fail "podman machine memory ${machine_mib} MiB < 10240 MiB -- the stack needs 10 GiB; podman machine set --memory 10240 (or more), then restart the machine"
+    ok "podman machine memory ${machine_mib} MiB"
+    pct=$(( machine_mib * 100 / host_mib ))
+    if [ "$pct" -gt 55 ]; then
+      warn "podman machine memory ${machine_mib} MiB is ${pct}% of host RAM (${host_mib} MiB), over the 55% rule: a 15 GB VM on an 18 GB Mac made macOS swap fill the disk and the VM was killed four times in a day"
+    fi
+  else
+    ok "no podman machine yet (task 010 creates one)"
+  fi
+fi
+# macos-facts:end
 for p in 8081 9443 9444 5433 8052 8083 9092; do
   if (command -v lsof >/dev/null && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1) || (command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":$p "); then
     fail "port $p is already in use on this host"
