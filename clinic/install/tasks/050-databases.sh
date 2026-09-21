@@ -25,11 +25,71 @@ ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offse
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 
+# restore-rules:begin
+# The openmrs restore on manpur (2026-09-21) ran for hours in silence at 85%
+# iowait: stock MySQL (128 MB buffer pool, 100 MB redo log) checkpoints
+# constantly while loading 7 GB onto a 500-IOPS cloud disk. And the old skip
+# rule -- "the person table exists" -- is also true of a restore that was
+# interrupted at table `q`, so a rerun would have carried on with half a
+# database. Pure functions, tested in tests/test_restore_050.sh.
+restore_pool_mb(){ # MEM_MB the database server can see -> buffer pool MB for the restore
+  local mem="${1:-0}" mb
+  case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
+  mb=$(( mem / 4 / 128 * 128 ))
+  [ "$mb" -gt 4096 ] && mb=4096
+  [ "$mb" -lt 128 ] && mb=128
+  printf '%s\n' "$mb"
+}
+restore_tune_sql(){ # POOL_MB -- SET GLOBAL only: gone at the next restart, never written to the data directory
+  printf 'SET GLOBAL innodb_redo_log_capacity=2147483648; SET GLOBAL innodb_buffer_pool_size=%s; SET GLOBAL innodb_flush_log_at_trx_commit=2; SET GLOBAL sync_binlog=0;\n' "$(( $1 * 1048576 ))"
+}
+restore_revert_sql(){ # POOL_BYTES REDO_BYTES FLUSH SYNC_BINLOG, as read before tuning
+  printf 'SET GLOBAL innodb_flush_log_at_trx_commit=%s; SET GLOBAL sync_binlog=%s; SET GLOBAL innodb_buffer_pool_size=%s; SET GLOBAL innodb_redo_log_capacity=%s;\n' "$3" "$4" "$1" "$2"
+}
+restore_state(){ # PERSON_EXISTS(0|1) DONE_MARKER(0|1) DB_TABLES DUMP_TABLES -> restore | skip | adopt | interrupted
+  if [ "$1" != 1 ]; then echo restore
+  elif [ "$2" = 1 ]; then echo skip
+  elif [ "${4:-0}" -gt 0 ] && [ "${3:-0}" -ge "$4" ]; then echo adopt
+  else echo interrupted; fi
+}
+# restore-rules:end
+
 # --- MySQL: openmrs
-if [ "$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_name="person"' | mysql_root)" = 1 ]; then skip "openmrs schema already restored"; else
-  info "restoring openmrs (this is the slow one)"
-  ( printf 'SET sql_log_bin=0;\n'; gunzip -c "${SEED_DIR}/openmrs.sql.gz" ) | ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+DONE="${CLINIC_DIR}/.openmrs-restore.done"
+has_person="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_name="person"' | mysql_root)"
+has_done=0; [ -f "$DONE" ] && has_done=1
+db_tables=0; dump_tables=0
+if [ "$has_person" = 1 ] && [ "$has_done" = 0 ]; then
+  # a node restored before this marker existed, or an interrupted restore: count to tell them apart
+  info "openmrs exists with no completion marker; counting the dump's tables to tell a finished restore from an interrupted one (a minute or two)"
+  db_tables="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_type="BASE TABLE"' | mysql_root)"
+  dump_tables="$(gunzip -c "${SEED_DIR}/openmrs.sql.gz" | grep -c '^CREATE TABLE ' || true)"
 fi
+case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
+  skip) skip "openmrs schema already restored" ;;
+  adopt) date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"; skip "openmrs schema already restored (${db_tables} of ${dump_tables} tables; marker written)" ;;
+  interrupted)
+    fail "openmrs holds ${db_tables} of the dump's ${dump_tables} tables and has no completion marker: an earlier restore was interrupted. The installer does not drop a database. If this node holds nothing you need, drop it yourself and resume: ${CT} exec -i ${MY} sh -c 'mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"drop database openmrs\"'  then --from 050" ;;
+  restore)
+    mem_mb="$(ct exec "$MY" awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+    pool_mb="$(restore_pool_mb "$mem_mb")"
+    before="$(printf 'select concat_ws(" ", @@innodb_buffer_pool_size, @@innodb_redo_log_capacity, @@innodb_flush_log_at_trx_commit, @@sync_binlog)' | mysql_root)"
+    # shellcheck disable=SC2086
+    revert(){ [ -n "${before:-}" ] && restore_revert_sql $before | mysql_root >/dev/null 2>&1 || true; [ -n "${hb:-}" ] && kill "$hb" 2>/dev/null || true; }
+    trap revert EXIT
+    restore_tune_sql "$pool_mb" | mysql_root >/dev/null && info "restore settings: buffer pool ${pool_mb} MB (server sees ${mem_mb} MB), redo log 2 GB, relaxed flush -- SET GLOBAL only, put back when the restore ends" \
+      || info "could not raise the restore settings (older MySQL?); restoring on the server's own"
+    info "restoring openmrs (this is the slow one: 10 min on an SSD laptop, an hour or more on a small cloud disk)"
+    ( while sleep 300; do
+        mb="$(printf 'select round(sum(data_length+index_length)/1048576) from information_schema.tables where table_schema="openmrs"' | mysql_root 2>/dev/null || true)"
+        printf '  still restoring openmrs: %s MB loaded (%s)\n' "${mb:-?}" "$(date -u +%H:%M:%SZ)"
+      done ) &
+    hb=$!
+    ( printf 'SET sql_log_bin=0;\n'; gunzip -c "${SEED_DIR}/openmrs.sql.gz" ) | ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+    revert; trap - EXIT; hb=""
+    date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"
+    ;;
+esac
 persons="$(printf 'select count(*) from openmrs.person' | mysql_root)"; obs="$(printf 'select count(*) from openmrs.obs' | mysql_root)"
 [ "${persons:-0}" -gt 0 ] && ok "openmrs restored: person=${persons} obs=${obs}" || fail "openmrs.person is empty after restore"
 mysql_root <<SQL

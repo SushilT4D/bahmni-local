@@ -169,3 +169,5 @@ clinic/.build-native.*/
 clinic/.env.dryrun.*
 clinic/.env.rejected
 clinic/.env.render.*
+# task 050 writes this when the openmrs restore has finished (a rerun tells a finished restore from an interrupted one by it)
+clinic/.openmrs-restore.done
