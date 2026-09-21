@@ -164,7 +164,7 @@ services:
     volumes:
       # start.sh symlinks /etc/bahmni_config/openelis -> /var/www/bahmni_config/openelis
       # and runs the implementation liquibase from it.
-      - './bahmni-config:/etc/bahmni_config:ro'
+      - '${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config:ro'
       - './openelis/start-no-migrate.sh:/start-no-migrate.sh:ro'
     environment:
       TZ: ${TZ}
@@ -317,6 +317,10 @@ services:
       # points HOST at ${ODOO_DB_HOST} = bahmni-postgres; this is odoo-connect's own,
       # differently-named variable for the same host.
       ODOO_DB_SERVER: bahmni-postgres
+      # staging sets this for odoo-connect 1.0.0 against Odoo 16; the clinic ran the
+      # same pairing without it until the 2026-09-21 review
+      IS_ODOO_16: "true"
+      TZ: ${TZ}
       ODOO_DB_USERNAME: ${ODOO_DB_USER}
       ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD}
       OPENMRS_HOST: ${OPENMRS_HOST}

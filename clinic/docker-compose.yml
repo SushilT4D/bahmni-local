@@ -36,8 +36,11 @@ services:
     image: bahmni-local/proxy:${PROXY_IMAGE_TAG}
     volumes:
       - ${CERTIFICATE_PATH}:/etc/tls:ro
-      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni:/usr/share/nginx/html/bahmni/:ro"
-      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni_config:/usr/share/nginx/html/bahmni_config/:ro"
+      # IPLIT's UI and config, copied out of the two images pinned in
+      # sync/versions.env by scripts/extract-ui-config.sh (installer task 045) into
+      # the gitignored clinic/extracted/. nginx serves them; no second web server.
+      - "${BAHMNI_UI_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_UI_DIR (see .env.example)}:/usr/share/nginx/html/bahmni/:ro"
+      - "${BAHMNI_CONFIG_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_CONFIG_DIR (see .env.example)}:/usr/share/nginx/html/bahmni_config/:ro"
     ports:
       - '${BAHMNI_PROXY_HTTP_PORT:?}:80'
       - '${BAHMNI_PROXY_HTTPS_PORT:?}:443'
@@ -50,7 +53,10 @@ services:
       TZ: ${TZ}
 
   bahmni-config:
-    image: ${CONFIG_IMAGE_NAME}
+    # The pinned IPLIT config image (was an unpinned bahmni/default-config:latest).
+    # The override points its rewrite at a scratch dir; the tree the services read
+    # is clinic/extracted/bahmni_config, filled from this same image by task 045.
+    image: ${BAHMNI_CONFIG_IMAGE:?}
     volumes:
       - '${BAHMNI_CONFIG_PATH}:/usr/local/bahmni_config'
     logging: *log-config
@@ -97,17 +103,21 @@ services:
       WEIGHT_CONCEPT_UUID: ${WEIGHT_CONCEPT_UUID}
       HEIGHT_CONCEPT_UUID: ${HEIGHT_CONCEPT_UUID}
       OMRS_DB_EXTRA_ARGS: ${OMRS_DB_EXTRA_ARGS}
+      # staging sets both for this image; its startup script otherwise falls back to
+      # the deprecated com.mysql.jdbc.Driver (review 2026-09-21)
+      OMRS_DB_DRIVER_CLASS: ${OMRS_DB_DRIVER_CLASS:-com.mysql.cj.jdbc.Driver}
+      LUCENE_SEARCH_INDEXING_STRATEGY: ${LUCENE_SEARCH_INDEXING_STRATEGY:-manual}
       LUCENE_MATCH_TYPE: ${LUCENE_MATCH_TYPE}
       DOCUMENT_MAX_SIZE_MB: ${DOCUMENT_MAX_SIZE_MB}
-      OPENMRS_RUNTIME_PROPERTIES_hibernate_show_sql: "true"
-      OPENMRS_RUNTIME_PROPERTIES_hibernate_format_sql: "true"
-      OPENMRS_SERVER_PROPERTIES_hibernate_show_sql: "true"
-      OPENMRS_SERVER_PROPERTIES_hibernate_format_sql: "true"
+      OPENMRS_RUNTIME_PROPERTIES_hibernate_show_sql: "false"
+      OPENMRS_RUNTIME_PROPERTIES_hibernate_format_sql: "false"
+      OPENMRS_SERVER_PROPERTIES_hibernate_show_sql: "false"
+      OPENMRS_SERVER_PROPERTIES_hibernate_format_sql: "false"
     #ports:
       # - ${OMRS_DEV_DEBUG_PORT}:${OMRS_DEV_DEBUG_PORT}
     volumes:
       # - "${CONTAINER_DATA_PATH}/bahmni_home:/home/bahmni"
-      - "${CONTAINER_DATA_PATH:?}/bahmni_config:/etc/bahmni_config/:ro"
+      - "${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config/:ro"
       - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/home/bahmni/uploaded_results"
       - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/home/bahmni/uploaded-files"
       # - "${BAHMNI_OPENMRS_MODULES_PATH:?}/:/openmrs/data/modules/"
@@ -149,7 +159,7 @@ services:
 
   bahmni-web:
 #    image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
-    image: infoiplitin/bahmni-iplit-web:1.1.0-107 
+    image: ${BAHMNI_WEB_IMAGE:?}
     profiles: ["unused"]
     volumes:
       # Were absolute paths into /Users/sunshine/.../bahmni-local/foo/ - a
@@ -158,8 +168,8 @@ services:
       # anyone who enabled it got two empty read-only mounts and a blank UI.
       # Repointed 2026-08-28 at the same trees the proxy already serves
       # (see the proxy service's htdocs/bahmni and htdocs/bahmni_config mounts).
-      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni_config:/usr/local/apache2/htdocs/bahmni_config/:ro"
-      - "${CONTAINER_DATA_PATH:?}/htdocs/bahmni:/usr/local/apache2/htdocs/bahmni/:ro"
+      - "${BAHMNI_CONFIG_DIR:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
+      - "${BAHMNI_UI_DIR:?}:/usr/local/apache2/htdocs/bahmni/:ro"
       # - "${CONFIG_BACKUP:?}:/usr/local/apache2/htdocs/bahmni_config_backup/"
       # - ${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni
       # - "${BAHMNI_APPS_PATH:?}/ui/node_modules/@bower_components/:/usr/local/apache2/htdocs/bahmni/components"
