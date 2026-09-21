@@ -12,27 +12,51 @@ bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL a
 # every request, including XML-RPC, which curl-retries into looking like a
 # slow start rather than a permanent failure) -- so prove the login PAGE
 # itself answers first. Odoo 16 builds its asset bundle on the first hit, so
-# this is retried, not a single probe. A 303 to /web/database/selector here
-# (instead of 200) means odoo.conf is missing under config/odoo -- run
-# scripts/seed-odoo-conf.sh.
+# this is retried, not a single probe. ODOO_BOOT_TIMEOUT_S (default 120,
+# probed every 10s) names the wait so its own message never drifts from what
+# actually ran.
 odoo_port="${BAHMNI_ODOO_HTTPS_PORT:-9444}"
-odoo_up=0
-for i in $(seq 1 12); do
-  code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://localhost:${odoo_port}/web/login" 2>/dev/null || true)"
-  [ "$code" = 200 ] && { odoo_up=1; break; }
+odoo_boot_s="${ODOO_BOOT_TIMEOUT_S:-120}"
+odoo_up=0; odoo_last_code=""
+for i in $(seq 1 $((odoo_boot_s / 10))); do
+  odoo_last_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://localhost:${odoo_port}/web/login" 2>/dev/null || true)"
+  [ "$odoo_last_code" = 200 ] && { odoo_up=1; break; }
   sleep 10
 done
-[ "$odoo_up" = 1 ] && ok "Odoo login page answers 200 on :${odoo_port}" || fail "Odoo login page did not answer 200 on :${odoo_port} after 12 tries, 10s apart: ${COMPOSE_CMD} logs odoo"
+if [ "$odoo_up" = 1 ]; then
+  ok "Odoo login page answers 200 on :${odoo_port}"
+else
+  # a 303 to /web/database/selector (instead of 200) means config/odoo/odoo.conf
+  # is missing, or its dbfilter matches more than one database.
+  fail "Odoo login page did not answer 200 on :${odoo_port} within ${odoo_boot_s}s (ODOO_BOOT_TIMEOUT_S), last code ${odoo_last_code:-none} -- a 303 to /web/database/selector means config/odoo/odoo.conf is missing or its dbfilter matches more than one database: run scripts/seed-odoo-conf.sh. Otherwise: ${COMPOSE_CMD} logs odoo"
+fi
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 mark="INSTALL-PROBE-$(date -u +%Y%m%dT%H%M%SZ)"
 printf "update res_partner set comment='%s' where id=(select min(id) from res_partner where active) returning id" "$mark" | ct exec -i "$PG" psql -U postgres -d odoo -At >/dev/null
-got="$(python3 - "$mark" "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" <<'PY'
+# Wrapped so a dead Odoo (HTTP 500, refused connection, auth failure, ...)
+# never dumps a 20-line xmlrpc.client.ProtocolError traceback into the log --
+# lib.sh's ERR trap already dumped the whole heredoc TWICE the first time
+# this broke. Any exception becomes exactly one line on stderr, caught below
+# and turned into a single named fail().
+xmlrpc_err="$(mktemp)"
+if got="$(python3 - "$mark" "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" 2>"$xmlrpc_err" <<'PY'
+# xmlrpc-marker:begin
 import sys, xmlrpc.client
 mark, user, pw, port = sys.argv[1:5]
 url = f"http://localhost:{port}"
-uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common").authenticate("odoo", user, pw, {})
-rows = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object").execute_kw("odoo", uid, pw, "res.partner", "search_read", [[["comment", "=", mark]]], {"fields": ["comment"], "limit": 1})
-print(rows[0]["comment"] if rows else "")
+try:
+    uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common").authenticate("odoo", user, pw, {})
+    rows = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object").execute_kw("odoo", uid, pw, "res.partner", "search_read", [[["comment", "=", mark]]], {"fields": ["comment"], "limit": 1})
+    sys.stdout.write((rows[0]["comment"] if rows else "") + "\n")
+except Exception as e:
+    sys.stderr.write("odoo xml-rpc: %s: %s\n" % (type(e).__name__, str(e)[:200]))
+    sys.exit(1)
+# xmlrpc-marker:end
 PY
-)"
+)"; then
+  rm -f "$xmlrpc_err"
+else
+  xmlrpc_line="$(cat "$xmlrpc_err")"; rm -f "$xmlrpc_err"
+  fail "Odoo XML-RPC did not answer: ${xmlrpc_line:-no output} -- ${COMPOSE_CMD} logs odoo"
+fi
 check_eq "marker read back through Odoo XML-RPC" "$got" "$mark"
