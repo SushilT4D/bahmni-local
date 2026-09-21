@@ -5,13 +5,23 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
-[ "${DRY}" = 1 ] && { info "would: compose --profile local --profile openelis up -d; wait for OpenMRS; park odoo-connect markers; start odoo-connect"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park odoo-connect markers; start odoo-connect"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 # BEFORE sourcing .env: compose gives an exported shell variable precedence over
 # the file, so a stale export here would hide the repaired value from `up`.
 ensure_openmrs_jvm_opts "$E"
 set -a; . "$E"; set +a
 OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"; OC="${COMPOSE_PROJECT_NAME}-odoo-connect-1"
+# Odoo answered HTTP 500 on every request on manpur (2026-09-21): its image
+# runs as uid 101, task 030 makes this node's bind-mount data dirs with a
+# plain mkdir -p (owned by the login user), and uid 101 could not write
+# /var/lib/odoo/.local. Kafka/kafka-connect/mirrormaker-connect are the same
+# class of defect (a non-1000 image uid), so they are swept here too, once,
+# before anything in this profile set is started -- images are present since
+# task 040, and every directory this sweeps already exists since task 030, so
+# one call here also covers what 090 starts later (kafka-controller, kafka,
+# schema-registry, kafka-connect, mirrormaker-connect: no separate call there).
+bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
 url="https://localhost:${BAHMNI_PROXY_HTTPS_PORT:-9443}/openmrs/ws/rest/v1/session"
