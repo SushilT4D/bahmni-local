@@ -1,0 +1,53 @@
+# Built by openmrs/build-native.sh only -- never invoked directly. BASE_IMAGE
+# and the four COPY sources below (tomcat/, openmrs/, bahmni-emr/,
+# bahmni-home/) are staged into the build context by that script's
+# create+cp step, which extracts them from the pinned amd64 OpenMRS image
+# without ever running it. Measured on Ghated, 2026-09-21 (task1b-report.md):
+# 27s build, 844 MB image, bare Tomcat+WAR start in 2,330-2,394 ms vs 26,153 ms
+# emulated (~11x). A multi-stage `COPY --from=<amd64 stage>` is refused by
+# this podman/buildah ("unsupported MIME type for compression") -- that is
+# why the source tree arrives as plain directories instead of a build stage.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# amazoncorretto:8u432-al2 is the same OS family (Amazon Linux 2) and the same
+# Corretto 8u432 JDK, at the same JAVA_HOME, as the source image -- verified
+# on Ghated, no JAVA_HOME override needed. The five /openmrs/*.sh scripts call
+# mysql, envsubst, setfacl and curl; tar/gzip/shadow-utils/procps-ng round out
+# what this base's own package set assumes but does not ship.
+RUN yum install -y mysql gettext acl curl tar gzip shadow-utils procps-ng \
+    && yum clean all && rm -rf /var/cache/yum
+
+# The four trees the source image needs to run OpenMRS, copied out of it (not
+# rebuilt) by build-native.sh -- same application bytes, different CPU build
+# underneath.
+COPY tomcat /usr/local/tomcat
+COPY openmrs /openmrs
+COPY bahmni-emr /etc/bahmni-emr
+COPY bahmni-home /home/bahmni
+
+# The only x86 native code in the copied trees: Tomcat's optional APR
+# connector. Left in place it cannot load on arm64; removed, Tomcat logs one
+# harmless INFO line ("Apache Tomcat Native library ... was not found") and
+# falls back to its NIO connector -- no UnsatisfiedLinkError in either
+# measured run on Ghated.
+RUN rm -rf /usr/local/tomcat/native-jni-lib
+
+# Same ENV as the source image, minus TOMCAT_NATIVE_LIBDIR/LD_LIBRARY_PATH --
+# both pointed at native-jni-lib, which is gone above.
+ENV CATALINA_HOME=/usr/local/tomcat \
+    PATH=/usr/local/tomcat/bin:$PATH \
+    LANG=C.UTF-8 \
+    TOMCAT_MAJOR=8 \
+    TOMCAT_VERSION=8.5.100 \
+    JMX_PROMETHEUS_JAVAAGENT_VERSION=0.18.0 \
+    OPENMRS_APPLICATION_DATA_DIRECTORY=/openmrs/data \
+    OMRS_DB_EXTRA_ARGS="&zeroDateTimeBehavior=convertToNull"
+
+WORKDIR /openmrs
+EXPOSE 8080
+# tini is the source image's ENTRYPOINT and is an x86 binary; it is not
+# copied and nothing calls it -- grep -n tini /openmrs/*.sh in the source
+# image has no matches, so bahmni_startup.sh is left as PID 1 directly (no
+# ENTRYPOINT set here; CMD runs under a plain exec).
+CMD ["./bahmni_startup.sh"]

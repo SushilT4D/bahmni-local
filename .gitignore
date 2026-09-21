@@ -157,3 +157,8 @@ hub/.versions.*
 clinic/extracted/
 clinic/extracted.prev/
 clinic/extracted.new.*/
+
+# openmrs/build-native.sh's build context (create+cp of the source image's
+# trees, plus Dockerfile.native) -- removed by its own EXIT trap on every
+# path; this rule is for the run that is killed outright.
+clinic/.build-native.*/
