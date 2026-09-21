@@ -12,7 +12,10 @@ for name in "$@"; do
   f="$ROOT/connectors/${name}.json"
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
   body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" CLINLIMS_SINK_PASSWORD="${CLINLIMS_SINK_PASSWORD:-}" CLINLIMS_SOURCE_PASSWORD="${CLINLIMS_SOURCE_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" MYSQL_SERVER_NAME="${MYSQL_SERVER_NAME:?set MYSQL_SERVER_NAME in .env}" REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-$MYSQL_SERVER_NAME}" \
-         python3 "$ROOT/connectors/_render_connector.py" "$f") || { echo "$body" >&2; exit 1; }
+         python3 "$ROOT/connectors/_render_connector.py" "$f") || {
+    # a render that fails half-way may already hold substituted passwords: mask
+    # them with the same rule as the response path below before printing
+    printf '%s\n' "$body" | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' >&2; exit 1; }
   # Connect's response echoes the connector config back, database.password and
   # connection.password included -- so the body is never written to disk (was
   # /tmp/.reg.out, a fixed, world-readable path: F-073). It's held only in this

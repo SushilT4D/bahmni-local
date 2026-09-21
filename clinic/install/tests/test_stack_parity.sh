@@ -36,6 +36,10 @@ svc "$Y" openmrs | grep -q 'LUCENE_SEARCH_INDEXING_STRATEGY' && ok_ "openmrs pas
 grep -qE '^OMRS_DB_DRIVER_CLASS=com\.mysql\.cj\.jdbc\.Driver' "$CL/.env.example" && grep -qE '^LUCENE_SEARCH_INDEXING_STRATEGY=manual' "$CL/.env.example" && ok_ ".env.example carries staging's two values" || bad ".env.example lacks the driver class / lucene strategy"
 svc "$Y" openmrs | grep -qE 'hibernate_(show|format)_sql:.*"true"' && bad "openmrs still prints every SQL statement" || ok_ "openmrs SQL printing is off"
 
+# the proxy's health must mean "a browser gets the UI": IPv4, TLS, the login page
+svc "$Y" proxy | grep -q 'https://127.0.0.1/bahmni/home/index.html' && ok_ "proxy healthcheck asks for the login page over IPv4/TLS" || bad "proxy has no meaningful healthcheck (the image's wget http://localhost can never pass)"
+grep -c 'echo "\$body" >&2' "$CL/connectors/register-odoo.sh" | grep -qx 0 && ok_ "register-odoo.sh never prints an unmasked render" || bad "register-odoo.sh echoes \$body unmasked on a render failure"
+
 # F-080 stopgap: strip the UI's trailing comma before OpenMRS sees it
 for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do has "$CL/proxy/$f" 'F-080' || grep -q 'F-080' "$CL/proxy/$f" && grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma (F-080)" || bad "$f has no F-080 trailing-comma rewrite"; done
 exit "$fails"

@@ -41,6 +41,17 @@ services:
       # the gitignored clinic/extracted/. nginx serves them; no second web server.
       - "${BAHMNI_UI_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_UI_DIR (see .env.example)}:/usr/share/nginx/html/bahmni/:ro"
       - "${BAHMNI_CONFIG_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_CONFIG_DIR (see .env.example)}:/usr/share/nginx/html/bahmni_config/:ro"
+    # The image's own probe (wget http://localhost) could never pass: `localhost`
+    # is ::1 inside the container and nginx listens on IPv4 only, and port 80
+    # only redirects to a self-signed 443. This one asks for the login page over
+    # IPv4/TLS, so it also fails when the UI mount is empty (F-067) -- "healthy"
+    # now means a browser would get the UI.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/bahmni/home/index.html"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     ports:
       - '${BAHMNI_PROXY_HTTP_PORT:?}:80'
       - '${BAHMNI_PROXY_HTTPS_PORT:?}:443'
