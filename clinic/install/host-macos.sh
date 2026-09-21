@@ -21,6 +21,21 @@ podman_machine_size(){
 }
 
 host_macos(){
+  # Finding 11 (2026-09-21): DRY=1 still reached the network (the Homebrew
+  # `curl | bash` line evaluates its command substitution to build the
+  # would-print string BEFORE run() ever gets called, so run()'s own DRY
+  # check never got a chance) and still wrote to disk (`mkdir -p` for the
+  # LaunchAgent ran unconditionally, outside run() entirely). Both bugs share
+  # one root cause: run() only ever guards the exact command handed to it, so
+  # anything upstream of that call -- a command substitution in its
+  # arguments, or a plain statement never passed to run() at all -- still
+  # executes for real. Fixed here by never reaching any of that code under
+  # DRY: one guard at the top, nothing below it (brew, podman, mkdir,
+  # launchctl) runs at all.
+  if [ "${DRY}" = 1 ]; then
+    info "would install Homebrew + podman/docker-compose/jq via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login"
+    return 0
+  fi
   if ! command -v brew >/dev/null 2>&1; then
     info "installing Homebrew (non-interactive)"
     run env NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"

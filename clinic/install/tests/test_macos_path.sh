@@ -127,4 +127,29 @@ rm -rf "$TMPHM"
 printf '%s' "$out" | grep -q 'FAILED' && bad "dry run without podman printed a FAILED line: $out" || ok_ "dry run without podman prints no FAILED line"
 [ "$rc" -eq 0 ] && ok_ "dry run without podman exits 0" || bad "dry run without podman exits $rc: $out"
 
+# ============================================================================
+# host-macos.sh under DRY=1 must do NOTHING real: finding 11 (2026-09-21) --
+# it still reached the network (curl for Homebrew) and created directories
+# (mkdir for the LaunchAgent) outside anything run() wrapped. PATH holds only
+# fake curl/mkdir/brew/podman/launchctl, each appending its own name to a log
+# file; a truly-dry host_macos must never invoke any of them.
+# ============================================================================
+TMPD="$(mktemp -d)"; mkdir -p "$TMPD/bin" "$TMPD/home/clinic"
+FAKELOG="$TMPD/calls.log"; : > "$FAKELOG"
+for cmd in curl mkdir brew podman launchctl; do
+  cat > "$TMPD/bin/$cmd" <<SH
+#!/bin/sh
+echo "$cmd" >> "$FAKELOG"
+exit 0
+SH
+  chmod +x "$TMPD/bin/$cmd"
+done
+out="$(env -i PATH="$TMPD/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$TMPD/home" DRY=1 HOST_MIB=24576 HOST_CPUS=8 \
+  CLINIC_DIR="$TMPD/home/clinic" INSTALL_DIR="${HERE}/.." FAKELOG="$FAKELOG" \
+  bash -c ". '${HERE}/../lib.sh'; . '${HM}'; host_macos" 2>&1)"; rc=$?
+calls="$(cat "$FAKELOG" 2>/dev/null | tr '\n' ' ')"
+rm -rf "$TMPD"
+[ -z "$calls" ] && ok_ "DRY=1: host_macos calls none of curl/mkdir/brew/podman/launchctl" || bad "DRY=1 still called: $calls"
+[ "$rc" -eq 0 ] && ok_ "DRY=1: host_macos exits 0" || bad "DRY=1 host_macos exits $rc: $out"
+
 exit "$fails"
