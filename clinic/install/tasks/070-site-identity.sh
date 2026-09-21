@@ -12,10 +12,21 @@ appjson_prefix(){ { jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev
 [ "${1:-}" = "--lib-only" ] && return 0 2>/dev/null
 
 begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
-APP="${CLINIC_DIR}/bahmni_config/openmrs/apps/registration/app.json"
+# The config tree the services read: clinic/extracted/bahmni_config since task
+# 045 (node-local, gitignored), else the committed clinic/bahmni_config.
+CFG_DIR=""; [ -f "${CLINIC_DIR}/.env" ] && CFG_DIR="$(env_get "${CLINIC_DIR}/.env" BAHMNI_CONFIG_DIR 2>/dev/null || true)"
+[ -n "$CFG_DIR" ] || CFG_DIR="${CLINIC_DIR}/bahmni_config"
+APP="${CFG_DIR}/openmrs/apps/registration/app.json"
 [ -f "$APP" ] || warn "registration app.json not found at ${APP#${CLINIC_DIR}/} (fixture checkout?)"
 cur="$(appjson_prefix "$APP")"
-if [ "$cur" = "${MRN_PREFIX}" ]; then ok "registration defaultIdentifierPrefix is ${MRN_PREFIX}"; else
+if [ "$cur" = "${MRN_PREFIX}" ]; then ok "registration defaultIdentifierPrefix is ${MRN_PREFIX}"
+elif [ -f "$APP" ] && case "$CFG_DIR" in "${CLINIC_DIR}/extracted/"*) true ;; *) false ;; esac; then
+  # node-local tree: the prefix is this node's to write (task 045 normally has)
+  if [ "${DRY}" = 1 ]; then info "would: set defaultIdentifierPrefix ${cur:-<none>} -> ${MRN_PREFIX} in ${APP#${CLINIC_DIR}/}"; else
+    t="$(mktemp "${APP}.XXXXXX")"; jq --arg p "${MRN_PREFIX}" '.config.defaultIdentifierPrefix = $p' "$APP" > "$t" && chmod 644 "$t" && mv "$t" "$APP"
+    check_eq "registration defaultIdentifierPrefix" "$(appjson_prefix "$APP")" "${MRN_PREFIX}"
+  fi
+else
   warn "registration app.json carries defaultIdentifierPrefix='${cur}', not ${MRN_PREFIX}. It is a tracked fleet file; change it on the branch, not here:"
   info "  jq '.config.defaultIdentifierPrefix = \"${MRN_PREFIX}\"' ${APP#${CLINIC_DIR}/} > /tmp/app.json && mv /tmp/app.json ${APP#${CLINIC_DIR}/}   # then commit; or make the prefix per-node (open item)"
 fi

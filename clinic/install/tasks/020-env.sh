@@ -18,6 +18,8 @@ put CERTIFICATE_PATH "${CLINIC_DIR}/certs"
 for k in BAHMNI_APPS_PATH:bahmni-apps BAHMNI_CONFIG_PATH:bahmni_config BAHMNI_OPENMRS_MODULES_PATH:openmrs-modules BAHMNI_ODOO_MODULES_PATH:odoo-modules EXTRA_ODOO_ADDONS_PATH:odoo-addons IMPLEMENTER_INTERFACE_CODE_PATH:implementer-interface CONFIG_BACKUP:config-backup RESTORE_ARTIFACTS_PATH:restore-artifacts SNOWSTORM_RF2_FILE_PATH:snomed-rf2.zip; do
   put "${k%%:*}" "${CLINIC_DIR}/${k#*:}"
 done
+put BAHMNI_UI_DIR "${CLINIC_DIR}/extracted/htdocs/bahmni"          # filled by task 045 from BAHMNI_WEB_IMAGE
+put BAHMNI_CONFIG_DIR "${CLINIC_DIR}/extracted/bahmni_config"       # filled by task 045 from BAHMNI_CONFIG_IMAGE
 put LOKI_URL "http://localhost:3100/loki/api/v1/push"
 
 # identity (derived by install.sh; never the example's values)

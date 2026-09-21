@@ -153,3 +153,7 @@ hub/.jaas-backup.*
 hub/.src-*
 hub/.broker-boot-*
 hub/.versions.*
+# IPLIT's UI and config, copied out of the pinned images per node (clinic/scripts/extract-ui-config.sh)
+clinic/extracted/
+clinic/extracted.prev/
+clinic/extracted.new.*/
