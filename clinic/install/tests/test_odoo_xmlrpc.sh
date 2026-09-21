@@ -36,4 +36,7 @@ lines="$(printf '%s' "$out" | grep -c '.')"
 printf '%s' "$out" | grep -qi 'Traceback' && bad "output still shows a Traceback: $out" || ok_ "no Traceback in the output"
 printf '%s' "$out" | grep -q '^odoo xml-rpc: ' && ok_ "the one line is the named 'odoo xml-rpc: <Exception>: <message>' form" || bad "output does not match the named form: $out"
 
+# comment is an HTML field in Odoo 16: an "=" search never matches a plain-text value
+grep -q '\["comment", "like", mark\]' "$T100" && ok_ "the marker is searched with like" || bad "the marker is not searched with like"
+grep -q '\["comment", "=", mark\]' "$T100" && bad "the marker is still searched with =" || ok_ "no = search on the HTML comment field"
 exit "$fails"

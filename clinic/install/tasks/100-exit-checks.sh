@@ -41,12 +41,15 @@ printf "update res_partner set comment='%s' where id=(select min(id) from res_pa
 xmlrpc_err="$(mktemp)"
 if got="$(python3 - "$mark" "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" 2>"$xmlrpc_err" <<'PY'
 # xmlrpc-marker:begin
+# res.partner.comment is an HTML field in Odoo 16: "=" is compared against the
+# sanitised form (<p>...</p>) and never matches a value written as plain text,
+# so the search uses "like"; the value read back is still compared exactly.
 import sys, xmlrpc.client
 mark, user, pw, port = sys.argv[1:5]
 url = f"http://localhost:{port}"
 try:
     uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common").authenticate("odoo", user, pw, {})
-    rows = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object").execute_kw("odoo", uid, pw, "res.partner", "search_read", [[["comment", "=", mark]]], {"fields": ["comment"], "limit": 1})
+    rows = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object").execute_kw("odoo", uid, pw, "res.partner", "search_read", [[["comment", "like", mark]]], {"fields": ["comment"], "limit": 1})
     sys.stdout.write((rows[0]["comment"] if rows else "") + "\n")
 except Exception as e:
     sys.stderr.write("odoo xml-rpc: %s: %s\n" % (type(e).__name__, str(e)[:200]))
