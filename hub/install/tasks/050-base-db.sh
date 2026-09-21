@@ -295,7 +295,23 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
       # renamed tables differ). NULL means no serial default at all.
       seqname="$(printf "select pg_get_serial_sequence('%s.%s','id')" "$schema" "$t" | pg_admin "$db" -At)" \
         || fail "could not resolve the serial sequence for ${schema}.${t} in ${db} (psql failed)"
-      if [ -z "$seqname" ]; then SEQ_BAD="${SEQ_BAD} ${schema}.${t}(no serial sequence on id)"; continue; fi
+      if [ -z "$seqname" ]; then
+        # ADR-005 (repo change, 2026-09-21): a table with no serial id is only a
+        # gap when it ALSO has no composite primary key to fall back on -- three
+        # of the Odoo tables this hub now publishes (product_taxes_rel,
+        # product_supplier_taxes_rel, stock_route_product) have neither an id
+        # column nor an owning sequence, on purpose: their primary key is
+        # composite (prod_id,tax_id / route_id,product_id), collision-free by
+        # construction, nothing to stride. Same rule the clinic installer's
+        # apply-odoo-sequence-striding.sql applies; column count read from
+        # pg_index, never guessed from the table's name.
+        pkcols="$(printf "select array_length(ix.indkey,1) from pg_index ix where ix.indrelid = '%s.%s'::regclass and ix.indisprimary" "$schema" "$t" | pg_admin "$db" -At)" \
+          || fail "could not read the primary-key column count for ${schema}.${t} in ${db} (psql failed)"
+        if [ -n "$pkcols" ] && [ "$pkcols" -ge 2 ] 2>/dev/null; then
+          continue
+        fi
+        SEQ_BAD="${SEQ_BAD} ${schema}.${t}(no serial sequence on id)"; continue
+      fi
       seqname="${seqname##*.}"
     else
       # OpenELIS assigns ids in Hibernate: the id columns have no default, so

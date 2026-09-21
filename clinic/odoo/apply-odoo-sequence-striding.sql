@@ -10,7 +10,8 @@
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
 -- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows -- 13 as of
--- 2026-09-17, res_country_state included, F-053) plus the join/child tables that
+-- 2026-09-17, res_country_state included, F-053; 20 as of 2026-09-21, ADR-005's
+-- seven address-mapping/attribute/link tables) plus the join/child tables that
 -- hang off them. Framework sequences (ir_*) are deliberately untouched: they never
 -- travel, and striding them would desynchronise module installation across nodes.
 --
@@ -40,6 +41,20 @@
 -- subsystems.conf already fixed once for the MirrorMaker regex (see that file's own
 -- header); this script does not get to keep its own copy.
 --
+-- COMPOSITE-KEY LINK TABLES (ADR-005, 2026-09-21, Acceptance). Three of the tables
+-- this script now receives (product_taxes_rel, product_supplier_taxes_rel,
+-- stock_route_product) have no id column and no owning sequence AT ALL -- their
+-- primary key is composite (prod_id,tax_id or route_id,product_id). That used to be
+-- indistinguishable here from the real defect this script exists to catch (a
+-- single-id table someone forgot to give a serial default) and RAISED for both
+-- alike. It no longer does: a synced table with no serial id is fine, on purpose,
+-- when its primary key has two or more columns -- collision-free by construction
+-- (a strided id from one side of the pair, a seed-identical master id from the
+-- other), nothing to stride -- and still a defect, exactly as before, when it has
+-- no serial id AND no composite key (no primary key at all, or a single-column
+-- non-serial one). The column count is read from pg_index, never guessed from the
+-- table name.
+--
 -- Usage: psql -U postgres -d odoo -v residue=4 -v tables=res_partner,product_template,... \
 --          -f odoo/apply-odoo-sequence-striding.sql
 \set ON_ERROR_STOP on
@@ -59,6 +74,7 @@ DECLARE
   v_max     bigint;
   v_last    bigint;
   v_next    bigint;
+  v_pkcols  int;
   v_tables  text[] := string_to_array(current_setting('myvars.tables'), ',');
 BEGIN
   IF v_tables IS NULL OR array_length(v_tables, 1) IS NULL THEN
@@ -78,9 +94,24 @@ BEGIN
     -- so it will be written from more than one node -- and if its ids are not
     -- strided, two nodes CAN mint the same id (L-008). A quiet NOTICE let exactly
     -- that gap through with a green task.
+    --
+    -- ADR-005 narrows this: no serial id is only a defect when the table ALSO has
+    -- no composite primary key to fall back on. A composite key (>=2 columns) is
+    -- collision-free without striding, so it gets a NOTICE and a skip, not the
+    -- EXCEPTION below. The column count comes from pg_index/pg_constraint (the
+    -- catalog), never from the table's name -- a name is not proof of shape.
     v_seq := pg_get_serial_sequence('public.' || v_tbl, 'id');
     IF v_seq IS NULL THEN
-      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id -- it cannot be strided and L-008 does not hold for it', v_tbl;
+      v_pkcols := (
+        SELECT array_length(ix.indkey, 1)
+        FROM pg_index ix
+        WHERE ix.indrelid = ('public.' || v_tbl)::regclass AND ix.indisprimary
+      );
+      IF v_pkcols IS NOT NULL AND v_pkcols >= 2 THEN
+        RAISE NOTICE '  % : composite primary key (% columns), no serial id -- collision-free by construction (strided id + seed-identical master id), skipping (ADR-005)', v_tbl, v_pkcols;
+        CONTINUE;
+      END IF;
+      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id and no composite primary key -- it cannot be strided and L-008 does not hold for it', v_tbl;
     END IF;
 
     EXECUTE format('SELECT COALESCE(MAX(id),0) FROM public.%I', v_tbl) INTO v_max;
