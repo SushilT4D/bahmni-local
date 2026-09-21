@@ -6,8 +6,16 @@ set -euo pipefail
 begin_task "90 · local sync"
 [ "${DRY}" = 1 ] && { info "would: debezium profile up; generate+register source, retention, heartbeat, odoo/clinlims connectors, local sinks; setup-mirrormaker; mirrormaker-connect up"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
-( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka-controller kafka schema-registry kafka-connect kafka-ui >/dev/null )
-for i in $(seq 1 60); do curl -sf --max-time 5 localhost:8083/connector-plugins >/dev/null 2>&1 && break; sleep 5; done
+# kafka-ui is NOT in this first up: it is gated on kafka-connect's health, and
+# compose gives up on a slow Connect long before Connect does (manpur, 1 vCPU:
+# "dependency failed to start: container kafka-connect is unhealthy"). The wait
+# for Connect is ours, on a named budget; the UI follows and is never fatal.
+( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka-controller kafka schema-registry kafka-connect >/dev/null )
+connect_s="${CONNECT_BOOT_TIMEOUT_S:-1800}"
+info "waiting up to $((connect_s/60)) min for Kafka Connect's REST port (it scans every plugin first; CONNECT_BOOT_TIMEOUT_S overrides)"
+up=0; for i in $(seq 1 $((connect_s/5))); do curl -sf --max-time 5 localhost:8083/connector-plugins >/dev/null 2>&1 && { up=1; break; }; sleep 5; done
+[ "$up" = 1 ] || fail "Kafka Connect's REST port did not answer within $((connect_s/60)) min: ${COMPOSE_CMD} logs kafka-connect"
+( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka-ui >/dev/null 2>&1 ) || warn "kafka-ui did not start (a convenience, not part of the sync path): ${COMPOSE_CMD} --profile debezium up -d kafka-ui"
 plugins="$(curl -s localhost:8083/connector-plugins | jq -r '.[].class' | grep -cE 'MySqlConnector|PostgresConnector|JdbcSinkConnector')"
 [ "$plugins" = 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink" || fail "connect plugins missing (${plugins}/3) -- are the jars mounted as files?"
 til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
@@ -24,8 +32,22 @@ NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector cli
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/generate-local-sink-connectors.sh >/dev/null
 bash scripts/register-local-sink-connectors.sh >/dev/null
-sleep 30
-bad="$(curl -s 'localhost:8083/connectors?expand=status' | jq -r 'to_entries[] | select(.value.status.tasks | any(.state != "RUNNING")) | .key' | tr '\n' ' ')"
+# Judged on TASK state (F-027), polled: a small host needs more than the old
+# fixed 30 s to start fourteen connectors. A connector with no task at all is
+# NOT running (any() over an empty list is false and used to pass). A FAILED
+# task never heals by waiting, so it ends the wait at once.
+JQ_NOT_RUNNING='to_entries[] | select((.value.status.tasks | length) == 0 or (.value.status.tasks | any(.state != "RUNNING"))) | .key'
+JQ_FAILED='to_entries[] | select(.value.status.tasks | any(.state == "FAILED")) | .key'
+tasks_s="${CONNECT_TASKS_TIMEOUT_S:-600}"; bad=""
+for i in $(seq 1 $((tasks_s/15))); do
+  sleep 15
+  st="$(curl -s --max-time 10 'localhost:8083/connectors?expand=status' || true)"
+  [ -n "$st" ] && [ "$st" != "{}" ] || { bad="(Connect's REST gave no connector status)"; continue; }
+  bad="$(printf '%s' "$st" | jq -r "$JQ_NOT_RUNNING" 2>/dev/null | tr '\n' ' ' || printf 'unreadable ')"
+  [ -z "$bad" ] && break
+  failed="$(printf '%s' "$st" | jq -r "$JQ_FAILED" 2>/dev/null | tr '\n' ' ' || true)"
+  [ -n "$failed" ] && { bad="$failed(FAILED)"; break; }
+done
 [ -z "$bad" ] && ok "every connector task RUNNING ($(curl -s localhost:8083/connectors | jq length))" || fail "tasks not RUNNING: ${bad}"
 ret="$(ct exec kafka kafka-configs --bootstrap-server localhost:9092 --entity-type topics --entity-name "schema-changes.${MYSQL_SERVER_NAME}" --describe 2>/dev/null | grep -oE 'retention.ms=-1' | head -1)"
 [ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${MYSQL_SERVER_NAME} retention -1" || fail "schema-changes topic retention is not -1 (F-045)"

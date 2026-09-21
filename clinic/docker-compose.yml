@@ -370,10 +370,13 @@ services:
     volumes:
       - "${CONTAINER_DATA_PATH}/data/kafka:/var/lib/kafka/data"
     healthcheck:
+      # The probe starts a JVM. On a loaded 1-vCPU host (manpur) it cannot finish
+      # in 5 s, and a 10 s interval keeps one JVM permanently starting.
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 10s
-      timeout: 5s
+      interval: 30s
+      timeout: 20s
       retries: 5
+      start_period: 180s
 
   schema-registry:
     profiles: [ "debezium" ]
@@ -444,10 +447,14 @@ services:
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j.properties:/kafka/config/log4j.properties"
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j2.yml:/kafka/config/log4j2.yml"
     healthcheck:
+      # Connect scans every plugin before its REST port opens: minutes on a small
+      # host. Without a start_period it was "unhealthy" after ~50 s and compose
+      # refused everything gated on it (manpur, 2026-09-21).
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 900s
 
   mirrormaker-connect:
     profiles: [ "debezium" ]
