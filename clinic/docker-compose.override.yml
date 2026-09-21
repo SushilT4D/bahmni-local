@@ -194,6 +194,10 @@ services:
       # maintenance.html and unauthorized.html (the image's COPY ./htdocs/ picks it up on
       # the next build); mounted here so the fix applies without rebuilding the image.
       - './proxy/htdocs/internalError.html:/usr/share/nginx/html/internalError.html:ro'
+      # getAppLink's linkPort branch (F-080 follow-on, 2026-09-21: the Odoo tile
+      # opened erp-<host>, a name no clinic's DNS has) -- mounted so an edit
+      # applies without rebuilding the proxy image, same as internalError.html.
+      - './proxy/htdocs/index.html:/usr/share/nginx/html/index.html:ro'
 
   # Sushil's `openmrs` service forwards NO OPENELIS_* variables, so
   # bahmnicore.properties.template and update_elis_host_port.sh — both of which

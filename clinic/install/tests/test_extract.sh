@@ -33,10 +33,21 @@ export FAKE_ROOT="$TMP/images" FAKE_LOG="$TMP/calls.log"
 mkimg(){ # NAME ID
   local d="$FAKE_ROOT/$(printf '%s' "$1" | tr '/:' '__')"; mkdir -p "$d"; printf 'sha256:%s\n' "$2" > "$d/.id"; printf '%s' "$d"; }
 U="$(mkimg acme/web:1 aaa)"; mkdir -p "$U/usr/local/apache2/htdocs/bahmni/home"; echo "<html>v1</html>" > "$U/usr/local/apache2/htdocs/bahmni/home/index.html"; echo idx > "$U/usr/local/apache2/htdocs/index.html"
-C="$(mkimg acme/config:1 bbb)"; mkdir -p "$C/etc/bahmni_config/openmrs/apps/registration" "$C/etc/bahmni_config/masterdata/configuration" "$C/etc/bahmni_config/openelis"
+C="$(mkimg acme/config:1 bbb)"; mkdir -p "$C/etc/bahmni_config/openmrs/apps/registration" "$C/etc/bahmni_config/openmrs/apps/home" "$C/etc/bahmni_config/masterdata/configuration" "$C/etc/bahmni_config/openelis"
 printf '{"id":"bahmni.registration","config":{"defaultIdentifierPrefix":"GAN","other":1}}\n' > "$C/etc/bahmni_config/openmrs/apps/registration/app.json"
 mkdir -p "$C/etc/bahmni_config/masterdata/configuration/ocl"; echo zipbytes > "$C/etc/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip"; echo keepme > "$C/etc/bahmni_config/masterdata/configuration/ocl/README.txt"
-run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" bash "$S" "$@" 2>&1; }
+# whiteLabel.json: odoo carries IPLIT's linkPrefix convention (erp-<host>, which
+# does not resolve for a clinic -- Odoo is on this node's own TLS port
+# instead), metabase is enabled though no clinic runs one, clinicalService is
+# an ordinary tile that must survive untouched.
+cat > "$C/etc/bahmni_config/openmrs/apps/home/whiteLabel.json" <<'JSON'
+{"landingPage":[
+  {"name":"odoo","enabled":true,"link":"/","linkPrefix":"erp","title":"Stock Inventory & Billing","logo":"odoo.png"},
+  {"name":"metabase","enabled":true,"link":"/metabase","title":"Analytics","logo":"metabase.png"},
+  {"name":"clinicalService","enabled":true,"link":"/clinical","title":"Clinical","logo":"clinical.png"}
+]}
+JSON
+run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" BAHMNI_ODOO_HTTPS_PORT="${PORT-9444}" bash "$S" "$@" 2>&1; }
 X="$TMP/clinic/extracted"
 
 out="$(run)"; rc=$?
@@ -49,20 +60,37 @@ grep -q 'acme/web:1@sha256:aaa' "$X/.source" 2>/dev/null && grep -q 'acme/config
 [ -f "$X/bahmni_config/masterdata/configuration/ocl/README.txt" ] && ok_ "only zips are held; other ocl files stay" || bad "non-zip ocl file was moved"
 [ "$(jq -r .config.other "$X/bahmni_config/openmrs/apps/registration/app.json")" = 1 ] && ok_ "the rest of app.json is untouched" || bad "app.json lost its other keys"
 
+WL="$X/bahmni_config/openmrs/apps/home/whiteLabel.json"
+odoo(){ jq -r ".landingPage[] | select(.name==\"odoo\") | $1" "$WL"; }
+[ "$(odoo .linkPort)" = 9444 ] && ok_ "odoo's landing tile gets linkPort 9444" || bad "odoo linkPort not set: $(odoo .)"
+[ "$(odoo 'has("linkPrefix")')" = false ] && ok_ "odoo's landing tile loses linkPrefix" || bad "odoo still carries linkPrefix: $(odoo .)"
+[ "$(jq -r '.landingPage[] | select(.name=="metabase") | .enabled' "$WL")" = false ] && ok_ "metabase tile disabled (no clinic runs one)" || bad "metabase still enabled"
+[ "$(jq -r '.landingPage[] | select(.name=="clinicalService") | .enabled' "$WL")" = true ] && ok_ "clinicalService tile untouched" || bad "clinicalService tile was touched"
+
 : > "$FAKE_LOG"; out="$(run)"; rc=$?
 [ "$rc" -eq 0 ] && ! grep -q '^create' "$FAKE_LOG" && ok_ "unchanged source: skipped, no container created" || bad "second run re-extracted: $(tr '\n' ';' < "$FAKE_LOG")"
+[ "$(odoo .linkPort)" = 9444 ] && [ "$(jq -r '.landingPage[] | select(.name=="metabase") | .enabled' "$WL")" = false ] && ok_ "landing-page rules re-applied on the skip path" || bad "landing-page rules lost on the skip path"
 
 printf 'sha256:ccc\n' > "$U/.id"; echo "<html>v2</html>" > "$U/usr/local/apache2/htdocs/bahmni/home/index.html"
 out="$(run)"; rc=$?
 grep -q v2 "$X/htdocs/bahmni/home/index.html" && ok_ "changed image id: re-extracted" || bad "did not pick up the new image: $out"
 grep -q v1 "$X.prev/htdocs/bahmni/home/index.html" 2>/dev/null && ok_ "previous extraction kept at extracted.prev" || bad "previous extraction not kept"
 [ "$(jq -r .config.defaultIdentifierPrefix "$X/bahmni_config/openmrs/apps/registration/app.json")" = MAN ] && ok_ "prefix re-applied after re-extraction" || bad "prefix lost on re-extraction"
+[ "$(odoo .linkPort)" = 9444 ] && ok_ "landing-page rules re-applied after re-extraction" || bad "landing-page rules lost on re-extraction"
 
 # a tree extracted BEFORE this rule existed (manpur) is fixed by the skip path too
 mv "$X/ocl-held/CIEL_v1.zip" "$X/bahmni_config/masterdata/configuration/ocl/"; out="$(run)"
 [ ! -e "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && ok_ "an already-extracted tree gets its zips held on the next run" || bad "skip path left the zip in place"
 out="$(env KEEP_OCL_ZIPS=1 true; PFX=MAN; env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE=acme/web:1 BAHMNI_CONFIG_IMAGE=acme/config:1 MRN_PREFIX=MAN KEEP_OCL_ZIPS=1 bash "$S" --force 2>&1)"
 [ -f "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && ok_ "KEEP_OCL_ZIPS=1 leaves the zips in place" || bad "KEEP_OCL_ZIPS=1 ignored"
+
+# BAHMNI_ODOO_HTTPS_PORT unset: --force re-pulls the fixture's original
+# whiteLabel.json (linkPrefix "erp", no linkPort) fresh from the image, and
+# apply_landing must leave odoo's entry exactly as the image shipped it.
+out="$(PORT="" run --force)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "run succeeds with BAHMNI_ODOO_HTTPS_PORT unset" || bad "run rc=$rc with unset port: $out"
+[ "$(odoo .linkPrefix)" = erp ] && [ "$(odoo 'has("linkPort")')" = false ] && ok_ "unset BAHMNI_ODOO_HTTPS_PORT leaves odoo's linkPrefix alone" || bad "odoo entry changed despite unset port: $(odoo .)"
+
 out="$(run --force)"   # back to the default for the checks below
 
 B="$(mkimg acme/web:broken ddd)"; mkdir -p "$B/usr/local/apache2/htdocs"   # no bahmni/ inside

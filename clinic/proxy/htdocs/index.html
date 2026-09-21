@@ -263,6 +263,22 @@
 		}
 
 		const getAppLink = (app) => {
+			// A clinic serves this app at root on ITS OWN TLS port (compose:
+			// ${BAHMNI_ODOO_HTTPS_PORT:-9444}:444 for odoo) rather than at
+			// IPLIT's erp-<host> DNS convention, which no clinic's DNS has --
+			// checked first so the legacy logic below is unchanged when a
+			// whiteLabel.json carries no linkPort (IPLIT's own deployments).
+			// window.location.hostname, not .host: .host still carries the
+			// CURRENT page's port, which is wrong for this app's own port.
+			if (app.linkPort) {
+				return (
+					window.location.protocol +
+					"//" +
+					window.location.hostname +
+					":" +
+					app.linkPort
+				);
+			}
 			if (app.name === "crater" || app.name === "odoo") {
 				let url = '/';
 				if (window.location.host === "localhost") {

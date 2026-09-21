@@ -42,4 +42,10 @@ grep -c 'echo "\$body" >&2' "$CL/connectors/register-odoo.sh" | grep -qx 0 && ok
 
 # F-080 stopgap: strip the UI's trailing comma before OpenMRS sees it
 for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do has "$CL/proxy/$f" 'F-080' || grep -q 'F-080' "$CL/proxy/$f" && grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma (F-080)" || bad "$f has no F-080 trailing-comma rewrite"; done
+
+# landing page: the Odoo tile must use THIS node's own port, not IPLIT's
+# erp-<host> DNS convention (manpur, 2026-09-21: that name does not resolve)
+has "$CL/proxy/htdocs/index.html" 'linkPort' && ok_ "index.html's getAppLink understands linkPort" || bad "index.html has no linkPort branch in getAppLink"
+has "$CL/proxy/htdocs/index.html" 'window\.location\.hostname' && ok_ "index.html's linkPort branch uses window.location.hostname (not .host, which carries the current port)" || bad "index.html's linkPort branch does not use window.location.hostname"
+has "$CL/docker-compose.override.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/index\.html:ro" && ok_ "override mounts proxy/htdocs/index.html so an edit needs no image rebuild" || bad "docker-compose.override.yml does not mount proxy/htdocs/index.html"
 exit "$fails"

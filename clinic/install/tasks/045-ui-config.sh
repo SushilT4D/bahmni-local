@@ -15,9 +15,13 @@ setup_compose
 # gets the pins and the two paths here; on a fresh install 020 already wrote them.
 versions_put "$E"
 env_put "$E" BAHMNI_UI_DIR "$UI"; env_put "$E" BAHMNI_CONFIG_DIR "$CF"
-CT="${CT}" CLINIC_DIR="${CLINIC_DIR}" VERSIONS_FILE="${VERSIONS_FILE}" MRN_PREFIX="${MRN_PREFIX}" \
+ODOO_PORT="$(env_get "$E" BAHMNI_ODOO_HTTPS_PORT)"; ODOO_PORT="${ODOO_PORT:-9444}"
+CT="${CT}" CLINIC_DIR="${CLINIC_DIR}" VERSIONS_FILE="${VERSIONS_FILE}" MRN_PREFIX="${MRN_PREFIX}" BAHMNI_ODOO_HTTPS_PORT="${ODOO_PORT}" \
   BAHMNI_WEB_IMAGE="$(env_get "$E" BAHMNI_WEB_IMAGE)" BAHMNI_CONFIG_IMAGE="$(env_get "$E" BAHMNI_CONFIG_IMAGE)" \
   bash "${CLINIC_DIR}/scripts/extract-ui-config.sh" || fail "extraction failed (its FAIL line is above)"
 [ -f "$UI/home/index.html" ] && ok "UI: $(find "$UI" -type f | wc -l | tr -d ' ') files from $(env_get "$E" BAHMNI_WEB_IMAGE)" || fail "no UI at ${UI}"
 [ -d "$CF/masterdata/configuration" ] && ok "config: $(find "$CF" -type f | wc -l | tr -d ' ') files from $(env_get "$E" BAHMNI_CONFIG_IMAGE)" || fail "no config at ${CF}"
+WL="$CF/openmrs/apps/home/whiteLabel.json"
+[ -f "$WL" ] && [ "$(jq -r '.landingPage[]? | select(.name=="odoo") | .linkPort' "$WL")" = "${ODOO_PORT}" ] \
+  && ok "landing page: odoo tile linkPort ${ODOO_PORT}" || fail "landing page odoo tile does not carry linkPort ${ODOO_PORT}: ${WL}"
 ( cd "${CLINIC_DIR}" && compose config -q ) && ok "compose config valid with the extracted paths" || fail "compose config rejects the rendered .env"

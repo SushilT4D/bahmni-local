@@ -51,6 +51,25 @@ apply_prefix(){ # DIR : the node's registration prefix, if one was given
   chmod 644 "$t"; mv "$t" "$app"
 }
 
+apply_landing(){ # DIR : point the landing page's Odoo tile at THIS node's own
+  # TLS port (a clinic serves Odoo at root on ${BAHMNI_ODOO_HTTPS_PORT:-9444},
+  # not at IPLIT's erp-<host> DNS convention, which no clinic's DNS has -- the
+  # tile opened a name that did not exist, manpur, 2026-09-21); and disable any
+  # landing tile for a service this clinic does not run (default: metabase,
+  # crater -- clinics have neither; LANDING_DISABLE overrides the list).
+  local wl="$1/bahmni_config/openmrs/apps/home/whiteLabel.json" t disable="${LANDING_DISABLE:-metabase crater}"
+  [ -f "$wl" ] || return 0
+  t="$(mktemp "${wl}.XXXXXX")"
+  jq --arg port "${BAHMNI_ODOO_HTTPS_PORT:-}" --arg disable "$disable" '
+    ($disable | split(" ") | map(select(length > 0))) as $dis
+    | .landingPage = ((.landingPage // []) | map(
+        (if $port != "" and .name == "odoo" then (.linkPort = ($port | tonumber)) | del(.linkPrefix) else . end)
+        | (if (.name as $n | $dis | index($n)) then .enabled = false else . end)
+      ))
+  ' "$wl" > "$t" || { rm -f "$t"; die "jq could not edit ${wl}"; }
+  chmod 644 "$t"; mv "$t" "$wl"
+}
+
 hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
   # The config image ships OCL export zips under masterdata/configuration/ocl.
   # The Initializer imports any zip it has no checksum for -- a full CIEL load,
@@ -68,7 +87,7 @@ hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
 
 if [ "$FORCE" = 0 ] && [ -f "$OUT/.source" ] && [ "$(cat "$OUT/.source")" = "$want" ] \
    && [ -f "$OUT/htdocs/bahmni/home/index.html" ] && [ -d "$OUT/bahmni_config/openmrs" ]; then
-  apply_prefix "$OUT"; hold_ocl "$OUT"
+  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"
   say "skip extracted/ already holds ${WEB} and ${CFG}"; exit 0
 fi
 
@@ -84,7 +103,7 @@ pull_tree "$CFG" /etc/bahmni_config "$NEW/bahmni_config"
 # a tree is accepted only if it looks like what the services will ask it for
 [ -f "$NEW/htdocs/bahmni/home/index.html" ] || die "${WEB} carries no bahmni/home/index.html under /usr/local/apache2/htdocs -- not a Bahmni UI image"
 [ -d "$NEW/bahmni_config/openmrs/apps" ] && [ -d "$NEW/bahmni_config/masterdata/configuration" ] || die "${CFG} carries no openmrs/apps + masterdata/configuration under /etc/bahmni_config -- not a Bahmni config image"
-apply_prefix "$NEW"; hold_ocl "$NEW"
+apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"
 chmod -R u+rwX,go+rX,go-w "$NEW"   # the UI image ships world-writable dirs
 printf '%s\n' "$want" > "$NEW/.source"
 if [ -e "$OUT" ]; then rm -rf "${OUT}.prev"; mv "$OUT" "${OUT}.prev"; fi
