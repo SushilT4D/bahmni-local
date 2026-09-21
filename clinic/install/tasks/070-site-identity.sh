@@ -17,10 +17,18 @@ begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
 CFG_DIR=""; [ -f "${CLINIC_DIR}/.env" ] && CFG_DIR="$(env_get "${CLINIC_DIR}/.env" BAHMNI_CONFIG_DIR 2>/dev/null || true)"
 [ -n "$CFG_DIR" ] || CFG_DIR="${CLINIC_DIR}/bahmni_config"
 APP="${CFG_DIR}/openmrs/apps/registration/app.json"
-[ -f "$APP" ] || warn "registration app.json not found at ${APP#${CLINIC_DIR}/} (fixture checkout?)"
+node_local=0; case "$CFG_DIR" in "${CLINIC_DIR}/extracted/"*) node_local=1 ;; esac
+if [ ! -f "$APP" ]; then
+  if [ "$node_local" = 1 ] && [ "${DRY}" != 1 ]; then
+    # the tree the services mount is empty: nothing after this can work (F-067)
+    fail "no registration app.json under ${CFG_DIR#${CLINIC_DIR}/}: the UI/config extraction has not run -- resume with --from 045"
+  elif [ "$node_local" = 1 ]; then info "would: find ${APP#${CLINIC_DIR}/} written by task 045, prefix ${MRN_PREFIX}"
+  else warn "registration app.json not found at ${APP#${CLINIC_DIR}/} (fixture checkout?)"; fi
+fi
 cur="$(appjson_prefix "$APP")"
 if [ "$cur" = "${MRN_PREFIX}" ]; then ok "registration defaultIdentifierPrefix is ${MRN_PREFIX}"
-elif [ -f "$APP" ] && case "$CFG_DIR" in "${CLINIC_DIR}/extracted/"*) true ;; *) false ;; esac; then
+elif [ ! -f "$APP" ] && [ "$node_local" = 1 ]; then :   # said above (dry run)
+elif [ -f "$APP" ] && [ "$node_local" = 1 ]; then
   # node-local tree: the prefix is this node's to write (task 045 normally has)
   if [ "${DRY}" = 1 ]; then info "would: set defaultIdentifierPrefix ${cur:-<none>} -> ${MRN_PREFIX} in ${APP#${CLINIC_DIR}/}"; else
     t="$(mktemp "${APP}.XXXXXX")"; jq --arg p "${MRN_PREFIX}" '.config.defaultIdentifierPrefix = $p' "$APP" > "$t" && chmod 644 "$t" && mv "$t" "$APP"
