@@ -48,4 +48,8 @@ for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do has "$CL/proxy/$f" 'F-
 has "$CL/proxy/htdocs/index.html" 'linkPort' && ok_ "index.html's getAppLink understands linkPort" || bad "index.html has no linkPort branch in getAppLink"
 has "$CL/proxy/htdocs/index.html" 'window\.location\.hostname' && ok_ "index.html's linkPort branch uses window.location.hostname (not .host, which carries the current port)" || bad "index.html's linkPort branch does not use window.location.hostname"
 has "$CL/docker-compose.override.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/index\.html:ro" && ok_ "override mounts proxy/htdocs/index.html so an edit needs no image rebuild" || bad "docker-compose.override.yml does not mount proxy/htdocs/index.html"
+
+# exit checks: an Odoo that only answers HTTP 500 must fail the install, not
+# just the marker round-trip further down the same task (manpur, 2026-09-21)
+has "$HERE/../tasks/100-exit-checks.sh" '/web/login' && has "$HERE/../tasks/100-exit-checks.sh" 'BAHMNI_ODOO_HTTPS_PORT' && ok_ "100 checks Odoo's /web/login before the XML-RPC marker" || bad "100 does not check Odoo's /web/login"
 exit "$fails"
