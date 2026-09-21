@@ -68,9 +68,11 @@ for f in $(printf 'patient encounter lab saleable drug %s\n' "$present" | tr ' '
   uri="http://openmrs:8080/openmrs/ws/atomfeed/${f}/recent"
   # markers has no unique key on feed_uri (Rawach's DDL), so ON CONFLICT cannot
   # work there: update the row if present, insert it if not, then read it back.
+  # Only the three columns every odoo-connect table has: the Odoo 16 table (its
+  # own liquibase DDL) carries no create_date/write_date, the Odoo 10 one did.
   mk "$uri" "$entry" "$page" <<'SQL'
-UPDATE markers SET last_read_entry_id=:'e', feed_uri_for_last_read_entry=:'p', write_date=now() WHERE feed_uri=:'f';
-INSERT INTO markers (feed_uri, last_read_entry_id, feed_uri_for_last_read_entry, create_date, write_date) SELECT :'f', :'e', :'p', now(), now() WHERE NOT EXISTS (SELECT 1 FROM markers WHERE feed_uri=:'f');
+UPDATE markers SET last_read_entry_id=:'e', feed_uri_for_last_read_entry=:'p' WHERE feed_uri=:'f';
+INSERT INTO markers (feed_uri, last_read_entry_id, feed_uri_for_last_read_entry) SELECT :'f', :'e', :'p' WHERE NOT EXISTS (SELECT 1 FROM markers WHERE feed_uri=:'f');
 SQL
   got="$(printf "select last_read_entry_id from markers where feed_uri=:'f'" | mk "$uri")"
   [ "$got" = "$entry" ] && ok "marker $f -> page ${page##*/}, entry ${entry##*:}" || fail "marker $f did not take: the table holds '${got}', wanted '${entry}'"
