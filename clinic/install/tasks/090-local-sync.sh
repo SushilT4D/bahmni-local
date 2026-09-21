@@ -32,6 +32,28 @@ NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector cli
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/generate-local-sink-connectors.sh >/dev/null
 bash scripts/register-local-sink-connectors.sh >/dev/null
+# Restart FAILED tasks ONCE before anything judges them (manpur, 2026-09-21):
+# nine mysql-local-sink-* tasks FAILED on a bad pool setting; the template was
+# fixed and the connectors re-registered (HTTP 200) -- eight recovered,
+# mysql-local-sink-role_role stayed FAILED for hours, because Connect does not
+# restart a FAILED task when a PUT leaves that connector's config unchanged
+# from its own point of view, and nothing else here restarts it. This round
+# runs once, by connector+task id, strictly before the poll below can judge a
+# FAILED task -- and the poll's own first iteration sleeps 15s before its
+# first read, so a task restarted here always gets at least one poll interval
+# before the poll can call it FAILED again.
+JQ_FAILED_TASK_IDS='to_entries[] | .key as $c | (.value.status.tasks[]? | select(.state=="FAILED") | "\($c) \(.id)")'
+restart_status="$(curl -s --max-time 10 'localhost:8083/connectors?expand=status' 2>/dev/null || true)"
+if [ -n "$restart_status" ] && [ "$restart_status" != "{}" ]; then
+  failed_tasks="$(printf '%s' "$restart_status" | jq -r "$JQ_FAILED_TASK_IDS" 2>/dev/null || true)"
+  if [ -n "$failed_tasks" ]; then
+    info "restarting FAILED task(s) once before judging: $(printf '%s' "$failed_tasks" | tr '\n' ' ')"
+    printf '%s\n' "$failed_tasks" | while IFS=' ' read -r rname rid; do
+      [ -n "$rname" ] || continue
+      curl -s -o /dev/null --max-time 10 -X POST "localhost:8083/connectors/${rname}/tasks/${rid}/restart" 2>/dev/null || true
+    done
+  fi
+fi
 # Judged on TASK state (F-027), polled: a small host needs more than the old
 # fixed 30 s to start fourteen connectors. A connector with no task at all is
 # NOT running (any() over an empty list is false and used to pass). A FAILED
