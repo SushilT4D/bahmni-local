@@ -99,6 +99,40 @@ refuse_inherited_alias "$LOCAL_CLUSTER_ALIAS"
 PLATFORM="$(detect_platform)"; export PLATFORM
 export CLINIC_DIR REPO_DIR LEDGER
 
+# --- run log ----------------------------------------------------------------
+# Every stop this week had to be pasted by hand from a terminal, and nobody
+# could say how long a task took on a given host. Tee the whole run,
+# APPENDING, with one header line per run and one line per task naming its
+# wall-clock seconds and result. `exec > >(tee -a "$log") 2>&1` never puts
+# tee in THIS script's own pipeline (unlike `... | tee "$log"`), so `set -e`
+# under pipefail still sees only this script's own exit status, not tee's --
+# and it works under bash 3.2 (macOS stock), verified on /bin/bash. A dry run
+# never touches $HOME: it logs under ${TMPDIR:-/tmp} instead. Secrets never
+# reach the log beyond what already reaches the terminal (nothing here prints
+# one) -- the answers file itself is never logged.
+# _INSTALL_LOG_STARTED, exported across the task-010 `sg docker` re-exec
+# below, stops the re-exec'd process from printing a second header into the
+# same file; it still tees its own output there, just without a second
+# header storm. INSTALL_LOG is exported too, so the re-exec'd run resolves to
+# the exact same path rather than recomputing one.
+if [ "$DRY" = 1 ]; then
+  INSTALL_LOG="${INSTALL_LOG:-${TMPDIR:-/tmp}/clinic-install-${CLINIC_SLUG:-node}.log}"
+else
+  INSTALL_LOG="${INSTALL_LOG:-${HOME}/clinic-install-${CLINIC_SLUG:-node}.log}"
+fi
+export INSTALL_LOG
+exec > >(tee -a "${INSTALL_LOG}") 2>&1
+if [ "${_INSTALL_LOG_STARTED:-0}" != 1 ]; then
+  gitsha="$(cd "${REPO_DIR}" && git rev-parse --short HEAD 2>/dev/null)"; gitsha="${gitsha:-unknown}"
+  hdr="$(date -u +%Y-%m-%dT%H:%M:%SZ) clinic-install slug=${CLINIC_SLUG} platform=${PLATFORM} runtime=$(detect_runtime) sha=${gitsha}"
+  [ -n "$FROM" ] && hdr="${hdr} --from ${FROM}"
+  [ -n "$ONLY" ] && hdr="${hdr} --only ${ONLY}"
+  log ""
+  log "===== ${hdr} ====="
+  export _INSTALL_LOG_STARTED=1
+fi
+log "install log: ${INSTALL_LOG}"
+
 log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} platform=${PLATFORM} runtime=$(detect_runtime) dry=${DRY}"
 log "  clinic dir: ${CLINIC_DIR}"
 log "  seed:       ${SEED_DIR}"
@@ -108,19 +142,24 @@ for t in "${TASKS_DIR}"/[0-9]*-*.sh; do
   if [ -n "$ONLY" ] && [ "$num" != "$ONLY" ]; then continue; fi
   if [ -n "$FROM" ] && [ "$num" -lt "$FROM" ]; then continue; fi
   if [ -n "$CLINIC" ]; then how="--clinic $CLINIC"; else how="--answers $ANSWERS"; fi
+  t0=$(date +%s)
   rc=0; bash "$t" || rc=$?
+  t1=$(date +%s); dt=$((t1 - t0))
   if [ "$rc" = 75 ] && [ "${_KRAFT_SG:-}" != 1 ] && command -v sg >/dev/null 2>&1; then
     # task 010 added us to the docker group; re-exec the remaining tasks under the
     # group so no manual re-login is needed. _KRAFT_SG guards against a loop.
-    log "  activating the docker group and continuing (no re-login needed)..."
+    log "  ${n} ${dt}s rc=75: activating the docker group and continuing (no re-login needed)..."
     export _KRAFT_SG=1
     if [ -n "$CLINIC" ]; then sel="--clinic $(printf '%q' "$CLINIC")"; else sel="--answers $(printf '%q' "$ANSWERS")"; fi
     exec sg docker -c "$(printf '%q' "$0") ${sel} --seed $(printf '%q' "$SEED_DIR") --from ${num}"
   fi
   if [ "$rc" != 0 ]; then
-    printf '\n  STOPPED at task %s. Fix what its FAIL (or FAILED rc=) line names, then resume with: %s %s --seed %s --from %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" >&2
+    log "  ${n} ${dt}s STOPPED rc=${rc}"
+    printf '\n  STOPPED at task %s. Fix what its FAIL (or FAILED rc=) line names, then resume with: %s %s --seed %s --from %s\n  install log: %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" "${INSTALL_LOG}" >&2
     exit 1
   fi
+  log "  ${n} ${dt}s done"
 done
 log ""
 log "done: every task's check passed. The hub join printed by task 110 is the operator's next step."
+log "install log: ${INSTALL_LOG}"
