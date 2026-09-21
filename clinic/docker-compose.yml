@@ -82,7 +82,12 @@ services:
 
   openmrs:
     profiles: ["emr","local", "bahmni-mart"]
-    image: ${OPENMRS_IMAGE_NAME}
+    # OPENMRS_IMAGE_NAME stays the fleet pin (sync/versions.env; rewritten into
+    # .env by versions_put on every install step, so it can never carry a
+    # node-local value). OPENMRS_RUN_IMAGE is set ONLY on arm64 hosts, by
+    # install task 040 (openmrs/build-native.sh's native rebuild, since
+    # OPENMRS_IMAGE_NAME is linux/amd64-only) -- an x86 clinic never sets it.
+    image: ${OPENMRS_RUN_IMAGE:-${OPENMRS_IMAGE_NAME:?}}
     environment:
       TZ: ${TZ}
       OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}

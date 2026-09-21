@@ -9,15 +9,41 @@ setup_compose; mk_podman_shim
 cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"
 omrs="$(env_get "$E" OPENMRS_IMAGE_NAME)"
-# OpenMRS first: on podman some registries' manifests trip a MIME error; the
-# repo carries openmrs/build.sh, which transplants the WAR into openmrs-base.
-if ct image inspect "$omrs" >/dev/null 2>&1; then skip "openmrs image present"; else
-  if ! ct pull "$omrs" >/dev/null 2>&1; then
-    warn "pull of ${omrs} failed on ${CT}; building via openmrs/build.sh (WAR transplant)"
-    bash openmrs/build.sh "$omrs" openmrs-base:latest "$omrs"
-  fi
-fi
-ct image inspect "$omrs" >/dev/null 2>&1 && ok "openmrs image ${omrs}" || fail "openmrs image ${omrs} unavailable"
+# OpenMRS: IPLIT's image is linux/amd64 only. On an arm64 host it is rebuilt
+# natively (openmrs/build-native.sh -- 2.3s bare Tomcat+WAR on Ghated vs 26s
+# emulated, ~11x; the PREVIOUS pinned image took 51 minutes under QEMU with
+# modules loading) and the result is written to OPENMRS_RUN_IMAGE, which
+# docker-compose.yml prefers over OPENMRS_IMAGE_NAME. x86 clinics are
+# untouched: OPENMRS_IMAGE_NAME runs as-is, pulled like every other image.
+# HOST_ARCH overrides `uname -m` for tests.
+arch="${HOST_ARCH:-$(uname -m)}"
+case "$arch" in
+  arm64|aarch64)
+    info "arm64 host (${arch}): rebuilding OpenMRS natively -- ${omrs} is amd64-only and would run emulated"
+    build_log="$(mktemp)"
+    if bash "${CLINIC_DIR}/openmrs/build-native.sh" >"${build_log}" 2>&1; then
+      cat "${build_log}"
+    else
+      cat "${build_log}" >&2; rm -f "${build_log}"
+      fail "openmrs/build-native.sh failed (its FAIL line is above)"
+    fi
+    run_tag="$(sed -n 's/^image=//p' "${build_log}" | tail -1)"; rm -f "${build_log}"
+    [ -n "$run_tag" ] || fail "openmrs/build-native.sh printed no image=<tag> line"
+    env_put "$E" OPENMRS_RUN_IMAGE "$run_tag"
+    ok "openmrs image: native ${run_tag}, built from ${omrs}"
+    ;;
+  *)
+    # A stale OPENMRS_RUN_IMAGE (a node that was ever installed on arm64, or a
+    # hand-edited .env) would silently run the wrong-architecture image on this
+    # host -- refused rather than ignored, since docker-compose.yml prefers it.
+    stale="$(env_get "$E" OPENMRS_RUN_IMAGE)"
+    [ -z "$stale" ] || fail "clinic/.env carries OPENMRS_RUN_IMAGE=${stale} on a non-arm64 host (${arch}) -- remove the key (it is only ever set by task 040 on arm64)"
+    if ct image inspect "$omrs" >/dev/null 2>&1; then skip "openmrs image present"; else
+      ct pull "$omrs" >/dev/null 2>&1 || fail "openmrs image ${omrs} could not be pulled"
+    fi
+    ct image inspect "$omrs" >/dev/null 2>&1 && ok "openmrs image ${omrs}" || fail "openmrs image ${omrs} unavailable"
+    ;;
+esac
 # the two local builds (their scripts source .env from CWD and call podman by name)
 if ct image inspect "bahmni-local/proxy:$(env_get "$E" PROXY_IMAGE_TAG)" >/dev/null 2>&1; then skip "proxy image built"; else bash proxy/build.sh; fi
 if ct image inspect bahmni-local/systemdate:1.0 >/dev/null 2>&1; then skip "systemdate image built"; else bash systemdate/build.sh; fi
