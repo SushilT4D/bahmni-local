@@ -301,5 +301,47 @@ out="$(DRY=1 bash "$D8_HARNESS" "${d8dir_dry_missing}/docker-compose.override.ym
 assert_rc "d8_override_ensure: DRY against a missing file exits 0" "$rc" 0
 [ -f "${d8dir_dry_missing}/docker-compose.override.yml" ] && bad "d8_override_ensure: DRY created a file that did not exist before" || ok "d8_override_ensure: DRY against a missing file creates nothing"
 
+
+# --- D9: InnoDB sizing for the base MySQL ------------------------------------
+d9_blk="$(sed -n '/# d9-sizing:begin/,/# d9-sizing:end/p' "$TASK")"
+[ -n "$d9_blk" ] || bad "085 has no d9-sizing block"
+d9(){ bash -c "$d9_blk"$'\n''"$@"' _ "$@" 2>&1; }   # newline, not ";": the block ends in a comment line
+assert_eq "d9_pool_mb: 13924 -> 3456" "$(d9 d9_pool_mb 13924)" 3456
+assert_eq "d9_pool_mb: 65536 -> 4096 (cap)" "$(d9 d9_pool_mb 65536)" 4096
+assert_eq "d9_pool_mb: 2048 -> 512 (floor)" "$(d9 d9_pool_mb 2048)" 512
+d9cnf="$(d9 d9_tuning_cnf 3456)"
+assert_contains "d9_tuning_cnf: buffer pool line" "$d9cnf" "innodb_buffer_pool_size = 3456M"
+assert_contains "d9_tuning_cnf: redo log line" "$d9cnf" "innodb_redo_log_capacity = 512M"
+# one rule on both sides: the clinic's lib.sh must size identically
+CLINIC_LIB="$(cd "$(dirname "$TASK")/../../../clinic/install" && pwd)/lib.sh"
+for mem in 400 2048 8192 13924 65536; do
+  c="$(env -i PATH="$PATH" bash -c ". '$CLINIC_LIB'; mysql_pool_mb $mem" 2>/dev/null)"
+  assert_eq "hub and clinic size ${mem} MB the same" "$(d9 d9_pool_mb $mem)" "$c"
+done
+assert_eq "hub and clinic render the same [mysqld] body" "$(d9 d9_tuning_cnf 1024 | grep -v '^#')" "$(env -i PATH="$PATH" bash -c ". '$CLINIC_LIB'; mysql_tuning_cnf 1024" | grep -v '^#')"
+# the override editor takes the service name: an openmrsdb: mount lands under openmrsdb, not odoo-connect
+d9dir="${TMP_ROOT}/d9"; mkdir -p "$d9dir"
+cat > "${d9dir}/docker-compose.override.yml" <<EOF
+services:
+  odoo-connect:
+    volumes:
+      - './odoo-connect-logback.xml:${TARGET}:ro'
+EOF
+D9_HARNESS="$(mkscript d9harness "$d8_override_blk" <<'EOF'
+d8_override_ensure "$1" "/etc/mysql/conf.d/sync-tuning.cnf" openmrsdb ./openmrsdb-tuning.cnf D9
+EOF
+)"
+out="$(DRY=0 bash "$D9_HARNESS" "${d9dir}/docker-compose.override.yml" 2>&1)"; rc=$?
+assert_rc "D9 override edit exits 0" "$rc" 0
+grep -q "^  openmrsdb:" "${d9dir}/docker-compose.override.yml" && ok "D9: openmrsdb: service added" || bad "D9: no openmrsdb: service"
+grep -q "./openmrsdb-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro" "${d9dir}/docker-compose.override.yml" && ok "D9: mount line present" || bad "D9: mount line missing"
+python3 - "${d9dir}/docker-compose.override.yml" <<'EOF' && ok "D9: the mount sits under openmrsdb, odoo-connect untouched" || bad "D9: mount landed under the wrong service"
+import sys,re
+t=open(sys.argv[1]).read()
+oc=t[t.index('  odoo-connect:'):t.index('  openmrsdb:')] if t.index('  odoo-connect:')<t.index('  openmrsdb:') else t[t.index('  odoo-connect:'):]
+db=t[t.index('  openmrsdb:'):]
+sys.exit(0 if ('openmrsdb-tuning' in db and 'openmrsdb-tuning' not in oc and 'logback' in oc) else 1)
+EOF
+
 printf '%s\n' "$fails failure(s)"
 exit $((fails>0))

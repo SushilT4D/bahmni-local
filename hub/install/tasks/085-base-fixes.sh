@@ -177,9 +177,10 @@ d7_insert(){
 # spaces, its keys at 4, a list item at 6. Idempotent: the exact mount line
 # already present anywhere in FILE is left alone (prints UNCHANGED).
 d8_override_python(){
-  python3 - "$1" "$2" <<'PY'
+  python3 - "$1" "$2" "${3:-odoo-connect}" <<'PY'
 import re, sys
 path, mount = sys.argv[1], sys.argv[2]
+service = sys.argv[3] if len(sys.argv) > 3 else 'odoo-connect'
 item_line = "      - '%s'" % mount
 try:
     text = open(path).read()
@@ -198,7 +199,7 @@ for i, l in enumerate(lines):
         break
 
 if svc_idx is None:
-    block = ["services:", "  odoo-connect:", "    volumes:", item_line]
+    block = ["services:", "  " + service + ":", "    volumes:", item_line]
     if lines and lines[-1] == "":
         lines = lines[:-1] + [""] + block + [""]
     elif lines:
@@ -215,7 +216,7 @@ while i < n:
     l = lines[i]
     if re.match(r'^\S', l):
         break
-    if re.match(r'^  odoo-connect:\s*$', l):
+    if re.match(r'^  ' + re.escape(service) + r':\s*$', l):
         oc_idx = i
         break
     i += 1
@@ -224,7 +225,7 @@ if oc_idx is None:
     j = svc_idx + 1
     while j < n and (lines[j] == "" or re.match(r'^\s', lines[j])):
         j += 1
-    block = ["  odoo-connect:", "    volumes:", item_line]
+    block = ["  " + service + ":", "    volumes:", item_line]
     lines[j:j] = block
     open(path, "w").write("\n".join(lines))
     print("ADDED_SERVICE"); sys.exit(0)
@@ -260,25 +261,25 @@ PY
 # (never overwrites an existing backup -- and only when FILE already exists;
 # a fresh hub has none to back up) before editing it. DRY prints would: and
 # changes nothing.
-d8_override_ensure(){
-  local f="$1" target="$2" mount result backup
+d8_override_ensure(){ # FILE TARGET [SERVICE] [SOURCE] [TAG]
+  local f="$1" target="$2" service="${3:-odoo-connect}" src="${4:-./odoo-connect-logback.xml}" tag="${5:-D8}" mount result backup
   # Same bash gotcha as d7_insert above: backup's value (which expands ${f})
   # is assigned in its own statement, never on the shared `local` line.
   backup="${f}.bak-pre-d8"
-  mount="./odoo-connect-logback.xml:${target}:ro"
+  mount="${src}:${target}:ro"
   if [ -f "$f" ] && grep -qF "$mount" "$f" 2>/dev/null; then
-    ok "D8: ${f} already mounts the quiet logback onto odoo-connect"
+    ok "${tag}: ${f} already mounts ${src} onto ${service}"
     return 0
   fi
   if [ "${DRY}" = 1 ]; then
-    info "would: back up ${f} to ${backup} (if it exists and no backup is already present) and add ${mount} to its odoo-connect: service"
+    info "would: back up ${f} to ${backup} (if it exists and no backup is already present) and add ${mount} to its ${service}: service"
     return 0
   fi
   if [ -f "$f" ]; then
     [ -f "$backup" ] || cp "$f" "$backup"
   fi
-  result="$(d8_override_python "$f" "$mount")" || fail "D8: could not edit ${f}"
-  ok "D8: ${f} -- ${result} (odoo-connect logback mount)"
+  result="$(d8_override_python "$f" "$mount" "$service")" || fail "${tag}: could not edit ${f}"
+  ok "${tag}: ${f} -- ${result} (${service} mount)"
 }
 # d8-override:end
 # ---------------------------------------------------------------------------
@@ -377,4 +378,64 @@ else
       *) fail "D8: ${BASE_ODOO_CONNECT_CONTAINER} was recreated but its mounts still lack ${LOGBACK_MOUNT_TARGET} (got: ${mounted:-<none>})" ;;
     esac
   fi
+fi
+
+# d9-sizing:begin
+# The base stack's MySQL (openmrsdb) runs on the image's defaults: a 128 MB
+# buffer pool and a 100 MB redo log for a 7 GB database, so every read misses
+# the cache. One conf.d file, sized from the memory the host gives it, mounted
+# read-only through my.cnf's !includedir. Twin of clinic/install/lib.sh's
+# mysql_pool_mb / mysql_tuning_cnf -- the same rule on both sides, checked by
+# tests/test_base_fixes.sh against that file.
+d9_pool_mb(){ # MEM_MB -> buffer pool MB: a quarter, 128 MB steps, 512..4096
+  local mem="${1:-0}" mb
+  case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
+  mb=$(( mem / 4 / 128 * 128 ))
+  [ "$mb" -gt 4096 ] && mb=4096
+  [ "$mb" -lt 512 ] && mb=512
+  printf '%s\n' "$mb"
+}
+d9_tuning_cnf(){ # POOL_MB -> the conf.d file's text
+  printf '# rendered by hub/install from the memory this host gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\n' "$1"
+}
+# d9-sizing:end
+
+# --- D9: InnoDB sizing for the base MySQL (openmrsdb) -----------------------
+D9_CNF="${BASE_DIR}/openmrsdb-tuning.cnf"
+D9_TARGET="/etc/mysql/conf.d/sync-tuning.cnf"
+BASE_MYSQL_SERVICE="${BASE_MYSQL_SERVICE:-openmrsdb}"
+BASE_MYSQL_CONTAINER="${BASE_MYSQL_CONTAINER:-$(basename "$BASE_DIR")-${BASE_MYSQL_SERVICE}-1}"
+d9_mem_mb="${NODE_MEM_MB:-$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)}"
+d9_pool="$(d9_pool_mb "$d9_mem_mb")"
+if [ "${DRY}" = 1 ]; then
+  info "would: render ${D9_CNF} (buffer pool ${d9_pool} MB from ${d9_mem_mb} MB host memory, redo log 512 MB); ensure ${OVERRIDE_FILE} mounts it read-only onto ${D9_TARGET} for ${BASE_MYSQL_SERVICE}; recreate only ${BASE_MYSQL_CONTAINER} unless its mounts already include that path; read innodb_buffer_pool_size back from the server"
+else
+  d9_tuning_cnf "$d9_pool" > "${D9_CNF}.new" && chmod 644 "${D9_CNF}.new"
+  if [ -f "$D9_CNF" ] && cmp -s "$D9_CNF" "${D9_CNF}.new"; then rm -f "${D9_CNF}.new"; ok "D9: ${D9_CNF} unchanged (buffer pool ${d9_pool} MB)"
+  else mv "${D9_CNF}.new" "$D9_CNF"; ok "D9: rendered ${D9_CNF} (buffer pool ${d9_pool} MB from ${d9_mem_mb} MB host memory, redo log 512 MB)"; fi
+  d8_override_ensure "$OVERRIDE_FILE" "$D9_TARGET" "$BASE_MYSQL_SERVICE" "./openmrsdb-tuning.cnf" "D9"
+  if ( cd "$BASE_DIR" && ${COMPOSE_CMD:?setup_compose first} config -q ); then
+    ok "D9: ${OVERRIDE_FILE} still parses (docker compose config -q)"
+  else
+    [ -f "${OVERRIDE_FILE}.bak-pre-d8" ] && cp "${OVERRIDE_FILE}.bak-pre-d8" "$OVERRIDE_FILE"
+    fail "D9: docker compose config -q failed against ${BASE_DIR} after the override edit -- restored ${OVERRIDE_FILE} from its backup"
+  fi
+  mounted="$(ct inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' "$BASE_MYSQL_CONTAINER" 2>/dev/null || true)"
+  case " $mounted " in
+    *" ${D9_TARGET} "*) ok "D9: ${BASE_MYSQL_CONTAINER} already mounts ${D9_TARGET} -- nothing to recreate" ;;
+    *)
+      # a MySQL recreate is a short OpenMRS outage; the Debezium source reconnects on its own
+      ( cd "$BASE_DIR" && ${COMPOSE_CMD} up -d --no-deps "$BASE_MYSQL_SERVICE" ) \
+        && ok "D9: recreated ${BASE_MYSQL_CONTAINER} (up -d --no-deps ${BASE_MYSQL_SERVICE})" \
+        || fail "D9: docker compose up -d --no-deps ${BASE_MYSQL_SERVICE} failed against ${BASE_DIR}"
+      ;;
+  esac
+  got_b=0
+  for i in $(seq 1 24); do
+    got_b="$(ct exec "$BASE_MYSQL_CONTAINER" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select @@innodb_buffer_pool_size"' 2>/dev/null)" || true
+    case "$got_b" in ''|*[!0-9]*) got_b=0 ;; esac
+    [ "$got_b" -gt 0 ] && break; sleep 5
+  done
+  [ "$(( got_b / 1048576 ))" -ge "$d9_pool" ] && ok "D9: innodb_buffer_pool_size $(( got_b / 1048576 )) MB in force (read back from the server)" \
+    || fail "D9: the server reports $(( got_b / 1048576 )) MB, the file says ${d9_pool} MB -- the conf.d mount is not in force"
 fi
