@@ -25,6 +25,13 @@ for i in $(seq 1 $((odoo_boot_s / 10))); do
 done
 if [ "$odoo_up" = 1 ]; then
   ok "Odoo login page answers 200 on :${odoo_port}"
+  # a 200 page with a broken stylesheet looks the same to curl: read the CSS
+  # bundle the page names back through the proxy (a seed's bundle rows point
+  # at files this node does not have; task 050 drops them)
+  css_path="$(curl -sk --max-time 10 "https://localhost:${odoo_port}/web/login" 2>/dev/null | grep -oE 'href="[^"]*assets_frontend[^"]*\.css"' | head -1 | sed -E 's/href="([^"]*)"/\1/')"
+  css_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "https://localhost:${odoo_port}${css_path}" 2>/dev/null || true)"
+  [ -n "$css_path" ] && [ "$css_code" = 200 ] && ok "Odoo CSS bundle answers 200 (${css_path})" \
+    || fail "Odoo CSS bundle does not answer 200 (path '${css_path:-none found}', code ${css_code:-none}): the login page renders unstyled -- ${COMPOSE_CMD} logs odoo | grep -i asset"
 else
   # a 303 to /web/database/selector (instead of 200) means config/odoo/odoo.conf
   # is missing, or its dbfilter matches more than one database.

@@ -131,6 +131,16 @@ for db in odoo openelis; do
     gunzip -c "${SEED_DIR}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
   fi
 done
+# odoo-assets:begin
+# The Odoo seed carries ir_attachment rows for its compiled CSS/JS bundles, and
+# each row points at a file in the SOURCE node's filestore. This node has no
+# such file, so every asset request would answer 500 and the login page would
+# render unstyled. Drop the bundle rows now, before Odoo ever starts here: Odoo
+# rebuilds the bundles on its first request. Only the bundle rows -- other
+# attachments (images, dashboards) are content, not cache, and stay.
+n="$(printf '%s\n' "delete from ir_attachment where res_model='ir.ui.view' and name like '%assets%'" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null | sed -nE 's/^DELETE ([0-9]+)$/\1/p')"
+ok "odoo: dropped ${n:-0} asset-bundle attachment row(s) from the seed; Odoo rebuilds them on first request"
+# odoo-assets:end
 # sink roles AFTER the databases exist and are restored: they connect with
 # `psql -d odoo` / `-d openelis` and GRANT ON ALL TABLES, so the DBs and their
 # tables must exist first (first live clinic, manpur: they ran before createdb).
