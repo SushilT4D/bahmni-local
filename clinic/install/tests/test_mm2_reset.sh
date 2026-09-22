@@ -19,9 +19,13 @@ eq "rerun: this node already mirrored -> keep"              "$(d 1 12 1)" no
 eq "first node under the alias (hub has nothing) -> no-op"  "$(d 1 0 0)"  no
 eq "twin check not proven quiet -> never reset"             "$(d 0 0 1)"  no
 eq "unreadable local count -> never reset"                  "$(d 1 '' 1)" no
+eq "forced: node has mirrored, alias quiet -> reset"        "$(d 1 12 1 1)" yes
+eq "forced but twin not proven quiet -> never reset"        "$(d 0 12 1 1)" no
+eq "forced but the hub holds nothing -> no-op"              "$(d 1 12 0 1)" no
 code="$(grep -vE '^[[:space:]]*#' "$T90")"
 printf '%s' "$code" | grep -q -- '--delete --topic "$offsets_topic"' && ok_ "090 deletes the hub's offsets topic on a reset" || bad "090 has no delete of the offsets topic"
 printf '%s' "$code" | grep -q 'MM2_OFFSET_RESET_SKIP' && ok_ "the reset has a conscious override" || bad "no MM2_OFFSET_RESET_SKIP override"
+printf '%s' "$code" | grep -q 'MM2_OFFSET_RESET_FORCE' && ok_ "a reinstall from before this check can force the reset" || bad "no MM2_OFFSET_RESET_FORCE"
 # ordering: the render (setup-mirrormaker) comes before the twin guard, the reset before topic creation, the properties file is removed after the reset
 r=$(grep -n 'bash scripts/setup-mirrormaker.sh' "$T90" | head -1 | cut -d: -f1); g=$(grep -n 'TWIN_GUARD_SKIP:-0' "$T90" | head -1 | cut -d: -f1)
 s=$(grep -n '# mm2-reset:begin' "$T90" | cut -d: -f1); c=$(grep -n -- '--create --if-not-exists' "$T90" | head -1 | cut -d: -f1)

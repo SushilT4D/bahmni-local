@@ -150,9 +150,12 @@ else
   # alive. Re-mirroring what a previous node already sent is harmless: every
   # hub sink is an idempotent upsert. A rerun on a node that has already
   # mirrored keeps the position -- it is this node's own.
-  mm2_reset_needed(){ # TWIN_QUIET(0|1) LOCAL_EVENTS HUB_HAS_OFFSETS(0|1) -> yes | no
+  mm2_reset_needed(){ # TWIN_QUIET(0|1) LOCAL_EVENTS HUB_HAS_OFFSETS(0|1) [FORCE(0|1)] -> yes | no
+    # FORCE: the operator states the hub's position belongs to a previous node
+    # even though this node has already mirrored (a node reinstalled before this
+    # check existed); still only with the alias proven quiet.
     case "${2:-x}" in ''|*[!0-9]*) echo no; return ;; esac
-    if [ "$1" = 1 ] && [ "$2" -eq 0 ] && [ "$3" = 1 ]; then echo yes; else echo no; fi
+    if [ "$1" = 1 ] && [ "$3" = 1 ] && { [ "$2" -eq 0 ] || [ "${4:-0}" = 1 ]; }; then echo yes; else echo no; fi
   }
   # mm2-reset:end
   offsets_topic="mm2-offsets.${LOCAL_CLUSTER_ALIAS}.internal"
@@ -165,7 +168,8 @@ else
       n="$(ct exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$t" 2>/dev/null | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
       local_events=$(( local_events + ${n:-0} ))
     done
-    case "$(mm2_reset_needed "$twin_quiet" "$local_events" "${hub_has:-0}")" in
+    [ "${MM2_OFFSET_RESET_FORCE:-0}" = 1 ] && warn "MM2_OFFSET_RESET_FORCE=1: the hub's position for ${LOCAL_CLUSTER_ALIAS} is treated as a previous node's even though this node has mirrored ${local_events} event(s); MirrorMaker re-reads this node's topics from their first event"
+    case "$(mm2_reset_needed "$twin_quiet" "$local_events" "${hub_has:-0}" "${MM2_OFFSET_RESET_FORCE:-0}")" in
       yes)
         info "the hub remembers a previous node under ${LOCAL_CLUSTER_ALIAS} (${offsets_topic}) and this node's up topics are empty: dropping that position so MirrorMaker reads this node from its first event"
         ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --delete --topic "$offsets_topic" >/dev/null 2>&1 \
