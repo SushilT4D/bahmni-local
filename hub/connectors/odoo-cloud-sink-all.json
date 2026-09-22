@@ -13,6 +13,7 @@
     "schema.evolution": "none",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "insert.mode": "upsert",
+    "batch.size": "1",
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "errors.retry.timeout": "-1",
     "primary.key.mode": "record_key",
