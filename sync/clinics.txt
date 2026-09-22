@@ -48,5 +48,7 @@ cloud:10
 # on Rawach would have read that row and restrided the node from 4 to 1 --
 # manpur's residue -- silently breaking L-008 for every row written afterwards.
 h1:4
-h2:3
+# h2 was the ghated node's lab code; that node is retired and ghated installs under its slug,
+# so residue 3 has one row above. The installer refuses a residue held by two rows.
+#h2:3
 azure:7
