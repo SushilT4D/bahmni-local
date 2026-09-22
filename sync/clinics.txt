@@ -7,8 +7,8 @@
 #
 # ALLOCATION IS FLEET-WIDE AND MUST BE UNIQUE PER NODE.  The offset is the
 # strided residue that makes every row's origin computable from its own
-# primary key, which is what L-008 (per-row single-writer ownership) and
-# L-010 (a collision-free sync key) rest on.  Two nodes sharing an offset
+# primary key, which is what per-row single-writer ownership and a
+# collision-free sync key rest on.  Two nodes sharing an offset
 # mint colliding primary keys and there is no way to tell the rows apart
 # afterwards.  Never reuse or reassign a residue on a node that has already
 # written rows.
@@ -42,11 +42,10 @@ cloud:10
 # MM2 to a fresh consumer group and re-read or skip from a different offset.
 # These rows therefore map the codes in use onto the same residues above.
 #
-# NOTE: the value below corrects a real defect.  Until 2026-09-14 this file
-# held exactly one row, "h1:1", while Rawach's live MySQL has run
-# auto_increment_offset=4 since it was strided.  Running configure-pk-offsets.sh
-# on Rawach would have read that row and restrided the node from 4 to 1 --
-# manpur's residue -- silently breaking L-008 for every row written afterwards.
+# NOTE: the value below must match the node's LIVE auto_increment_offset.
+# A row that disagrees with it (say "h1:1" for a node running offset 4) would
+# make configure-pk-offsets.sh restride the node onto another clinic's
+# residue -- silently breaking per-row ownership for every row written afterwards.
 h1:4
 # h2 was the ghated node's lab code; that node is retired and ghated installs under its slug,
 # so residue 3 has one row above. The installer refuses a residue held by two rows.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validates every connector config against a LIVE Connect (AL-014: a config that
+# Validates every connector config against a LIVE Connect (a config that
 # was never submitted to the plugin is a guess). Usage: validate-connectors.sh http://localhost:8083
 set -euo pipefail
 URL="${1:?connect url}"; REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fails=0

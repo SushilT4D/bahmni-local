@@ -1,13 +1,13 @@
 # Kafka 8.3.2 (Apache Kafka 4.3.x) upgrade notes — what applies to us
 
-Task 3 of `2026-09-17-fleet-on-staging-versions`. `sync/versions.env` pins
+`sync/versions.env` pins
 `KAFKA_IMAGE=confluentinc/cp-kafka:8.3.2`, `MM2_IMAGE=confluentinc/cp-kafka-connect:8.3.2`,
 `SCHEMA_REGISTRY_IMAGE=confluentinc/cp-schema-registry:8.3.2` (all Apache Kafka
 4.3.x, KRaft only, Java 21 in the image), against `DEBEZIUM_CONNECT_IMAGE=quay.io/debezium/connect:3.6.2.Final`.
 
 ## Upstream upgrade-notes fetch: could not be completed
 
-Per the spec (§10.5) and this task's ruling 5, tried in order on 2026-09-17:
+Tried in order:
 
 1. `https://kafka.apache.org/documentation/#upgrade` — WebFetch returned only
    the page's navigation/redirect shell; no upgrade-notes text.

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# ADDED 2026-09-04 (sync-core, D7 Odoo full-replication build).
-#
 # Creates the odoo_sink login role -- the prerequisite that makes the write-origin guard
 # possible at all. The trigger distinguishes a replicated write from a local one by
 # session_user, so the sink MUST connect as a role the Odoo application never uses.
@@ -9,7 +7,7 @@
 #
 # PASSWORD HANDLING. The DDL is written to a file inside the container and run with -f,
 # never passed with -c and never interpolated into a logged command. This is not
-# theoretical caution: on 2026-09-03 a generated password leaked into a PostgreSQL ERROR
+# theoretical caution: a generated password once leaked into a PostgreSQL ERROR
 # CONTEXT line, because a failing statement echoes its own text -- including the literal
 # -- back to the client. With -f, the error cites a file and line, not the statement.
 # The value is written once to .env (gitignored) and never printed.
@@ -18,7 +16,7 @@ set -euo pipefail
 NODE="${1:?usage: create-odoo-sink-role.sh <node>   e.g. rawach}"
 CTR="${PG_CONTAINER:-bahmni-local-bahmni-postgres-1}"
 PG_ADMIN="${PG_ADMIN:-postgres}"
-# Ghated has podman only; see the same note in migrate-odoo-to-pg15.sh.
+# CTR_RT: the container runtime to use (docker or podman); a podman-only host sets it.
 CTR_RT="${CTR_RT:-}"
 if [ -z "$CTR_RT" ]; then
   if command -v docker >/dev/null 2>&1; then CTR_RT=docker
@@ -36,7 +34,7 @@ ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 # created successfully. Source it the same way the consumers do.
 # Reuse only a NON-EMPTY value: the .env template ships CLINLIMS_SINK_PASSWORD=""
 # and a bare `grep ^KEY=` took that blank as a password -- PostgreSQL then cleared
-# the role's password (first live clinic, manpur, 2026-09-17).
+# the role's password.
 [ -f "$ENV_FILE" ] || { echo "  no .env at $ENV_FILE" >&2; exit 1; }
 PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "${ODOO_SINK_PASSWORD:-}")"
 if [ -n "$PW" ]; then
@@ -45,7 +43,7 @@ else
   # Bounded input on purpose: `tr </dev/urandom | head -c 32` never lets tr
   # finish, so head's exit sends it SIGPIPE and under pipefail the assignment
   # fails with 141 on Linux AND macOS -- every fresh node died here, before the
-  # append (first live clinic, manpur, 2026-09-17). 512 bytes give ~124 [A-Za-z0-9].
+  # append. 512 bytes give ~124 [A-Za-z0-9].
   PW="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32)"
   [ "${#PW}" -eq 32 ] || { echo "  password generation produced ${#PW} chars, not 32" >&2; exit 1; }
   if grep -q '^ODOO_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then

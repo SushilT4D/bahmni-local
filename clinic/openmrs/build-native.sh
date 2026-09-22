@@ -13,8 +13,8 @@
 # Mac (~11x faster). x86 clinics never run this -- see task 040.
 #
 # A multi-stage `COPY --from=<amd64 stage>` is REFUSED by this podman/buildah
-# (6.1.0, rootless): "unsupported MIME type for compression" (Ghated,
-# 2026-09-21), before any COPY instruction runs. The route that works instead:
+# (6.1.0, rootless): "unsupported MIME type for compression", before any COPY
+# instruction runs. The route that works instead:
 # `create --platform linux/amd64` + `cp` for each of the four paths into a
 # build context, then a single-stage build with plain COPY against that
 # context. The source image is never executed under emulation.

@@ -1,7 +1,7 @@
 # erp-connect-lib — Apache HttpClient 5 for `odoo-connect`
 
-Three jars the `bahmni/odoo-connect` image needs and does not ship (sync-core
-F-064). `openerp-client`'s `XMLClient.setTimeout` builds Spring 6's
+Three jars the `bahmni/odoo-connect` image needs and does not ship.
+`openerp-client`'s `XMLClient.setTimeout` builds Spring 6's
 `HttpComponentsClientHttpRequestFactory`, which `spring-web-6.0.19` compiles
 against HttpClient 5 (`org.apache.hc.*`); the WAR carries only HttpClient 4, so
 every Odoo XML-RPC call throws `NoClassDefFoundError`. Upstream catches

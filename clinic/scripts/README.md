@@ -64,7 +64,7 @@ table plus publication membership in both Postgres databases).
 **Recovery** — `fix-offsets.sh`, `restart-connectors.sh`.
 
 **Ad-hoc probes** — `send-to-remote-kafka.{sh,py}`, `test-kafka-auth.py`,
-`drop-sync-origin`, `configure_debezium.sh`, `config.sh`.
+`configure_debezium.sh`, `config.sh`.
 
 ## Conventions
 

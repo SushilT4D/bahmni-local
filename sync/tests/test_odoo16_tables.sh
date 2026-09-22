@@ -5,7 +5,7 @@ want="account_move account_move_line district_subdistrict product_category produ
 have="$(grep -E '^odoo:' "$REPO/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2 | sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "subsystems.conf carries the Odoo 16 set" || bad "subsystems.conf odoo set is: $have"
 
-# Ruling 2: the striding SQL no longer hard-codes any table name -- it takes the
+# The striding SQL does not hard-code any table name -- it takes the
 # list from the caller (task 060, which reads subsystems.conf) via a psql
 # variable, split with string_to_array. So instead of asserting each table
 # NAME is present in the SQL, assert none of them are (the array literal is

@@ -1,4 +1,4 @@
-# Reconstructed (absent upstream — BL-026 family).
+# Reconstructed: absent upstream, present because the compose mounts it.
 Configuration:
   Appenders:
     Console:

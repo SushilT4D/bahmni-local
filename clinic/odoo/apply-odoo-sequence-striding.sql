@@ -1,17 +1,15 @@
--- ADDED 2026-09-04 (sync-core, D7 Odoo full-replication build).
+-- Odoo sequence striding on a clinic.
 --
 -- WHY THIS EXISTS. OpenMRS avoids cross-node primary-key collisions with MySQL's
 -- auto_increment_increment=10 plus a per-node auto_increment_offset, so Rawach mints
 -- 4, 14, 24 ... and the cloud mints 10, 20, 30 .... clinlims does the same with
--- PostgreSQL sequences at increment_by=10 (verified 2026-09-04: sample_*_seq all
--- carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
+-- PostgreSQL sequences at increment_by=10 (sample_*_seq all carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
 -- nodes both mint sale_order id=1 for different orders. Under an idempotent upsert
 -- keyed on the PK that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
--- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows -- 13 as of
--- 2026-09-17, res_country_state included, F-053; 20 as of 2026-09-21, ADR-005's
--- seven address-mapping/attribute/link tables) plus the join/child tables that
+-- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows, the
+-- address-mapping, attribute and link tables included) plus the join/child tables that
 -- hang off them. Framework sequences (ir_*) are deliberately untouched: they never
 -- travel, and striding them would desynchronise module installation across nodes.
 --
@@ -32,8 +30,8 @@
 -- number have. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
 -- separately; this script does not pretend to fix it.
 --
--- TABLE LIST. The synced Odoo tables are no longer hard-coded here (sync-core Task
--- 4, 2026-09-17): the caller (task 060) reads sync/subsystems.conf's odoo: rows,
+-- TABLE LIST. The synced Odoo tables are not hard-coded here: the caller
+-- (task 060) reads sync/subsystems.conf's odoo: rows,
 -- through lib.sh's subsystem_tables (trims, validates, skips :all) -- the same file
 -- the publication and MirrorMaker whitelist derive from -- and passes them in as a
 -- single comma-separated psql variable, split back into an array below. A second
@@ -41,7 +39,7 @@
 -- subsystems.conf already fixed once for the MirrorMaker regex (see that file's own
 -- header); this script does not get to keep its own copy.
 --
--- COMPOSITE-KEY LINK TABLES (ADR-005, 2026-09-21, Acceptance). Three of the tables
+-- COMPOSITE-KEY LINK TABLES. Three of the tables
 -- this script now receives (product_taxes_rel, product_supplier_taxes_rel,
 -- stock_route_product) have no id column and no owning sequence AT ALL -- their
 -- primary key is composite (prod_id,tax_id or route_id,product_id). That used to be
@@ -89,13 +87,13 @@ BEGIN
     -- <table>_id_seq (inherited and renamed tables differ). NULL means no serial PK.
     --
     -- A synced table with no serial sequence on id is a DEFECT, not something to
-    -- notice-and-skip (code review, 2026-09-17): this table is in the publication
+    -- notice-and-skip: this table is in the publication
     -- and in the MirrorMaker whitelist by construction (same subsystems.conf list),
     -- so it will be written from more than one node -- and if its ids are not
     -- strided, two nodes CAN mint the same id. A quiet NOTICE let exactly
     -- that gap through with a green task.
     --
-    -- ADR-005 narrows this: no serial id is only a defect when the table ALSO has
+    -- One narrowing: no serial id is only a defect when the table ALSO has
     -- no composite primary key to fall back on. A composite key (>=2 columns) is
     -- collision-free without striding, so it gets a NOTICE and a skip, not the
     -- EXCEPTION below. The column count comes from pg_index/pg_constraint (the
@@ -103,8 +101,8 @@ BEGIN
     -- pg_get_serial_sequence does NOT return NULL for a table without an `id`
     -- column: it RAISES ("column id of relation ... does not exist"), which rolls
     -- back this whole transaction and leaves even the id tables listed beside it
-    -- unstrided (found on a real PostgreSQL, 2026-09-21; fixture tests could not
-    -- see it). So ask the catalog whether the column exists first.
+    -- unstrided (fixture tests cannot see this; a real PostgreSQL can). So ask
+    -- the catalog whether the column exists first.
     IF EXISTS (SELECT 1 FROM pg_attribute
                WHERE attrelid = ('public.' || v_tbl)::regclass AND attname = 'id' AND NOT attisdropped) THEN
       v_seq := pg_get_serial_sequence('public.' || v_tbl, 'id');
@@ -118,10 +116,10 @@ BEGIN
         WHERE ix.indrelid = ('public.' || v_tbl)::regclass AND ix.indisprimary
       );
       IF v_pkcols IS NOT NULL AND v_pkcols >= 2 THEN
-        RAISE NOTICE '  % : composite primary key (% columns), no serial id -- collision-free by construction (strided id + seed-identical master id), skipping (ADR-005)', v_tbl, v_pkcols;
+        RAISE NOTICE '  % : composite primary key (% columns), no serial id -- collision-free by construction (strided id + seed-identical master id), skipping', v_tbl, v_pkcols;
         CONTINUE;
       END IF;
-      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id and no composite primary key -- it cannot be strided and L-008 does not hold for it', v_tbl;
+      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id and no composite primary key -- it cannot be strided, so two nodes could mint the same id', v_tbl;
     END IF;
 
     EXECUTE format('SELECT COALESCE(MAX(id),0) FROM public.%I', v_tbl) INTO v_max;

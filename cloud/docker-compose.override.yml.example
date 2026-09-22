@@ -1,8 +1,6 @@
-# SANITISED 2026-09-15. This file shipped THREE literal passwords and an absolute
-# path into a PUBLIC repo from its first commit (9a55e03). The values did not
-# match the hub's live credentials when checked, so they were stale rather than
-# current -- but an .example is the one file guaranteed to be read by someone
-# setting up a new node, and it is the last place a real-looking secret belongs.
+# An .example is the one file guaranteed to be read by someone setting up a
+# new node, and it is the last place a real-looking secret or an absolute path
+# from another machine belongs.
 #
 # Every credential here is now ${VAR:?}: unset means the stack refuses to start,
 # rather than silently coming up on an example password. The host path is
@@ -13,24 +11,24 @@
 
 
 # ============================================================================
-# TRAP, found 2026-09-02: NEVER put a "#" comment INSIDE a folded block scalar.
+# TRAP: NEVER put a "#" comment INSIDE a folded block scalar.
 #
 # YAML does NOT strip comments inside  command: >-  . Every indented line, "#"
 # lines included, is folded into the string. Four comment lines were added
-# inside openmrsdb.command on 2026-09-01 to document --max-connections=500, and
+# inside openmrsdb.command once, to document --max-connections=500, and
 # from that moment  failed with:
 #     decoding failed due to the following error(s):
 #     services[openmrsdb].command invalid command line string
 # which means NO  could run on this node at all. It went
 # unnoticed for a day because the running containers predated the edit, so
 # nothing visibly broke -- the file and the runtime had diverged silently, the
-# same class as the wait_timeout finding in F-007.
+# same class as a container that keeps an old command after a restart.
 #
 # Put explanatory comments ABOVE the  key, never between it and its
 # continuation lines. And run  after editing this file:
 # it is the only thing that proves the file is still usable.
 # ============================================================================
-# MM-03 — authored by the mini session (NOT Sushil's file; compose auto-merges
+# Host-side deviations for the cloud node (compose auto-merges
 # docker-compose.override.yml). Two purposes:
 #   1. Loopback-only publishing: ground rule 2 (tailnet-only) — the tailnet
 #      reaches these via `tailscale serve`, never the LAN. His compose binds
@@ -46,8 +44,8 @@ services:
     ports: !override
       - '127.0.0.1:9092:9092'
       - '127.0.0.1:9093:9093'
-    # MM-07: cp-kafka's preflight (cub zk-ready) sees the JAAS file in
-    # KAFKA_OPTS and then demands a SASL zookeeper — but his zookeeper is
+    # cp-kafka's preflight (cub zk-ready) sees the JAAS file in
+    # KAFKA_OPTS and then demands a SASL zookeeper — but the zookeeper is
     # plain, so the probe times out even though the session establishes.
     # This env tells the probe zookeeper SASL is off. Broker config unchanged.
     environment:
@@ -69,7 +67,7 @@ services:
     # sink write, so it is not just the 1,667 admin rows.
     #
     # STRIDING: offset 10 with increment 10 => cloud-authored ids are ≡ 0 (mod 10),
-    # per Sushil's map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4, Bagdunda 5, Kojawada 6).
+    # the clinics take residues 1-9 (sync/clinics.txt).
     # This node is MySQL 5.6, where `SET PERSIST` does not exist at all -- server flags are
     # the ONLY way to set this so it survives a restart. They are also immune to the
     # mysqld-auto.cnf override that silently defeated the flag on the 8.0 clinic.
@@ -79,12 +77,12 @@ services:
       --server-id=2 --expire-logs-days=3
       --auto-increment-increment=10 --auto-increment-offset=10
       --wait-timeout=604800 --interactive-timeout=604800
-      # Each JDBC sink holds connection.pool.min_size=5 and F-007 measured the pool
-      # as never recycling, so cost is 5 x (12 tables) per CLINIC, permanently.
-      # Two clinics = 120 of the stock 151, which starved the app tier on
-      # 2026-09-01 (Too many connections -> OpenMRS 500s). Seven clinics needs ~450.
+      # Each JDBC sink holds connection.pool.min_size=5 and the pool never
+      # recycles, so cost is 5 x (12 tables) per CLINIC, permanently.
+      # Two clinics = 120 of the stock 151, which starves the app tier
+      # (Too many connections -> OpenMRS 500s). Seven clinics needs ~450.
       --max-connections=500
-    # MM-17: mysql:5.6 has NO arm64 manifest entry; cold pull needs the pin
+    # mysql:5.6 has NO arm64 manifest entry; cold pull needs the pin
     platform: linux/amd64
   odoodb:
     ports: !override
@@ -95,8 +93,8 @@ services:
     # bahmni/odoo-10 is a manifest list with no arm64 entry (same disease as
     # odoo-16): docker refuses auto-fallback, needs the explicit pin.
     platform: linux/amd64
-    # MM-12: real empty dir for extra-addons (a /dev/null placeholder cannot
-    # be dir-mounted), and DROP his bahmni-addons dev overlay — an empty
+    # A real empty dir for extra-addons (a /dev/null placeholder cannot
+    # be dir-mounted), and no bahmni-addons dev overlay — an empty
     # host dir there would shadow the addons shipped inside the image.
     volumes: !override
       - 'odooappdata:/var/lib/odoo'
@@ -112,15 +110,15 @@ services:
     ports: !override
       - '127.0.0.1:8081:80'
       - '127.0.0.1:8444:443'
-    # MM-13: his compose bind-mounts /App/bahmni-std-cloud-package-master/
+    # The base compose bind-mounts /App/bahmni-std-cloud-package-master/
     # proxy-config/bahmni-proxy.conf — a PROD-ONLY path, the file is not in
-    # the repo (M-016). Drop it and rely on the image's own config.
+    # the repo. Drop it and rely on the image's own config.
     volumes: !override
       - '${CERTIFICATE_PATH}/fullchain.pem:/etc/tls/cert.pem'
       - '${CERTIFICATE_PATH}/privkey.pem:/etc/tls/key.pem'
       - 'bahmni-patient-images:/home/bahmni/patient_images'
       # re-introduce a bahmni-proxy.conf mount -- but from THIS repo, not
-      # the prod-only path MM-13 dropped. proxy-config/bahmni-proxy.conf is the image's
+      # the prod-only path dropped above. proxy-config/bahmni-proxy.conf is the image's
       # own file plus one addition: relative Location headers. ProxyPassReverse rebuilt
       # the upstream 301 with the wrong scheme (an https request got Location: http://...),
       # which behind tailscale serve became http://bahmni.xoyo.ad/... where nothing
@@ -130,7 +128,7 @@ services:
 
   # ── OpenELIS on the cloud — the receiving side of bidirectional lab sync.
   # A dedicated postgres:14 (NOT bahmni/openelis-db): matching the clinic's engine
-  # removes BL-052's version-skew half entirely. Loopback-only, tailnet ground rule.
+  # removes the version skew a shared instance would carry. Loopback-only, tailnet ground rule.
   openelisdb:
     image: postgres:15
     command: >-
@@ -174,7 +172,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── STAGING PARITY (2026-08-28, revised). The 2026-08-28 morning fix bind-mounted the
+  # ── STAGING PARITY. An earlier fix bind-mounted the
   # CLINIC's tree over this image because we had no better reference. bhs-sandbox then gave us
   # the real one: BHS production runs bahmni-iplit-web:bhs-0.0.27 and
   # clinic-config-indiadistro:bhs-0.0.19 (both confirmed pullable, both linux/amd64 ONLY, so the
@@ -192,7 +190,7 @@ services:
   # bahmni-config is declared here ONLY to pin its platform. It is the one-shot container that
   # populates the config volume; it carries NO compose profile, so a start by explicit service
   # name SKIPS it -- which is exactly how the volume ended up empty and login landed on a blank
-  # dashboard on 2026-08-28. It must be named explicitly when bringing this stack up.
+  # dashboard. It must be named explicitly when bringing this stack up.
   bahmni-config:
     platform: linux/amd64
   bahmni-web:

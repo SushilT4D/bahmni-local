@@ -1,5 +1,5 @@
 #!/bin/sh
-# ADDED (not in Sushil's repo, not in the upstream image).
+# Not in the upstream image.
 #
 # Replicates the image's own /start.sh EXCEPT the two liquibase steps. Upstream's
 # liquibase 1.9.5 cannot acquire its changelog lock against PostgreSQL: it never

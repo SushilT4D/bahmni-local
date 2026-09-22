@@ -2,7 +2,7 @@
 # and the four COPY sources below (tomcat/, openmrs/, bahmni-emr/,
 # bahmni-home/) are staged into the build context by that script's
 # create+cp step, which extracts them from the pinned amd64 OpenMRS image
-# without ever running it. Measured on Ghated, 2026-09-21 (task1b-report.md):
+# without ever running it. Measured on an Apple M5 Pro:
 # 27s build, 844 MB image, bare Tomcat+WAR start in 2,330-2,394 ms vs 26,153 ms
 # emulated (~11x). A multi-stage `COPY --from=<amd64 stage>` is refused by
 # this podman/buildah ("unsupported MIME type for compression") -- that is

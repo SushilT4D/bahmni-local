@@ -2,7 +2,7 @@
 # Debezium 3.6 pools with Agroal, which REFUSES min_size > max_size ("Invalid min
 # size: greater than max size") where c3p0 tolerated it. The JDBC sink's default
 # min_size is 5, so any sink that caps max_size below 5 must state min_size too.
-# manpur, 2026-09-21: nine mysql-local-sink tasks FAILED on exactly this.
+# Nine mysql-local-sink tasks once FAILED on a fresh clinic on exactly this.
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fails=0

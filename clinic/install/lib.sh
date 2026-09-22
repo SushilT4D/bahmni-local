@@ -381,7 +381,7 @@ ensure_stopped(){
 # JVM sized its heap from host RAM -- so the heap is pinned explicitly
 # regardless (a cap proven on a 121k-patient clinic).
 #
-# RETIRED: the fleet pin moved to
+# The fleet pin is now
 # infoiplitin/openmrs:iplit-1.2.0-1200-03, Java 8u432, which does not have the
 # bug. This function used to ADD the flag to any .env missing it (a template-
 # era node, repaired on resume, not by hand) -- it must NOT do that any more,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Derived from the verified odoo_sink role script (sync-core, 2026-09-04).
+# Derived from the odoo_sink role script.
 #
 # Creates the clinlims_sink login role. The JDBC sinks MUST connect as a role the
 # OpenELIS application itself never uses: it is the role that claims a replication
@@ -8,7 +8,7 @@
 #
 # PASSWORD HANDLING. The DDL is written to a file inside the container and run with -f,
 # never passed with -c and never interpolated into a logged command. This is not
-# theoretical caution: on 2026-09-03 a generated password leaked into a PostgreSQL ERROR
+# theoretical caution: a generated password once leaked into a PostgreSQL ERROR
 # CONTEXT line, because a failing statement echoes its own text -- including the literal
 # -- back to the client. With -f, the error cites a file and line, not the statement.
 # The value is written once to .env (gitignored) and never printed.
@@ -35,7 +35,7 @@ ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 # created successfully. Source it the same way the consumers do.
 # Reuse only a NON-EMPTY value: the .env template ships CLINLIMS_SINK_PASSWORD=""
 # and a bare `grep ^KEY=` took that blank as a password -- PostgreSQL then cleared
-# the role's password (first live clinic, manpur, 2026-09-17).
+# the role's password.
 [ -f "$ENV_FILE" ] || { echo "  no .env at $ENV_FILE" >&2; exit 1; }
 PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "${CLINLIMS_SINK_PASSWORD:-}")"
 if [ -n "$PW" ]; then
@@ -44,7 +44,7 @@ else
   # Bounded input on purpose: `tr </dev/urandom | head -c 32` never lets tr
   # finish, so head's exit sends it SIGPIPE and under pipefail the assignment
   # fails with 141 on Linux AND macOS -- every fresh node died here, before the
-  # append (first live clinic, manpur, 2026-09-17). 512 bytes give ~124 [A-Za-z0-9].
+  # append. 512 bytes give ~124 [A-Za-z0-9].
   PW="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32)"
   [ "${#PW}" -eq 32 ] || { echo "  password generation produced ${#PW} chars, not 32" >&2; exit 1; }
   if grep -q '^CLINLIMS_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
