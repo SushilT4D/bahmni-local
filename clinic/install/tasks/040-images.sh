@@ -68,7 +68,7 @@ missing=""
 for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
 [ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
 # Connect plugin jars: scripting (fetched, gitignored). The replication-origin claim
-# (was the c3p0 customizer here) is config-only since 2026-09-17 -- see the
+# is config-only -- see the
 # hibernate.agroal.initialSQL key in each clinic-side sink connector's own JSON.
 J="${CLINIC_DIR}/config/kafka-connect"
 GV="$(env_get "$E" GROOVY_VERSION)"; DSV="$(env_get "$E" DEBEZIUM_SCRIPTING_VERSION)"

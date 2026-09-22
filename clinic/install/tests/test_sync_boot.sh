@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sync-layer boot on a small host (manpur, 1 vCPU, 2026-09-21): kafka-connect
+# Sync-layer boot on a small host (1 vCPU): kafka-connect
 # needs minutes to scan its plugins, its healthcheck allowed ~50 s with no
 # start_period, and task 090's single `compose up` died on kafka-ui's
 # depends_on: service_healthy. The healthchecks now carry a start_period, kafka's
@@ -48,7 +48,7 @@ r="$(fx UNASSIGNED '{"state":"RUNNING"}' | jq -r "$JQ_NOT_RUNNING" | tr '\n' ' '
 r="$(fx FAILED '{"state":"RUNNING"}' | jq -r "$JQ_FAILED" | tr '\n' ' ')"; [ "$r" = "a " ] && ok_ "FAILED is named at once" || bad "FAILED not named: '$r'"
 printf '%s' "$code" | grep -q 'CONNECT_TASKS_TIMEOUT_S:-600' && ok_ "090 polls task state on a named budget" || bad "090 has no CONNECT_TASKS_TIMEOUT_S:-600"
 
-# manpur, 2026-09-21: eight of nine mysql-local-sink-* tasks recovered after a
+# On one install, eight of nine mysql-local-sink-* tasks recovered after a
 # config fix + re-PUT; mysql-local-sink-role_role stayed FAILED for hours
 # because a PUT that leaves a connector's config unchanged from Connect's own
 # point of view does not restart a FAILED task. 090 must restart FAILED tasks

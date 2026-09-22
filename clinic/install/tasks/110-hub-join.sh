@@ -18,7 +18,7 @@ cat <<EOF
     3. on the hub:  the Odoo and clinlims up-sinks for ${CLINIC_SLUG} (copies of Ghated's, topics ${LOCAL_CLUSTER_ALIAS}.${MYSQL_SERVER_NAME}.odoo.all / .clinlims.all)
     4. proof: a marker written here is read on the hub within a minute
 
-  What this fleet cannot yet give a clinic: mTLS and per-site broker ACLs (L-007).
+  What this fleet cannot yet give a clinic: mTLS and per-site broker ACLs.
   This node dials ${REMOTE_KAFKA_BOOTSTRAP_SERVERS} with the fleet-wide SASL user.
 
 EOF

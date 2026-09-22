@@ -28,7 +28,7 @@ assert_eq "OPENMRS_IMAGE_NAME pinned" "$(env_get "$E" OPENMRS_IMAGE_NAME)" "info
 assert_eq "ODOO_CONNECT_IMAGE_TAG pinned" "$(env_get "$E" ODOO_CONNECT_IMAGE_TAG)" "1.0.0"
 assert_eq "no ODOO_DB_IMAGE_TAG" "$(grep -c '^ODOO_DB_IMAGE_TAG=' "$E")" "0"
 assert_eq "no ODOO_IMAGE_TAG" "$(grep -c '^ODOO_IMAGE_TAG=' "$E")" "0"
-assert_eq "REMOTE_KAFKA_PASSWORD quoted (Fix round 1: single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$E")" "REMOTE_KAFKA_PASSWORD='p&w'"
+assert_eq "REMOTE_KAFKA_PASSWORD quoted (single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$E")" "REMOTE_KAFKA_PASSWORD='p&w'"
 assert_eq "OPENELIS_DB_PASSWORD == CLINLIMS_SOURCE_PASSWORD" "$(env_get "$E" OPENELIS_DB_PASSWORD)" "$(env_get "$E" CLINLIMS_SOURCE_PASSWORD)"
 assert_eq "DEBEZIUM_DB_PASSWORD == LOCAL_DEBEZIUM_PASSWORD" "$(env_get "$E" DEBEZIUM_DB_PASSWORD)" "$(env_get "$E" LOCAL_DEBEZIUM_PASSWORD)"
 assert_eq "KAFKA_CLUSTER_ID length" "$(env_get "$E" KAFKA_CLUSTER_ID | awk '{print length}')" "22"

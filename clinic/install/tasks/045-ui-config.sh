@@ -2,7 +2,7 @@
 # IPLIT's UI and config, copied out of the two images pinned in sync/versions.env
 # into clinic/extracted/ (gitignored, node-local). The clinic's one nginx serves
 # them and OpenMRS + OpenELIS read the same config tree -- no second web server,
-# no hand-taken copy in the repo (review of 2026-09-21). Safe to re-run: an
+# no hand-taken copy in the repo. Safe to re-run: an
 # unchanged source is skipped.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
@@ -24,7 +24,7 @@ CT="${CT}" CLINIC_DIR="${CLINIC_DIR}" VERSIONS_FILE="${VERSIONS_FILE}" MRN_PREFI
 # ocl-proof:begin
 # Belt and braces on top of extract-ui-config.sh's own hold_ocl: a first boot
 # imported the CIEL dictionary for hours because two OCL zips sat in the
-# config tree OpenMRS reads (manpur, 2026-09-21). Prove they are really out of
+# config tree OpenMRS reads. Prove they are really out of
 # the served tree rather than trusting the extraction script's own move.
 ocl_zips="$(find "$CF/masterdata/configuration/ocl" -name '*.zip' 2>/dev/null)"
 if [ "${KEEP_OCL_ZIPS:-0}" = 1 ]; then
@@ -33,7 +33,7 @@ elif [ -z "$ocl_zips" ]; then
   ocl_held="$(find "$(dirname "$CF")/ocl-held" -name '*.zip' 2>/dev/null | wc -l | tr -d ' ')"
   ok "no OCL dictionary zip in the tree OpenMRS reads (${ocl_held:-0} held aside)"
 else
-  fail "OCL dictionary zip(s) still in the tree OpenMRS reads -- a days-long CIEL import on a small node (manpur, 2026-09-21): $(printf '%s' "$ocl_zips" | tr '\n' ' ')"
+  fail "OCL dictionary zip(s) still in the tree OpenMRS reads -- a days-long CIEL import on a small node: $(printf '%s' "$ocl_zips" | tr '\n' ' ')"
 fi
 # ocl-proof:end
 WL="$CF/openmrs/apps/home/whiteLabel.json"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A dry run left a real clinic/.env behind, and the real run that followed
-# refused it as "already exists" (manpur rebuild, 2026-09-21). A dry-run render
+# refused it as "already exists". A dry-run render
 # is now stamped on its first line; preflight moves a stamped file aside on a
 # real run (never deletes it) and still refuses an unstamped one.
 set -u

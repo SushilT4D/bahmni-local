@@ -73,11 +73,10 @@ echo "✓ cloud secrets left as \${REMOTE_KAFKA_*} placeholders (runtime inject)
 # ---------------------------------------------------------------------------
 # Topic patterns.  BOTH directions are generated here.
 #
-# Before 2026-09-14 only the UP pattern was built, and only from
-# debezium/local/tables.conf -- OpenMRS tables.  The DOWN pattern was a literal
-# in the template.  Both omitted every Odoo and OpenELIS topic, so regenerating
-# mm2.properties silently dropped two whole subsystems from replication.  The
-# subsystem topics now come from debezium/subsystems.conf, which is the tracked
+# Building only the UP pattern, and only from the OpenMRS table list, with the
+# DOWN pattern a literal in the template, omits every Odoo and OpenELIS topic,
+# so a regenerate would silently drop two whole subsystems from replication.
+# The subsystem topics come from sync/subsystems.conf, which is the tracked
 # source of truth for them.
 #
 # Ordering is deliberate and matches the rendered file this replaced:

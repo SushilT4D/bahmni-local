@@ -6,12 +6,11 @@ there is no cron, no entrypoint, and no CI that invokes them.
 
 ## Where the authoritative usage lives
 
-**This file does not define the order to run things in.** The runbooks do, and
-they live in a *different repository* — the `Bahmni` workspace, under
-`docs/sync-core/runbooks/`. Thirteen of the scripts below are cited there and
-nowhere inside this repo, so a search confined to `bahmni-local` reports them as
-unreferenced when they are in fact load-bearing. Check the runbooks before
-concluding anything here is dead.
+**This file does not define the order to run things in.** The operator's
+runbooks do, and they are kept outside this repository. Many of the scripts
+below are cited there and nowhere inside this repo, so a search confined to
+`bahmni-local` reports them as unreferenced when they are in fact
+load-bearing. Check the runbooks before concluding anything here is dead.
 
 ## Groups
 
@@ -38,9 +37,9 @@ MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 `trace-change.sh`, `test-replication.sh`.
 
 > `preflight.sh` runs **entirely on this node** and opens no connections. The
-> three-node fan-out that used to live in it is the operator's, and moved to the
-> Bahmni workspace repo (`skills/lab-preflight.sh`) on 2026-09-14 — it pipes this
-> same file to each node over SSH, so every node is judged by one ruler.
+> fan-out across nodes is the operator's own tooling, outside this repo — it
+> pipes this same file to each node over SSH, so every node is judged by one
+> ruler.
 
 > Prefer `check-sink-tasks.sh`: it sweeps every connector and judges on **task**
 > state, not connector state. A connector reports `RUNNING` while its task is
@@ -48,8 +47,8 @@ MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 
 **Per-clinic identity and striding** — `configure-pk-offsets.sh` sets this
 clinic's MySQL `AUTO_INCREMENT` offset/increment. This is what makes the strided
-integer PK collision-free, so it is a precondition for L-008 (per-row ownership)
-and L-010 (the sync key), not a tuning knob.
+integer PK collision-free, so it is a precondition for per-row ownership and
+the sync key, not a tuning knob.
 
 **Retention and liveness** — `set-schema-history-retention.sh` (the Debezium
 schema-history topic must never expire) and `apply-slot-heartbeat.sh` (heartbeat
@@ -59,8 +58,8 @@ table plus publication membership in both Postgres databases).
 `restore_bahmni_lite.sh`.
 
 > Seeding a clinic from cloud data is a **manual** step: take the dump and share
-> the file. `pull-openmrs-db.sh`, which SSHed to the hub to dump and download,
-> was removed on 2026-09-14 — see the note below.
+> the file. Nothing here SSHes to the hub to dump and download — see the note
+> below.
 
 **Recovery** — `fix-offsets.sh`, `restart-connectors.sh`.
 
@@ -84,13 +83,13 @@ table plus publication membership in both Postgres databases).
 
 This directory contains **nothing that reaches another machine**, and it should
 stay that way. A clinic node talks to `localhost`; it reaches the hub over
-Kafka, never a shell. Under L-007 that transport is meant to be mTLS with
-per-site ACLs confining each site to its own topics, so a shell from every
+Kafka, never a shell. That transport is meant to be mTLS with per-site ACLs
+confining each site to its own topics, so a shell from every
 clinic to the hub is far wider access than the architecture grants — and this
 repo is public.
 
-Removed on 2026-09-14, when `git grep` found SSH in exactly three files and the
-resolved compose config referenced it zero times:
+What used to reach out, and what replaced it (the resolved compose config
+references SSH zero times):
 
 | Was | Now |
 |---|---|

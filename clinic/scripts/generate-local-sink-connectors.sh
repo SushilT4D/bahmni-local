@@ -4,15 +4,13 @@
 # One connector per cloud-owned table from hub/tables.conf. These run ON THE
 # CLINIC and write into the clinic's OpenMRS DB.
 #
-# Deliberate differences from the up-direction generator (hub/scripts/
-# generate-sink-connectors.sh), each one a defect we hit:
-#   BL-030  that script used an UNQUOTED heredoc, so the shell expanded the RegexRouter
-#           replacement "$1" to empty and every connector died with `Invalid identifier:`.
-#           Here the template is a FILE and substitution is explicit — "$1" is never
-#           exposed to the shell.
-#   BL-032  that script hardcodes the topic prefix `source.bahmni-local.openmrs.`, which
-#           blocks clinic #2. Here every prefix component is a variable.
-#   BL-039  connection.restart.on.errors is set in the template (see it for why).
+# Deliberate choices, each one closing a defect a generator can have:
+#   - the template is a FILE and substitution is explicit, so the RegexRouter
+#     replacement "$1" is never exposed to the shell (an unquoted heredoc expands
+#     it to empty and every connector dies with `Invalid identifier:`);
+#   - every topic-prefix component is a variable, so a second clinic is not
+#     blocked by a hardcoded `source.<clinic>.openmrs.`;
+#   - connection.restart.on.errors is set in the template (see it for why).
 #
 # Usage: ./scripts/generate-local-sink-connectors.sh [output-dir]
 set -euo pipefail
@@ -21,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-${ROOT}/../sync/local/connectors/generated}"
 TEMPLATE="${ROOT}/../sync/local/connectors/mysql-local-sink-connector.json.template"
 TABLES_CONF="${TABLES_CONF:-${ROOT}/../hub/tables.conf}"
-# The clinic's OWN capture list. Read only to refuse overlap — see the L-008 guard below.
+# The clinic's OWN capture list. Read only to refuse overlap — see the ownership guard below.
 UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/local/tables.conf}"
 
 [[ -f "$TEMPLATE"    ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
@@ -62,7 +60,7 @@ done < "$TABLES_CONF"
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
-# L-008 ownership guard — the mirror image of the one in
+# Ownership guard — the mirror image of the one in
 # hub/scripts/generate-sink-connectors.sh, which refuses to give a
 # CLOUD-owned table an up-direction sink. Same rule, other direction: a table the
 # CLINIC authors must never get a down-direction sink.
@@ -72,18 +70,16 @@ done < "$TABLES_CONF"
 # table is in BOTH capture lists — comes straight back down. Unbounded, and unlike
 # clinlims on Postgres there is no publication row filter on MySQL to break it.
 #
-# NARROWED 2026-09-14. That hazard is closed when the sink writes with
-# sessionVariables=sql_log_bin=0 (the engine-native loop guard that replaced the
-# sync_origin marker fleet-wide on 2026-09-09): the write never enters the binlog,
-# so it cannot loop. The template has carried that setting since, and the nine
-# mysql-local-sink-* connectors registered on both clinics all use it — including
-# person and person_name, which this check was refusing to generate even though the
-# running fleet has run them safely for days.
+# That hazard is closed when the sink writes with sessionVariables=sql_log_bin=0
+# (the engine-native loop guard): the write never enters the binlog, so it
+# cannot loop. The template carries that setting, and every mysql-local-sink-*
+# connector uses it — including person and person_name, which an unconditional
+# refusal here would never generate.
 #
-# An unconditional refusal here also enforces PER-TABLE ownership, which is the
-# superseded L-001. The live invariant is L-008: a table MAY be written by more than
-# one node provided no two nodes write the same row, which is what the residue and
-# base_id striding guarantee for person/person_name.
+# An unconditional refusal here would also enforce PER-TABLE ownership, which is
+# not the rule: a table MAY be written by more than one node provided no two
+# nodes write the same row, which is what the residue and base_id striding
+# guarantee for person/person_name.
 #
 # So: still refuse — loudly, before writing anything — but only when the sink would
 # genuinely go out without the guard. If the template ever loses sql_log_bin=0 this
@@ -95,7 +91,7 @@ if [[ -f "$UP_TABLES_CONF" ]] && ! grep -q 'sql_log_bin=0' "$TEMPLATE"; then
               echo "REFUSING ${t}: it is clinic-owned (listed in ${UP_TABLES_CONF})."
               echo "  A down-direction sink would write cloud rows into a table the clinic authors."
               echo "  The clinic also captures that table, so the write would re-enter the binlog and"
-              echo "  loop back through the cloud — with no MySQL row filter to stop it (L-008/L-009)."
+              echo "  loop back through the cloud — with no MySQL row filter to stop it."
               echo "  Nothing was generated."
             } >&2
             exit 1
@@ -129,7 +125,7 @@ leftover = [k for k, v in doc['config'].items() if '${' in str(v)]
 if leftover:
     sys.exit(f"unsubstituted placeholder(s) in {leftover}")
 if doc['config'].get('transforms.dropPrefix.replacement') != '$1':
-    sys.exit("RegexRouter replacement is not literal $1 — the BL-030 defect has reappeared")
+    sys.exit("RegexRouter replacement is not literal $1 — the shell expanded it")
 
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 PYEOF

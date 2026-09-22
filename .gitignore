@@ -26,10 +26,9 @@ cloud/connectors/mysql-sink-*.json
 cloud/connectors/generated/
 # The hub's OTHER rendered connectors (register-odoo.sh / _render_connector.py
 # write odoo-*.json with live passwords), its untracked htdocs copy, its starter
-# SQL and every *.bak-* the operator leaves behind. These rules lived only on the
-# retired node/cloud branch; when the hub checked out the shared branch on
-# 2026-09-15 (Stage 4) 19 node-local files surfaced as untracked, five of them
-# carrying credentials. Templates and known-good.json stay tracked: ignore rules
+# SQL and every *.bak-* the operator leaves behind. Without these rules a hub
+# checkout shows its node-local files as untracked, some of them carrying
+# credentials. Templates and known-good.json stay tracked: ignore rules
 # never apply to tracked files.
 cloud/connectors/odoo-*.json
 cloud/htdocs/
@@ -39,13 +38,9 @@ cloud/openelis-starter.sql
 # Same rule again, CLINIC side. scripts/generate-connectors.sh renders
 # debezium/local/connectors/mysql-source-connector.template.json into BOTH paths
 # below, and its SUBST_VARS includes ${LOCAL_DEBEZIUM_PASSWORD} -- so the output
-# carries the live Debezium password. These two were TRACKED in this public repo
-# until 2026-09-14, surviving only because someone had hand-edited the committed
-# copies to say ${DEBEZIUM_DB_PASSWORD} instead, a variable the generator does not
-# substitute (and which is not set in .env at all). That left the repo in a state
-# where the committed file could not register and the working file could not be
-# committed: running the generator and then `git add` leaked the credential.
-# Template is tracked, output is not. Regenerate rather than copy.
+# carries the live Debezium password. A tracked copy of either would leak it on
+# the next `git add`, and a copy hand-edited to hold a placeholder instead could
+# not register. Template is tracked, output is not. Regenerate rather than copy.
 clinic/connectors/mysql-source-connector.json
 clinic/connectors/mysql-local-source-connector.json
 
@@ -57,10 +52,8 @@ clinic/connectors/mysql-local-source-connector.json
 
 # scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
 clinic/config/kafka-connect/ext/*.jar
-# Some nodes keep the scripting jars one level up instead of in ext/ (Ghated
-# does). Rule ported from node/ghated on 2026-09-14 when that node moved to
-# this branch and three downloaded jars appeared as untracked: its own
-# .gitignore had covered them and this one did not. Already-tracked files are
+# Some nodes keep the scripting jars one level up instead of in ext/, so the
+# downloaded jars would otherwise appear as untracked there. Already-tracked files are
 # unaffected by a new ignore rule, so config/kafka-connect/sync-origin-customizer.jar
 # stays tracked -- that one is a BUILD ARTIFACT WE SHIP, not a download.
 clinic/config/kafka-connect/*.jar
@@ -114,8 +107,8 @@ cloud/connectors/clinlims-*.json
 # Same secret classes as the cloud/connectors/* rules above -- the env file,
 # the JAAS SASL password, and every connector JSON a generator writes with a
 # live password already substituted. Templates are exempt by name: the six
-# hand-authored connector JSONs below carry only ${VAR} placeholders (verified
-# 2026-09-17), substituted by register-odoo.sh at registration time, not at
+# hand-authored connector JSONs below carry only ${VAR} placeholders,
+# substituted by register-odoo.sh at registration time, not at
 # rest -- so they stay tracked.
 hub/.env
 hub/kafka_server_jaas.conf
@@ -134,7 +127,7 @@ hub/connectors/generated/
 !hub/connectors/odoo-ghated-sink-all.json
 !hub/connectors/clinlims-ghated-sink-all.json
 
-# hub/ scratch files (final review, Important 9). Every one of these is a
+# hub/ scratch files. Every one of these is a
 # mktemp'd name created UNDER hub/ -- by lib.sh's own probes (the SASL client
 # properties file and the kafka-ui login body/cookie jar, each mode 600 and
 # each holding a live password for the seconds it exists), by task 080's
@@ -165,7 +158,7 @@ clinic/.build-native.*/
 
 # Rendered env files the clinic installer leaves beside clinic/.env. Each holds
 # generated passwords and none is named exactly ".env", so the rule at the top
-# did not cover them (found 2026-09-21; this repository is public).
+# does not cover them (this repository is public).
 clinic/.env.dryrun.*
 clinic/.env.rejected
 clinic/.env.render.*

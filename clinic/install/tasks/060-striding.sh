@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# L-008 before the first application write: MySQL striding (server flags are
+# Per-row ownership before the first application write: MySQL striding (server flags are
 # set; this moves the captured tables' AUTO_INCREMENT above their floors),
 # Postgres sequences at the residue (mandatory even though the dumps carry
 # INCREMENT BY 10 -- the restored last_value sits in Rawach's residue), and the
@@ -43,24 +43,23 @@ bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) f
 bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) from pg_sequences where sequencename in ('res_partner_id_seq','sale_order_id_seq','product_product_id_seq') and (increment_by<>10 or last_value %% 10 <> ${RESIDUE})" | ct exec -i "$PG" psql -U postgres -d odoo -At | tr '\n' ' ')"
 [ -z "$bad" ] && ok "odoo sequences: increment 10, residue ${RESIDUE}" || fail "odoo sequences off-residue: ${bad}"
 
-# ADR-005's four id sequences (village_village, state_district,
+# The four address and attribute id sequences (village_village, state_district,
 # district_subdistrict, res_partner_attributes) get RESTART WITH'd by the SQL
 # above but, on a fresh clinic, are never nextval()'d before this task runs --
 # so pg_sequences.last_value reads NULL (is_called=false) even though the
-# RESTART value IS set. That is exactly what the hub verification found
-# (2026-09-21-adr005-hub-change-log.md: "verified via pg_sequences ... and
-# direct select last_value, is_called from <seq> (does not consume
-# nextval)"). increment_by is safe to read from pg_sequences either way; the
+# RESTART value IS set. So the check reads last_value and is_called from the
+# sequence itself (a direct select does not consume nextval).
+# increment_by is safe to read from pg_sequences either way; the
 # residue has to come from the sequence object itself, which reports the
 # internal counter regardless of is_called.
-adr005_bad=""
+address_seq_bad=""
 for seq in village_village_id_seq state_district_id_seq district_subdistrict_id_seq res_partner_attributes_id_seq; do
   inc="$(printf "select increment_by from pg_sequences where sequencename='%s'" "$seq" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
-  [ "$inc" = 10 ] || { adr005_bad="${adr005_bad} ${seq}(increment_by=${inc:-missing})"; continue; }
+  [ "$inc" = 10 ] || { address_seq_bad="${address_seq_bad} ${seq}(increment_by=${inc:-missing})"; continue; }
   lv="$(printf 'select last_value from public.%s' "$seq" | ct exec -i "$PG" psql -U postgres -d odoo -At)"
-  [ -n "$lv" ] && [ $((lv % 10)) -eq "${RESIDUE}" ] || adr005_bad="${adr005_bad} ${seq}(last_value=${lv:-NULL})"
+  [ -n "$lv" ] && [ $((lv % 10)) -eq "${RESIDUE}" ] || address_seq_bad="${address_seq_bad} ${seq}(last_value=${lv:-NULL})"
 done
-[ -z "$adr005_bad" ] && ok "ADR-005 odoo sequences: increment 10, residue ${RESIDUE}" || fail "ADR-005 odoo sequences off-residue:${adr005_bad}"
+[ -z "$address_seq_bad" ] && ok "address odoo sequences: increment 10, residue ${RESIDUE}" || fail "address odoo sequences off-residue:${address_seq_bad}"
 
 for db in odoo openelis; do ct exec -i "$PG" psql -U postgres -d "$db" -q -f /dev/stdin < odoo/apply-replication-origin.sql >/dev/null; done
 origins="$(printf "select count(*) from pg_replication_origin where roname like 'hub_%%'" | ct exec -i "$PG" psql -U postgres -At)"

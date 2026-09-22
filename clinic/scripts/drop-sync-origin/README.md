@@ -1,7 +1,7 @@
 # Drop the `sync_origin` column fleet-wide
 
-Step 4 of the column retirement. Preconditions, all done on 9 Sep: every clinic guard is
-in the engine (F-044 origins, F-047 sql_log_bin), every publication is unfiltered, no
+Step 4 of the column retirement. Preconditions, all done before it: every clinic guard is
+in the engine (replication origins, sql_log_bin), every publication is unfiltered, no
 clinic trigger stamps the column, and **every JDBC sink on all three nodes carries
 `field.exclude.list=.*:sync_origin`**, so a record produced before the drop is applied
 cleanly after it. That last point is what makes the order across nodes irrelevant: the

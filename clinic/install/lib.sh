@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared helpers for clinic/install. The shape (begin_task / ok / skip / fail, one
-# task per file, --force-free idempotence) follows Sushil's initialize/lib.sh on
+# task per file, --force-free idempotence) follows initialize/lib.sh on
 # main; the content is this fleet's: derived identity, the residue ledger, the
 # .env quoting contract, docker/podman behind one wrapper.
 #
@@ -90,9 +90,9 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 
 # .env editing. This file is read by TWO different parsers that do not agree
 # on quoting in general: bash `.`-sourcing (every task) and docker compose's
-# own dotenv reader (for ${VAR} interpolation in a compose file). Fix round 1
-# (code review, live PoC): the previous scheme double-quoted a value on
-# trigger characters but never escaped an embedded `"` -- a value like
+# own dotenv reader (for ${VAR} interpolation in a compose file). A scheme
+# that double-quotes a value on trigger characters but never escapes an
+# embedded `"` -- a value like
 # `pass"; touch /tmp/x; echo "` was written to the file as literal shell
 # code, which RUNS the moment any task `.`-sources it. The one representation
 # both parsers read identically is a SINGLE-quoted value with no `'` inside
@@ -113,7 +113,7 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 # needs further escaping there.
 #
 # The VALUE is handed to python3 through the ENVIRONMENT (ENV_PUT_VALUE), never
-# as an argv element (final review, Critical 1): argv is world-readable while
+# as an argv element: argv is world-readable while
 # the process lives (`ps -ef`, /proc/<pid>/cmdline), and every secret this fleet
 # generates -- all of hub/.env's, every clinic answer file's -- is written
 # through this one function, so the old `python3 - "$f" "$k" "$v"` form put each
@@ -145,7 +145,7 @@ PY
 # Under `set -e -o pipefail` (every task), a grep with no match or a tr cut short
 # by head turns a pipeline non-zero and aborts the caller on the SUCCESS path.
 # Hence the `|| true` guard. Strips a matching pair of quotes off the ends --
-# single (env_put's own output, Fix round 1) or double (an operator-hand-
+# single (env_put's own output) or double (an operator-hand-
 # written .env, or a file predating this change) -- never an unpaired quote,
 # and never spawns a subprocess just to do it (env_get is called very often,
 # e.g. once per HUB_KEYS entry in 020-env.sh's round-trip check).
@@ -162,12 +162,12 @@ gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(st
 # subsystem_tables SUBSYSTEM : prints sync/subsystems.conf's `<SUBSYSTEM>:<table>`
 # rows' table names, one per line -- the ONE parsing path task 050 (publications)
 # and task 060 (striding) both call, instead of each carrying its own
-# `grep | cut`. Fixes a real gap (code review, 2026-09-17): an untrimmed row --
+# `grep | cut`. An untrimmed row --
 # trailing whitespace, or an inline `#` comment left on the line -- used to come
 # out with embedded whitespace in the table name. `pg_get_serial_sequence` then
 # returns NULL for that name, and the striding SQL only logged a NOTICE and
 # skipped it: a synced table silently left unstrided, with no failing check
-# anywhere -- an L-008 gap (two nodes could mint the same id for that table).
+# anywhere -- two nodes could mint the same id for that table.
 # Now: strip a trailing `#...` comment, trim surrounding whitespace, skip the
 # `:all` aggregate row, and `fail` on any surviving name that is not a bare
 # lowercase identifier (naming the offending row) -- a typo'd or unquoted name
@@ -176,8 +176,8 @@ subsystem_tables(){
   local subsystem="$1" conf="${REPO_DIR}/sync/subsystems.conf" line name
   [ -f "$conf" ] || fail "subsystem_tables: no such file: $conf"
   # `|| [ -n "$line" ]` : bash's `read` returns non-zero on a final line with no
-  # trailing newline, which would otherwise drop that last row silently (code
-  # review, round 2, 2026-09-17) -- the exact L-008 gap this file exists to close,
+  # trailing newline, which would otherwise drop that last row silently --
+  # the exact gap this function exists to close,
   # just moved one line down. sync/subsystems.conf ends in a newline today, so this
   # was dormant, but a hand-edit that saves without one must not silently lose the
   # last odoo:/clinlims: row.
@@ -262,8 +262,7 @@ fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continu
 # mysql_ready CONTAINER : true only when the FINAL server answers an authenticated query
 # over TCP. `mysqladmin ping` exits 0 even on "Access denied", and the official image's first
 # boot runs a temporary socket-only server whose root has no password yet; a wait built on
-# ping passes against it and the restore then dies with ERROR 1045 (manpur's fresh VM,
-# 2026-09-18; the hub rebuild met the same temp server). That server runs --skip-networking,
+# ping passes against it and the restore then dies with ERROR 1045. That server runs --skip-networking,
 # so 127.0.0.1 is the discriminator. MYSQL_PWD keeps the password off the command line.
 # --- MySQL sizing -------------------------------------------------------------
 # The image's defaults (128 MB buffer pool, 100 MB redo log) starve a node with
@@ -362,7 +361,7 @@ wait_for_http_or_restart(){
 
 # ensure_stopped CONTAINER : stop it and PROVE it stayed down. A stop that
 # raced the restart policy left odoo-connect looping on manpur while task 080
-# believed it was parked (F-066 replay risk). A container that does not exist
+# believed it was parked, replaying every past event. A container that does not exist
 # counts as stopped.
 ensure_stopped(){
   local c="$1" i
@@ -378,12 +377,11 @@ ensure_stopped(){
 # infoiplitin/openmrs:iplit-1.0.0-662-4 shipped Java 8u372, whose cgroup v2
 # metrics code threw a NullPointerException on an Azure Ubuntu 24.04 host the
 # moment Tomcat registered its MBeans; the container restart-looped behind a
-# green "Running" (first live clinic, manpur, 2026-09-17; reproduced on the hub
-# with jrunscript). -XX:-UseContainerSupport skipped that code, after which the
+# green "Running". -XX:-UseContainerSupport skipped that code, after which the
 # JVM sized its heap from host RAM -- so the heap is pinned explicitly
-# regardless (Rawach's proven cap, F-050).
+# regardless (a cap proven on a 121k-patient clinic).
 #
-# RETIRED 2026-09-17 (sync-core Task 4): the fleet pin moved to
+# RETIRED: the fleet pin moved to
 # infoiplitin/openmrs:iplit-1.2.0-1200-03, Java 8u432, which does not have the
 # bug. This function used to ADD the flag to any .env missing it (a template-
 # era node, repaired on resume, not by hand) -- it must NOT do that any more,
@@ -410,7 +408,7 @@ mk_podman_shim(){
 }
 check_eq(){ if [ "$2" = "$3" ]; then ok "$1 = $2"; else fail "$1: got '$2', want '$3'"; fi; }
 
-# The fleet's one pin file (L-005: lockstep, cloud first -- change here,
+# The fleet's one pin file (lockstep, cloud first -- change here,
 # nowhere else). REPO_DIR may itself be overridden by a test harness pointing
 # at a tmp checkout, so this is resolved relative to REPO_DIR, not a fixed path.
 VERSIONS_FILE="${VERSIONS_FILE:-${REPO_DIR:-$(cd "${INSTALL_DIR}/../.." && pwd)}/sync/versions.env}"

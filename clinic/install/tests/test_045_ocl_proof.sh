@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # task 045's ocl-proof block: after extraction, the tree OpenMRS actually
-# reads must carry no OCL dictionary zip (manpur, 2026-09-21: two zips left in
+# reads must carry no OCL dictionary zip (two zips left in
 # place drove a days-long CIEL import), unless KEEP_OCL_ZIPS=1. Runs the block
 # extracted verbatim from between its own markers, against fixture trees, with
 # fake ok/skip/fail so no real lib.sh/extraction is needed.

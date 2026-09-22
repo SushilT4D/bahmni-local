@@ -153,8 +153,8 @@ NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
 
-# Publications are created by the installer, not expected inside the dump (sync-core
-# Task 4, 2026-09-17): a dump seeded from the hub (the future seed source) carries no
+# Publications are created by the installer, not expected inside the dump:
+# a dump seeded from the hub carries no
 # publication at all -- staging has 0. The table list is derived at run time from
 # sync/subsystems.conf's odoo:/clinlims: rows, the same file the striding SQL (task 060)
 # and the MirrorMaker whitelist read, so there is exactly one place that says which

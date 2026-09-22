@@ -10,12 +10,12 @@ assert_rc(){ if [ "$2" -eq "$3" ]; then printf '  ok   %s\n' "$1"; else printf '
 T="${HERE}/../tasks/000-preflight.sh"
 mkdir -p "$TMP/clinic" "$TMP/seed"
 
-# adr005_seq_block TABLE SEQ FORM STEP : a CREATE TABLE plus its id sequence,
+# address_seq_block TABLE SEQ FORM STEP : a CREATE TABLE plus its id sequence,
 # in either pg_dump shape (FORM=create: CREATE SEQUENCE; FORM=identity: the
 # multi-line GENERATED ... AS IDENTITY form) -- both are real pg_dump output
 # for a serial column, depending on whether Odoo's schema used `serial` or an
-# identity column, and the ADR-005 gate must recognise both.
-adr005_seq_block(){ # TABLE SEQ FORM STEP
+# identity column, and the address-table gate must recognise both.
+address_seq_block(){ # TABLE SEQ FORM STEP
   local tbl="$1" seq="$2" form="$3" step="$4"
   if [ "$form" = identity ]; then
     cat <<SQL
@@ -46,11 +46,11 @@ SQL
   fi
 }
 # the base fixture is 1.2.0/Odoo-16 shaped so it clears the seed-shape gate too;
-# openelis carries no gate and stays a generic gzip. Both ADR-005 sequences are
+# openelis carries no gate and stays a generic gzip. Both address sequences are
 # strided (step 10) here so every pre-existing assertion below keeps passing --
-# the ADR-005-specific cases below build their own seed dirs.
+# the address-gate cases below build their own seed dirs.
 printf "INSERT INTO liquibasechangelog VALUES ('20251223-drop-default-value-from-column','iplit');\n" | gzip > "$TMP/seed/openmrs.sql.gz"
-{ printf 'CREATE TABLE uom_uom (x int);\n'; adr005_seq_block village_village village_village_id_seq create 10; adr005_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed/odoo.sql.gz"
+{ printf 'CREATE TABLE uom_uom (x int);\n'; address_seq_block village_village village_village_id_seq create 10; address_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed/odoo.sql.gz"
 printf 'x' | gzip > "$TMP/seed/openelis.sql.gz"
 printf 'rawach:4\nghated:3\n' > "$TMP/ledger"
 # OPENMRS_IMAGE_NAME is set here the same way install.sh sets it (sourcing
@@ -64,7 +64,7 @@ printf 'rawach:4\nghated:3\nazure:7\n' > "$TMP/ledger"
 out="$(base bash "$T" 2>&1)"; rc=$?
 assert_rc "ledger row present passes" "$rc" 0
 
-# L-005 seed-shape gate: a 662-4 / Odoo 10 seed is refused (old openmrs, old odoo)
+# seed-shape gate: a 662-4 / Odoo 10 seed is refused (old openmrs, old odoo)
 mkdir -p "$TMP/seed-old"
 printf 'CREATE TABLE person (x int);\n' | gzip > "$TMP/seed-old/openmrs.sql.gz"
 printf 'CREATE TABLE product_uom (x int);\n' | gzip > "$TMP/seed-old/odoo.sql.gz"
@@ -85,7 +85,7 @@ assert_contains "old odoo dump refused" "$out" "seed odoo.sql.gz is not an Odoo 
 # a 1.2.0 / Odoo 16 seed passes the gate
 mkdir -p "$TMP/seed-new"
 printf "INSERT INTO liquibasechangelog VALUES ('20251223-drop-default-value-from-column','iplit');\n" | gzip > "$TMP/seed-new/openmrs.sql.gz"
-{ printf 'CREATE TABLE uom_uom (x int);\n'; adr005_seq_block village_village village_village_id_seq create 10; adr005_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed-new/odoo.sql.gz"
+{ printf 'CREATE TABLE uom_uom (x int);\n'; address_seq_block village_village village_village_id_seq create 10; address_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed-new/odoo.sql.gz"
 printf 'x\n' | gzip > "$TMP/seed-new/openelis.sql.gz"
 out="$(SEED_DIR_OVERRIDE="$TMP/seed-new" base bash "$T" 2>&1)"; rc=$?
 assert_rc "new seed passes the version gate (rc)" "$rc" 0
@@ -99,65 +99,65 @@ assert_contains "new seed passes the version gate" "$out" "seed shape: openmrs i
 # this large-dump case still passes.
 mkdir -p "$TMP/seed-big"
 { printf "INSERT INTO liquibasechangelog VALUES ('20251223-drop-default-value-from-column','iplit');\n"; seq 1 50000 | awk '{print "INSERT INTO filler VALUES (" $1 ");"}'; } | gzip > "$TMP/seed-big/openmrs.sql.gz"
-{ printf 'CREATE TABLE uom_uom (x int);\n'; adr005_seq_block village_village village_village_id_seq create 10; adr005_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed-big/odoo.sql.gz"
+{ printf 'CREATE TABLE uom_uom (x int);\n'; address_seq_block village_village village_village_id_seq create 10; address_seq_block res_partner_attributes res_partner_attributes_id_seq create 10; } | gzip > "$TMP/seed-big/odoo.sql.gz"
 printf 'x\n' | gzip > "$TMP/seed-big/openelis.sql.gz"
 out="$(SEED_DIR_OVERRIDE="$TMP/seed-big" base bash "$T" 2>&1)"; rc=$?
 assert_rc "large multi-line seed passes despite early pipe close (rc)" "$rc" 0
 assert_contains "large multi-line seed passes despite early pipe close" "$out" "seed shape: openmrs iplit-1.2.0, odoo 16"
 
-# ADR-005 seed gate: a seed dumped before the hub strode village_village and
+# address-table seed gate: a seed dumped before the hub strode village_village and
 # res_partner_attributes must be refused -- it would hand a fresh clinic ids
 # the hub already uses. Every fixture below is otherwise 1.2.0/Odoo-16
 # shaped so it clears the earlier gates and reaches this one.
-mk_adr005_seed(){ # DIR VILLAGE_FORM VILLAGE_STEP ATTRS_FORM ATTRS_STEP [no-village]
+mk_address_seed(){ # DIR VILLAGE_FORM VILLAGE_STEP ATTRS_FORM ATTRS_STEP [no-village]
   local dir="$1" vform="$2" vstep="$3" aform="$4" astep="$5" novillage="${6:-}"
   mkdir -p "$dir"
   printf "INSERT INTO liquibasechangelog VALUES ('20251223-drop-default-value-from-column','iplit');\n" | gzip > "$dir/openmrs.sql.gz"
   if [ "$novillage" = no-village ]; then
-    { printf 'CREATE TABLE uom_uom (x int);\n'; adr005_seq_block res_partner_attributes res_partner_attributes_id_seq "$aform" "$astep"; } | gzip > "$dir/odoo.sql.gz"
+    { printf 'CREATE TABLE uom_uom (x int);\n'; address_seq_block res_partner_attributes res_partner_attributes_id_seq "$aform" "$astep"; } | gzip > "$dir/odoo.sql.gz"
   else
-    { printf 'CREATE TABLE uom_uom (x int);\n'; adr005_seq_block village_village village_village_id_seq "$vform" "$vstep"; adr005_seq_block res_partner_attributes res_partner_attributes_id_seq "$aform" "$astep"; } | gzip > "$dir/odoo.sql.gz"
+    { printf 'CREATE TABLE uom_uom (x int);\n'; address_seq_block village_village village_village_id_seq "$vform" "$vstep"; address_seq_block res_partner_attributes res_partner_attributes_id_seq "$aform" "$astep"; } | gzip > "$dir/odoo.sql.gz"
   fi
   printf 'x\n' | gzip > "$dir/openelis.sql.gz"
 }
 
 # step 1, CREATE SEQUENCE form -- refused
-mk_adr005_seed "$TMP/seed-adr005-create-step1" create 1 create 10
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-create-step1" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-create-step1" create 1 create 10
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-create-step1" base bash "$T" 2>&1)"; rc=$?
 assert_rc "village_village step 1 (CREATE SEQUENCE form) refused (rc)" "$rc" 1
-assert_contains "village_village step 1 (CREATE SEQUENCE form) names ADR-005" "$out" "ADR-005"
+assert_contains "village_village step 1 (CREATE SEQUENCE form) names the partitioned ids" "$out" "partitioned"
 assert_contains "village_village step 1 (CREATE SEQUENCE form) names a fresh seed" "$out" "fresh seed"
 
 # step 1, IDENTITY multi-line form -- refused
-mk_adr005_seed "$TMP/seed-adr005-identity-step1" identity 1 create 10
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-identity-step1" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-identity-step1" identity 1 create 10
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-identity-step1" base bash "$T" 2>&1)"; rc=$?
 assert_rc "village_village step 1 (IDENTITY form) refused (rc)" "$rc" 1
-assert_contains "village_village step 1 (IDENTITY form) names ADR-005" "$out" "ADR-005"
+assert_contains "village_village step 1 (IDENTITY form) names the partitioned ids" "$out" "partitioned"
 assert_contains "village_village step 1 (IDENTITY form) names a fresh seed" "$out" "fresh seed"
 
 # step 10 in each form -- accepted (both tables, both forms, to prove the gate
 # reads BOTH shapes as a pass, not just as a refusal-trigger)
-mk_adr005_seed "$TMP/seed-adr005-step10-create" create 10 create 10
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-step10-create" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-step10-create" create 10 create 10
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-step10-create" base bash "$T" 2>&1)"; rc=$?
 assert_rc "step 10, CREATE SEQUENCE form, accepted (rc)" "$rc" 0
-mk_adr005_seed "$TMP/seed-adr005-step10-identity" identity 10 identity 10
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-step10-identity" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-step10-identity" identity 10 identity 10
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-step10-identity" base bash "$T" 2>&1)"; rc=$?
 assert_rc "step 10, IDENTITY form, accepted (rc)" "$rc" 0
 
 # table absent entirely -- refused as a wrong-shape seed, not a step-1 refusal
-mk_adr005_seed "$TMP/seed-adr005-no-village" create 10 create 10 no-village
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-no-village" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-no-village" create 10 create 10 no-village
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-no-village" base bash "$T" 2>&1)"; rc=$?
 assert_rc "no village_village table refused (rc)" "$rc" 1
 assert_contains "no village_village table names the missing table" "$out" "village_village"
-assert_contains "no village_village table names ADR-005" "$out" "ADR-005"
+assert_contains "no village_village table names the partitioned ids" "$out" "partitioned"
 
 # attributes sequence unstrided while village_village is fine -- refused,
 # naming the attributes sequence specifically
-mk_adr005_seed "$TMP/seed-adr005-attrs-unstrided" create 10 create 1
-out="$(SEED_DIR_OVERRIDE="$TMP/seed-adr005-attrs-unstrided" base bash "$T" 2>&1)"; rc=$?
+mk_address_seed "$TMP/seed-address-attrs-unstrided" create 10 create 1
+out="$(SEED_DIR_OVERRIDE="$TMP/seed-address-attrs-unstrided" base bash "$T" 2>&1)"; rc=$?
 assert_rc "res_partner_attributes step 1 refused (rc)" "$rc" 1
 assert_contains "res_partner_attributes step 1 names the sequence" "$out" "res_partner_attributes_id_seq"
-assert_contains "res_partner_attributes step 1 names ADR-005" "$out" "ADR-005"
+assert_contains "res_partner_attributes step 1 names the partitioned ids" "$out" "partitioned"
 assert_contains "res_partner_attributes step 1 names a fresh seed" "$out" "fresh seed"
 
 printf 'rawach:4\nghated:3\nazure:7\nother:7\n' > "$TMP/ledger"

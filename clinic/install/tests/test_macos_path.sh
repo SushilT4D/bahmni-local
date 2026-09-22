@@ -111,7 +111,7 @@ cpu_of(){ ( . "$HM"; podman_machine_size 24576 "$1"; printf '%s' "$MACHINE_CPUS"
 [ "$(cpu_of 15)" = 8 ] && ok_ "sizing: 15 host cpus -> 8 machine cpus" || bad "sizing cpus=15 gave $(cpu_of 15)"
 
 # A dry run on a Mac with no podman on PATH must never crash with the rc=127
-# "podman machine inspect" FAILED line (seen 2026-09-21). PATH keeps Homebrew's
+# "podman machine inspect" FAILED line. PATH keeps Homebrew's
 # own directory (so the install-Homebrew branch, which shells out to curl even
 # under DRY to build its would-print string, is skipped outright) but excludes
 # anywhere podman could live; HOME is a scratch dir so a fresh LaunchAgent
@@ -128,7 +128,7 @@ printf '%s' "$out" | grep -q 'FAILED' && bad "dry run without podman printed a F
 [ "$rc" -eq 0 ] && ok_ "dry run without podman exits 0" || bad "dry run without podman exits $rc: $out"
 
 # ============================================================================
-# host-macos.sh under DRY=1 must do NOTHING real: finding 11 --
+# host-macos.sh under DRY=1 must do NOTHING real --
 # it still reached the network (curl for Homebrew) and created directories
 # (mkdir for the LaunchAgent) outside anything run() wrapped. PATH holds only
 # fake curl/mkdir/brew/podman/launchctl, each appending its own name to a log

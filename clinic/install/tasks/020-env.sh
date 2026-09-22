@@ -11,7 +11,7 @@ E="${CLINIC_DIR}/.env"; X="${CLINIC_DIR}/.env.example"
 T="$(mktemp "${CLINIC_DIR}/.env.render.XXXXXX")"; cp "$X" "$T"
 put(){ env_put "$T" "$1" "$2"; }
 
-# paths -- every one absolute, every one under clinic/ (F-067: a stale one
+# paths -- every one absolute, every one under clinic/ (a stale one
 # makes the runtime mount an empty directory silently)
 put CONTAINER_DATA_PATH "${CLINIC_DIR}"
 put CERTIFICATE_PATH "${CLINIC_DIR}/certs"
@@ -22,8 +22,8 @@ put BAHMNI_UI_DIR "${CLINIC_DIR}/extracted/htdocs/bahmni"          # filled by t
 put BAHMNI_CONFIG_DIR "${CLINIC_DIR}/extracted/bahmni_config"       # filled by task 045 from BAHMNI_CONFIG_IMAGE
 put LOKI_URL "http://localhost:3100/loki/api/v1/push"
 
-# MySQL sizing: one conf.d file the compose file mounts read-only (F-088's
-# restore ran hours on the image's 128 MB buffer pool). Rendered here, beside
+# MySQL sizing: one conf.d file the compose file mounts read-only (a restore
+# runs for hours on the image's 128 MB buffer pool). Rendered here, beside
 # the env, from the memory the database server can see; a dry run renders it
 # too, since it is regenerated on every run and holds no secret.
 mem_mb="$(node_mem_mb)"; pool_mb="$(mysql_pool_mb "$mem_mb")"
@@ -45,7 +45,7 @@ put OPENMRS_MEM_LIMIT 6g
 put REMOTE_SERVER_NAME bahmni-cloud
 put MM2_REMOTE_ALIAS remote
 put ODOO_HOST odoo; put ODOO_PORT 8069
-versions_put "$T"   # every fleet pin from sync/versions.env (L-005: one place)
+versions_put "$T"   # every fleet pin from sync/versions.env, the one place they live
 put ODOO_ATOMFEED_USER admin
 put HEIGHT_CONCEPT_UUID 5090AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put WEIGHT_CONCEPT_UUID 5089AAAAAAAAAAAAAAAAAAAAAAAAAAAA
@@ -79,7 +79,7 @@ chmod 600 "$T"
 if [ "${DRY}" = 1 ] || [ "${ENV_SKIP_COMPOSE:-0}" = 1 ]; then
   if [ "${DRY}" = 1 ]; then
     # stamped so task 000 of the real run knows this file is a leftover and
-    # moves it aside instead of refusing the node (manpur rebuild, 2026-09-21)
+    # moves it aside instead of refusing the node
     S="$(mktemp "${CLINIC_DIR}/.env.render.XXXXXX")"
     { printf '# DRY-RUN RENDER -- written by a dry run, not a live env; the next real run moves it aside\n'; cat "$T"; } > "$S"
     chmod 600 "$S"; rm -f "$T"; T="$S"

@@ -32,7 +32,7 @@ NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector cli
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/generate-local-sink-connectors.sh >/dev/null
 bash scripts/register-local-sink-connectors.sh >/dev/null
-# Restart FAILED tasks ONCE before anything judges them (manpur, 2026-09-21):
+# Restart FAILED tasks ONCE before anything judges them:
 # nine mysql-local-sink-* tasks FAILED on a bad pool setting; the template was
 # fixed and the connectors re-registered (HTTP 200) -- eight recovered,
 # mysql-local-sink-role_role stayed FAILED for hours, because Connect does not
@@ -72,7 +72,7 @@ for i in $(seq 1 $((tasks_s/15))); do
 done
 [ -z "$bad" ] && ok "every connector task RUNNING ($(curl -s localhost:8083/connectors | jq length))" || fail "tasks not RUNNING: ${bad}"
 ret="$(ct exec kafka kafka-configs --bootstrap-server localhost:9092 --entity-type topics --entity-name "schema-changes.${MYSQL_SERVER_NAME}" --describe 2>/dev/null | grep -oE 'retention.ms=-1' | head -1)"
-[ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${MYSQL_SERVER_NAME} retention -1" || fail "schema-changes topic retention is not -1 (F-045)"
+[ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${MYSQL_SERVER_NAME} retention -1" || fail "schema-changes topic retention is not -1 -- the schema-history topic must never expire"
 # twin-guard:begin
 # Two nodes installed under one clinic slug are exact twins -- same residue,
 # same topic prefix, same MirrorMaker alias -- so both would mint the same ids

@@ -3,7 +3,7 @@
 # syncing clinic node of this fleet. Runs clinic/install/tasks/NN-*.sh in order;
 # each task is idempotent and ends with a check read back from the live system.
 # It never touches the hub, the ledgers or GitHub: task 110 prints the hub join
-# for the operator. Design: Bahmni workspace docs/superpowers/specs/2026-09-15-clinic-installer-design.md
+# for the operator.
 #
 # Usage:
 #   clinic/install/install.sh --clinic <slug> --seed <dir> [--cert-hostname <name>]

@@ -8,7 +8,7 @@ begin_task "100 · exit checks"
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL above"
 # odoo-connect and the XML-RPC marker below can both look fine against a dead
-# Odoo (manpur, 2026-09-21: /var/lib/odoo owned by the wrong uid -- HTTP 500 on
+# Odoo (/var/lib/odoo owned by the wrong uid -- HTTP 500 on
 # every request, including XML-RPC, which curl-retries into looking like a
 # slow start rather than a permanent failure) -- so prove the login PAGE
 # itself answers first. Odoo 16 builds its asset bundle on the first hit, so

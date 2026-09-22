@@ -40,7 +40,7 @@ env_put "$f" D 'plain'
 env_put "$f" E 'has space'
 assert_eq "env_put replaces" "$(env_get "$f" B)" 'x&y/z#w'
 
-# ensure_openmrs_jvm_opts: pins the heap cap only (sync-core Task 4, 2026-09-17). The
+# ensure_openmrs_jvm_opts: pins the heap cap only. The
 # container-support flag is retired with the 1.2.0 image pin: this function must no
 # longer ADD it (that would silently reintroduce what .env.example just dropped), but
 # it also never STRIPS one an operator (or a node still on the old image) set by hand.
@@ -58,12 +58,12 @@ assert_eq "jvm opts: an operator's own flag is not stripped" "$(env_get "$j" OMR
 printf 'A=1\n' > "$j"; ensure_openmrs_jvm_opts "$j" >/dev/null
 assert_eq "jvm opts: server opts key not created when absent" "$(env_get "$j" OMRS_JAVA_SERVER_OPTS)" ''
 assert_eq "env_put appends" "$(env_get "$f" D)" "plain"
-assert_eq "env_put single-quotes a space (Fix round 1: single, not double -- see below)" "$(grep -E '^E=' "$f")" "E='has space'"
+assert_eq "env_put single-quotes a space (single, not double -- see below)" "$(grep -E '^E=' "$f")" "E='has space'"
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"
 assert_eq "env_put keeps other lines" "$(grep -c . "$f")" "6"
 
-# Fix round 1 (code review, live PoC): env_put's old double-quote-on-trigger
-# scheme never escaped an embedded `"`, so a value like the reviewer's own
+# env_put's old double-quote-on-trigger
+# scheme never escaped an embedded `"`, so a value like
 # `pass"; touch ...; echo "` was written as literal shell code that RUNS the
 # moment any task `.`-sources the file. The only representation bash and
 # docker compose's dotenv parser read identically is a single-quoted value
@@ -94,7 +94,7 @@ check_env_put_value 'a value with a dollar sign'       'pass$word'
 check_env_put_value 'a value with a space'             'pass word'
 check_env_put_value 'a value with a hash'              'pass#word'
 check_env_put_value 'a value with a semicolon'         'pass;word'
-check_env_put_value "the reviewer's exact injection string" 'pass"; touch '"$marker_dir"'/PWNED; echo "'
+check_env_put_value "an injection string" 'pass"; touch '"$marker_dir"'/PWNED; echo "'
 assert_eq "the injection string never actually ran (no marker file)" "$([ -e "$marker_dir/PWNED" ] && echo RAN || echo safe)" "safe"
 
 # A value containing a `'` cannot be represented identically for both
@@ -148,7 +148,7 @@ assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" 
 ( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
 assert_eq "answers_write writes twelve keys" "$(grep -c '^[A-Z_]*=' "$a")" "12"
 assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
-assert_eq "answers_write quotes a space (Fix round 1: single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" "REMOTE_KAFKA_PASSWORD='p w'"
+assert_eq "answers_write quotes a space (single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" "REMOTE_KAFKA_PASSWORD='p w'"
 assert_eq "answers_write mode 600" "$(stat -f %Lp "$a" 2>/dev/null || stat -c %a "$a")" "600"
 # ask / ask_secret
 X=set; ask X "q" "d" "here" </dev/null; assert_eq "ask keeps a set value" "$X" "set"
@@ -164,7 +164,7 @@ out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: ech
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"
 
 # subsystem_tables: one parsing path for sync/subsystems.conf, trimmed + validated
-# (code review, 2026-09-17 -- an untrimmed row used to silently leave a table
+# (an untrimmed row used to silently leave a table
 # unstrided; see lib.sh's own comment on the function).
 mkdir -p "$REPO_DIR/sync"
 SUBS="$REPO_DIR/sync/subsystems.conf"
@@ -179,8 +179,7 @@ assert_rc "subsystem_tables fails on a name that is not a bare identifier" "$rc"
 case "$out" in *"Bad-Name"*) named=yes ;; *) named=no ;; esac
 assert_eq "subsystem_tables names the offending row in its failure" "$named" "yes"
 # A file with NO trailing newline on its last line -- bash's `read` returns
-# non-zero there, which would otherwise drop that last row silently (code
-# review, round 2, 2026-09-17).
+# non-zero there, which would otherwise drop that last row silently.
 printf 'odoo:a\nodoo:b' > "$SUBS"
 assert_eq "subsystem_tables reads an unterminated last line too" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "a b"
 printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
@@ -210,7 +209,7 @@ assert_eq "010 names the fault when docker is down after activation" "$(grep -c 
 
 # mysql_ready: an authenticated query over TCP, never `mysqladmin ping` -- ping exits 0 even on
 # "Access denied", so it passes against the image's temporary first-boot server (socket-only,
-# root not yet passworded) and the restore then dies with ERROR 1045 (manpur, 2026-09-18).
+# root not yet passworded) and the restore then dies with ERROR 1045.
 : > "$TMP/ct.log"
 ( ct(){ printf '%s\n' "$*" >> "$TMP/ct.log"; case "$*" in *-h127.0.0.1*"select 1"*) printf '1\n' ;; *) return 1 ;; esac; }
   mysql_ready fake-mysql ); assert_rc "mysql_ready is true when the authenticated TCP query answers 1" "$?" 0

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # clinic/odoo/apply-odoo-sequence-striding.sql against a REAL PostgreSQL, because
-# its first ADR-005 version passed every fixture test and failed on a database:
+# a version of it passed every fixture test and failed on a database:
 # pg_get_serial_sequence('t','id') does not return NULL for a table that has no
 # `id` column -- it RAISES, which rolled back the whole transaction, so even the
-# id tables listed beside a link table stayed unstrided (found 2026-09-21 by
-# running it on the dev box's PostgreSQL before any clinic did).
+# id tables listed beside a link table stayed unstrided (found by running it
+# on a dev box's PostgreSQL before any clinic did).
 # A host without psql keeps a static guard.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

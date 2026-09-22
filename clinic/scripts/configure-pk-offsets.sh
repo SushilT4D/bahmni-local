@@ -23,7 +23,7 @@ TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
 MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
 # MYSQL_CONTAINER: the exact container name, skipping the lookup below. Compose
 # names containers <project>-<service>-1 (podman-compose: <project>_<service>_1);
-# the installer passes its own (first live clinic, manpur, 2026-09-17).
+# the installer passes its own.
 MYSQL_CONTAINER="${MYSQL_CONTAINER:-}"
 
 DRY_RUN=false

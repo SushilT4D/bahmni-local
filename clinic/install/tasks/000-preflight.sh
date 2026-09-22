@@ -4,20 +4,20 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "00 · preflight"
 
-# 1. identity is allocated, and only to us (TC-S-69: a node with no residue cannot join)
+# 1. identity is allocated, and only to us (a node with no residue cannot join)
 r="$(ledger_residue "${CLINIC_SLUG}")"
 [ -n "$r" ] || fail "no row for '${CLINIC_SLUG}' in ${LEDGER}. the operator allocates first (skills/install-clinic.sh allocate ${CLINIC_SLUG} ${RESIDUE} -- the row is ${CLINIC_SLUG}:${RESIDUE}), commits, pushes, and this checkout pulls"
 [ "$r" = "${RESIDUE}" ] || fail "ledger says ${CLINIC_SLUG}:${r} but the answers say RESIDUE=${RESIDUE}; the ledger wins -- fix the answers"
 c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
-[ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one (docs/sync-core/residues.txt)"
+[ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.txt"
 ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
 
 # 2. fresh install only
 # fresh-only:begin
 # A dry run renders a real clinic/.env (later tasks read it to say what they
-# would do), and the real run that followed refused it as "already exists"
-# (manpur rebuild, 2026-09-21). Task 020 stamps a dry-run render on its first
+# would do), and a real run that follows would refuse it as "already exists".
+# Task 020 stamps a dry-run render on its first
 # line; a stamped file is a leftover, not a live node, so a real run moves it
 # aside -- never deletes it -- and carries on. An unstamped .env is a live
 # node's and is still refused.
@@ -44,9 +44,9 @@ for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
 done
 ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))"
 
-# L-005 gate: the seed must be the shape the pinned images expect. The 1.2.0 dump carries
-# IPLIT's changeset of 2025-12-23 (the only changeset unique to 1.2.0 among the synced
-# tables' history, spec §10.3); an Odoo 16 dump has uom_uom, an Odoo 10 dump product_uom.
+# Seed-shape gate: the seed must be the shape the pinned images expect. The 1.2.0 dump carries
+# IPLIT's changeset 20251223-drop-default-value-from-column (the only changeset unique to
+# 1.2.0 among the synced tables' history); an Odoo 16 dump has uom_uom, an Odoo 10 dump product_uom.
 # gzip is wrapped in `{ ... || true; }` because grep -m1 closes its read end the instant
 # it matches -- on a dump where the match is early and the rest of the stream is still
 # large, gzip gets SIGPIPE (exit 141) while still writing. Under `set -o pipefail` (this
@@ -59,9 +59,9 @@ ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))
   || fail "seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)"
 ok "seed shape: openmrs iplit-1.2.0, odoo 16"
 
-# ADR-005 gate: a seed dumped before the hub strode village_village and
+# Address-table gate: a seed dumped before the hub strode village_village and
 # res_partner_attributes would hand a clinic built from it ids the hub also
-# uses (F-083: a clinic-minted village_village row already stopped one sink).
+# uses (a clinic-minted village_village row can stop a sink).
 # Checked here, before a single byte of the seed reaches a database.
 #
 # pg_dump emits a serial id's owning sequence in one of two shapes: a plain
@@ -72,7 +72,7 @@ ok "seed shape: openmrs iplit-1.2.0, odoo 16"
 # lines following the first line that names it and take the first INCREMENT
 # BY found. Streamed straight from the gz (one gzip -dc | awk pass covering
 # both tables), never unpacked to disk -- the real dump is 7.6 MB.
-adr005_out="$(gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null | awk '
+address_seq_out="$(gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null | awk '
   function chk(tbl) { if ($0 ~ ("CREATE TABLE (public\\.)?" tbl "[[:space:](]")) print "TABLE_FOUND=" tbl }
   { chk("village_village"); chk("res_partner_attributes") }
   index($0, "village_village_id_seq") > 0 && w1 == 0 { w1 = 9 }
@@ -86,22 +86,22 @@ adr005_out="$(gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null | awk '
     else w2--
   }
 ')" || true
-adr005_check(){ # TABLE SEQ
+address_seq_check(){ # TABLE SEQ
   local table="$1" seq="$2" tfound inc
   # `|| true` on each read: grep exits 1 on zero matches, a legitimate result
   # here (a wrong-shape seed), not an error -- under this task's set -e -o
   # pipefail a bare grep -c/grep|head|cut miss would otherwise abort through
   # the generic ERR trap instead of this function's own named fail() message.
-  tfound="$(printf '%s\n' "${adr005_out}" | grep -c "^TABLE_FOUND=${table}\$" || true)"
-  inc="$(printf '%s\n' "${adr005_out}" | grep "^INC=${seq}=" | head -1 | cut -d= -f3 || true)"
+  tfound="$(printf '%s\n' "${address_seq_out}" | grep -c "^TABLE_FOUND=${table}\$" || true)"
+  inc="$(printf '%s\n' "${address_seq_out}" | grep "^INC=${seq}=" | head -1 | cut -d= -f3 || true)"
   [ "${tfound:-0}" -ge 1 ] \
-    || fail "seed odoo.sql.gz has no ${table} table -- wrong-shape seed (ADR-005, 2026-09-21 partitioned this table's ids); take a fresh seed with skills/install-clinic.sh seed"
+    || fail "seed odoo.sql.gz has no ${table} table -- wrong-shape seed (this table's ids are partitioned across the fleet); take a fresh seed with skills/install-clinic.sh seed"
   [ "$inc" = 10 ] \
-    || fail "seed odoo.sql.gz: ${seq} is not INCREMENT BY 10 (found ${inc:-none}) -- this seed was dumped before the hub partitioned its address and customer-attribute ids (ADR-005, 2026-09-21); a clinic built from it would hand out ${table} ids the hub also uses; take a fresh seed with skills/install-clinic.sh seed"
+    || fail "seed odoo.sql.gz: ${seq} is not INCREMENT BY 10 (found ${inc:-none}) -- this seed was dumped before the hub partitioned its address and customer-attribute ids; a clinic built from it would hand out ${table} ids the hub also uses; take a fresh seed with skills/install-clinic.sh seed"
 }
-adr005_check village_village village_village_id_seq
-adr005_check res_partner_attributes res_partner_attributes_id_seq
-ok "seed shape: village_village, res_partner_attributes sequences step 10 (ADR-005)"
+address_seq_check village_village village_village_id_seq
+address_seq_check res_partner_attributes res_partner_attributes_id_seq
+ok "seed shape: village_village, res_partner_attributes sequences step 10"
 
 [ "${PREFLIGHT_SKIP_HOST:-0}" = 1 ] && { ok "host facts skipped (PREFLIGHT_SKIP_HOST)"; exit 0; }
 
@@ -109,7 +109,7 @@ ok "seed shape: village_village, res_partner_attributes sequences step 10 (ADR-0
 require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt install jq"; require_cmd openssl; require_cmd curl; require_cmd gzip
 # df -Pk is POSIX-portable; the BSD/macOS-only `df -g` aborts this task under
 # set -e -o pipefail on Linux (the substitution fails before the fallback runs,
-# with NO FAIL line) -- F-068, the first live Linux run. -P stops a long device
+# with NO FAIL line). -P stops a long device
 # name from wrapping and misaligning $4.
 avail_gb="$(( $(df -Pk "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
 [ "$avail_gb" -ge 60 ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < 60 GB (the seed restores to ~11 GB of MySQL, Kafka and logs need the rest)"
@@ -124,7 +124,7 @@ if [ "${cpus:-1}" -ge 2 ]; then ok "CPUs ${cpus}"; else warn "CPUs ${cpus}: Open
 # macos-facts:begin
 # Say what this host is before anything is pulled. IPLIT's OpenMRS image is
 # linux/amd64 only: 26,153 ms emulated vs 2,394/2,330 ms native for bare
-# Tomcat+WAR, measured on Ghated (Apple M5 Pro, podman, 2026-09-21) -- task 040
+# Tomcat+WAR, measured on an Apple M5 Pro under podman -- task 040
 # rebuilds it natively on arm64. bahmni/odoo-16 and bahmni/atomfeed-console
 # have no arm64 build and run emulated regardless (Odoo 10 did the same for
 # three weeks on Ghated; usable, not fast).

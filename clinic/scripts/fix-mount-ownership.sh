@@ -2,7 +2,7 @@
 # Chown bind-mounted data directories to the uid:gid the image runs as, before
 # the stack starts writing to them.
 #
-# Incident (manpur, a Linux Docker host, 2026-09-21): Odoo 16 answered HTTP 500
+# On a Linux Docker host, Odoo 16 answers HTTP 500
 # on every request -- PermissionError: [Errno 13] Permission denied:
 # '/var/lib/odoo/.local'. Odoo's image runs as uid 101 ('odoo'); task 030
 # creates CONTAINER_DATA_PATH's bind sources with a plain `mkdir -p`, so they

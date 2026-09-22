@@ -3,7 +3,7 @@
 # Kafka Connect worker (the same worker that hosts the up-direction Debezium source).
 #
 # Idempotent: an existing connector is updated via PUT /config rather than failing.
-# Verifies TASK state, not connector state (BL-038 — the connector object reads
+# Verifies TASK state, not connector state (the connector object reads
 # RUNNING over a FAILED task).
 set -euo pipefail
 

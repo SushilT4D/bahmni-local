@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# First-boot budget (manpur, 2026-09-18): OpenMRS 1.2.0 took 36 min to answer on
+# First-boot budget: OpenMRS 1.2.0 can take 36 min to answer on
 # a 1-vCPU VM -- the Initializer loads 42 masterdata CSVs into a 121k-patient
 # database once, on the first boot -- and task 080 gave up at a fixed 25 min.
 # The wait is now a named, overridable budget, the FAIL line says what the

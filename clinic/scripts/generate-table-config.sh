@@ -18,7 +18,7 @@ Usage: $(basename "$0") <local|cloud>
   cloud   Read hub/tables.conf             (cloud → clinic)
 
   --include-relay   Also emit tables marked `:relay` -- clinic-owned tables the
-                    hub relays (ADR-003 s7). A CLINIC needs these, because they
+                    hub relays. A CLINIC needs these, because they
                     arrive and must be sunk. The hub must NOT publish them while
                     the relay rule is unratified.
 
@@ -70,16 +70,16 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   #
   # The optional third field is a NUMBER on the local side (a table's base_id
   # floor) and a WORD on the cloud side (a role). The only role today is `relay`:
-  # a CLINIC-owned table that travels down because the hub relays it (ADR-003
-  # section 7), as opposed to a table the cloud AUTHORS.
+  # a CLINIC-owned table that travels down because the hub relays it, as
+  # opposed to a table the cloud AUTHORS.
   #
   # That distinction is the entire point of this field. Both kinds arrive at a
   # clinic and both need a down-direction sink, so the clinic's generators want
   # the FULL list -- but the hub's own source connector must publish only what the
   # cloud authors, because the relay rule is recorded as designed-but-unratified.
   # One file, two correct answers. Before this field existed there was no way to
-  # say that, so adding person/person_name for BL-042 made the cloud source
-  # generator refuse outright and the two branches drifted to different answers.
+  # say that, so adding person/person_name made the cloud source generator
+  # refuse outright and the two branches drifted to different answers.
   if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+))?$ ]]; then
     table="${BASH_REMATCH[1]}"
     pk="${BASH_REMATCH[2]}"

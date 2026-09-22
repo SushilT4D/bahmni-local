@@ -30,9 +30,9 @@ cfg = {k: sub(v) for k, v in cfg.items()}
 # pass through without needing to be listed here.
 RUNTIME_PLACEHOLDERS = {'topic'}
 
-# Fail on ANY placeholder we did not resolve, not just credentials. Until
-# 2026-09-14 this guard covered `password` keys alone, which was enough while the
-# only variables were secrets. Node identity is now parameterised too --
+# Fail on ANY placeholder we did not resolve, not just credentials. A guard
+# over `password` keys alone would be enough only while the only variables
+# were secrets. Node identity is parameterised too --
 # topic.prefix, database.server.name, the transform regexes and replacements all
 # carry ${MYSQL_SERVER_NAME} -- and an unset variable there does NOT fail loudly:
 # it registers a connector whose topic prefix is the literal "${MYSQL_SERVER_NAME}",

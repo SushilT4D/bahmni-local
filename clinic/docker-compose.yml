@@ -1,13 +1,10 @@
 
 x-default-logging: &default
-  # Was literally `{}`, which merged nothing into x-log-config below, so all 14
-  # services inheriting *log-config ran json-file with NO rotation:
-  # HostConfig.LogConfig read driver=json-file opts=map[] on every one.
-  #
-  # On 2026-09-15 that had filled Rawach to 95% of its 58 GB VM disk --
-  # /var/lib/docker/containers alone held 21.1 GB, of which odoo-connect was
-  # 13.9 GB and mirrormaker-connect 5.8 GB in a single unrotated json.log each.
-  # The node was under the 5 GB preflight floor because of log files.
+  # An empty `{}` here merges nothing into x-log-config below, so all 14
+  # services inheriting *log-config would run json-file with NO rotation
+  # (HostConfig.LogConfig reads driver=json-file opts=map[] on every one), and
+  # a single unrotated json.log can fill a clinic's VM disk past the preflight
+  # floor.
   #
   # 50m x 3 bounds each container at 150 MB, so 14 services cannot exceed ~2 GB.
   # NOTE: log options are fixed at container CREATION -- existing containers keep
@@ -120,7 +117,7 @@ services:
       HEIGHT_CONCEPT_UUID: ${HEIGHT_CONCEPT_UUID}
       OMRS_DB_EXTRA_ARGS: ${OMRS_DB_EXTRA_ARGS}
       # staging sets both for this image; its startup script otherwise falls back to
-      # the deprecated com.mysql.jdbc.Driver (review 2026-09-21)
+      # the deprecated com.mysql.jdbc.Driver
       OMRS_DB_DRIVER_CLASS: ${OMRS_DB_DRIVER_CLASS:-com.mysql.cj.jdbc.Driver}
       LUCENE_SEARCH_INDEXING_STRATEGY: ${LUCENE_SEARCH_INDEXING_STRATEGY:-manual}
       LUCENE_MATCH_TYPE: ${LUCENE_MATCH_TYPE}
@@ -178,12 +175,10 @@ services:
     image: ${BAHMNI_WEB_IMAGE:?}
     profiles: ["unused"]
     volumes:
-      # Were absolute paths into /Users/sunshine/.../bahmni-local/foo/ - a
-      # directory on one developer's laptop that exists on no other machine, and
-      # not in this repo. Inert only because this service is profiles:["unused"];
-      # anyone who enabled it got two empty read-only mounts and a blank UI.
-      # Repointed 2026-08-28 at the same trees the proxy already serves
-      # (see the proxy service's htdocs/bahmni and htdocs/bahmni_config mounts).
+      # The same trees the proxy already serves (see the proxy service's
+      # htdocs/bahmni and htdocs/bahmni_config mounts). An absolute path into one
+      # developer's laptop here would give anyone who enabled this service two
+      # empty read-only mounts and a blank UI.
       - "${BAHMNI_CONFIG_DIR:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
       - "${BAHMNI_UI_DIR:?}:/usr/local/apache2/htdocs/bahmni/:ro"
       # - "${CONFIG_BACKUP:?}:/usr/local/apache2/htdocs/bahmni_config_backup/"
@@ -478,7 +473,7 @@ services:
     healthcheck:
       # Connect scans every plugin before its REST port opens: minutes on a small
       # host. Without a start_period it was "unhealthy" after ~50 s and compose
-      # refused everything gated on it (manpur, 2026-09-21).
+      # refused everything gated on it.
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
       timeout: 5s

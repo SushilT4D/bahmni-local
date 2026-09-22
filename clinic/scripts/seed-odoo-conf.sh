@@ -51,9 +51,9 @@ DEST="${CLINIC_DIR}/config/odoo/odoo.conf"
 # openelis database. The image's conf says `dbfilter = .*` -- right on staging,
 # where Odoo's PostgreSQL holds one database, wrong here: two databases match,
 # so /web/login answers 303 to /web/database/selector and XML-RPC callers must
-# name a database Odoo would not pick by itself (manpur, 2026-09-21: still 303
-# with the image's conf in place; /web/database/list returned odoo AND
-# openelis). Only the image's match-everything default is rewritten, to the
+# name a database Odoo would not pick by itself (still 303 with the image's
+# conf in place; /web/database/list returns odoo AND openelis). Only the
+# image's match-everything default is rewritten, to the
 # conf's own db_name; any other value is an operator's choice and stays.
 pin_dbfilter(){
   local f="$1" db t

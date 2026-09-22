@@ -18,7 +18,7 @@ for name in "$@"; do
     printf '%s\n' "$body" | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' >&2; exit 1; }
   # Connect's response echoes the connector config back, database.password and
   # connection.password included -- so the body is never written to disk (was
-  # /tmp/.reg.out, a fixed, world-readable path: F-073). It's held only in this
+  # /tmp/.reg.out, a fixed, world-readable path). It's held only in this
   # shell's own memory, split on the trailing newline curl's -w appends, and on
   # a non-2xx it's printed with any password value masked before the human ever
   # sees it.
@@ -31,7 +31,7 @@ for name in "$@"; do
   # stop at the first bare quote ([^"]*) -- a password containing an escaped
   # quote (\") would otherwise end the match early and leak everything after
   # it, e.g. "connection.password": "SEC\"RET" -> "connection.password":
-  # "***"RET" with the naive pattern (F-073 review, round 1).
+  # "***"RET" with the naive pattern.
   [ "$code" -lt 300 ] || printf '%s\n' "${resp%$'\n'*}" \
     | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' \
     | sed 's/^/    /'

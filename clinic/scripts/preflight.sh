@@ -7,12 +7,12 @@
 #
 # RUNS ENTIRELY ON THIS NODE. It takes no node name and opens no SSH connection.
 #
-# WHY. Until 2026-09-14 this script fanned out to all three lab nodes over SSH
-# and carried, in a PUBLIC repo, the hub's hostname and the path to one
-# developer's private key. Nothing the clinic stack runs needs SSH -- the
-# resolved compose config references it zero times -- and a clinic reaches the
-# hub over Kafka, not a shell. Under L-007 that transport is meant to be mTLS
-# with per-site ACLs confining each site to its own topics; shell access from
+# WHY. A script that fans out to other nodes over SSH carries, in a PUBLIC
+# repo, the hub's hostname and the path to a private key. Nothing the clinic
+# stack runs needs SSH -- the resolved compose config references it zero
+# times -- and a clinic reaches the hub over Kafka, not a shell. That
+# transport is meant to be mTLS with per-site ACLs confining each site to its
+# own topics; shell access from
 # every clinic to the hub is far wider than the architecture grants, and
 # shipping it to six clinics makes the hub shell-reachable from all of them.
 #
@@ -54,7 +54,7 @@ resolve(){ "$CT" ps --format '{{.Names}}' 2>/dev/null \
 
 MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFKA_SERVICE")
 
-# Find the repo the way AL-023 says: ask a running container which directory its
+# Find the repo by asking a running container which directory its
 # compose project came from. Works regardless of how this script was invoked --
 # the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
 # Resolved here (not down by the checkout-drift section that originally read
@@ -92,9 +92,9 @@ fi
 
 # ROOTLESS PODMAN CANNOT nsenter INTO PID 1. It fails with
 #   nsenter: can't open '/proc/1/ns/ipc': Permission denied
-# so the read above returns nothing. Until 2026-09-15 the script then skipped
-# both lines silently and Ghated -- a whole clinic -- had no disk or memory floor
-# at all, which read exactly like a node that passed.
+# so the read above returns nothing. Skipping both lines silently would leave a
+# whole clinic with no disk or memory floor at all, which reads exactly like a
+# node that passed.
 #
 # `podman info` reports the same numbers without entering any namespace.
 # MUST be memAvailable, NOT memFree: on this node memFree read 182 MB against a
@@ -117,18 +117,18 @@ print((alloc-used)//1048576, avail//1048576)
   fi
 fi
 # A probe that returns nothing must SAY so. Under rootless podman the nsenter
-# above yields nothing (Ghated, measured 2026-09-14), and the previous version
-# of this script skipped the line silently -- so a disk floor nobody was
-# measuring read exactly like a disk floor that passed.
+# above yields nothing; a version of this script that skipped the line silently
+# made a disk floor nobody was measuring read exactly like a disk floor that
+# passed.
 if [ -n "${disk:-}" ]; then
   [ "$disk" -ge $((DISK_FLOOR_GB*1024)) ] \
-    && ok "vm disk free ${disk} MB (via ${probe})" || bad "vm disk free ${disk} MB < ${DISK_FLOOR_GB} GB (F-022)"
+    && ok "vm disk free ${disk} MB (via ${probe})" || bad "vm disk free ${disk} MB < ${DISK_FLOOR_GB} GB"
 else
   bad "vm disk NOT MEASURED: neither nsenter nor ${CT} info returned a value"
 fi
 if [ -n "${mem:-}" ]; then
   [ "$mem" -ge "$MEM_FLOOR_MB" ] \
-    && ok "vm memory available ${mem} MB (via ${probe})" || bad "vm memory available ${mem} MB < ${MEM_FLOOR_MB} MB (F-050)"
+    && ok "vm memory available ${mem} MB (via ${probe})" || bad "vm memory available ${mem} MB < ${MEM_FLOOR_MB} MB"
 else
   bad "vm memory NOT MEASURED: neither nsenter nor ${CT} info returned a value"
 fi
@@ -138,7 +138,7 @@ fi
 if [ -n "$MY" ]; then
   wt=$("$CT" exec "$MY" sh -c 'mysql -N -uroot -p"$MYSQL_ROOT_PASSWORD" -e "select @@global.wait_timeout"' 2>/dev/null)
   [ -n "$wt" ] && { [ "$wt" -ge "$WAIT_FLOOR" ] \
-    && ok "mysql wait_timeout $wt" || bad "mysql wait_timeout $wt < $WAIT_FLOOR (F-007/BL-039)"; }
+    && ok "mysql wait_timeout $wt" || bad "mysql wait_timeout $wt < $WAIT_FLOOR (an idle sink connection would die)"; }
 else bad "mysql service '$MYSQL_SERVICE' not running"; fi
 
 # --- PG replication slots ---------------------------------------------------
@@ -149,15 +149,13 @@ if [ -n "$PG" ]; then
     [ -z "$s" ] && continue
     case "$a" in t|true) :;; *) bad "slot $s inactive ($a)";; esac
     [ "${mb:-0}" -le "$SLOT_FLOOR_MB" ] \
-      && ok "slot $s retains ${mb} MB" || bad "slot $s retains ${mb} MB > ${SLOT_FLOOR_MB} MB (F-043)"
+      && ok "slot $s retains ${mb} MB" || bad "slot $s retains ${mb} MB > ${SLOT_FLOOR_MB} MB"
   done <<< "$slots"
 else bad "postgres service '$PG_SERVICE' not running"; fi
 
 # --- Unsynced tables tied to synced ones -------------------
 # village_village stopped a sink because a table nobody had listed grew rows
-# that referenced, and were referenced by, a synced table. The
-# inventory this check comes from
-# (docs/sync-core/reports/2026-09-21-unsynced-tables-inventory.md) found that
+# that referenced, and were referenced by, a synced table. That
 # is a CLASS, not a one-off: a table outside sync/subsystems.conf's synced set
 # that (a) touches a synced table by a foreign key in EITHER direction and
 # (b) has gained rows is a future village_village until a human gives it a
@@ -307,19 +305,19 @@ if [ -n "$OC" ]; then
   if "$CT" exec "$OC" sh -c 'test -f /run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar' 2>/dev/null; then
     ok "odoo-connect has httpclient5 mounted as a file"
   else
-    bad "odoo-connect httpclient5 jar is not a file in WEB-INF/lib -- mount missing, or an empty directory took its place (F-064)"
+    bad "odoo-connect httpclient5 jar is not a file in WEB-INF/lib -- mount missing, or an empty directory took its place"
   fi
   ncdf=$("$CT" logs --tail 2000 "$OC" 2>&1 | grep -c 'NoClassDefFoundError: org/apache/hc/core5')
   [ "${ncdf:-0}" -eq 0 ] \
     && ok "odoo-connect: no HttpClient 5 NoClassDefFoundError in last 2000 lines" \
-    || bad "odoo-connect logged ${ncdf} HttpClient 5 NoClassDefFoundError(s) in last 2000 lines (F-064) -- recreate it from the current override"
+    || bad "odoo-connect logged ${ncdf} HttpClient 5 NoClassDefFoundError(s) in last 2000 lines -- recreate it from the current override"
 else
   echo "  note odoo-connect not running on this node -- atom-feed consumer probes skipped (expected on the hub)"
 fi
 
 # --- checkout drift ---------------------------------------------------------
-# WHY. On 2026-09-15 the hub was found running a sink generator three weeks older
-# than the fixed copy sitting on the clinic branch, and nobody knew, because
+# WHY. A hub can run a sink generator weeks older than the fixed copy on the
+# branch, and nobody would know, because
 # nothing ever compared a node's checkout to its remote. Every other check here
 # asks whether the node is HEALTHY; this one asks whether it is running the code
 # we think it is.

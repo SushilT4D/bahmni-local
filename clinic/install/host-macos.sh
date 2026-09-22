@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # macOS host layer: Homebrew, podman, the podman machine, DOCKER_HOST for
 # docker-compose, and a LaunchAgent that starts the machine at login. What
-# Sushil's initialize/01,02,03,11 do on main, minus dnsmasq and the privileged
+# initialize/01,02,03,11 on main do, minus dnsmasq and the privileged
 # ports this stack does not need (8081/9443/9444). Rootless, as Ghated runs.
 
 # podman_machine_size HOST_MIB HOST_CPUS : sets MACHINE_MIB / MACHINE_CPUS for
@@ -21,7 +21,7 @@ podman_machine_size(){
 }
 
 host_macos(){
-  # Finding 11: DRY=1 still reached the network (the Homebrew
+  # Under DRY=1 nothing may reach the network, yet the Homebrew
   # `curl | bash` line evaluates its command substitution to build the
   # would-print string BEFORE run() ever gets called, so run()'s own DRY
   # check never got a chance) and still wrote to disk (`mkdir -p` for the
@@ -69,7 +69,7 @@ host_macos(){
   # podman_socket calls `podman machine inspect`, which does not exist to call
   # yet on a fresh host: DRY, or podman genuinely absent from PATH (brew
   # install above only ran for real outside DRY), both skip it rather than
-  # crash with rc=127 (seen on a Mac with no podman installed, 2026-09-21).
+  # crash with rc=127 on a Mac with no podman installed.
   if [ "${DRY}" = 1 ] || ! command -v podman >/dev/null 2>&1; then
     info "would start the podman machine and persist DOCKER_HOST in ~/.zprofile"
   else

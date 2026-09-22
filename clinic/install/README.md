@@ -43,14 +43,14 @@ It never touches the hub, the ledgers or GitHub. Task 110 prints the hub join
 for the operator (`skills/install-clinic.sh join <slug>` in the workspace).
 
 Not in this version: LAN hostname / dnsmasq (see `initialize/` on `main`),
-upgrades of an existing node, mTLS or per-site ACLs (L-007, unmet fleet-wide),
+upgrades of an existing node, mTLS or per-site ACLs (unmet fleet-wide),
 a per-node registration `defaultIdentifierPrefix` (task 070 prints the edit).
 
 Tests: `bash clinic/install/tests/run.sh` (no runtime needed). On Darwin this
 runs the whole suite a second time under `/bin/bash` -- macOS's own stock
 bash 3.2, not whatever `bash` resolves to on `PATH` -- so a script that
 accidentally needs bash 4+ is caught here, not on a clinic Mac.
-Shape credit: Sushil's `initialize/` on `main`.
+Shape credit: the `initialize/` tree on `main`.
 
 ## macOS (Apple Silicon)
 
@@ -65,9 +65,9 @@ the pinned image (`create`+`cp`, the source is never executed) onto a native
 arm64 base (`OPENMRS_ARM64_BASE_IMAGE`, pinned in `sync/versions.env`: same OS
 family and JDK build as the source) and tags the result
 `OPENMRS_RUN_IMAGE`, which `docker-compose.yml` prefers over
-`OPENMRS_IMAGE_NAME`. Measured on Ghated (Apple M5 Pro, 2026-09-21): bare
-Tomcat+WAR start in 2.3 s native vs 26 s under QEMU emulation (~11x); the
-previous pinned image took 51 minutes emulated with modules loading. Every
+`OPENMRS_IMAGE_NAME`. Measured on an Apple M5 Pro: bare
+Tomcat+WAR start in 2.3 s native vs 26 s under QEMU emulation (~11x); an
+emulated image took 51 minutes with modules loading. Every
 x86 clinic is untouched by this: `OPENMRS_RUN_IMAGE` is never set there.
 
 `bahmni/odoo-16` and `bahmni/atomfeed-console` have no arm64 build and run

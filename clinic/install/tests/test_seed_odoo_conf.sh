@@ -64,7 +64,7 @@ D1="$C1/config/odoo/odoo.conf"
 grep -q '^db_name = odoo$' "$D1" 2>/dev/null && grep -q 'bahmni-addons' "$D1" 2>/dev/null && ok_ "seeded file carries the image's own db_name and addons_path" || bad "seeded file content wrong: $(cat "$D1" 2>/dev/null)"
 # A clinic runs Odoo on the SHARED PostgreSQL beside openelis: the image's own
 # `dbfilter = .*` then matches two databases and /web/login answers 303 to the
-# database selector (manpur, 2026-09-21, WITH the image's conf in place).
+# database selector (with the image's conf in place).
 grep -q '^dbfilter = \^odoo\$$' "$D1" 2>/dev/null && ok_ "dbfilter pinned to the conf's own db_name (^odoo$)" || bad "dbfilter not pinned: $(grep '^dbfilter' "$D1" 2>/dev/null)"
 [ "$(grep -c '^dbfilter' "$D1" 2>/dev/null)" = 1 ] && ok_ "exactly one dbfilter line" || bad "dbfilter line count is not 1"
 printf '%s' "$out" | grep -q 'seeded from acme/odoo:1' && ok_ "ok line names the source image" || bad "no ok line naming the image: $out"

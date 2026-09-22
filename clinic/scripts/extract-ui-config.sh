@@ -7,7 +7,7 @@
 #   extracted/bahmni_config/ <- BAHMNI_CONFIG_IMAGE:/etc/bahmni_config       (openmrs, masterdata, openelis)
 #   extracted/.source        <- what was extracted: image@id, one line each
 #
-# Both tags are pinned in sync/versions.env (L-005: the hub moves first, then the
+# Both tags are pinned in sync/versions.env (the hub moves first, then the
 # clinics). To take an IPLIT fix: change the tag there, run this, restart proxy,
 # openmrs and openelis. An unchanged source is skipped; a changed one replaces
 # extracted/ and keeps the last one at extracted.prev/. Nothing is left running:
@@ -54,7 +54,7 @@ apply_prefix(){ # DIR : the node's registration prefix, if one was given
 apply_landing(){ # DIR : point the landing page's Odoo tile at THIS node's own
   # TLS port (a clinic serves Odoo at root on ${BAHMNI_ODOO_HTTPS_PORT:-9444},
   # not at IPLIT's erp-<host> DNS convention, which no clinic's DNS has -- the
-  # tile opened a name that did not exist, manpur, 2026-09-21); and disable any
+  # tile would open a name that does not exist); and disable any
   # landing tile for a service this clinic does not run (default: metabase,
   # crater -- clinics have neither; LANDING_DISABLE overrides the list).
   local wl="$1/bahmni_config/openmrs/apps/home/whiteLabel.json" t disable="${LANDING_DISABLE:-metabase crater}"
@@ -74,9 +74,9 @@ hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
   # The config image ships OCL export zips under masterdata/configuration/ocl.
   # The Initializer imports any zip it has no checksum for -- a full CIEL load,
   # 282,699 items, and OpenMRS answers nothing until it ends. IPLIT's own stack
-  # never runs it (the hub's live ocl/ dir is empty, no import row since the
-  # seed's 2026-08-28 one); a clinic's checksum dir starts empty, so it did:
-  # manpur, 2026-09-21, ~110 items a minute on one vCPU = about two days. The seed
+  # never runs it (the hub's live ocl/ dir is empty, no import row after the
+  # seed's); a clinic's checksum dir starts empty, so it would: ~110 items a
+  # minute on one vCPU = about two days. The seed
   # already carries the dictionary (54,700 CIEL-mapped concepts on hub and clinic
   # alike). The zips are moved, not deleted: KEEP_OCL_ZIPS=1 leaves them in place.
   local d="$1/bahmni_config/masterdata/configuration/ocl" z

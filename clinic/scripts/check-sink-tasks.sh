@@ -10,7 +10,7 @@
 # Exit codes:  0 = all tasks RUNNING   1 = at least one task not RUNNING   2 = unreachable
 #
 # Usage: ./check-sink-tasks.sh [host] [--restart|--restart-all]
-#        --restart      restart any FAILED task after reporting (BL-039: Connect does
+#        --restart      restart any FAILED task after reporting (Connect does
 #                       NOT auto-restart failed tasks; recovery is manual by default)
 #        --restart-all  restart EVERY task, healthy-looking ones included. Use this after
 #                       any database restart: a task with nothing to write cannot discover
@@ -66,7 +66,7 @@ done
 echo
 if [ "$bad" -gt 0 ]; then
     echo "✗ ${bad}/${total} connectors have a task that is not RUNNING."
-    echo "  Most likely BL-039: idle longer than MySQL wait_timeout (28800s) closes the"
+    echo "  Most likely: idle longer than MySQL wait_timeout (28800s) closes the"
     echo "  pooled connection; the next write fails and Connect kills the task as"
     echo "  unrecoverable. Re-run with --restart, then fix the pool lifetime properly."
     exit 1
