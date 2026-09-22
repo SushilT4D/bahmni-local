@@ -73,6 +73,45 @@ done
 [ -z "$bad" ] && ok "every connector task RUNNING ($(curl -s localhost:8083/connectors | jq length))" || fail "tasks not RUNNING: ${bad}"
 ret="$(ct exec kafka kafka-configs --bootstrap-server localhost:9092 --entity-type topics --entity-name "schema-changes.${MYSQL_SERVER_NAME}" --describe 2>/dev/null | grep -oE 'retention.ms=-1' | head -1)"
 [ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${MYSQL_SERVER_NAME} retention -1" || fail "schema-changes topic retention is not -1 (F-045)"
+# twin-guard:begin
+# Two nodes installed under one clinic slug are exact twins -- same residue,
+# same topic prefix, same MirrorMaker alias -- so both would mint the same ids
+# and both would mirror into the hub's topics for this clinic. The ledger
+# cannot see a second live host; the hub can: a live node's MirrorMaker
+# heartbeat topic <alias>.heartbeats advances about once a second. Read its
+# end offset on the hub twice, before this node's MirrorMaker exists, and
+# refuse if it moved. TWIN_GUARD_SKIP=1 is the conscious override.
+twin_offset(){ # TOPIC ; kafka-get-offsets output on stdin -> end offset, 0 for an absent topic, empty when unreadable
+  local t="$1" out; out="$(cat)"
+  case "$out" in
+    *"$t:0:"*) printf '%s\n' "$out" | sed -nE "s/^.*$(printf '%s' "$t" | sed 's/[.[\*^$]/\\&/g'):0:([0-9]+).*$/\1/p" | head -1 ;;
+    *"Could not match any topic-partitions"*|*"does not exist"*) printf '0\n' ;;
+    *) printf '\n' ;;
+  esac
+}
+twin_state(){ # FIRST SECOND -> alive | quiet | unknown
+  local a="$1" b="$2"
+  case "$a$b" in *[!0-9]*|'') echo unknown; return ;; esac
+  [ -z "$a" ] || [ -z "$b" ] && { echo unknown; return; }
+  [ "$b" -gt "$a" ] && echo alive || echo quiet
+}
+# twin-guard:end
+if [ "${TWIN_GUARD_SKIP:-0}" = 1 ]; then
+  warn "twin guard skipped (TWIN_GUARD_SKIP=1): not checking whether another node named ${LOCAL_CLUSTER_ALIAS} is already mirroring into the hub"
+else
+  hb_topic="${LOCAL_CLUSTER_ALIAS}.heartbeats"
+  # the client properties live only inside the kafka container, for the two reads
+  printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="%s" password="%s";\n' "${REMOTE_KAFKA_USERNAME}" "${REMOTE_KAFKA_PASSWORD}" \
+    | ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.properties'
+  hb_read(){ ct exec kafka kafka-get-offsets --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --topic "$hb_topic" 2>&1 | twin_offset "$hb_topic"; }
+  o1="$(hb_read || true)"; sleep 20; o2="$(hb_read || true)"
+  ct exec kafka rm -f /tmp/twin-guard.properties >/dev/null 2>&1 || true
+  case "$(twin_state "$o1" "$o2")" in
+    quiet)   ok "no other node named ${LOCAL_CLUSTER_ALIAS} is mirroring into the hub (${hb_topic} end offset ${o1:-0}, unchanged over 20 s)" ;;
+    alive)   fail "another node named ${LOCAL_CLUSTER_ALIAS} is alive and mirroring into the hub right now (${hb_topic} advanced ${o1} -> ${o2} in 20 s). Two nodes under one slug mint the same ids and write the same hub topics. Stop the other node's stack first (on it: cd <its clinic dir> && docker compose --profile local --profile openelis --profile debezium down), then resume with --from 090. TWIN_GUARD_SKIP=1 overrides, knowingly." ;;
+    *)       warn "could not read ${hb_topic} on the hub (${REMOTE_KAFKA_BOOTSTRAP_SERVERS}); the twin check is not proven -- MirrorMaker's own two-minute check below will show whether the hub is reachable at all" ;;
+  esac
+fi
 bash scripts/setup-mirrormaker.sh >/dev/null
 grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d mirrormaker-connect >/dev/null )
