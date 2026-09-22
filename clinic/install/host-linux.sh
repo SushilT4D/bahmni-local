@@ -14,7 +14,13 @@ host_linux(){
       if command -v sg >/dev/null 2>&1; then info "added $USER to group docker; the installer activates it for the rest of this run (sg docker), no re-login needed"
       else warn "added $USER to group docker -- log out and in (or run: newgrp docker), then resume with --from 010"; fi
     fi
-    docker compose version >/dev/null 2>&1 || fail "docker compose v2 plugin missing (get.docker.com installs it; check the docker-compose-plugin package)"
+    # A dry run on a host with no Docker yet cannot check the plugin the real
+    # run's Docker install brings; it says so instead of failing.
+    if [ "${DRY}" = 1 ] && ! command -v docker >/dev/null 2>&1; then
+      info "would: verify the docker compose v2 plugin after the install (get.docker.com brings docker-compose-plugin)"
+    else
+      docker compose version >/dev/null 2>&1 || fail "docker compose v2 plugin missing (get.docker.com installs it; check the docker-compose-plugin package)"
+    fi
   else
     if command -v podman >/dev/null 2>&1; then skip "podman installed"; else run sudo apt-get install -y -qq podman; fi
     command -v docker-compose >/dev/null 2>&1 || run sudo apt-get install -y -qq docker-compose
