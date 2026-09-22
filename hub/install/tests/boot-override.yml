@@ -11,7 +11,7 @@
 # hub/docker-compose.yml need no change here -- only docker-level identifiers
 # (exec/inspect/logs) use the renamed values.
 #
-# KAFKA_HEAP_OPTS (Ruling 15): trimmed to fit this throwaway broker/controller
+# KAFKA_HEAP_OPTS: trimmed to fit this throwaway broker/controller
 # beside another real stack's own containers on a shared, resource-constrained
 # Mac -- a map key, so it merges additively into each service's existing
 # `environment` map (no !override needed, unlike the list-typed `ports` key

@@ -14,7 +14,7 @@
 # `ct exec` would look for these containers under the wrong tool and find
 # nothing.
 #
-# It runs against a temp COPY of hub/ (final review, Important 9): this test
+# It runs against a temp COPY of hub/: this test
 # used to overwrite the real hub/.env in place and restore it from a backup in
 # its EXIT trap, so a kill -9 between the two left a live hub configured with
 # throwaway credentials. HUB_DIR is pointed at the copy BEFORE lib.sh is
@@ -157,7 +157,7 @@ done
 [ "$ready" = 1 ] && ok "mysql real server ready for connections on port 3306 (past the init-server handoff)" || { bad "mysql never logged the final server's ready-for-connections line"; exit 1; }
 
 # --- hub/.env for the task under test ---------------------------------------
-# Fix round 2: these four passwords deliberately carry a "'" and a "\" each --
+# These four passwords deliberately carry a "'" and a "\" each --
 # an operator could type either into hub/.env, and 050-base-db.sh's SQL
 # literals (mysql_user_sql, create_pg_sink_role) must survive it, which the
 # network login proofs and the write-proof below prove end to end. printf
@@ -215,7 +215,7 @@ assert_line "task reaches its final summary line"                               
 # count can never drift from what the task under test actually iterates over.
 #
 # Captured on its own line, not `subsystem_tables odoo | wc -l | tr -d ' '`
-# (Fix round 2, same class as 050-base-db.sh's for-loop fix): without
+# (same class as 050-base-db.sh's for-loop capture): without
 # `pipefail` a fail() from subsystem_tables deep in that pipe would be
 # invisible -- wc/tr would just count whatever partial output leaked through
 # before the pipe closed and report a silently-wrong total. Capturing the
@@ -278,7 +278,7 @@ fi
 # assertion (caught live: it did, on the first draft of this test). Naming
 # id explicitly bypasses the default entirely, so the sequence this task
 # only ever asserts against is never touched by proving the grant.
-# container_ip: hub/install/lib.sh's (final review, Minor 20) -- this test
+# container_ip: hub/install/lib.sh's -- this test
 # used to carry a third copy of it, through a bare `docker` rather than `ct`.
 pg_write_ok(){ # HOST DB USER PASSWORD SQL
   printf '%s\n' "$4" | docker exec -i -e PWHOST="$1" -e PWDB="$2" -e PWUSER="$3" -e PWSQL="$5" "$PG_C" sh -c \

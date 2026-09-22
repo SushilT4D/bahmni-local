@@ -4,7 +4,7 @@
 # source connectors, and its BUNDLED JDBC sink
 # (io.debezium.connector.jdbc.JdbcSinkConnector, already inside
 # DEBEZIUM_CONNECT_IMAGE -- there is no separate Confluent JDBC plugin to
-# install). Also brings up kafka-ui (Ruling 3) alongside it and proves its
+# install). Also brings up kafka-ui alongside it and proves its
 # login is actually on: the login page answers, an unauthenticated API call
 # is refused (401/403, or kafbat's own 302-to-/login), and -- the positive
 # half -- KAFKA_UI_USER/KAFKA_UI_PASSWORD from hub/.env actually log in and
@@ -20,8 +20,8 @@ set -a; . "${HUB_DIR}/.env"; set +a
 
 # Two ambient overrides, the same class as KAFKA_CONTAINER/SASL_LISTENER_PORT
 # and with the same one legitimate user -- the live smoke, which runs this task
-# for real against its own renamed, differently-published Connect and kafka-ui
-# (final review, Important 3b). HUB_CONNECT_URL_OVERRIDE is the name
+# for real against its own renamed, differently-published Connect and
+# kafka-ui. HUB_CONNECT_URL_OVERRIDE is the name
 # 080-sources.sh and 090-exit-checks.sh already use, in the same precedence
 # order: an explicit override, then hub/.env's own KAFKA_CONNECT_URL (an
 # operator's real customization, which this task used to ignore entirely),
@@ -55,7 +55,7 @@ rm -f /tmp/.hub-plugins.$$
 # that the container is Up.
 answered=0
 for i in $(seq 1 60); do
-  # `|| true` OUTSIDE the substitution (final review, Important 3): this task
+  # `|| true` OUTSIDE the substitution: this task
   # runs under `set -euo pipefail` with lib.sh's ERR trap armed, so the very
   # first poll -- which curl is expected to fail while kafka-ui is still
   # starting -- used to abort the whole task instead of sleeping and retrying.
@@ -69,7 +69,7 @@ done
 
 # kafka-ui: a negative proof auth is ON -- an unauthenticated call to a real
 # API route must never be answered with data. Kafbat's actual LOGIN_FORM
-# behavior (confirmed live, 2026-09-18): every unauthenticated request --
+# behavior: every unauthenticated request --
 # API paths included -- is redirected to /login (302), rather than a bare
 # 401/403; that redirect is accepted here alongside 401/403 (whichever a
 # future Spring Security build ships), but the redirect target must actually
@@ -87,8 +87,8 @@ case "$api_code" in
 esac
 
 # kafka-ui: a POSITIVE proof the configured credentials actually work --
-# kafka_ui_login_ok (hub/install/lib.sh), hoisted out of this task (code
-# review fold-in, Fix round 1, Critical 1): it reads KAFKA_UI_USER/
+# kafka_ui_login_ok (hub/install/lib.sh), hoisted out of this task: it
+# reads KAFKA_UI_USER/
 # KAFKA_UI_PASSWORD from this task's own already-exported environment
 # (never as its own arguments), logs in through Spring Security's own
 # form-login endpoint, and reads /api/clusters back with the resulting

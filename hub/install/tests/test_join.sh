@@ -17,7 +17,7 @@ assert_rc "DRY exits 0" "$rc" 0
 assert_contains "DRY prints a would: line" "$out" "would:"
 
 # A real .env, values distinct from any real hub's (never copy a live one
-# into a fixture) -- exercises the two-container identity (Ruling 11) and the
+# into a fixture) -- exercises the two-container identity and the
 # public-listener line, all read from hub/.env, none hardcoded.
 printf 'KAFKA_BASE_NETWORK=test-base_default\nBASE_MYSQL_CONTAINER=test-base-openmrsdb-1\nBASE_PG_CONTAINER=test-base-odoodb-1\nBASE_PG_SUPERUSER=odoo\nBASE_ELIS_CONTAINER=test-base-openelisdb-1\nBASE_ELIS_SUPERUSER=clinlims\nREMOTE_KAFKA_HOST=198.51.100.7\n' > "$TMP/.env"
 chmod 600 "$TMP/.env"
@@ -31,9 +31,9 @@ assert_contains "HUB_KEY is a placeholder, never invented" "$out" "HUB_KEY=<path
 assert_contains "prints KAFKA_BASE_NETWORK" "$out" "test-base_default"
 assert_contains "prints BASE_MYSQL_CONTAINER" "$out" "test-base-openmrsdb-1"
 assert_contains "prints BASE_PG_CONTAINER and its superuser" "$out" "test-base-odoodb-1  (superuser: odoo)"
-assert_contains "prints BASE_ELIS_CONTAINER and its superuser (Ruling 11)" "$out" "test-base-openelisdb-1  (superuser: clinlims)"
+assert_contains "prints BASE_ELIS_CONTAINER and its superuser" "$out" "test-base-openelisdb-1  (superuser: clinlims)"
 assert_contains "prints the public listener" "$out" "SASL_PLAINTEXT://198.51.100.7:9092"
-assert_contains "prints the L-007 caveat" "$out" "L-007"
+assert_contains "prints the mTLS/ACL caveat" "$out" "mTLS and per-site broker"
 assert_contains "ends with the printed marker" "$out" "printed"
 
 # BASE_ELIS_CONTAINER/SUPERUSER absent (an .env composed before that pair

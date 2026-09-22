@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-073 (hub copy): register-odoo.sh must never leave a connector config --
+# register-odoo.sh (hub copy) must never leave a connector config --
 # with its plaintext database.password / connection.password -- sitting in a
 # fixed, world-readable /tmp path. Converged on the same fix and the same
 # test shape as clinic/connectors/register-odoo.sh (bab605f, d66aae8) so the

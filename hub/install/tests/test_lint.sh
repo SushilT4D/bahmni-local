@@ -2,7 +2,7 @@
 # Pure static checks over the hub's own tracked files -- no docker, no network,
 # no hub/.env. Three classes, all found by real rehearsals:
 #
-#  1. WAIT-LOOP LINT (Important 3). Every task runs under `set -euo pipefail`
+#  1. WAIT-LOOP LINT. Every task runs under `set -euo pipefail`
 #     with lib.sh's ERR trap armed, so a BARE command substitution assignment
 #     inside a for/while/until body -- `code="$(curl ...)"` -- aborts the whole
 #     task the first time the command fails. In a WAIT loop that is exactly the
@@ -13,14 +13,14 @@
 #     `|| var=default`) on the same logical line, which also keeps `set -e`
 #     from ever seeing the failure.
 #
-#  2. CONNECTOR/GENERATOR HYGIENE (Important 4, Important 8). No tracked
+#  2. CONNECTOR/GENERATOR HYGIENE. No tracked
 #     connector template may hardcode a base container name (the two-container
 #     IPLIT base would send Odoo's up-sinks at the OpenELIS instance), and every
 #     script that RENDERS a connector config with a live password substituted in
 #     must create it mode 600, never the default 644.
 #
-#  3. PREFLIGHT MAINTENANCE-DATABASE PIN (Azure rehearsal stop 2, 2026-09-18,
-#     037d284). libpq defaults an unqualified connection's database to the
+#  3. PREFLIGHT MAINTENANCE-DATABASE PIN. libpq defaults an unqualified
+#     connection's database to the
 #     ROLE name -- true for postgres/odoo, but IPLIT's own clinlims role has
 #     no "clinlims" database (only openelis + postgres). Every psql read in
 #     000-preflight.sh's three Postgres-reading helpers must therefore name

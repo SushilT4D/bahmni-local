@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Pure unit tests for two functions extracted out of 080-sources.sh during
-# code review (Task 6 review): mysql_major_ok (the Debezium MySQL-major-
+# Pure unit tests for two functions extracted out of 080-sources.sh:
+# mysql_major_ok (the Debezium MySQL-major-
 # version gate) and slot_wait_state (wait_slot's active/inactive/missing
 # classifier). No docker, no network -- distinct from test_sources.sh (the
 # live smoke that proves 080-sources.sh end to end) the same way

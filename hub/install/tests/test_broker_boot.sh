@@ -8,7 +8,7 @@
 # validation only, no docker) and from install/tasks/060-kafka.sh (the real
 # install, against the real base network and real hub/.env).
 #
-# Fix round 1 (controller-confirmed gap): the compose file pins
+# The compose file pins
 # container_name: kafka / kafka-controller -- fixed names, not namespaced by
 # -p hubtest -- and this Mac runs a real bahmni-local clinic stack under
 # exactly those names on 127.0.0.1:9092/9093, so the happy path never ran.
@@ -20,7 +20,7 @@
 # internal reference in hub/docker-compose.yml (KAFKA_CONTROLLER_QUORUM_VOTERS,
 # the advertised listeners, --bootstrap-server kafka:29092) are unchanged.
 #
-# It runs against a temp COPY of hub/ (final review, Important 9): this test
+# It runs against a temp COPY of hub/: this test
 # used to write its throwaway JAAS file over the real hub/kafka_server_jaas.conf
 # and restore it from a backup in its EXIT trap -- a kill -9 between the two
 # left a live broker's credentials replaced by testadmin/testfleet. HUB_DIR is
@@ -68,7 +68,7 @@ if docker network create "$NET" >/dev/null 2>&1; then ok "throwaway network ${NE
 # ${VAR:?} is resolved even though only kafka-controller/kafka are started)
 # plus the cluster id and the throwaway network -- nothing else in hub/.env
 # is referenced by docker-compose.yml itself, EXCEPT kafka-ui's
-# KAFKA_UI_USER/KAFKA_UI_PASSWORD (Ruling 3): compose interpolates the WHOLE
+# KAFKA_UI_USER/KAFKA_UI_PASSWORD: compose interpolates the WHOLE
 # file before deciding which services to start, so even though kafka-ui is
 # never brought up here, its two required vars still need a value or `up`
 # refuses outright (found live: "required variable KAFKA_UI_USER is missing
@@ -86,7 +86,7 @@ env_put "$tmp_env" KAFKA_CLUSTER_ID "$CID"
 env_put "$tmp_env" KAFKA_BASE_NETWORK "$NET"
 env_put "$tmp_env" KAFKA_UI_USER admin
 env_put "$tmp_env" KAFKA_UI_PASSWORD "$(gen_secret)"
-# KAFKA_SASL_BIND (final review, Critical 2): kafka's ports entry interpolates
+# KAFKA_SASL_BIND: kafka's ports entry interpolates
 # it, and boot-override.yml resets that list to empty anyway -- but compose
 # interpolates the WHOLE file before deciding what to start, so it still needs
 # a valid value or `up` refuses outright.

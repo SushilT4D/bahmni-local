@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # The broker's SASL/PLAIN JAAS file, generated from hub/.env at install time --
-# never hand-written and never committed (F-071: cloud/kafka_server_jaas.conf
-# was TRACKED with literal passwords since the repo's first commit, a public
-# repo). Also stakes out hub/connectors/, where task 040 lands the Kafka
+# never hand-written and never committed: a JAAS file carries literal passwords,
+# and this repo is public. Also stakes out hub/connectors/, where task 040 lands the Kafka
 # Connect plugin jars the kafka-connect service mounts read-only.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"

@@ -20,11 +20,11 @@ setup_compose
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
 MY="$BASE_MYSQL_CONTAINER"
-# Ruling 11 (two-container base): IPLIT's real hub runs Odoo and OpenELIS in
+# Two-container base: IPLIT's real hub runs Odoo and OpenELIS in
 # two separate Postgres containers with different bootstrap superusers; the
 # mini and every clinic run one container for both. This task no longer
-# tracks its own PG/ELIS container aliases (code review fold-in, Task 6/7
-# review: pg_admin, hub/install/lib.sh, now dispatches BASE_PG_CONTAINER vs.
+# tracks its own PG/ELIS container aliases (pg_admin, hub/install/lib.sh,
+# dispatches BASE_PG_CONTAINER vs.
 # BASE_ELIS_CONTAINER itself from the db name it's given -- "odoo" or
 # "openelis" below, the same two names 050-base-db.sh already passes it).
 # HUB_CONNECT_URL_OVERRIDE: an already-exported value wins (the live smokes
@@ -32,7 +32,7 @@ MY="$BASE_MYSQL_CONTAINER"
 # before hub/.env's own KAFKA_CONNECT_URL (an operator's real customization),
 # before the bare default -- in that order, so a test override is never
 # shadowed by hub/.env and an operator's KAFKA_CONNECT_URL is never shadowed
-# by a bare default. Renamed from a bare CONNECT_URL (final review, Minor 13):
+# by a bare default. Not a bare CONNECT_URL:
 # connectors/register-odoo.sh has its OWN CONNECT_URL contract, which this
 # task sets explicitly when it calls it, and one ambient name serving two
 # different scopes is how a test harness silently redirects a real install.
@@ -46,22 +46,22 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # is the one place that turns "the Azure hub is still 5.6" into a named,
 # actionable failure instead of a connector that silently never comes up.
 # mysql_major_ok (hub/install/lib.sh) is the pure comparison, extracted so it
-# has a test of its own (code review fold-in, Task 6 review).
-# mysql_root: hub/install/lib.sh (final review, Minor 20 -- this task and
-# 050-base-db.sh each carried an identical copy).
+# has a test of its own.
+# mysql_root: hub/install/lib.sh (this task and 050-base-db.sh each used to
+# carry an identical copy).
 ver="$(printf 'select version()' | mysql_root | head -1)"
 bad="$(mysql_major_ok "$ver")" \
   && ok "base mysql version ${ver} fit for Debezium 3.6.2 (major >= 8)" \
-  || fail "base mysql ${ver} on ${MY} unfit: ${bad} -- docs/superpowers/plans/2026-09-17-fleet-on-staging-versions.md rebuilds the hub's base on 8.0.39; run that plan before this task."
+  || fail "base mysql ${ver} on ${MY} unfit: ${bad} -- rebuild the hub's base on MySQL 8.0.39 (the version pinned in sync/versions.env) before this task."
 
 # --- 2. MySQL down-source: render to a gitignored file, PUT-of-config ------
 GENERATED="${HUB_DIR}/connectors/mysql-cloud-source-connector.json"
-# HUB_DIR/REPO_DIR passed explicitly (final review, Important 9): the
+# HUB_DIR/REPO_DIR passed explicitly: the
 # generator needs the HUB tree (template, .env) and the REPO tree
 # (clinic/scripts/generate-table-config.sh, sync/local/tables.conf) as two
 # separate roots, and it can only derive one of them from its own path.
 HUB_DIR="$HUB_DIR" REPO_DIR="$REPO_DIR" bash "${HUB_DIR}/scripts/generate-cloud-source-connector.sh" "$GENERATED" >/dev/null
-# Belt and braces on the generator's own umask 077 (final review, Important 8):
+# Belt and braces on the generator's own umask 077:
 # this file holds DEBEZIUM_DB_PASSWORD in plaintext, and a re-render over a
 # file an older version of this installer already created 644 would keep that
 # mode -- umask only applies to a file being CREATED.
@@ -111,7 +111,7 @@ ok "odoo-cloud-source, clinlims-cloud-source registered via connectors/register-
 wait_running(){ # NAME MAX_SECONDS
   local name="$1" secs="${2:-180}" i state good
   for i in $(seq 1 $((secs/5))); do
-    # `|| true` OUTSIDE the substitution (final review, Important 3): under
+    # `|| true` OUTSIDE the substitution: under
     # `set -euo pipefail` a refused connection here (Connect still starting,
     # or a momentary blip) aborted the task on the first iteration instead of
     # retrying -- the failure this loop exists to absorb.
@@ -150,39 +150,39 @@ bash "${REPO_DIR}/clinic/scripts/set-schema-history-retention.sh" "$CT" kafka:29
 # exact-string compare below on the doubled output. clinic/scripts/set-
 # schema-history-retention.sh's own read-back already guards this
 # (`grep -oE '...' | head -1`); mirrored here for the same reason.
-# `|| true` (final review, Minor 11): the whole point of this read is the
+# `|| true`: the whole point of this read is the
 # NEGATIVE case -- retention that is not -1 -- and in exactly that case the
 # grep matches nothing, which under `set -o pipefail` aborted the task through
-# the ERR trap before the fail line naming F-045 could ever print. An
+# the ERR trap before the fail line below could ever print. An
 # unreachable failure message is not a check.
 ret="$(ct exec "$KAFKA_CONTAINER" kafka-configs --bootstrap-server kafka:29092 --entity-type topics --entity-name "$schema_topic" --describe | grep -oE 'retention.ms=-1' | head -1)" || true
-[ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention -1" || fail "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention is not -1 (F-045)"
+[ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention -1" || fail "schema-changes.${CLOUD_MYSQL_SERVER_NAME} retention is not -1 -- the schema-history topic must never expire"
 
 # --- 6. Postgres replication slots: both present and active ----------------
 # Bounded wait, same reason as step 5's schema-history topic: RUNNING is
 # reported once the task starts, which can precede the slot actually being
 # created (Debezium creates it lazily too) or precede it showing
-# active=true. Ruling 14 tags each Postgres source's JMX metrics with its own
+# active=true. Each Postgres source tags its JMX metrics with its own
 # database (custom.metric.tags), which stops the two same-topic.prefix
 # connectors from colliding on Debezium's MBean names -- the actual root
-# cause traced in Fix round 1 of io.debezium.pipeline.ChangeEventSourceCoordinator
+# cause of io.debezium.pipeline.ChangeEventSourceCoordinator
 # stalling behind repeated "Unable to register metrics as an old set with the
 # same name ... retrying" before it would proceed to START_REPLICATION (the
 # call that flips pg_replication_slots.active to true). With that collision
 # gone this should resolve in the ~2-minute range a single connector traced
-# at, but the bound is Ruling 13's flat 15 minutes (900s) regardless, with a
+# at, but the bound is a flat 15 minutes (900s) regardless, with a
 # progress line every 30s naming the still-inactive slot -- generous enough
 # to absorb host contention (this dev Mac shares ~20 other containers with
 # this test) without a production install ever approaching it.
 # pg_admin (hub/install/lib.sh, DB ARGS...) replaces this task's own former
 # pg_admin(CONTAINER SUPERUSER SQL) -- a name collision with 050-base-db.sh's
-# own, differently-shaped pg_admin (code review fold-in, Task 6/7 review).
+# own, differently-shaped pg_admin.
 # wait_slot below now names the DATABASE ("odoo" or "openelis"), and pg_admin
 # dispatches to whichever container actually hosts it -- the same "postgres"
 # maintenance-db connection this task always used still works unchanged,
 # since pg_replication_slots is visible from any database in that instance,
 # and "odoo"/"openelis" both already exist and route to the right instance
-# under Ruling 11's two-container base.
+# under a two-container base.
 wait_slot(){ # SLOT DB MAX_SECONDS
   # NOTE (found live while proving this round): `slot_name || '|' || active`
   # concatenates the boolean through Postgres's ::text cast, which renders
@@ -190,16 +190,16 @@ wait_slot(){ # SLOT DB MAX_SECONDS
   # psql's -At (confirmed directly: `select slot_name, active from
   # pg_replication_slots` gives `dbz_odoo_down|t`, but this query's own `||`
   # form gives `dbz_odoo_down|true` on the same row, same Postgres 16). The
-  # comparison below was inherited from Fix round 1 checking for "|t", which
+  # comparison below used to check for "|t", which
   # can never match this query's actual output regardless of how long it
   # waits -- a pre-existing defect this round's new progress line (Ruling
   # 13) surfaced live, not a new one introduced here. slot_wait_state
   # (hub/install/lib.sh) is the pure classifier, extracted so it has a test
-  # of its own (code review fold-in, Task 6 review).
+  # of its own.
   local slot="$1" db="$2" secs="${3:-900}" i row state elapsed=0
   for i in $(seq 1 $((secs/5))); do
     # `|| true` OUTSIDE the substitution, same reason as wait_running above
-    # (final review, Important 3) -- and note the `||` INSIDE this one is
+    # -- and note the `||` INSIDE this one is
     # Postgres string concatenation, not a shell guard.
     row="$(pg_admin "$db" -Atc "select slot_name || '|' || active from pg_replication_slots where slot_name = '${slot}'")" || true
     state="$(slot_wait_state "$row" "$slot")" || true
@@ -218,7 +218,7 @@ wait_slot dbz_clinlims_down openelis 900
 
 # --- 7. The MySQL source's schema-changes topic exists ----------------------
 # (Already proven once, as a precondition, in step 5's bounded wait -- this is
-# ruling 8's own separate, explicit `kafka-topics --list` assertion.)
+# its own separate, explicit `kafka-topics --list` assertion.)
 topics="$(ct exec "$KAFKA_CONTAINER" kafka-topics --bootstrap-server kafka:29092 --list)"
 printf '%s\n' "$topics" | grep -qx "$schema_topic" \
   && ok "topic ${schema_topic} exists" \

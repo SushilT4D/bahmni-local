@@ -22,7 +22,7 @@ running="$(ct inspect --format '{{.State.Running}}' "$BASE_MYSQL_CONTAINER" 2>/d
 running="$(ct inspect --format '{{.State.Running}}' "$BASE_PG_CONTAINER" 2>/dev/null || true)"
 [ "$running" = true ] && ok "base pg container ${BASE_PG_CONTAINER} running" || fail "base pg container ${BASE_PG_CONTAINER} running=${running:-<not found>} (want true)"
 
-# 1b. CLOUD_MYSQL_HOST (residual fix round 2): the down-direction Debezium
+# 1b. CLOUD_MYSQL_HOST: the down-direction Debezium
 # source dials this name over Docker's own resolution on KAFKA_BASE_NETWORK
 # (hub_compose_env derives it from BASE_MYSQL_CONTAINER, and the two are
 # meant to track each other), so it must itself name a running container --
@@ -44,8 +44,8 @@ running="$(ct inspect --format '{{.State.Running}}' "$CLOUD_MYSQL_HOST" 2>/dev/n
 # read: under set -e a bare x="$(failing_cmd)" aborts right there with a
 # generic trap message and never reaches the ok/fail line below it -- a
 # rotated root password or a container that died between the running-check
-# above and here must still produce a clean, named fail, not a trap (F-068
-# class). binlog_ok already treats an empty value as unfit and reports it by
+# above and here must still produce a clean, named fail, not a trap.
+# binlog_ok already treats an empty value as unfit and reports it by
 # name, so a guarded-empty read here still ends in a clean fail line.
 mysql_setting(){ printf 'select @@%s' "$1" | ct exec -i "$BASE_MYSQL_CONTAINER" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N'; }
 mf="$(mysql_setting binlog_format 2>/dev/null || true)"
@@ -67,8 +67,8 @@ bad="$(binlog_ok "$mf" "$mi" "$mr" "$ms" "$minc" "$moff" "$CLOUD_DEBEZIUM_SERVER
 # 3. base Postgres: logical replication headroom (reads guarded, same reason as above)
 #
 # pg_connect_ok CONTAINER SUPERUSER LABEL: before any setting is read, prove we
-# can log in AT ALL, and name the role when we cannot (final review, Important
-# 6). A stock Bahmni base .env carries no POSTGRES_USER, so BASE_PG_SUPERUSER
+# can log in AT ALL, and name the role when we cannot.
+# A stock Bahmni base .env carries no POSTGRES_USER, so BASE_PG_SUPERUSER
 # used to default to "postgres" -- which does not exist on IPLIT's base, where
 # the two bootstrap superusers are `odoo` and `clinlims`. Every read below then
 # came back empty and this task failed as `pg wal_level= (want logical)`: true,
@@ -79,12 +79,12 @@ pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
   local c="$1" su="$2" label="$3" out
   # -d postgres: without -d, libpq defaults the database to the ROLE name, which
   # exists for postgres/odoo but not for IPLIT's clinlims (databases openelis +
-  # postgres) -- the Azure rehearsal's second stop, 2026-09-18. The maintenance
+  # postgres). The maintenance
   # database exists on every instance; every read here is cluster-wide.
   out="$(ct exec "$c" psql -U "$su" -d postgres -Atc 'select 1' 2>&1)" || true
   if [ "$out" = 1 ]; then
     # Connecting is not enough: task 050 creates roles and publications as this
-    # role, which only a superuser may do (Azure rehearsal stop 4, 2026-09-18:
+    # role, which only a superuser may do (a case that bites:
     # a stock postgres:16 OpenELIS instance has superuser postgres, and
     # clinlims is merely the database owner -- clinlims is the bootstrap
     # superuser only on IPLIT's own openelis-db image).
@@ -98,7 +98,7 @@ pg_connect_ok(){ # CONTAINER SUPERUSER LABEL
 pg_setting(){ ct exec "$BASE_PG_CONTAINER" psql -U "$BASE_PG_SUPERUSER" -d postgres -Atc "show $1"; }
 pg_connect_ok "$BASE_PG_CONTAINER" "$BASE_PG_SUPERUSER" "base pg"
 ok "base pg ${BASE_PG_CONTAINER} accepts role ${BASE_PG_SUPERUSER}"
-# Postgres major >= 10 (final review, Minor 14): pgoutput (every source here
+# Postgres major >= 10: pgoutput (every source here
 # uses it) arrived in 10, and so did the pg_sequences view task 050's striding
 # assertion reads. IPLIT's own OpenELIS image shipped 9.6 as recently as the
 # staging audit, so this is a live possibility, not a theoretical one.
@@ -114,7 +114,7 @@ pv="$(pg_setting max_replication_slots 2>/dev/null || true)"
 pv="$(pg_setting max_wal_senders 2>/dev/null || true)"
 [ "$pv" -ge 4 ] && ok "pg max_wal_senders=${pv}" || fail "pg max_wal_senders=${pv} (want >=4)"
 
-# 3b. base ELIS Postgres (Ruling 11 / R5, code review fold-in Task 6/7 review):
+# 3b. base ELIS Postgres:
 # only when the base runs OpenELIS on its OWN Postgres container, separate
 # from Odoo's (IPLIT's real hub) -- hub_compose_env always defaults
 # BASE_ELIS_CONTAINER from BASE_PG_CONTAINER, so on the mini and every clinic
@@ -140,8 +140,8 @@ if [ -n "${BASE_ELIS_CONTAINER:-}" ] && [ "${BASE_ELIS_CONTAINER}" != "${BASE_PG
   [ "$pv" -ge 4 ] && ok "elis max_wal_senders=${pv}" || fail "elis max_wal_senders=${pv} (want >=4)"
 fi
 
-# 4. host room -- two floors, two filesystems (Azure rehearsal stop 3,
-# 2026-09-18). A base container's ROOT filesystem is the image/overlay store,
+# 4. host room -- two floors, two filesystems. A base container's ROOT
+# filesystem is the image/overlay store,
 # which on a hub with a small OS disk and a big data disk is the small one;
 # the disk that actually fills is the one Docker's VOLUMES live on.
 # So: the volume pool is measured inside the base MySQL container at its own
@@ -184,7 +184,7 @@ min_disk_gb="${HUB_MIN_DISK_GB:-60}"; min_image_gb="${HUB_MIN_IMAGE_DISK_GB:-8}"
 [ "$root_gb" -ge "$min_image_gb" ] && ok "disk free on the image store (container rootfs of ${BASE_MYSQL_CONTAINER}): ${root_gb} GB (want >= ${min_image_gb})" \
   || fail "disk free on the image store (container rootfs of ${BASE_MYSQL_CONTAINER}): ${root_gb} GB (want >= ${min_image_gb} GB) -- the four hub images are ~4 GB and a pull needs headroom"
 # Guarded and validated as a plain digit string before the comparison, the
-# same way avail_kb above is (final review, Minor 12): an unguarded
+# same way avail_kb above is: an unguarded
 # `mem_mb="$(free -m | ...)"` followed by `[ "" -ge 4096 ]` aborts the task
 # with a raw shell diagnostic instead of a named line. free(1) is Linux-only
 # and every real hub is Linux, so its ABSENCE is not a failure of the host

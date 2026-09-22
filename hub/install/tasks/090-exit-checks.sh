@@ -7,7 +7,7 @@
 # the complete picture in one pass, so every check below always runs, each
 # prints ok/FAIL with the value it read, and only the summary line at the end
 # decides whether this task -- and so install.sh's task loop -- passes or
-# stops. hub/install/tests/test_sources.sh (Ruling 9) runs this task for real
+# stops. hub/install/tests/test_sources.sh runs this task for real
 # against a throwaway stack; two of its six checks are annotated below for
 # what that means in a throwaway environment (the disk-free threshold is
 # overridable with HUB_MIN_DISK_GB, the same way KAFKA_CONTAINER is; the git-status
@@ -24,7 +24,7 @@ set -a; . "${HUB_DIR}/.env"; set +a
 # Same override precedence as 080-sources.sh: an already-exported
 # HUB_CONNECT_URL_OVERRIDE (the live smoke, addressing its own throwaway
 # Connect) wins over hub/.env's KAFKA_CONNECT_URL, which wins over the bare
-# default. Renamed from a bare CONNECT_URL (final review, Minor 13).
+# default.
 CONNECT_URL="${HUB_CONNECT_URL_OVERRIDE:-${KAFKA_CONNECT_URL:-http://localhost:8083}}"
 
 FAILS=0
@@ -102,10 +102,10 @@ check_slot_retention dbz_clinlims_down openelis "${BASE_ELIS_CONTAINER:-$BASE_PG
 # --- 4. The SASL listener is published where hub/.env says, and answers -----
 # sasl_bind_ok + sasl_listener_ok (lib.sh): 060's own two checks, reused
 # rather than duplicated, so "did it come up" and "is it still up at the end"
-# can never drift apart (code review fold-in, Task 6/7 review). The bind
+# can never drift apart. The bind
 # read-back is the half sasl_listener_ok structurally cannot do: it dials
 # 127.0.0.1, which answers whether 9092 is published to the world or to
-# loopback only (final review, Critical 2).
+# loopback only.
 if bind_published="$(sasl_bind_ok)"; then
   ok "clinic-facing 9092 published on ${bind_published} (declared KAFKA_SASL_BIND=${KAFKA_SASL_BIND:-0.0.0.0})"
 else
@@ -133,7 +133,7 @@ for f in "${HUB_DIR}/.env" "${HUB_DIR}/kafka_server_jaas.conf"; do
 done
 
 # --- 6. git status --porcelain empty in the repo ----------------------------
-# HUB_EXIT_CHECKS_SKIP_GIT=1 is set ONLY by the live smoke (Ruling 9), which
+# HUB_EXIT_CHECKS_SKIP_GIT=1 is set ONLY by the live smoke, which
 # runs this task for real beside another session's own in-flight edits to
 # this same checkout -- a dirty tree there proves nothing about THIS task,
 # just about who else is working. Unset (the default, every real install),

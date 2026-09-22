@@ -23,7 +23,7 @@ REPO_DIR="${REPO_DIR:-$(cd "${HUB_INSTALL_DIR}/../.." && pwd)}"
 # binding. Every compose() call in tasks 040, 060 and 070 then died on
 # `cd "${CLINIC_DIR}"` with "CLINIC_DIR: unbound variable" under set -u. It
 # stayed latent because those three tasks are exactly the ones no test had ever
-# run (final review, Important 3b).
+# run.
 CLINIC_DIR="${HUB_DIR}"
 PROFILES=""
 INSTALL_DIR="${REPO_DIR}/clinic/install"
@@ -31,7 +31,7 @@ INSTALL_DIR="${REPO_DIR}/clinic/install"
 PROFILES=""
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_SASL_BIND KAFKA_BASE_NETWORK KAFKA_ADMIN_PASSWORD REMOTE_KAFKA_PASSWORD DEBEZIUM_DB_USER DEBEZIUM_DB_PASSWORD REMOTE_MYSQL_HOST REMOTE_MYSQL_PORT REMOTE_MYSQL_DATABASE REMOTE_MYSQL_USER REMOTE_MYSQL_PASSWORD REMOTE_MYSQL_USE_SSL ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD CLOUD_MYSQL_SERVER_NAME CLOUD_DEBEZIUM_SERVER_ID KAFKA_CONNECT_URL BASE_PG_SUPERUSER BASE_MYSQL_CONTAINER BASE_PG_CONTAINER BASE_ELIS_CONTAINER BASE_ELIS_SUPERUSER ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD REMOTE_SERVER_NAME CLOUD_MYSQL_HOST CLOUD_MYSQL_PORT CLOUD_MYSQL_DATABASE KAFKA_UI_USER KAFKA_UI_PASSWORD"
-# Dropped from HUB_KEYS (final review, Important 7): BASE_MYSQL_ROOT_PASSWORD
+# Not in HUB_KEYS: BASE_MYSQL_ROOT_PASSWORD
 # and BASE_PG_PASSWORD. Both were composed into hub/.env from the base stack's
 # own .env -- the first one REQUIRED to be non-empty -- and then read by
 # nothing: every task that needs MySQL root goes through the container's own
@@ -52,8 +52,7 @@ HUB_KEYS="KAFKA_CLUSTER_ID REMOTE_KAFKA_HOST KAFKA_SASL_BIND KAFKA_BASE_NETWORK 
 # holds the bare name on this host's docker daemon, and so renames its own
 # throwaway container and exports this before invoking the tasks.
 #
-# CONNECT_CONTAINER (its former sibling here) was removed (code review
-# fold-in, Task 6/7 review): every hub task that talks to Kafka Connect does
+# There is no CONNECT_CONTAINER beside it: every hub task that talks to Kafka Connect does
 # so over its REST API (CONNECT_URL), never `ct exec` into the container by
 # name, so the variable was defined and exported but read by nothing.
 KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
@@ -72,13 +71,13 @@ KAFKA_CONTAINER="${KAFKA_CONTAINER:-kafka}"
 # (BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER from BASE_PG_CONTAINER/
 # BASE_PG_SUPERUSER; CLOUD_MYSQL_HOST from BASE_MYSQL_CONTAINER) -- see
 # put_derived's own comment below for why the derived three needed a second
-# round. Residual fix round 1: `put`'s keep-existing rule made the
+# round. `put`'s keep-existing rule alone made the
 # "environment first" precedence documented at each call site below a dead
 # letter after the first run -- a first attempt on the Azure hub that omitted
 # BASE_PG_SUPERUSER baked "postgres" into hub/.env, task 000 then failed
 # telling the operator to set BASE_PG_SUPERUSER in the environment, and doing
 # so and rerunning changed nothing, because `put` saw an already-non-empty
-# slot and left it alone. Residual fix round 2: put_coord's fix was not
+# slot and left it alone. put_coord alone was not
 # transitive -- BASE_ELIS_CONTAINER/CLOUD_MYSQL_HOST/etc. still read a
 # possibly-STALE upstream value out of OUT itself when they had no override
 # of their own, rather than the upstream's newly-overridden value from this
@@ -90,7 +89,7 @@ hub_compose_env(){
   # it, because every value a source file would supply is already stored in
   # OUT and kept by put() below -- an empty BASE/SECRETS simply contributes
   # nothing. Before OUT exists there is nothing to keep, so both are
-  # required. Azure rehearsal 2026-09-18 (peer session): a full idempotent
+  # required: a full idempotent
   # re-run without the two flags passed install.sh's own check and then died
   # here at "base .env not found: " (an empty path) the moment task 020 ran.
   if [ -f "$out" ]; then
@@ -146,7 +145,7 @@ hub_compose_env(){
   # put_derived KEY ENV_VALUE UPSTREAM : for a coordinate whose default is
   # ITSELF another coordinate's value, not a fixed/base-.env one --
   # CLOUD_MYSQL_HOST (from BASE_MYSQL_CONTAINER) and the BASE_ELIS_* pair
-  # (from BASE_PG_*). Residual fix round 2: put_coord alone was not enough
+  # (from BASE_PG_*). put_coord alone was not enough
   # for these three -- its empty-ENV_VALUE branch called put() with
   # UPSTREAM's CURRENT value, which only reached a fresh (never-before-
   # written) slot; on a rerun where KEY already had a stored value from an
@@ -189,7 +188,7 @@ hub_compose_env(){
     fi
   }
   put REMOTE_KAFKA_HOST "${bs%%:*}"
-  # KAFKA_SASL_BIND (final review, Critical 2): the host interface the
+  # KAFKA_SASL_BIND: the host interface the
   # clinic-facing SASL_PLAINTEXT listener is PUBLISHED on (hub/docker-compose.yml
   # renders `${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092`). A real hub must be
   # dialable by its clinics, so the default is 0.0.0.0 -- the compose file used
@@ -211,7 +210,7 @@ hub_compose_env(){
   # and never inherit the base .env's REMOTE_MYSQL_* -- on IPLIT's base those
   # are the clinic package's sample placeholders (unused.invalid / unused),
   # and inheriting them made task 050 create a MySQL account named `unused`
-  # with openmrs grants (Azure rehearsal stop 4, 2026-09-18). The host follows
+  # with openmrs grants. The host follows
   # BASE_MYSQL_CONTAINER like CLOUD_MYSQL_HOST does; the user is a coordinate
   # with the fleet default; the password is generated here and kept.
   put REMOTE_MYSQL_PORT "3306"
@@ -225,8 +224,8 @@ hub_compose_env(){
   put CLOUD_DEBEZIUM_SERVER_ID 184060
   put KAFKA_CONNECT_URL http://localhost:8083
   # The base-stack coordinates (two containers, two superusers, plus the
-  # network and SASL bind above) resolve in ONE order, the same for each
-  # (final review, Important 6; residual fix item 1): the environment of the
+  # network and SASL bind above) resolve in ONE order, the same for each: the
+  # environment of the
   # install command wins whenever it is set and non-empty, and it wins on
   # EVERY run, not just the first -- rewriting whatever is already stored.
   # Below that: the existing value already in $out (a resume must not
@@ -244,8 +243,8 @@ hub_compose_env(){
   put_coord BASE_PG_CONTAINER "${BASE_PG_CONTAINER:-}" "cloud-openelisdb-1"
   # BASE_ELIS_CONTAINER / BASE_ELIS_SUPERUSER: one container serves both
   # databases on the mini and every clinic, so these default straight from
-  # the BASE_PG_* values just set above. put_derived (residual fix round 2,
-  # displaced Important): when the operator gives BASE_PG_CONTAINER/
+  # the BASE_PG_* values just set above. put_derived: when the operator
+  # gives BASE_PG_CONTAINER/
   # BASE_PG_SUPERUSER in the environment this run but does NOT also give the
   # ELIS pair (e.g. a resume that only touches the Odoo side, or an operator
   # who assumes -- as the one-container default implies -- that ELIS "just
@@ -253,8 +252,7 @@ hub_compose_env(){
   # whatever was stored from an earlier run. IPLIT's real hub base is the one
   # deployment that differs enough to matter: it runs Odoo and OpenELIS in
   # two separate Postgres containers with different bootstrap superusers
-  # (iplit-base-odoodb-1/odoo, iplit-base-openelisdb-1/clinlims --
-  # docs/sync-core/runbooks/hub-build-and-connect.md's container table),
+  # (iplit-base-odoodb-1/odoo, iplit-base-openelisdb-1/clinlims),
   # where an operator sets all four explicitly (hub/README.md's documented
   # command does) -- put_derived's own-environment branch (case 1, same as
   # put_coord) covers that case unchanged.
@@ -286,16 +284,16 @@ hub_compose_env(){
   put ODOO_DB_PASSWORD "$(src_get "$base" ODOO_DB_PASSWORD)"
   put CLINLIMS_SOURCE_PASSWORD "$(src_get "$base" OPENELIS_DB_PASSWORD)"
   put REMOTE_SERVER_NAME bahmni-cloud
-  # kafka-ui (Ruling 3): a login the operator actually knows, not a bare
+  # kafka-ui: a login the operator actually knows, not a bare
   # generated username -- "admin" is not a secret, so it is a fixed default
   # rather than something `put`'s already-set-wins guard needs to protect
   # from being clobbered on resume (it never generates a fresh one after the
   # first run either way, same as every other `put` here).
   put KAFKA_UI_USER admin
   put KAFKA_UI_PASSWORD "$(gen_secret)"
-  versions_put "$out"   # every fleet pin from sync/versions.env (L-005: one place)
-  # No key is exempt from the non-empty check any more (final review,
-  # Important 7): BASE_PG_PASSWORD -- the one key that could legitimately be
+  versions_put "$out"   # every fleet pin from sync/versions.env, the one place they live
+  # No key is exempt from the non-empty check:
+  # BASE_PG_PASSWORD -- the one key that could legitimately be
   # empty, since the base Postgres takes no network password -- is gone.
   # A resume that omitted the source files can only keep what OUT already
   # stores, so a missing key names that recovery instead of a bare key.
@@ -329,7 +327,7 @@ hub_base_container(){
 # separate Postgres containers with different bootstrap superusers), every
 # other DB (odoo, and the bare "postgres" maintenance db some callers use)
 # stays on BASE_PG_CONTAINER/BASE_PG_SUPERUSER. One contract, hoisted here
-# (code review fold-in, Task 6/7 review): 050-base-db.sh and 080-sources.sh
+# because 050-base-db.sh and 080-sources.sh
 # each used to define their own `pg_admin` with a DIFFERENT argument shape
 # (050's took a db name and dispatched; 080's took a container+superuser
 # directly), a naming collision waiting to bite the next person who greps for
@@ -352,8 +350,8 @@ pg_admin(){
 }
 
 # mysql_root : run the SQL on stdin as root in the base stack's MySQL
-# container, tab-separated, header-less (-N). Hoisted here (final review,
-# Minor 20) from 050-base-db.sh and 080-sources.sh, which carried
+# container, tab-separated, header-less (-N). Hoisted here from
+# 050-base-db.sh and 080-sources.sh, which carried
 # byte-identical copies. One contract:
 #   - the root password is expanded by the `sh` INSIDE the container, from
 #     that container's OWN environment (MYSQL_ROOT_PASSWORD), so it never
@@ -366,7 +364,7 @@ pg_admin(){
 mysql_root(){ ct exec -i "${BASE_MYSQL_CONTAINER:?mysql_root: BASE_MYSQL_CONTAINER not set}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>&1 | mask_env_secrets REMOTE_MYSQL_PASSWORD DEBEZIUM_DB_PASSWORD; }
 
 # container_ip CONTAINER : its address on whichever docker/podman network(s)
-# it is attached to. Hoisted here (final review, Minor 20) from
+# it is attached to. Hoisted here from
 # 050-base-db.sh and hub/install/tests/test_base_db.sh, which each had their
 # own copy -- one through `ct`, one through a bare `docker`. Used to dial
 # MySQL/Postgres from inside their OWN container by IP rather than by
@@ -383,7 +381,7 @@ container_ip(){ ct inspect --format '{{range .NetworkSettings.Networks}}{{.IPAdd
 # 1 -- so a caller reads it as `if b="$(sasl_bind_ok)"; then ok ...; else fail
 # "$b"; fi`.
 #
-# Why this check exists at all (final review, Critical 2): sasl_listener_ok
+# Why this check exists at all: sasl_listener_ok
 # above proves the listener AUTHENTICATES, but it dials 127.0.0.1, which
 # answers whether the port is published on loopback only or on every
 # interface. So a hub published on 127.0.0.1:9092 -- which no clinic can dial
@@ -431,7 +429,7 @@ git_dirty_hub_paths(){
 # jaas_escape STR : backslash-escapes a value for safe embedding inside a
 # double-quoted JAAS/Java-properties string. Order matters -- backslashes
 # first, then quotes -- so a literal backslash already in the input is never
-# re-escaped by the quote pass (Fix round 1, code review Finding 1): an
+# re-escaped by the quote pass: an
 # operator-typed REMOTE_KAFKA_PASSWORD containing a '"' or '\' would otherwise
 # break the quoting of whatever file it lands in.
 # connect_failed_task_ids : reads a Connect /connectors/NAME/status JSON on
@@ -446,8 +444,8 @@ for t in d.get("tasks") or []:
 }
 # connect_restart_failed NAME : a PUT of an UNCHANGED connector config answers
 # 200 and Connect does NOT restart a FAILED task for it, so a resume after an
-# external fix (a grant, a password) stayed FAILED forever (Azure rehearsal
-# stop 7, 2026-09-18). After registering, restart the failed tasks once via
+# external fix (a grant, a password) stayed FAILED forever. After
+# registering, restart the failed tasks once via
 # POST /connectors/NAME/restart?includeTasks=true&onlyFailed=true (KIP-745,
 # Connect >= 3.0), then the caller's bounded wait decides. Reads CONNECT_URL.
 connect_restart_failed(){
@@ -477,8 +475,7 @@ jaas_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 # not treat backslash specially (standard_conforming_strings, the default
 # since 9.1), so nothing else needs escaping -- an operator-typed
 # ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD containing a "'" would otherwise
-# break out of the ALTER ROLE ... PASSWORD '...' literal it lands in
-# (Fix round 2).
+# break out of the ALTER ROLE ... PASSWORD '...' literal it lands in.
 pg_lit_escape(){ printf '%s' "$1" | sed "s/'/''/g"; }
 
 # mysql_lit_escape STR : backslash-escapes a value for safe embedding inside a
@@ -488,7 +485,7 @@ pg_lit_escape(){ printf '%s' "$1" | sed "s/'/''/g"; }
 # a literal backslash already in the input is never re-escaped by the quote
 # pass. An operator-typed REMOTE_MYSQL_PASSWORD/DEBEZIUM_DB_PASSWORD
 # containing a "'" or "\" would otherwise break the IDENTIFIED BY '...'
-# clause mysql_user_sql builds below (Fix round 2).
+# clause mysql_user_sql builds below.
 mysql_lit_escape(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"; }
 
 # mask_env_secrets NAME... : reads stdin, replaces the CURRENT value of each
@@ -496,7 +493,7 @@ mysql_lit_escape(){ printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"; }
 # (Python's str.replace, not a sed regex), so a password containing any
 # sed/regex-special character (., *, [, ], ^, $, \, or the delimiter itself,
 # "/") can never break the mask or leak past it the way
-# `sed "s/${SECRET}/<hidden>/g"` did (Fix round 2, code review: that pattern
+# `sed "s/${SECRET}/<hidden>/g"` would (that pattern
 # breaks -- or silently mis-substitutes -- the moment a secret contains a "/"
 # or a regex metacharacter). Only variable NAMES are ever passed as
 # arguments (never secret values); mask_env_secrets reads the actual values
@@ -517,9 +514,8 @@ sys.stdout.write(data)
 }
 
 # write_jaas OUT ADMIN_PW FLEET_PW : the broker's SASL/PLAIN users. Generated from
-# hub/.env at install time -- cloud/kafka_server_jaas.conf was TRACKED with literal
-# passwords since the repo's first commit (public repo), hence F-071. Both
-# passwords are escaped before interpolation (Fix round 1).
+# hub/.env at install time and never tracked: a JAAS file carries literal passwords.
+# Both passwords are escaped before interpolation.
 write_jaas(){
   local out="$1" adm fleet
   adm="$(jaas_escape "$2")"; fleet="$(jaas_escape "$3")"
@@ -531,7 +527,7 @@ write_jaas(){
 # authenticates the mirrormaker user, dialed from the HOST network on the
 # PUBLISHED port -- never by dialing REMOTE_KAFKA_HOST from inside the
 # broker's own container (an Azure VM cannot reach its own public IP).
-# Extracted here (code review fold-in, Task 6/7 review) so task 060 (right
+# Extracted here so task 060 (right
 # after the broker first comes up) and task 090 (the exit checks, proving it
 # is STILL true at the end) share one definition instead of two copies
 # drifting apart. Same ok-or-named-reason contract as binlog_ok above: prints
@@ -542,7 +538,7 @@ write_jaas(){
 # a tracked file: written by the printf builtin (no subprocess ever sees it
 # in argv) to a mode-600 temp file under HUB_DIR.
 #
-# Fix round 1 (code review, Important 3): the body runs in its OWN subshell
+# The body runs in its OWN subshell
 # with its OWN `trap ... EXIT`, not a plain `rm -f` after the `ct run` line --
 # a bare `rm -f` is skipped entirely if `ct run` (or anything before it)
 # crashes or is killed by a signal, leaving a mode-600 file holding the
@@ -570,7 +566,7 @@ sasl_listener_ok(){
     trap 'rm -f "$tmp"' EXIT
     esc_pw="$(jaas_escape "${REMOTE_KAFKA_PASSWORD:?sasl_listener_ok: REMOTE_KAFKA_PASSWORD not set}")"
     printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="mirrormaker" password="%s";\n' "$esc_pw" > "$tmp"
-    # --user (final review, Important 9): the properties file is mode 600 and
+    # --user: the properties file is mode 600 and
     # owned by whoever runs the installer, while the cp-kafka image's own
     # entrypoint user is a fixed in-image uid -- which on a Linux hub cannot
     # read it, so the probe would fail for a permission reason and be reported
@@ -591,7 +587,7 @@ sasl_listener_ok(){
 # ("hub", KAFKA_CLUSTERS_0_NAME) back via /api/clusters. Same ok-or-named-
 # reason contract as sasl_listener_ok above.
 #
-# Fix round 1 (code review, Critical 1): hoisted out of task 070 and the live
+# Hoisted out of task 070 and the live
 # smoke, which each used to pass KAFKA_UI_USER/KAFKA_UI_PASSWORD as
 # positional arguments to their own `python3 -c` call -- visible in `ps -ef`
 # / /proc/<pid>/cmdline for that process's whole lifetime, and duplicated
@@ -645,7 +641,7 @@ binlog_ok(){
   [ "$f" = ROW ] || bad="$bad binlog_format=$f"
   [ "$i" = FULL ] || bad="$bad binlog_row_image=$i"
   [ "${r:-0}" -ge 604800 ] || bad="$bad retention=${r}s(<7d)"
-  [ "$s" != "$cid" ] || bad="$bad server_id=$s(equals the connector id, F-059)"
+  [ "$s" != "$cid" ] || bad="$bad server_id=$s(equals the connector id)"
   [ "$inc" = 10 ] || bad="$bad auto_increment_increment=$inc"
   [ "$off" = 10 ] || bad="$bad auto_increment_offset=$off(the hub is residue 0)"
   [ -z "$bad" ] && return 0; printf '%s\n' "$bad"; return 1
@@ -656,8 +652,8 @@ binlog_ok(){
 # own binlog-fitness checks tolerate them). VERSION is whatever `select
 # version()` returned, e.g. "8.0.39" or "5.7.44-log". Prints the reason and
 # returns 1 when it is not a fit, same ok-or-named-reason contract as
-# binlog_ok above. Extracted from 080-sources.sh (code review fold-in, Task 6
-# review: this comparison used to be inlined there with no test of its own) --
+# binlog_ok above. Extracted from 080-sources.sh, where this comparison used
+# to be inlined with no test of its own --
 # pure text logic, no docker, so it is testable directly.
 mysql_major_ok(){
   local ver="$1" major="${1%%.*}"
@@ -674,8 +670,8 @@ mysql_major_ok(){
 # pg_replication_slots where slot_name = '<slot>'` -At query produces) against
 # SLOT -- "active" (the slot exists and is active), "inactive" (exists, not
 # yet active) or "missing" (no such row, including an empty ROW: the slot not
-# created yet). Extracted from 080-sources.sh's wait_slot (code review
-# fold-in, Task 6 review) -- pure and side-effect free, so it is testable
+# created yet). Extracted from 080-sources.sh's wait_slot --
+# pure and side-effect free, so it is testable
 # directly against the real shapes psql -At produces: dbz_odoo_down|true,
 # dbz_odoo_down|false, empty.
 slot_wait_state(){

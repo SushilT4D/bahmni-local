@@ -27,7 +27,7 @@ setup_compose
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
 MY="$BASE_MYSQL_CONTAINER"; PG="$BASE_PG_CONTAINER"
-# ELIS/ELIS_SUPERUSER (Ruling 11): IPLIT's real hub base runs Odoo and
+# ELIS/ELIS_SUPERUSER: IPLIT's real hub base runs Odoo and
 # OpenELIS in two separate Postgres containers with different bootstrap
 # superusers (iplit-base-odoodb-1/odoo, iplit-base-openelisdb-1/clinlims);
 # the mini and every clinic run one container for both. hub_compose_env
@@ -39,7 +39,7 @@ ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE
 
 # container_ip (CONTAINER -> its address on the docker/podman network) and
 # mysql_root (SQL on stdin, run as root inside $MY) both live in
-# hub/install/lib.sh now, with their contracts (final review, Minor 20): this
+# hub/install/lib.sh, with their contracts: this
 # task and 080-sources.sh each used to carry its own identical copy, and
 # test_base_db.sh a third through a bare `docker`.
 
@@ -90,20 +90,20 @@ mysql_login_ok "$my_ip" "$DEBEZIUM_DB_USER" "$DEBEZIUM_DB_PASSWORD" \
 # --- Postgres: sink roles ---------------------------------------------------
 # pg_admin (hub/install/lib.sh) dispatches its CONTAINER/SUPERUSER on the DB
 # name it's given -- "openelis" routes to BASE_ELIS_CONTAINER/
-# BASE_ELIS_SUPERUSER (Ruling 11: IPLIT's base runs it as a separate Postgres
+# BASE_ELIS_SUPERUSER (IPLIT's base runs it as a separate Postgres
 # container from "odoo"), everything else (odoo, and the bare "postgres"
 # maintenance db used nowhere in this file) stays on BASE_PG_CONTAINER/
 # BASE_PG_SUPERUSER. Every call site below already passes "odoo" or
 # "openelis" as its db argument, so dispatching there routes
 # create_pg_sink_role/build_publication/check_sink_privileges/check_sequences
 # and the heartbeat calls correctly without touching any of them. Hoisted to
-# lib.sh (code review fold-in, Task 6/7 review) so this task and
+# lib.sh so this task and
 # 080-sources.sh share one contract instead of each defining a same-named
 # function with a different argument shape.
 #
 # pg_admin_pw DB : like pg_admin, for SQL (on stdin) that carries
 # ODOO_SINK_PASSWORD/CLINLIMS_SINK_PASSWORD -- masked the same way mysql_root
-# masks the MySQL secrets above (mask_env_secrets, Fix round 2).
+# masks the MySQL secrets above (mask_env_secrets).
 pg_admin_pw(){
   pg_admin "$@" 2>&1 | mask_env_secrets ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD
 }
@@ -118,7 +118,7 @@ pg_admin_pw(){
 # re-run here. All four GRANTs are idempotent (re-granting an already-held
 # privilege is a no-op), so a rerun converges, never errors. PASSWORD is
 # escaped (pg_lit_escape) before it is interpolated into the ALTER ROLE
-# literal, not used raw (Fix round 2) -- interpolating it raw would let an
+# literal, not used raw -- interpolating it raw would let an
 # operator-typed password containing "'" break out of the literal.
 create_pg_sink_role(){
   local role="$1" pw db="$3" schema="$4"
@@ -147,7 +147,7 @@ create_pg_sink_role clinlims_sink "$CLINLIMS_SINK_PASSWORD" openelis clinlims
 # The SOURCE roles (the base's own odoo and clinlims, which the hub's Debezium
 # sources log in as) must carry REPLICATION to start a WAL sender. On IPLIT's
 # own images they do; on a stock postgres:16 substitute the owner role does
-# not (Azure rehearsal stop 6, 2026-09-18: clinlims-cloud-source's task FAILED
+# not (without it, clinlims-cloud-source's task FAILS
 # with "permission denied to start WAL sender"). Idempotent, read back.
 ensure_source_replication(){ # ROLE DB
   local role="$1" db="$2" got
@@ -203,7 +203,7 @@ EXISTING_ODOO_TABLES=""; EXISTING_CLINLIMS_TABLES=""
 build_publication(){
   local db="$1" prefix="$2" schema="$3" pub="$4" t exists parts="" list="" tables
   # Captured into a variable FIRST, not `for t in $(subsystem_tables "$prefix")`
-  # directly (Fix round 2, code review): subsystem_tables runs in the
+  # directly: subsystem_tables runs in the
   # command substitution's OWN subshell, so its fail() (a bad row name) only
   # ends that subshell -- the for-list's word-splitting is not a context
   # `set -e` checks, so the loop would silently run on whatever rows were
@@ -213,7 +213,7 @@ build_publication(){
   tables="$(subsystem_tables "$prefix")"
   for t in $tables; do
     # Every psql read inside a loop body carries its guard OUTSIDE the
-    # substitution (final review, Important 3; hub/install/tests/test_lint.sh):
+    # substitution (hub/install/tests/test_lint.sh checks this):
     # unguarded, a connection that drops mid-loop ends the task through the ERR
     # trap with no named line -- and swallowing it with `|| true` would be worse
     # here, since an empty read means "the table does not exist" and would
@@ -282,8 +282,8 @@ pg_admin openelis -v s=clinlims  -v r=clinlims -v p=dbz_clinlims_owned -f /dev/s
 # The hub is residue 0: every synced sequence must already carry increment
 # 10 and a last_value that is a multiple of 10 (or NULL -- never used, which
 # is a pass, not a violation). This task does not fix a violation, because
-# striding an already-written hub is a data-moving operation (F-061's
-# business), not a prerequisite-check's.
+# striding an already-written hub is a data-moving operation, not a
+# prerequisite-check's.
 SEQ_REPORT=""; SEQ_BAD=""
 check_sequences(){ # DB SCHEMA MODE TABLES...
   local db="$1" schema="$2" mode="$3"; shift 3
@@ -295,11 +295,11 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
       # renamed tables differ). NULL means no serial default at all.
       # pg_get_serial_sequence RAISES for a table with no `id` column (it does not
       # return NULL), so the column's existence is asked first -- the three
-      # composite-key link tables have none (found on a real PostgreSQL 2026-09-21).
+      # composite-key link tables have none.
       seqname="$(printf "select case when exists (select 1 from pg_attribute where attrelid = '%s.%s'::regclass and attname = 'id' and not attisdropped) then pg_get_serial_sequence('%s.%s','id') end" "$schema" "$t" "$schema" "$t" | pg_admin "$db" -At)" \
         || fail "could not resolve the serial sequence for ${schema}.${t} in ${db} (psql failed)"
       if [ -z "$seqname" ]; then
-        # ADR-005 (repo change, 2026-09-21): a table with no serial id is only a
+        # A table with no serial id is only a
         # gap when it ALSO has no composite primary key to fall back on -- three
         # of the Odoo tables this hub now publishes (product_taxes_rel,
         # product_supplier_taxes_rel, stock_route_product) have neither an id
@@ -319,7 +319,7 @@ check_sequences(){ # DB SCHEMA MODE TABLES...
     else
       # OpenELIS assigns ids in Hibernate: the id columns have no default, so
       # there is no serial sequence to resolve -- the sequence is the named
-      # <table>_seq Module 28's striding SQL created directly.
+      # <table>_seq the striding SQL created directly.
       seqname="${t}_seq"
     fi
     row="$(printf "select increment_by || '|' || coalesce(last_value::text,'NULL') from pg_sequences where schemaname = '%s' and sequencename = '%s'" "$schema" "$seqname" | pg_admin "$db" -At)" \
@@ -338,7 +338,7 @@ check_sequences openelis clinlims clinlims $EXISTING_CLINLIMS_TABLES
 # --- Replication origins: none, on purpose ----------------------------------
 # pg_replication_origin is per Postgres INSTANCE, not shared across two
 # separate servers -- queried through odoo's own instance (PG) below, and,
-# when Ruling 11's two-container base differs (IPLIT's real hub: OpenELIS
+# when a two-container base differs (IPLIT's real hub: OpenELIS
 # lives on its own Postgres instance, ELIS), through openelis's instance too.
 # A single-instance check would silently miss an origin created on the other
 # one; the mini and every clinic collapse ELIS back onto PG, so this is a

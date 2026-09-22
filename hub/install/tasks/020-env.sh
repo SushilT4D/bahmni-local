@@ -11,7 +11,7 @@
 # environment" line below. Three of the eight (BASE_ELIS_CONTAINER,
 # BASE_ELIS_SUPERUSER, CLOUD_MYSQL_HOST) can ALSO be silently rewritten with
 # no environment variable of their own set at all, when the coordinate they
-# derive from moved this run (residual fix round 2) -- that rewrite does not
+# derive from moved this run -- that rewrite does not
 # add the derived key's own name to the line below (see put_derived's
 # comment): only a key whose OWN environment variable was read appears there.
 set -euo pipefail
@@ -48,14 +48,14 @@ for k in $HUB_KEYS; do
   fi
 done
 
-# Round-trip proof (code review fold-in): env_put's quoting only matters if a
+# Round-trip proof: env_put's quoting only matters if a
 # shell that `.`-sources hub/.env agrees with env_get's own grep/cut/sed
 # parse of it -- every later task does exactly that (`set -a; . hub/.env; set
 # +a`), so THAT is the real test, not just env_get reading its own write
 # back. Re-source the file just written, once per key, each time in a FRESH
 # bash process with an empty environment (`env -i`) -- never this task's own
 # environment or subshell, which both run under this task's own `set -euo
-# pipefail`: Fix round 1 (code review) found that a badly-quoted value
+# pipefail`: a badly-quoted value
 # containing an unintended `$name` reference could make the `.`-source
 # itself abort under `set -u` before ever reaching the comparison below,
 # turning a quoting bug into a raw shell abort instead of the named `fail`

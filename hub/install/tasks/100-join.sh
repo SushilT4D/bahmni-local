@@ -12,7 +12,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "100 · join hand-off (operator, from the workspace)"
-[ "${DRY}" = 1 ] && { info "would: print the join/leave operator commands for this hub (HUB_KEY/HUB_SSH/HUB_REPO/HUB_GIT) and this hub's identity block (network, base containers, public listener, the L-007 caveat)"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: print the join/leave operator commands for this hub (HUB_KEY/HUB_SSH/HUB_REPO/HUB_GIT) and this hub's identity block (network, base containers, public listener, the mTLS/ACL caveat)"; exit 0; }
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
@@ -43,7 +43,7 @@ cat <<EOF
     public listener       SASL_PLAINTEXT://${REMOTE_KAFKA_HOST}:9092
 
   What this fleet cannot yet give a joining clinic: mTLS and per-site broker
-  ACLs (L-007). Every clinic dials the listener above with the same
+  ACLs. Every clinic dials the listener above with the same
   fleet-wide SASL user.
 
 EOF

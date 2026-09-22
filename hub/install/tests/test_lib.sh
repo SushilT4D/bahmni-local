@@ -11,8 +11,8 @@ printf 'REMOTE_KAFKA_BOOTSTRAP_SERVERS=kafka.example:9092\nREMOTE_KAFKA_USERNAME
 HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT"
 assert_eq "REMOTE_KAFKA_HOST from sync/hub.env" "$(env_get "$OUT" REMOTE_KAFKA_HOST)" "kafka.example"
 assert_eq "fleet password from secrets" "$(env_get "$OUT" REMOTE_KAFKA_PASSWORD)" "fleetpw"
-# BASE_MYSQL_ROOT_PASSWORD and BASE_PG_PASSWORD are NOT composed any more
-# (final review, Important 7): nothing read either one, so hub/.env no longer
+# BASE_MYSQL_ROOT_PASSWORD and BASE_PG_PASSWORD are NOT composed:
+# nothing reads either one, so hub/.env no longer
 # carries a copy of the base stack's root credentials. Asserted as an absence,
 # so a future re-add has to come past this line.
 assert_eq "base root password NOT copied into hub/.env (dropped: no reader)" "$(env_get "$OUT" BASE_MYSQL_ROOT_PASSWORD)" ""
@@ -29,7 +29,7 @@ assert_eq "remote server name" "$(env_get "$OUT" REMOTE_SERVER_NAME)" "bahmni-cl
 assert_eq "CLOUD_MYSQL_HOST defaults to BASE_MYSQL_CONTAINER" "$(env_get "$OUT" CLOUD_MYSQL_HOST)" "cloud-openmrsdb-1"
 assert_eq "CLOUD_MYSQL_PORT default" "$(env_get "$OUT" CLOUD_MYSQL_PORT)" "3306"
 assert_eq "CLOUD_MYSQL_DATABASE default" "$(env_get "$OUT" CLOUD_MYSQL_DATABASE)" "openmrs"
-# Fix round 1: env_get no longer appends an incidental trailing newline (the
+# env_get never appends an incidental trailing newline (the
 # old implementation's last pipeline stage was `sed`, which adds one whether
 # the input line had one or not; the new one ends in a bare `printf '%s'`) --
 # so these now count bytes in the value itself, not value+1.
@@ -48,7 +48,7 @@ assert_eq "hub_base_container pg" "$(hub_base_container pg)" "cloud-openelisdb-1
 ( hub_base_container bogus ) >/dev/null 2>&1; rc=$?
 assert_eq "hub_base_container rejects an unknown role" "$rc" "1"
 
-# Ruling 11 (two-container Postgres base): BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER
+# Two-container Postgres base: BASE_ELIS_CONTAINER/BASE_ELIS_SUPERUSER
 # default from BASE_PG_CONTAINER/BASE_PG_SUPERUSER in hub_compose_env -- no
 # override was given above, so both collapse to the same one-container values
 # every other assertion in this file already exercises.
@@ -86,7 +86,7 @@ assert_eq "INSTALL_DIR survives the nested source and points at clinic/install" 
 assert_eq "PROFILES is empty for the hub (never the clinic's --profile list)" "${PROFILES:-}" ""
 
 # --- the four base-stack coordinates come from the ENVIRONMENT first --------
-# (final review, Important 6) A stock Bahmni base .env carries no POSTGRES_USER,
+# A stock Bahmni base .env carries no POSTGRES_USER,
 # so the old order silently produced "postgres" on IPLIT's real hub, where the
 # superusers are odoo and clinlims -- with no way for an operator to say so.
 # Composed into a SEPARATE file, since $OUT's values are already set and `put`
@@ -177,8 +177,8 @@ assert_eq "run 3: BASE_ELIS_SUPERUSER keeps run 2's value, not reverted" "$(env_
 assert_eq "run 3: KAFKA_SASL_BIND keeps run 2's value, not reverted" "$(env_get "$OUT4" KAFKA_SASL_BIND)" "127.0.0.1"
 assert_eq "run 3: KAFKA_ADMIN_PASSWORD still keeps run 1's first value" "$(env_get "$OUT4" KAFKA_ADMIN_PASSWORD)" "$run1_admin_pw"
 
-# --- residual fix round 2: the env-wins rewrite must be TRANSITIVE ----------
-# The re-review's displaced Important: round 1's put_coord only made a
+# --- the env-wins rewrite must be TRANSITIVE ---------------------------------
+# put_coord alone only made a
 # coordinate's OWN environment variable win every run. CLOUD_MYSQL_HOST had
 # no such treatment at all (plain put, deriving from whatever
 # BASE_MYSQL_CONTAINER happened to be STORED in $out) and BASE_ELIS_CONTAINER/
@@ -238,7 +238,7 @@ mkdir -p "$TMP/hub-cloudhost-explicit"; OUT7="$TMP/hub-cloudhost-explicit/.env"
   HUB_ENV="$TMP/hub.env" hub_compose_env "$TMP/base.env" "$TMP/secrets.env" "$OUT7" >/dev/null )
 assert_eq "CLOUD_MYSQL_HOST given explicitly wins over the BASE_MYSQL_CONTAINER-derived value" "$(env_get "$OUT7" CLOUD_MYSQL_HOST)" "explicit-down-source-host"
 
-# --- git_dirty_hub_paths (final review, Minor 10): pure classifier ----------
+# --- git_dirty_hub_paths: pure classifier -----------------------------------
 # Task 090 passes `git status --porcelain` through this and fails only on what
 # it prints, so that a hub host's own deliberate edits to the BASE stack's
 # files do not read as "the hub install left its tree dirty".
@@ -251,7 +251,7 @@ assert_eq "git_dirty_hub_paths keeps only the hub/ paths" "$(printf '%s\n' "$por
 assert_eq "git_dirty_hub_paths prints nothing when the dirt is all outside hub/" "$(printf ' M cloud/docker-compose.override.yml\n?? docs/notes.md\n' | git_dirty_hub_paths)" ""
 assert_eq "git_dirty_hub_paths on an empty status prints nothing" "$(printf '' | git_dirty_hub_paths)" ""
 
-# --- env_put never puts a VALUE on argv (final review, Critical 1) ----------
+# --- env_put never puts a VALUE on argv ---------------------------------------
 # A static guard over clinic/install/lib.sh's env_put, the one function every
 # secret this fleet writes passes through -- hub/.env's eleven, every clinic
 # answer file's four. argv is world-readable for the life of the process
@@ -286,7 +286,7 @@ assert_has  "5.6.51: has SET PASSWORD"              "$out56" 'SET PASSWORD'
 assert_has  "8.0.39: has CREATE USER IF NOT EXISTS" "$out80" 'CREATE USER IF NOT EXISTS'
 assert_has  "8.0.39: has IDENTIFIED BY"             "$out80" 'IDENTIFIED BY'
 assert_has  "8.0.39: has ALTER USER"                "$out80" 'ALTER USER'
-# pg_lit_escape / mysql_lit_escape (Fix round 2): exact escaped SQL text for
+# pg_lit_escape / mysql_lit_escape: exact escaped SQL text for
 # a value carrying both a quote and a backslash. This is a fixed test value,
 # never a real secret -- the whole point of the assertion is that the exact
 # output is knowable and stable.
@@ -294,7 +294,7 @@ raw_pw="a'b\\c"                    # 5 chars: a ' b \ c
 assert_eq "pg_lit_escape doubles the quote, leaves backslash alone" "$(pg_lit_escape "$raw_pw")" "a''b\\c"
 assert_eq "mysql_lit_escape backslash-escapes the backslash, then the quote" "$(mysql_lit_escape "$raw_pw")" "a\\'b\\\\c"
 
-# mask_env_secrets (Fix round 2): a literal substring replace, not a sed
+# mask_env_secrets: a literal substring replace, not a sed
 # pattern -- so a value containing sed/regex-special characters (here all of
 # / \ ' & at once) must still be found and replaced whole, not break the
 # mask or leak through it the way `sed "s/${SECRET}/.../g"` would. Built via
@@ -306,7 +306,7 @@ got="$(printf '%s' "prefix ${secret_val} suffix" | mask_env_secrets TESTVAR_MASK
 assert_eq "mask_env_secrets replaces a value containing / \\ ' & intact" "$got" "prefix <hidden> suffix"
 unset TESTVAR_MASK_SECRET
 
-# Regression (Fix round 2, code review): `for t in $(gen); do` only checks
+# Regression: `for t in $(gen); do` only checks
 # the exit status of the SUBSHELL command substitution forks to run gen --
 # word-splitting a $(...) into a for-list is not a context `set -e` inspects
 # -- so a fail() partway through gen is swallowed: the loop still runs on
@@ -335,7 +335,7 @@ capture_rc=$?
 assert_eq "capture-then-loop shape (this task's pattern) exits non-zero" "$capture_rc" "1"
 assert_eq "capture-then-loop shape never reaches the marker after the fail" "$capture_out" ""
 
-# pg_admin DB ARGS... (code review fold-in, Task 6/7 review: hoisted here so
+# pg_admin DB ARGS... (hoisted here so
 # 050-base-db.sh and 080-sources.sh stop each defining their own, differently
 # -shaped, same-named function). Dispatch only -- CT is faked to `echo` so
 # this runs with no real docker/podman, and just proves which container and
@@ -356,7 +356,7 @@ got="$(pg_admin openelis -Atc 'select 1')"
 assert_eq "pg_admin openelis falls back to BASE_PG_CONTAINER/SUPERUSER when the ELIS pair is unset" "$got" "exec -i pg-c psql -U pgsu -d openelis -v ON_ERROR_STOP=1 -q -Atc select 1"
 unset CT BASE_PG_CONTAINER BASE_PG_SUPERUSER
 
-# kafka_ui_login_ok (Fix round 1, code review Critical 1): a static guard
+# kafka_ui_login_ok: a static guard
 # over its own source in hub/install/lib.sh, not a live call (the live smoke
 # is the real proof) -- the whole point of the fix was that
 # KAFKA_UI_USER/KAFKA_UI_PASSWORD must never be visible in any process's own
@@ -399,7 +399,7 @@ assert_eq "connect_failed_task_ids: none failed" "$(printf '{"name":"x","connect
 assert_eq "connect_failed_task_ids: two of three failed" "$(printf '{"tasks":[{"id":0,"state":"FAILED"},{"id":1,"state":"RUNNING"},{"id":2,"state":"FAILED"}]}' | connect_failed_task_ids | tr '\n' ',')" "0,2,"
 assert_eq "connect_failed_task_ids: garbage input prints nothing" "$(printf 'not json' | connect_failed_task_ids)" ""
 
-# --- Azure rehearsal 2026-09-18 (peer note): a resume may omit --base-env/--secrets.
+# --- a resume may omit --base-env/--secrets ----------------------------------
 # install.sh accepts a bare `--hub NAME --from NNN` once hub/.env exists and the
 # README promises it, but hub_compose_env failed at "base .env not found: " (an
 # empty path) the moment a resume re-ran task 020. A resume keeps every stored

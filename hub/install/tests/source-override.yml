@@ -29,13 +29,13 @@
 # is a docker-level identifier only), so BOOTSTRAP_SERVERS: kafka:29092 and
 # every ${REMOTE_SERVER_NAME}-prefixed connector config needs no change here.
 #
-# KAFKA_HEAP_OPTS (Ruling 15): same trim and same reasoning as boot-
+# KAFKA_HEAP_OPTS: same trim and same reasoning as boot-
 # override.yml's kafka/kafka-controller -- a map key, merges additively into
 # the base file's `environment` map. Three connectors and a handful of test
 # rows are nowhere near what the Debezium Connect image's own default heap
 # assumes.
 #
-# kafka (Ruling 9): boot-override.yml already reset this service's ports to
+# kafka: boot-override.yml already reset this service's ports to
 # `[]` (this Mac may already run a real hub bound to the base file's own
 # 127.0.0.1:9092/9093). Task 090's exit checks re-prove the SASL listener at
 # the end of the install (sasl_listener_ok, hub/install/lib.sh), so this
@@ -44,7 +44,7 @@
 # running 090. 9093 (the base file's other kafka mapping) is not needed by
 # anything here and stays unpublished.
 #
-# schema-registry (final review, Important 3b): task 060 brings it up for real
+# schema-registry: task 060 brings it up for real
 # now that the live smoke runs the INSTALLER rather than a hand-picked pair of
 # tasks, so it needs the same treatment as every other service here -- renamed
 # (this Mac already runs a real container called schema-registry) and
@@ -53,7 +53,7 @@
 # HUB_SCHEMA_REGISTRY_URL_OVERRIDE. The heap trim is the same reasoning as
 # kafka's above: nothing here stores a single Avro schema.
 #
-# kafka-ui (Ruling 9): the only real proof of Ruling 3 -- a throwaway
+# kafka-ui: the only real proof that its login is on -- a throwaway
 # instance, renamed and republished on 18080 rather than the real 8080, so
 # task 070's own two checks (login page 200, /api/clusters refused
 # unauthenticated) can be exercised for real. Its `environment` (cluster

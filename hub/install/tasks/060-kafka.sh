@@ -7,7 +7,7 @@
 # REMOTE_KAFKA_HOST from inside the broker's own container -- an Azure VM
 # cannot reach its own public IP. Because it dials loopback, it cannot tell a
 # listener published to the world from one published to loopback only, so the
-# binding itself is read back separately (sasl_bind_ok, final review C2).
+# binding itself is read back separately (sasl_bind_ok).
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · kafka"
@@ -19,7 +19,7 @@ set -a; . "${HUB_DIR}/.env"; set +a
 
 compose up -d kafka-controller kafka schema-registry >/dev/null
 
-# $KAFKA_CONTAINER, never a literal `kafka` (final review, Important 3b): the
+# $KAFKA_CONTAINER, never a literal `kafka`: the
 # name is "kafka" in production -- hub/docker-compose.yml pins that exact
 # container_name -- but this task is now run for real by the live smoke beside
 # another stack that already owns the bare name on this host's docker daemon.
@@ -39,12 +39,12 @@ check_eq "cluster id" "$cid" "$KAFKA_CLUSTER_ID"
 
 # sasl_listener_ok (hub/install/lib.sh) -- extracted so this check and task
 # 090's own re-check of the same listener at the end of the install share one
-# definition (code review fold-in, Task 6/7 review). Its own password never
+# definition. Its own password never
 # touches a command line, a log, or a tracked file: written by the printf
 # builtin (no subprocess ever sees it in argv) to a mode-600 temp file under
 # HUB_DIR, removed before it returns on every path.
-# The clinic-facing port is published where hub/.env says it is (final
-# review, Critical 2). sasl_bind_ok (hub/install/lib.sh) reads the binding
+# The clinic-facing port is published where hub/.env says it is.
+# sasl_bind_ok (hub/install/lib.sh) reads the binding
 # docker/podman actually installed -- the check below it dials 127.0.0.1 and
 # so cannot tell 0.0.0.0:9092 from 127.0.0.1:9092 apart, which is exactly how
 # a hub no clinic could dial passed every check this task had.
@@ -59,7 +59,7 @@ reason="$(sasl_listener_ok)" \
   || fail "${reason} -- check kafka_server_jaas.conf and REMOTE_KAFKA_PASSWORD"
 
 # HUB_SCHEMA_REGISTRY_URL_OVERRIDE: the same class of test-only override as
-# KAFKA_CONTAINER and SASL_LISTENER_PORT (final review, Important 3b) -- the
+# KAFKA_CONTAINER and SASL_LISTENER_PORT -- the
 # live smoke republishes the registry on a throwaway host port, because this
 # host may already run a real one bound to 8082. Production never sets it.
 SR_URL="${HUB_SCHEMA_REGISTRY_URL_OVERRIDE:-http://localhost:8082}"

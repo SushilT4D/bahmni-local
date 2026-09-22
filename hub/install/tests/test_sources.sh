@@ -27,7 +27,7 @@
 # no-op that passes for the wrong reason, which is why this base does not
 # model that shape even though the installer supports it too.
 #
-# WHAT CHANGED, AND WHY (final review, Important 3b + Important 9)
+# HOW THIS SMOKE IS SHAPED, AND WHY
 #
 #   1. It runs the INSTALLER, not a hand-picked pair of tasks. This test used
 #      to invoke 050, 080 and 090 directly -- so tasks 000, 020, 030, 040, 060,
@@ -69,7 +69,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REAL_HUB="$(cd "$HERE/../.." && pwd)"
 
-# --- the temp copy of hub/ (Important 9) ------------------------------------
+# --- the temp copy of hub/ --------------------------------------------------
 # Created BEFORE lib.sh is sourced, so HUB_DIR (and with it CLINIC_DIR, which
 # lib.sh derives from it at source time) is the copy from the very first line
 # of library code onwards -- never the real hub/ for even one function call.
@@ -127,7 +127,7 @@ tmp_secrets="${TMP_ROOT}/secrets.env"
 tmp_hubenv="${TMP_ROOT}/hub.env"
 
 # The real hub/.env and JAAS, if this host has them: hashed now, compared at
-# the end. This is the direct assertion for Important 9 -- not "we restored a
+# the end. This is the direct assertion -- not "we restored a
 # backup correctly", but "we never wrote them at all".
 real_env_sig(){ for f in "${REAL_HUB}/.env" "${REAL_HUB}/kafka_server_jaas.conf"; do
     if [ -f "$f" ]; then printf '%s %s\n' "$(shasum -a 256 < "$f" | cut -d' ' -f1)" "$f"; else printf 'absent %s\n' "$f"; fi
@@ -190,7 +190,7 @@ OPENMRS_DB_NAME=openmrs
 ODOO_DB_PASSWORD=odoopw
 OPENELIS_DB_PASSWORD=clinlimspw
 EOF
-  # No POSTGRES_USER/POSTGRES_PASSWORD here (final review, two-instance base):
+  # No POSTGRES_USER/POSTGRES_PASSWORD here (two-instance base):
   # a two-container base has no single shared superuser or password for those
   # keys to name -- BASE_PG_SUPERUSER/BASE_ELIS_SUPERUSER come from the
   # install command's own environment below instead (put_coord: the
@@ -359,7 +359,7 @@ assert_line "000 checked the base network"                 "base network ${NET} 
 assert_line "000 read base mysql fitness"                  "base mysql fit: binlog_format=ROW"
 assert_line "000 named the pg role it connected as (rolsuper proven)"   "accepts role ${PG_SUPERUSER}"
 assert_line "000 gated the postgres major version"         "(>=10: pgoutput and pg_sequences)"
-# --- the ELIS block (Ruling 11): BASE_ELIS_CONTAINER != BASE_PG_CONTAINER on
+# --- the ELIS block: BASE_ELIS_CONTAINER != BASE_PG_CONTAINER on
 # this two-instance base, so 000's whole 3b block runs for real for the first
 # time -- previously a no-op on every smoke, since the one-container base
 # always collapsed ELIS back onto PG.
@@ -453,7 +453,7 @@ printf '%s\n' "$out1" | grep -qx "done" && ok "installer reached its own final '
 # the loopback warning C2 requires when the declared bind is not public
 assert_line "the loopback bind warned loudly"              "clinics cannot dial this hub directly"
 
-# --- Ruling 11: the clinlims source's database.hostname placeholder actually
+# --- the clinlims source's database.hostname placeholder actually
 # resolves to BASE_ELIS_CONTAINER -- this two-instance base sets it explicitly
 # (hubtest-src-elis, distinct from BASE_PG_CONTAINER), so this is no longer
 # the defaulted-from-BASE_PG_CONTAINER no-op it was on the one-container base.
@@ -470,7 +470,7 @@ fi
 slot_active_elis="$(ct exec "$ELIS_C" psql -U "$ELIS_SUPERUSER" -d openelis -Atc "select active from pg_replication_slots where slot_name = 'dbz_clinlims_down'")"
 [ "$slot_active_elis" = t ] && ok "replication slot dbz_clinlims_down independently confirmed active in ${ELIS_C}" || bad "replication slot dbz_clinlims_down not active in ${ELIS_C} (read: ${slot_active_elis:-<empty>})"
 
-# --- Important 8: the rendered config carrying DEBEZIUM_DB_PASSWORD is 600 --
+# --- the rendered config carrying DEBEZIUM_DB_PASSWORD is 600 ---------------
 gen_cfg="${HUB_DIR}/connectors/mysql-cloud-source-connector.json"
 if [ -f "$gen_cfg" ]; then
   gen_mode="$(stat -c %a "$gen_cfg" 2>/dev/null || stat -f %Lp "$gen_cfg")"
@@ -488,8 +488,8 @@ for secret in "$(env_get "$env_path" DEBEZIUM_DB_PASSWORD)" "$(env_get "$env_pat
 done
 ok "no secret value found in install.sh's output"
 
-# --- Ruling 7: no rendered connector config in a fixed /tmp path ----
-[ -e /tmp/.reg.out ] && bad "register-odoo.sh left /tmp/.reg.out behind (F-073)" || ok "no /tmp/.reg.out left behind after registration (F-073)"
+# --- no rendered connector config in a fixed /tmp path ----------------------
+[ -e /tmp/.reg.out ] && bad "register-odoo.sh left /tmp/.reg.out behind" || ok "no /tmp/.reg.out left behind after registration"
 
 # --- RUN 2: the whole installer again, unchanged inputs (idempotency) ------
 run_installer "run 2 (idempotency)"
@@ -501,7 +501,7 @@ line2="$(printf '%s\n' "$out2" | grep 'hub sources registered and proven:')"
 [ -n "$line1" ] && [ "$line1" = "$line2" ] && ok "run 2 reaches the identical 080 summary line (idempotent)" || bad "080's final line changed between runs: [${line1}] vs [${line2}]"
 printf '%s\n' "$out2" | grep -qF "exit checks: all green" && ok "run 2's exit checks are all green too" || bad "run 2 did not reach 'exit checks: all green'"
 
-# --- Ruling 14: the two Postgres sources still do not collide on JMX names --
+# --- the two Postgres sources still do not collide on JMX names -------------
 connect_logs="$(ct logs "$CONNECT_C" 2>&1)"
 if printf '%s\n' "$connect_logs" | grep -q "InstanceAlreadyExists"; then
   bad "Connect log carries an InstanceAlreadyExists line -- the two Postgres sources' JMX names still collide"
@@ -509,7 +509,7 @@ else
   ok "no InstanceAlreadyExists in the Connect log (custom.metric.tags disambiguates the two Postgres sources)"
 fi
 
-# --- Important 9: the real hub/ was never written ---------------------------
+# --- the real hub/ was never written -----------------------------------------
 real_sig_after="$(real_env_sig)"
 [ "$real_sig_before" = "$real_sig_after" ] \
   && ok "the real ${REAL_HUB}/.env and kafka_server_jaas.conf are byte-identical to before this run (never written, never restored)" \

@@ -8,7 +8,7 @@ ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((f
 # versions_put writes them at render time (hub/install/lib.sh), not this file.
 # KAFKA_SASL_BIND is given a REAL value rather than the placeholder "x" every
 # other key gets: it renders inside a ports entry, and compose rejects the
-# whole file with "invalid IP address: x" (final review, Critical 2 -- the
+# whole file with "invalid IP address: x" (the
 # ports line is `${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092` now, not a pinned
 # 127.0.0.1). `env` applies assignments in order, so this one wins over the
 # generated placeholder ahead of it.
@@ -19,7 +19,7 @@ for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  $
 grep -qE 'name: testnet' /tmp/hubcfg.yml && grep -qE 'external: true' /tmp/hubcfg.yml && ok "attaches to the base network" || bad "external network not declared"
 for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  ${s}:" "$HUB/../cloud/docker-compose.yml" && bad "cloud/ still defines $s" || ok "cloud/ no longer defines $s"; done
 
-# kafka-ui (Ruling 3): exists, wired to the central sync/versions.env pin
+# kafka-ui: exists, wired to the central sync/versions.env pin
 # (never a hardcoded tag in the compose file), and bound to 127.0.0.1 only.
 grep -qE '^\s*image: \$\{KAFKA_UI_IMAGE:\?\}' "$HUB/docker-compose.yml" && ok "kafka-ui's image is wired to \${KAFKA_UI_IMAGE:?}, not a literal tag" || bad "kafka-ui does not reference \${KAFKA_UI_IMAGE:?}"
 grep -qE "^  kafka-ui:" /tmp/hubcfg.yml && ok "service kafka-ui" || bad "service kafka-ui missing"
@@ -43,7 +43,7 @@ fi
 n_ports="$(printf '%s' "$ports_block" | grep -cE '^\s*-\s')"
 [ "$n_ports" = 1 ] && ok "kafka-ui publishes exactly one port (no non-loopback exposure)" || bad "kafka-ui publishes ${n_ports:-0} port entries, want exactly 1"
 printf '%s' "$kafka_ui_block" | grep -qE 'AUTH_TYPE: ?LOGIN_FORM' && ok "kafka-ui AUTH_TYPE is LOGIN_FORM" || bad "kafka-ui AUTH_TYPE is not LOGIN_FORM"
-# --- the clinic-facing SASL listener is publishable (final review, C2) ------
+# --- the clinic-facing SASL listener is publishable ------------------------
 # In the source: the ports entry is the variable with a PUBLIC default, never
 # a pinned loopback address. The pattern is SINGLE-quoted: in double quotes
 # the shell would expand ${KAFKA_SASL_BIND:-0.0.0.0} and grep for its value.
