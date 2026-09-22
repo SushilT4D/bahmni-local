@@ -96,6 +96,22 @@ twin_state(){ # FIRST SECOND -> alive | quiet | unknown
   [ "$b" -gt "$a" ] && echo alive || echo quiet
 }
 # twin-guard:end
+bash scripts/setup-mirrormaker.sh >/dev/null
+grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
+# mm2-topics:begin
+# MirrorMaker assigns a topic that appears after it started only on its next
+# topic refresh, so a fresh node's first event (the install probe, minutes
+# from now) would sit unmirrored until then. Create the node's up topics
+# first, from the same pattern MirrorMaker is given, so they are assigned at
+# start; the source connectors then write into existing topics.
+mm2_up_topics(){ # MM2_PROPERTIES ALIAS -> one plain topic name per line
+  awk -v k="$2->remote.topics" -F' *= *' '$1==k{print $2}' "$1" \
+    | tr -d '()' | tr '|' '\n' | sed 's/\\\././g' | grep -v '^$'
+}
+# mm2-topics:end
+up_topics="$(mm2_up_topics config/mirrormaker/mm2.properties "${LOCAL_CLUSTER_ALIAS}")"
+[ -n "$up_topics" ] || fail "mm2.properties carries no ${LOCAL_CLUSTER_ALIAS}->remote.topics pattern"
+
 if [ "${TWIN_GUARD_SKIP:-0}" = 1 ]; then
   warn "twin guard skipped (TWIN_GUARD_SKIP=1): not checking whether another node named ${LOCAL_CLUSTER_ALIAS} is already mirroring into the hub"
 else
@@ -115,28 +131,61 @@ else
     | ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.properties'
   hb_read(){ ct exec kafka kafka-get-offsets --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --topic "$hb_topic" 2>&1 | twin_offset "$hb_topic"; }
   o1="$(hb_read || true)"; sleep 20; o2="$(hb_read || true)"
-  ct exec kafka rm -f /tmp/twin-guard.properties >/dev/null 2>&1 || true
+  twin_quiet=0
   case "$(twin_state "$o1" "$o2")" in
-    quiet)   ok "no other node named ${LOCAL_CLUSTER_ALIAS} is mirroring into the hub (${hb_topic} end offset ${o1:-0}, unchanged over 20 s)" ;;
+    quiet)   twin_quiet=1; ok "no other node named ${LOCAL_CLUSTER_ALIAS} is mirroring into the hub (${hb_topic} end offset ${o1:-0}, unchanged over 20 s)" ;;
     alive)   fail "another node named ${LOCAL_CLUSTER_ALIAS} is alive and mirroring into the hub right now (${hb_topic} advanced ${o1} -> ${o2} in 20 s). Two nodes under one slug mint the same ids and write the same hub topics. Stop the other node's stack first (on it: cd <its clinic dir> && docker compose --profile local --profile openelis --profile debezium down), then resume with --from 090. TWIN_GUARD_SKIP=1 overrides, knowingly." ;;
     *)       warn "could not read ${hb_topic} on the hub (${REMOTE_KAFKA_BOOTSTRAP_SERVERS}); the twin check is not proven -- MirrorMaker's own two-minute check below will show whether the hub is reachable at all" ;;
   esac
+  # mm2-reset:begin
+  # The hub remembers a node by its alias: MirrorMaker keeps its read position
+  # per alias in mm2-offsets.<alias>.internal on the hub and seeks each topic
+  # to that position at start. A reinstalled node's topics start again at 0,
+  # so its first events sit below the remembered position and are skipped
+  # for ever, silently -- unless the remembered position happens to lie past
+  # the empty topic's end, when the consumer resets to the beginning; which
+  # topics lose events depends on the previous node's history. A fresh node
+  # (every up topic empty) therefore drops the hub's remembered position, now,
+  # while the twin guard has just proven no other node under the alias is
+  # alive. Re-mirroring what a previous node already sent is harmless: every
+  # hub sink is an idempotent upsert. A rerun on a node that has already
+  # mirrored keeps the position -- it is this node's own.
+  mm2_reset_needed(){ # TWIN_QUIET(0|1) LOCAL_EVENTS HUB_HAS_OFFSETS(0|1) -> yes | no
+    case "${2:-x}" in ''|*[!0-9]*) echo no; return ;; esac
+    if [ "$1" = 1 ] && [ "$2" -eq 0 ] && [ "$3" = 1 ]; then echo yes; else echo no; fi
+  }
+  # mm2-reset:end
+  offsets_topic="mm2-offsets.${LOCAL_CLUSTER_ALIAS}.internal"
+  if [ "${MM2_OFFSET_RESET_SKIP:-0}" = 1 ]; then
+    warn "MirrorMaker offset reset skipped (MM2_OFFSET_RESET_SKIP=1): if the hub remembers a previous node under ${LOCAL_CLUSTER_ALIAS}, this node's first events may never be mirrored"
+  else
+    hub_has="$(ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --list 2>/dev/null | grep -cx "$offsets_topic" || true)"
+    local_events=0
+    for t in $up_topics; do
+      n="$(ct exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$t" 2>/dev/null | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
+      local_events=$(( local_events + ${n:-0} ))
+    done
+    case "$(mm2_reset_needed "$twin_quiet" "$local_events" "${hub_has:-0}")" in
+      yes)
+        info "the hub remembers a previous node under ${LOCAL_CLUSTER_ALIAS} (${offsets_topic}) and this node's up topics are empty: dropping that position so MirrorMaker reads this node from its first event"
+        ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --delete --topic "$offsets_topic" >/dev/null 2>&1 \
+          || fail "could not delete ${offsets_topic} on the hub (${REMOTE_KAFKA_BOOTSTRAP_SERVERS})"
+        gone=0
+        for i in $(seq 1 12); do
+          ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --list 2>/dev/null | grep -qx "$offsets_topic" || { gone=1; break; }
+          sleep 5
+        done
+        [ "$gone" = 1 ] && ok "hub position for ${LOCAL_CLUSTER_ALIAS} reset (${offsets_topic} removed; MirrorMaker recreates it)" || fail "${offsets_topic} still listed on the hub after 60 s"
+        ;;
+      no)
+        if [ "${hub_has:-0}" = 1 ] && [ "$local_events" -gt 0 ]; then ok "hub keeps its position for ${LOCAL_CLUSTER_ALIAS}: this node has already mirrored ${local_events} event(s) under it"
+        elif [ "${hub_has:-0}" = 0 ]; then ok "the hub holds no position for ${LOCAL_CLUSTER_ALIAS} yet (first node under this alias)"
+        else warn "not resetting the hub's position for ${LOCAL_CLUSTER_ALIAS}: the twin check did not prove the alias quiet"; fi
+        ;;
+    esac
+  fi
+  ct exec kafka rm -f /tmp/twin-guard.properties >/dev/null 2>&1 || true
 fi
-bash scripts/setup-mirrormaker.sh >/dev/null
-grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
-# mm2-topics:begin
-# MirrorMaker assigns a topic that appears after it started only on its next
-# topic refresh, so a fresh node's first event (the install probe, minutes
-# from now) would sit unmirrored until then. Create the node's up topics
-# first, from the same pattern MirrorMaker is given, so they are assigned at
-# start; the source connectors then write into existing topics.
-mm2_up_topics(){ # MM2_PROPERTIES ALIAS -> one plain topic name per line
-  awk -v k="$2->remote.topics" -F' *= *' '$1==k{print $2}' "$1" \
-    | tr -d '()' | tr '|' '\n' | sed 's/\\\././g' | grep -v '^$'
-}
-# mm2-topics:end
-up_topics="$(mm2_up_topics config/mirrormaker/mm2.properties "${LOCAL_CLUSTER_ALIAS}")"
-[ -n "$up_topics" ] || fail "mm2.properties carries no ${LOCAL_CLUSTER_ALIAS}->remote.topics pattern"
 printf '%s\n' "$up_topics" | while read -r t; do
   ct exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --partitions 1 --replication-factor 1 --topic "$t" >/dev/null 2>&1 \
     || fail "could not create topic ${t} on the local broker"
