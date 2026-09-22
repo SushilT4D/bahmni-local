@@ -1,4 +1,4 @@
-# Drop the `sync_origin` column fleet-wide (sync-core F-049, 2026-09-09)
+# Drop the `sync_origin` column fleet-wide
 
 Step 4 of the column retirement. Preconditions, all done on 9 Sep: every clinic guard is
 in the engine (F-044 origins, F-047 sql_log_bin), every publication is unfiltered, no

@@ -3,7 +3,7 @@
 # set; this moves the captured tables' AUTO_INCREMENT above their floors),
 # Postgres sequences at the residue (mandatory even though the dumps carry
 # INCREMENT BY 10 -- the restored last_value sits in Rawach's residue), and the
-# replication origins the customizer jar needs (L-009).
+# replication origins the customizer jar needs.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · striding + replication origins (residue ${RESIDUE})"

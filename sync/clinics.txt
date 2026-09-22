@@ -20,7 +20,7 @@
 #   rawach   : 4    - lab clinic 1
 #   bagdunda : 5
 #   kojawada : 6
-#   azure    : 7    - TEST clinic on an Azure VM (2026-09-15), not a BHS clinic
+#   azure    : 7    - TEST clinic on an Azure VM, not a BHS clinic
 #   morwal   : UNALLOCATED - 12,882 patients, cannot sync until assigned
 #
 # 8 and 9 are free.  Counting Morwal, 9 of 10 are spoken for while azure lives.

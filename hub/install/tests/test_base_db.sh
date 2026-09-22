@@ -237,7 +237,7 @@ grants_dbz="$(printf "SHOW GRANTS FOR 'debezium'@'%%'" | test_mysql_root)"
 case "$grants_sink" in *REFERENCES*ALTER*|*ALTER*REFERENCES*) ok "mysql sink grants include CREATE/REFERENCES/INDEX/ALTER" ;; *) bad "mysql sink grants missing expected privileges: ${grants_sink}" ;; esac
 case "$grants_dbz" in *"REPLICATION SLAVE"*"REPLICATION CLIENT"*) ok "mysql debezium grants include REPLICATION SLAVE/CLIENT" ;; *) bad "mysql debezium grants missing expected privileges: ${grants_dbz}" ;; esac
 
-# 050's own privilege read-back (AL-008): the ok line must name every seeded
+# 050's own privilege read-back: the ok line must name every seeded
 # table -- order is whatever sync/subsystems.conf lists them in, not
 # alphabetical, so check comma-delimited membership (a plain grep for e.g.
 # "sample" would also match inside "sample_item") with a case pattern rather

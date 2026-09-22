@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D7 (sync-core F-080, 2026-09-21) and D8 (sync-core F-078, 2026-09-21): two
+# D7 and D8: two
 # fixes applied BY HAND to the live Azure hub, on the base stack's OWN files,
 # that this installer never carried -- so a hub rebuilt from install.sh would
 # lose both. Full story: docs/sync-core/runbooks/hub-build-and-connect.md
@@ -17,7 +17,7 @@
 # F-080), ported to Apache's own directives.
 #
 # D8: odoo-connect (bahmni/odoo-connect:1.0.0) logs at DEBUG with no rolling
-# policy and filled the hub's 29 GB OS disk (F-078). Mount the clinic's own
+# policy and filled the hub's 29 GB OS disk. Mount the clinic's own
 # quieter logback (clinic/odoo/logback-erp-connect.xml -- already tracked in
 # this repo and already what every clinic mounts) over the image's, through
 # the base stack's own docker-compose.override.yml, and recreate only that
@@ -69,7 +69,7 @@ d7_block(){
     # retired),userProperties) -- a trailing comma before a closing
     # parenthesis inside person:(uuid,) -- and webservices.rest 2.50.0
     # (OpenMRS iplit-1.2.0) answers HTTP 400 to the resulting empty property
-    # name, so nobody can log in (sync-core F-080). Strip a comma that sits
+    # name, so nobody can log in. Strip a comma that sits
     # directly before a close paren, literal or percent-encoded
     # (case-insensitive), from any /openmrs request's query string. The
     # two-comma case is matched and rewritten FIRST -- a query can carry more
@@ -107,7 +107,7 @@ sys.stdout.write(pat.sub(lambda m: m.group(1), s))
 
 # d7-insert:begin
 # d7_insert FILE : idempotent. Checked against the live hub's file, read-only,
-# 2026-09-21 -- the first draft of this task anchored on `ProxyPass /openmrs`,
+# the first draft of this task anchored on `ProxyPass /openmrs`,
 # which in IPLIT's file sits at SERVER scope (lines 20 and 36, before any
 # <VirtualHost>); mod_rewrite rules there are not inherited by the vhosts, so
 # the block would have been inserted and done nothing. The block that works on

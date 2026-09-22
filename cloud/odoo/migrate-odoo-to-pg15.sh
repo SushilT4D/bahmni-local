@@ -3,7 +3,7 @@
 #
 # Moves one node's Odoo database off its shipped PostgreSQL 9.6 onto the node's PG 15
 # instance. This is a PREREQUISITE, not a nicety: the write-origin guard filters at the
-# publication, and 9.6 has no publications at all (F-021). Without this move Odoo cannot
+# publication, and 9.6 has no publications at all. Without this move Odoo cannot
 # ride the same CDC pipeline as OpenMRS and OpenELIS, which is the whole design.
 #
 # COMPATIBILITY IS MEASURED, NOT ASSUMED. Verified 2026-09-04 on Rawach: the Odoo 10

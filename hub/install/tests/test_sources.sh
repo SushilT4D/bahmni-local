@@ -5,7 +5,7 @@
 # throwaway MySQL 8.0.39 + TWO Postgres 16 containers standing in for the base
 # stack. Then again, to prove the whole run is idempotent.
 #
-# TWO POSTGRES INSTANCES, NOT ONE (2026-09-18). The base is shaped like the
+# TWO POSTGRES INSTANCES, NOT ONE. The base is shaped like the
 # rebuilt Azure hub's real one: Odoo and OpenELIS on separate Postgres
 # containers, ASYMMETRIC on purpose (hubtest-src-pg: POSTGRES_USER=odoo,
 # POSTGRES_DB=odoo -- odoo IS its own bootstrap superuser, databases
@@ -488,7 +488,7 @@ for secret in "$(env_get "$env_path" DEBEZIUM_DB_PASSWORD)" "$(env_get "$env_pat
 done
 ok "no secret value found in install.sh's output"
 
-# --- Ruling 7 (F-073): no rendered connector config in a fixed /tmp path ----
+# --- Ruling 7: no rendered connector config in a fixed /tmp path ----
 [ -e /tmp/.reg.out ] && bad "register-odoo.sh left /tmp/.reg.out behind (F-073)" || ok "no /tmp/.reg.out left behind after registration (F-073)"
 
 # --- RUN 2: the whole installer again, unchanged inputs (idempotency) ------

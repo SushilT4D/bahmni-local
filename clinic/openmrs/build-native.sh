@@ -4,7 +4,7 @@
 # see clinic/install/tasks/040-images.sh, which calls this instead on arm64).
 #
 # IPLIT's image is linux/amd64 only. On Apple Silicon under podman it runs
-# under QEMU: bare Tomcat+WAR start took 26,153 ms on Ghated (2026-09-21), and
+# under QEMU: bare Tomcat+WAR start took 26,153 ms on Ghated, and
 # the PREVIOUS pinned image took 51 MINUTES with modules loading. This script
 # copies the four trees the source image needs to run -- /usr/local/tomcat,
 # /openmrs, /etc/bahmni-emr, /home/bahmni -- onto a pinned arm64 base with the

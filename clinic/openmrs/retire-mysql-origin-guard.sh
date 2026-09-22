@@ -1,14 +1,14 @@
 #!/bin/bash
-# sync-core, 2026-09-09: MySQL engine loop guard on a CLINIC node — replaces the Groovy
+# MySQL engine loop guard on a CLINIC node — replaces the Groovy
 # publish filter, the sinks' accept filter and the person/person_name stamping triggers
-# installed by apply-mysql-origin-filter.sh / apply-sync-origin.sh (sync-core F-047).
+# installed by apply-mysql-origin-filter.sh / apply-sync-origin.sh.
 #
 # Mechanism (Sushil's proposal, 7 Sep; Module 30 T3 proved it 27 Aug): every clinic
 # JDBC sink connects with sessionVariables=sql_log_bin=0, so the rows it applies never
 # enter the clinic binlog and Debezium, which reads that binlog, never re-publishes
 # them. Needs SYSTEM_VARIABLES_ADMIN for the sink user (server-wide; MySQL cannot scope
 # it) on MySQL 8.0 — the clinics run 8.0, so this does not wait on production's 5.6.
-# Consequence (BL-066): the clinic binlog no longer describes replicated rows, so backups
+# Consequence: the clinic binlog no longer describes replicated rows, so backups
 # of a clinic must be logical dumps, not binlog PITR. NEVER run this on the hub: the cloud
 # must republish what its sinks write in order to relay clinic to clinic.
 # Idempotent. Run on the clinic host with the Connect REST API on localhost:8083 and the

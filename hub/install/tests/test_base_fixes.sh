@@ -169,7 +169,7 @@ erp_ln="$(grep -n 'erp-\[' "${d7dir}/bahmni-proxy.conf" | head -n1 | cut -d: -f1
 [ "$(grep -c 'RewriteCond %{REQUEST_URI} ^/openmrs/$' "${d7dir}/bahmni-proxy.conf")" = 2 ] && ok "d7_block: both rules are scoped to /openmrs/" || bad "d7_block: rules not scoped to /openmrs/"
 grep -q '%1%2%3%4%5%6' "${d7dir}/bahmni-proxy.conf" && bad "d7_block: references a sixth group that does not exist" || ok "d7_block: five groups, five back-references"
 
-# the block applied BY HAND on the hub (2026-09-21) counts as present: no second copy
+# the block applied BY HAND on the hub counts as present: no second copy
 d7hand="${TMP_ROOT}/d7-hand"; mk_fixture "$d7hand"
 sed -i.x 's|^    RewriteCond %{HTTP_HOST} ^erp-|    # F-080 stopgap (T4D, 2026-09-21; a recorded deviation from IPLIT'"'"'s file).\
 &|' "${d7hand}/bahmni-proxy.conf"; rm -f "${d7hand}/bahmni-proxy.conf.x"

@@ -129,7 +129,7 @@ wait_running mysql-cloud-source-connector 180
 wait_running odoo-cloud-source 180
 wait_running clinlims-cloud-source 180
 
-# --- 5. Schema-history retention (F-045) ------------------------------------
+# --- 5. Schema-history retention ------------------------------------
 # A bounded wait for the topic itself first: RUNNING (just proven above) is
 # not proof the schema-history topic already exists -- Debezium creates it
 # lazily, on its first schema-history write, which can trail RUNNING by a few

@@ -2,7 +2,7 @@
 # clinic/.env.example must agree with sync/versions.env for every KEY present
 # in both. The installer overwrites clinic/.env from sync/versions.env
 # (lib.sh versions_put), so a real node never sees a mismatch -- but a
-# hand-built node copies the example, and finding 12 (2026-09-21) caught
+# hand-built node copies the example, and finding 12 caught
 # GROOVY_VERSION disagreeing (4.0.22 in the example vs 4.0.17, the corrected
 # value, in versions.env) with nothing to catch it.
 set -u

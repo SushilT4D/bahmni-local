@@ -3,7 +3,7 @@
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
 # table.include.list comes from hub/tables.conf via generate-table-config.sh,
-# so the whitelist can never drift from the declared ownership split (L-001).
+# so the whitelist can never drift from the declared ownership split.
 set -euo pipefail
 # The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
 # is created mode 600, not the default 644 (final review, Important 8). umask

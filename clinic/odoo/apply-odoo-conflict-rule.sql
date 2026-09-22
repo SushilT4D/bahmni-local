@@ -1,7 +1,7 @@
 -- SUPERSEDED 2026-09-09 on clinic nodes by retire-write-origin-guard.sql: row filters and the
 -- HISTORICAL, FROZEN 2026-09-17 (sync-core Task 4): a completed one-time migration against the retired Odoo 10 clinic override. Not called by any installer task. Table names below are Odoo 10's, left exactly as executed -- renaming them would misrepresent what actually ran. The live Odoo 16 table set is sync/subsystems.conf.
 -- origin stamp are retired; the last-writer rule lives on in sync_lww() without an origin
--- tie-break (sync-core F-048). Columns and sequences this file creates stay.
+-- tie-break. Columns and sequences this file creates stay.
 -- ADDED 2026-09-04 (sync-core D3). Gives Odoo a conflict rule, which the system has
 -- never had.
 --

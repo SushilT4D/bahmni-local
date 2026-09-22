@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SUPERSEDED 2026-09-09 on clinic nodes by retire-mysql-origin-guard.sh: the Groovy filters
 # and the person/person_name stamping triggers are retired; the loop guard is
-# sessionVariables=sql_log_bin=0 on the clinic sinks (sync-core F-047).
+# sessionVariables=sql_log_bin=0 on the clinic sinks.
 #
 # apply-sync-origin.sh — install the ADR-003 write-origin guard on one OpenMRS table.
 #
@@ -12,7 +12,7 @@
 #
 # WHAT IT INSTALLS, per table:
 #   1. sync_origin varchar(16) NULL           -- who authored the row
-#   2. an index on it                         -- for reconciliation queries (F-036)
+#   2. an index on it                         -- for reconciliation queries
 #   3. a backfill of existing NULLs           -- default 'cloud', see below
 #   4. BEFORE INSERT and BEFORE UPDATE triggers that stamp local writes and preserve
 #      the far node's stamp on sink writes

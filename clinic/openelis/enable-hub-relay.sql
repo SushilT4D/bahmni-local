@@ -1,4 +1,4 @@
--- ADDED 2026-09-04 (sync-core F-025). Makes the CLOUD relay clinic-authored lab rows
+-- Makes the CLOUD relay clinic-authored lab rows
 -- onward, which it does not do today.
 --
 -- THE DEFECT. The hub's dbz_clinlims_owned publication is row-filtered to

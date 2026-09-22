@@ -143,7 +143,7 @@ fi
 # 4. host room -- two floors, two filesystems (Azure rehearsal stop 3,
 # 2026-09-18). A base container's ROOT filesystem is the image/overlay store,
 # which on a hub with a small OS disk and a big data disk is the small one;
-# the disk that actually fills (F-066) is the one Docker's VOLUMES live on.
+# the disk that actually fills is the one Docker's VOLUMES live on.
 # So: the volume pool is measured inside the base MySQL container at its own
 # data volume's mount point (a named or anonymous volume; the image's
 # VOLUME /var/lib/mysql gives one on every stock base), falling back to the

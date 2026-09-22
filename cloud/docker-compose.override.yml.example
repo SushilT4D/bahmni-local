@@ -7,7 +7,7 @@
 # Every credential here is now ${VAR:?}: unset means the stack refuses to start,
 # rather than silently coming up on an example password. The host path is
 # ${CONTAINER_DATA_PATH:?} for the same reason -- an absolute path from one
-# machine is another node's identity waiting to be inherited (AL-022).
+# machine is another node's identity waiting to be inherited.
 #
 # Real values go in .env, which is gitignored. See .env.example for the full list.
 
@@ -68,7 +68,7 @@ services:
     # expire-logs-days bounds growth -- note the binlog also records every UP-sync
     # sink write, so it is not just the 1,667 admin rows.
     #
-    # STRIDING (BL-045): offset 10 with increment 10 => cloud-authored ids are ≡ 0 (mod 10),
+    # STRIDING: offset 10 with increment 10 => cloud-authored ids are ≡ 0 (mod 10),
     # per Sushil's map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4, Bagdunda 5, Kojawada 6).
     # This node is MySQL 5.6, where `SET PERSIST` does not exist at all -- server flags are
     # the ONLY way to set this so it survives a restart. They are also immune to the
@@ -119,7 +119,7 @@ services:
       - '${CERTIFICATE_PATH}/fullchain.pem:/etc/tls/cert.pem'
       - '${CERTIFICATE_PATH}/privkey.pem:/etc/tls/key.pem'
       - 'bahmni-patient-images:/home/bahmni/patient_images'
-      # 2026-08-31: re-introduce a bahmni-proxy.conf mount -- but from THIS repo, not
+      # re-introduce a bahmni-proxy.conf mount -- but from THIS repo, not
       # the prod-only path MM-13 dropped. proxy-config/bahmni-proxy.conf is the image's
       # own file plus one addition: relative Location headers. ProxyPassReverse rebuilt
       # the upstream 301 with the wrong scheme (an https request got Location: http://...),
@@ -128,7 +128,7 @@ services:
       # diffing against a future image build. Clinic equivalent: nginx G12.
       - './proxy-config/bahmni-proxy.conf:/usr/local/apache2/conf/bahmni-proxy.conf:ro'
 
-  # ── OpenELIS on the cloud (Module 28) — the receiving side of bidirectional lab sync.
+  # ── OpenELIS on the cloud — the receiving side of bidirectional lab sync.
   # A dedicated postgres:14 (NOT bahmni/openelis-db): matching the clinic's engine
   # removes BL-052's version-skew half entirely. Loopback-only, tailnet ground rule.
   openelisdb:
@@ -153,7 +153,7 @@ services:
 
   openelis:
     image: 'bahmni/openelis:1.1.0-111'
-    command: ['/start-no-migrate.sh']   # BL-053: upstream liquibase can't finish on PG
+    command: ['/start-no-migrate.sh']   # upstream liquibase can't finish on PG
     ports:
       - '127.0.0.1:8052:8052'
     volumes:

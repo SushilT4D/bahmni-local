@@ -1,4 +1,4 @@
--- sync-core, 2026-09-10 (F-043): a heartbeat table per captured database so an idle slot
+-- a heartbeat table per captured database so an idle slot
 -- keeps confirming WAL. Both databases share one WAL; a slot in the quiet database holds
 -- everything the busy one writes (clinlims slot: 3.5 GB on Ghated, 888 MB today; 477 MB cloud).
 -- Debezium's heartbeat.action.query upserts this row every heartbeat.interval.ms; the change

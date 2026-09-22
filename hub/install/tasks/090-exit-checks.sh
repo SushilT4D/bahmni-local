@@ -39,7 +39,7 @@ bad(){ printf '  FAIL %s\n' "$*" >&2; FAILS=$((FAILS+1)); }
 # real number, no matter how low HUB_MIN_DISK_GB was set). Measured instead
 # from INSIDE the kafka container itself, on the filesystem its own data
 # volume (KAFKA_LOG_DIRS, hub/docker-compose.yml) is mounted on -- the disk
-# that actually fills in a real incident (F-066) -- which works identically
+# that actually fills in a real incident -- which works identically
 # on Docker Desktop and a production Linux hub, and is the number an
 # operator actually needs. HUB_MIN_DISK_GB is a test-only override
 # (documented and overridable the same way KAFKA_CONTAINER is,

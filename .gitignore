@@ -10,13 +10,13 @@ certs/
 *.zip
 *.gz
 
-# moved-aside PG14 datadirs from the PG15 bump (Module 28)
+# moved-aside PG14 datadirs from the PG15 bump
 clinic/data/postgresql.pg14*
 
 # generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
 sync/local/connectors/generated/
 
-# Same rule, CLOUD side (F-010). generate-sink-connectors.sh writes
+# Same rule, CLOUD side. generate-sink-connectors.sh writes
 # mysql-sink-<table>.json straight into cloud/connectors/ - NOT into a
 # generated/ subdir - with connection.password already substituted. On the mini
 # that is 19 files carrying the live sink DB password, in a tracked directory,
@@ -66,7 +66,7 @@ clinic/config/kafka-connect/ext/*.jar
 clinic/config/kafka-connect/*.jar
 *.pyc
 
-# --- Rendered MirrorMaker config (2026-09-14) --------------------------------
+# --- Rendered MirrorMaker config --------------------------------
 # scripts/setup-mirrormaker.sh renders these from the .template files beside
 # them. They are per-node OUTPUT and must never be committed: both copies were
 # tracked until today carrying a real remote broker host and this node's
@@ -110,7 +110,7 @@ clinic/install/.bin/
 # clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
 cloud/connectors/clinlims-*.json
 
-# hub/ (2026-09-17): the sync layer's own compose project, split out of cloud/.
+# hub/: the sync layer's own compose project, split out of cloud/.
 # Same secret classes as the cloud/connectors/* rules above -- the env file,
 # the JAAS SASL password, and every connector JSON a generator writes with a
 # live password already substituted. Templates are exempt by name: the six

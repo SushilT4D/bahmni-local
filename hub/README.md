@@ -22,7 +22,7 @@ data-moving operation, not a prerequisite check's job.
 
 - **MySQL (OpenMRS) -- 8.0.x**: `binlog_format=ROW`, `binlog_row_image=FULL`,
   at least 7 days of binlog retention, a `server_id` distinct from the Debezium
-  connector's own id (F-059), and **striding**: `auto_increment_increment=10`,
+  connector's own id, and **striding**: `auto_increment_increment=10`,
   `auto_increment_offset=10` -- the hub is residue 0. The base stack's owner
   strides it; the installer only asserts. The version floor is Debezium 3.6.2's
   (MySQL 8.0.x only): task `000` still reads 5.6/5.7's binlog settings, but task
@@ -54,7 +54,7 @@ data-moving operation, not a prerequisite check's job.
 - **Disk -- two floors, two filesystems**: at least 60 GB free where Docker's
   volumes live (task 000 reads it inside the base MySQL container at its data
   volume's mount point, falling back to the host's DockerRootDir) -- that is
-  the disk the hub's Kafka data and the base's databases grow on (F-066) --
+  the disk the hub's Kafka data and the base's databases grow on --
   and at least 8 GB free on the image store (the container rootfs; the four
   hub images are ~4 GB and a pull needs headroom). A hub with a small OS disk
   and a large data disk passes on its real numbers. `HUB_MIN_DISK_GB` and
@@ -209,7 +209,7 @@ Each task is idempotent, ends with a value read back from the live system
 | `060-kafka` | The KRaft controller + broker + Schema Registry come up; the broker's cluster id matches; port 9092 is published on the declared `KAFKA_SASL_BIND` (read back from the container); the published SASL_PLAINTEXT listener authenticates the mirrormaker user; Schema Registry answers. |
 | `070-connect` | Kafka Connect comes up with all three plugin classes (MySQL source, Postgres source, JDBC sink) resolved; kafka-ui comes up behind a real login -- the login page answers, an unauthenticated API call is refused, and `KAFKA_UI_USER`/`KAFKA_UI_PASSWORD` actually log in and read the cluster back. |
 | `080-sources` | The base MySQL is fit for Debezium 3.6.2 (major version 8+); the down-direction MySQL source and the two up-direction Postgres relay sources are registered, all RUNNING (connector and every task); both down-direction replication slots are active; schema-history retention is `-1`; the heartbeat keys are present in both Postgres sources' configs. |
-| `085-base-fixes` | Two fixes to the BASE stack's own files (outside this checkout, under `BASE_DIR` -- an ambient override, required, same class as `KAFKA_CONTAINER`; e.g. `/home/bahmni-hub/iplit-base`), applied by hand on the Azure hub 2026-09-21 and now idempotent here: D7 (F-080) inserts a login-stopgap `RewriteCond`/`RewriteRule` block into the base's `proxy-config/bahmni-proxy.conf` (marker-guarded, backed up once as `.bak-pre-f080`), proves it with the proxy container's own config test (`httpd -t`/`apachectl -t`), and reloads gracefully; D8 (F-078) mounts the clinic's quieter `clinic/odoo/logback-erp-connect.xml` onto `odoo-connect` through the base's `docker-compose.override.yml` (backed up once as `.bak-pre-d8`), proves it with `docker compose config -q`, and recreates only that one service when its mounts do not already carry the file. |
+| `085-base-fixes` | Two fixes to the BASE stack's own files (outside this checkout, under `BASE_DIR` -- an ambient override, required, same class as `KAFKA_CONTAINER`; e.g. `/home/bahmni-hub/iplit-base`), applied by hand on the Azure hub 2026-09-21 and now idempotent here: D7 inserts a login-stopgap `RewriteCond`/`RewriteRule` block into the base's `proxy-config/bahmni-proxy.conf` (marker-guarded, backed up once as `.bak-pre-f080`), proves it with the proxy container's own config test (`httpd -t`/`apachectl -t`), and reloads gracefully; D8 mounts the clinic's quieter `clinic/odoo/logback-erp-connect.xml` onto `odoo-connect` through the base's `docker-compose.override.yml` (backed up once as `.bak-pre-d8`), proves it with `docker compose config -q`, and recreates only that one service when its mounts do not already carry the file. |
 | `090-exit-checks` | Everything above still holds, read fresh: disk free under the broker's own data volume; every connector and task still RUNNING; both replication slots retain under 2 GB; 9092 is still published on the declared bind and the SASL listener still answers; `hub/.env` and the JAAS file are still mode 600; nothing under `hub/` is dirty in git (edits elsewhere in the checkout are named, not failed -- a hub host legitimately carries its own base-stack changes). It also prints the base OpenMRS `event_records` count, informationally. |
 | `100-join` | Nothing about the hub itself -- prints the operator hand-off (see below). |
 
@@ -234,14 +234,14 @@ be reinstalled and joined anew. `HUB_GIT=pull` is deliberate: unlike the dev
 mini (which receives a push over SSH), a real hub fetches GitHub itself.
 
 **What this fleet cannot yet give a joining clinic**: mTLS and per-site
-broker ACLs (L-007). Every clinic dials this hub's public listener
+broker ACLs. Every clinic dials this hub's public listener
 (`SASL_PLAINTEXT://<REMOTE_KAFKA_HOST>:9092`) with the same fleet-wide SASL
 user -- there is no per-site revocable credential yet.
 
 ## The origin model: none, on the hub
 
 Replication origins exist so a **clinic** can tell a row it just received
-back from the hub apart from one it wrote itself (L-009) -- without one, a
+back from the hub apart from one it wrote itself -- without one, a
 clinic would re-publish what it just received, an infinite loop. The hub has
 no such problem: its whole job is to relay everything every clinic sent it
 onward to every other clinic, so an origin on the hub would make it start

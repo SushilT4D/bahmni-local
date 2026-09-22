@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-043: heartbeat table + publication membership in both PG databases, then heartbeat settings
+# heartbeat table + publication membership in both PG databases, then heartbeat settings
 # on both PG source connectors of this node. Usage: scripts/apply-slot-heartbeat.sh <docker|podman> <pg-container> <pg-superuser> <odoo-source-name> <clinlims-source-name> [connect-url]
 set -euo pipefail
 T=$1; PG=$2; SU=$3; OSRC=$4; CSRC=$5; C=${6:-http://localhost:8083}

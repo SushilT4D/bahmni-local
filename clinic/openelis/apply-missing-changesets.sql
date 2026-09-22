@@ -1,4 +1,4 @@
--- ADDED 2026-09-02 (sync-core F-004). Applies the 12 changesets that
+-- Applies the 12 changesets that
 -- liquibase-1.9.5 (baked into the OpenELIS image) cannot.
 --
 -- THE BLOCKER, precisely: liquibase 1.9.5 never detects clinlims.databasechangeloglock,
@@ -26,7 +26,7 @@
 -- 'groupBySample', matching BHS production. It does NOT fix F-005/BL-049 -- that is
 -- acessionFormat (DATENUM, no site component) and siteNumber (11404 on every node),
 -- neither of which these changesets touch.
--- F-004: apply the 12 changesets Liquibase 1.9.5 cannot, in BahmniConfig.xml file order.
+-- apply the 12 changesets Liquibase 1.9.5 cannot, in BahmniConfig.xml file order.
 -- Every statement is additive. Preconditions with onFail="MARK_RAN" are reproduced as
 -- IF guards, so a changeset whose precondition fails is recorded without executing --
 -- exactly what Liquibase would do. md5sum is left NULL so a future Liquibase recomputes

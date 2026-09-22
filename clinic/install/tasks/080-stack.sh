@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The application stack. odoo-connect is started LAST and only after its
 # atom-feed markers are parked at the head of each feed: the seed carries the
-# event_records that made Rawach replay ~303k events through the hub (F-066).
+# event_records that made Rawach replay ~303k events through the hub.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
@@ -19,7 +19,7 @@ OM="${COMPOSE_PROJECT_NAME}-openmrs-1"; OD="${COMPOSE_PROJECT_NAME}-bahmni-postg
 # ownership sweep below, so the file this creates gets chowned along with the
 # rest of config/odoo rather than needing its own pass.
 bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh reported a FAIL above"
-# Odoo answered HTTP 500 on every request on manpur (2026-09-21): its image
+# Odoo answered HTTP 500 on every request on manpur: its image
 # runs as uid 101, task 030 makes this node's bind-mount data dirs with a
 # plain mkdir -p (owned by the login user), and uid 101 could not write
 # /var/lib/odoo/.local. Kafka/kafka-connect/mirrormaker-connect are the same
@@ -49,7 +49,7 @@ case "$rc" in
        fail "OpenMRS did not answer within $((boot_s/60)) min (last HTTP code: ${last:-none}): ${COMPOSE_CMD} logs openmrs proxy"
      fi ;;
 esac
-# the markers are only safe to park while odoo-connect is down (F-066)
+# the markers are only safe to park while odoo-connect is down
 [ "$(ct inspect --format '{{.State.Running}}' "$OC" 2>/dev/null || printf false)" = false ] || fail "odoo-connect is running before its markers are parked (F-066 replay risk)"
 feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
   local out
@@ -57,7 +57,7 @@ feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
   FEED_CODE="${out##*$'\n'}"; FEED_BODY="${out%$'\n'*}"
 }
 # odoo-connect keeps its feed positions in the odoo database itself (staging,
-# 2026-09-17: five feeds), now colocated on the shared bahmni-postgres instance --
+# five feeds), now colocated on the shared bahmni-postgres instance --
 # the Odoo app's own tables live in that same database, not a separate odoodb.
 # mk runs psql there, using the same postgres superuser role tasks 050/060 use
 # (not a container-env POSTGRES_USER, which bahmni-postgres does not set for
@@ -67,7 +67,7 @@ mk(){ ct exec -i "$OD" sh -c 'psql -U postgres -d odoo -v ON_ERROR_STOP=1 -q -At
 [ "$(printf "select count(*) from information_schema.tables where table_name='markers'" | mk)" = 1 ] || fail "no markers table in bahmni-postgres's odoo database; odoo-connect 1.0.0 keeps its feed positions there on every lab node, so this Postgres image is not the fleet's"
 # Every feed odoo-connect reads: the five each lab node's table carries, plus any
 # other row already in this node's table -- a stale row for a feed we did not
-# list is exactly as dangerous as a stale patient row (F-066).
+# list is exactly as dangerous as a stale patient row.
 present="$(printf 'select feed_uri from markers' | mk | sed -nE 's#.*/atomfeed/([a-z]+)/recent$#\1#p' | tr '\n' ' ')"
 for f in $(printf 'patient encounter lab saleable drug %s\n' "$present" | tr ' ' '\n' | grep -v '^$' | sort -u); do
   # /session answering does not prove every module is up: give the atomfeed
@@ -97,7 +97,7 @@ done
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local up -d odoo-connect >/dev/null )
 r0="$(ct inspect --format '{{.RestartCount}}' "$OC" 2>/dev/null || printf 0)"
 sleep 120
-# a dead odoo-connect would pass the replay check below with 0 events (AL-008): prove it is up and has not restarted
+# a dead odoo-connect would pass the replay check below with 0 events: prove it is up and has not restarted
 state="$(ct inspect --format '{{.State.Running}} {{.RestartCount}}' "$OC" 2>/dev/null || printf 'false 0')"
 [ "$state" = "true ${r0}" ] || { ct logs --tail 10 "$OC" 2>&1 | sed 's/^/    /' >&2; fail "odoo-connect is not running cleanly two minutes after start (running/restarts: ${state}; its log lines are above)"; }
 n="$(ct logs --since 2m "$OC" 2>&1 | grep -c 'Processing event' || true)"

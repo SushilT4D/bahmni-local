@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The node's own proof: preflight green, and a value written that could not
-# pre-exist, read back through the application (AL-011), not a row count.
+# pre-exist, read back through the application, not a row count.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "100 · exit checks"

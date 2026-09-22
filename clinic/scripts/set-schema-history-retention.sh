@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-045: the Debezium MySQL schema-history topic must never expire. A 7-day broker default
+# the Debezium MySQL schema-history topic must never expire. A 7-day broker default
 # emptied Ghated's on 2026-09-09 and the source could only come back in snapshot.mode=recovery.
 # Run on every node after registering a MySQL source. Usage: scripts/set-schema-history-retention.sh <docker|podman> [bootstrap]
 set -euo pipefail

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Node-local preflight (F-007, F-017, F-022, F-043, F-050): VM disk and memory,
+# Node-local preflight: VM disk and memory,
 # MySQL wait_timeout floor, PG replication-slot retention, Kafka reachable,
 # connector task states. Exit 1 if any floor is breached.
 #
@@ -78,7 +78,7 @@ if [ -n "$REPO" ] && [ ! -d "$REPO/sync" ] && [ -d "$(dirname "$REPO")/sync" ]; 
 # filesystem and MemAvailable is the host's own. Measure it directly, at the
 # engine's REAL data-root -- the first Linux clinic (manpur) keeps it on a data
 # disk, and /var/lib/docker on the OS disk reported 8 GB free for a node with
-# 120 GB (2026-09-17). The nsenter/VM probes below are for macOS engines.
+# 120 GB. The nsenter/VM probes below are for macOS engines.
 if [ "$(uname -s)" = Linux ]; then
   root="$("$CT" info --format '{{.DockerRootDir}}' 2>/dev/null || "$CT" info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo /var/lib/docker)"
   disk="$(df -Pm "$root" 2>/dev/null | awk 'NR==2{print $4}')"
@@ -153,9 +153,9 @@ if [ -n "$PG" ]; then
   done <<< "$slots"
 else bad "postgres service '$PG_SERVICE' not running"; fi
 
-# --- Unsynced tables tied to synced ones (ADR-005, F-085) -------------------
+# --- Unsynced tables tied to synced ones -------------------
 # village_village stopped a sink because a table nobody had listed grew rows
-# that referenced, and were referenced by, a synced table (F-083). The
+# that referenced, and were referenced by, a synced table. The
 # inventory this check comes from
 # (docs/sync-core/reports/2026-09-21-unsynced-tables-inventory.md) found that
 # is a CLASS, not a one-off: a table outside sync/subsystems.conf's synced set
@@ -286,7 +286,7 @@ else bad "kafka service '$KAFKA_SERVICE' not running"; fi
 
 # --- Connectors -------------------------------------------------------------
 # Judged on TASK state, never connector state: a connector reports RUNNING while
-# its task is dead, so reading connector state passes over a broken sink (F-027).
+# its task is dead, so reading connector state passes over a broken sink.
 st=$(curl -s --max-time 20 "${CONNECT_URL}/connectors?expand=status" | python3 -c "import json,sys
 try: d=json.load(sys.stdin)
 except Exception: print('connect-unreachable'); sys.exit()
@@ -296,7 +296,7 @@ case "$st" in *"not RUNNING: []") ok "$st";; *) bad "$st";; esac
 
 # --- odoo-connect -----------------------------------------------------------
 # The image lacks Apache HttpClient 5 and the compose override bind-mounts three
-# jars into its WEB-INF/lib (sync-core F-064). Two ways for that to silently
+# jars into its WEB-INF/lib. Two ways for that to silently
 # not apply: the source file missing, so the engine creates an empty DIRECTORY
 # of the jar's name; or a container recreated from an older override. Both
 # leave the error in the log, so the log is judged as well as the file. Only

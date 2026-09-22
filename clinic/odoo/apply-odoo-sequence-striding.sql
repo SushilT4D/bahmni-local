@@ -6,7 +6,7 @@
 -- PostgreSQL sequences at increment_by=10 (verified 2026-09-04: sample_*_seq all
 -- carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
 -- nodes both mint sale_order id=1 for different orders. Under an idempotent upsert
--- keyed on the PK (L-010) that is not a loud failure -- it is silent data loss: the
+-- keyed on the PK that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
 -- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows -- 13 as of
@@ -28,8 +28,8 @@
 --
 -- NOT COVERED, ON PURPOSE: Odoo's ir_sequence table, which mints the human-facing
 -- document numbers (SO0001, WH/OUT/0001). Those are business identifiers, not the sync
--- key, so L-010 does not protect them -- exactly the MRN/accession exposure recorded as
--- F-005. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
+-- key, so striding does not protect them -- the same exposure the MRN and the lab accession
+-- number have. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
 -- separately; this script does not pretend to fix it.
 --
 -- TABLE LIST. The synced Odoo tables are no longer hard-coded here (sync-core Task
@@ -92,7 +92,7 @@ BEGIN
     -- notice-and-skip (code review, 2026-09-17): this table is in the publication
     -- and in the MirrorMaker whitelist by construction (same subsystems.conf list),
     -- so it will be written from more than one node -- and if its ids are not
-    -- strided, two nodes CAN mint the same id (L-008). A quiet NOTICE let exactly
+    -- strided, two nodes CAN mint the same id. A quiet NOTICE let exactly
     -- that gap through with a green task.
     --
     -- ADR-005 narrows this: no serial id is only a defect when the table ALSO has

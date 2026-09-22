@@ -10,7 +10,7 @@
   "//9": "emitting the correct, L-010-compliant config would have been REJECTED by",
   "//10": "its own validator. ${TABLE} and ${PRIMARY_KEY} are per-table; topics and",
   "//11": "the dropPrefix regex are per-clinic and checked for presence only.",
-  "//12": "2026-09-17: hibernate.c3p0.* pool tuning replaced by hibernate.agroal.*",
+  "//12": "hibernate.c3p0.* pool tuning replaced by hibernate.agroal.*",
   "//13": "(Debezium 3.6.2 dropped c3p0 for Agroal, DBZ-8899), matching",
   "//14": "generate-sink-connectors.sh's own shape. No origin claim here -- this is",
   "//15": "a MySQL sink (no PG replication-origin mechanism) and was never wired to",

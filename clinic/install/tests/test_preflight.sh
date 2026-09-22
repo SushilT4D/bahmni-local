@@ -107,7 +107,7 @@ assert_contains "large multi-line seed passes despite early pipe close" "$out" "
 
 # ADR-005 seed gate: a seed dumped before the hub strode village_village and
 # res_partner_attributes must be refused -- it would hand a fresh clinic ids
-# the hub already uses (F-083). Every fixture below is otherwise 1.2.0/Odoo-16
+# the hub already uses. Every fixture below is otherwise 1.2.0/Odoo-16
 # shaped so it clears the earlier gates and reaches this one.
 mk_adr005_seed(){ # DIR VILLAGE_FORM VILLAGE_STEP ATTRS_FORM ATTRS_STEP [no-village]
   local dir="$1" vform="$2" vstep="$3" aform="$4" astep="$5" novillage="${6:-}"

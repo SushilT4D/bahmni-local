@@ -35,7 +35,7 @@ case "${SIDE}" in
   *) usage; echo "Error: unknown side '${SIDE}' (use local or cloud)" >&2; exit 1 ;;
 esac
 
-# Stage 4 (2026-09-15): this script lives in clinic/scripts/, the hub tree is hub/
+# Stage 4: this script lives in clinic/scripts/, the hub tree is hub/
 # and the shared sync definitions are sync/ -- all siblings of PROJECT_DIR (clinic/).
 case "${SIDE}" in
   cloud) TABLES_CONF="${PROJECT_DIR}/../hub/tables.conf" ;;

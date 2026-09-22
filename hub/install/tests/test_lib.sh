@@ -376,7 +376,7 @@ pat_trap='trap '"'"'rm -f "$body" "$cookie_jar"'"'"' EXIT'
 assert_eq "kafka_ui_login_ok cleans up in a subshell-scoped trap (not a function-level one, which would replace the caller's own trap)" "$(printf '%s' "$fn_src" | grep -Fc "$pat_trap")" "1"
 
 
-# --- Azure rehearsal stop 4 (2026-09-18): the hub's REMOTE_MYSQL_* never inherit
+# --- Azure rehearsal stop 4: the hub's REMOTE_MYSQL_* never inherit
 # the clinic package's placeholders from the base .env (they described the
 # hub's OWN MySQL for the up-sinks), and placeholder values are refused.
 mkdir -p "$TMP/hub-ph"; OUTP="$TMP/hub-ph/.env"
@@ -393,7 +393,7 @@ for v in unused unused.invalid db.example.com XXXX changeme; do placeholder_valu
 for v in sink iplit-base-openmrsdb-1 openmrs 3306; do placeholder_value "$v" && { bad "placeholder_value rejected the real value '$v'"; fails=$((fails+1)); } || ok "placeholder_value accepts '$v'"; done
 
 
-# --- Azure rehearsal stop 7 (2026-09-18): failed tasks are restarted once after an unchanged PUT.
+# --- Azure rehearsal stop 7: failed tasks are restarted once after an unchanged PUT.
 assert_eq "connect_failed_task_ids: one FAILED task" "$(printf '{"name":"x","connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"FAILED","trace":"boom"}]}' | connect_failed_task_ids)" "0"
 assert_eq "connect_failed_task_ids: none failed" "$(printf '{"name":"x","connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"RUNNING"}]}' | connect_failed_task_ids)" ""
 assert_eq "connect_failed_task_ids: two of three failed" "$(printf '{"tasks":[{"id":0,"state":"FAILED"},{"id":1,"state":"RUNNING"},{"id":2,"state":"FAILED"}]}' | connect_failed_task_ids | tr '\n' ',')" "0,2,"

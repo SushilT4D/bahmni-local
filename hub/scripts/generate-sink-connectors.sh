@@ -3,7 +3,7 @@
 #
 # Usage: generate-sink-connectors.sh [clinic ...]     (default: every clinic)
 #
-# WHY THIS WAS REWRITTEN (2026-09-14). The previous version could serve exactly
+# WHY THIS WAS REWRITTEN. The previous version could serve exactly
 # one clinic: it named every connector mysql-sink-${table} with no clinic
 # component, so a second clinic's run overwrote the first clinic's files and,
 # on registration, PUT over its live connectors. Clinic 2's twelve sinks were
@@ -184,7 +184,7 @@ while IFS= read -r cline || [ -n "$cline" ]; do
 
     "//BL-005": "NOT errors.tolerance=all. 'all' silently DROPS a failing record -- an",
     "//BL-005b": "out-of-order FK row vanishes with no park, no DLQ, no trace, defeating",
-    "//BL-005c": "L-004 and L-010. Set explicitly so the intent is visible.",
+    "//BL-005c": "Set explicitly so the intent is visible.",
     "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",

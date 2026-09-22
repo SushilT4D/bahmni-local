@@ -5,7 +5,7 @@
 # possible at all. The trigger distinguishes a replicated write from a local one by
 # session_user, so the sink MUST connect as a role the Odoo application never uses.
 # This is the same prerequisite that blocked the OpenELIS guard until clinlims_sink
-# existed (F-015).
+# existed.
 #
 # PASSWORD HANDLING. The DDL is written to a file inside the container and run with -f,
 # never passed with -c and never interpolated into a logged command. This is not

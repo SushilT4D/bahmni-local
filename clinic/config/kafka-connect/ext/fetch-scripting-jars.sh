@@ -2,7 +2,7 @@
 # The Filter SMT (io.debezium.transforms.Filter, language jsr223.groovy) used by the
 # mysql source and the PG sinks needs these three jars INSIDE each plugin directory.
 # They were once docker-cp'd into a running container (MODIFICATIONS.md) and vanished on
-# the first `compose up -d kafka-connect` recreate (2026-09-09). The compose override now
+# the first `compose up -d kafka-connect` recreate. The compose override now
 # bind-mounts them from this directory; the jars are gitignored (7.6 MB), fetch with:
 #   bash config/kafka-connect/ext/fetch-scripting-jars.sh
 set -eu

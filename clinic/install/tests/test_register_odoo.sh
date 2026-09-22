@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F-073: register-odoo.sh must never leave a connector config -- with its
+# register-odoo.sh must never leave a connector config -- with its
 # plaintext database.password / connection.password -- sitting in a fixed,
 # world-readable /tmp path. A fake curl on PATH stands in for Kafka Connect:
 # it answers normally for the first connector and fails outright (a process

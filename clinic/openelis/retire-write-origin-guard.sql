@@ -1,9 +1,9 @@
--- sync-core, 2026-09-09: retire the clinlims write-origin guard on a CLINIC node.
+-- retire the clinlims write-origin guard on a CLINIC node.
 -- Supersedes the row filters and triggers created by setup-clinlims-sync.sql /
 -- apply-write-origin-guard.sql. The loop guard now lives in the engine (PG16):
 -- sink sessions carry a replication origin (t4d.sync.SyncOriginCustomizer) and the
 -- source decodes with origin=none, so a replicated transaction is never republished by
--- the node that applied it (sync-core F-044). The sync_origin COLUMN stays: every sink
+-- the node that applied it. The sync_origin COLUMN stays: every sink
 -- caches the table descriptor (schema.evolution=none) and the cloud keeps its copy, so
 -- dropping it is a fleet-wide schema change, not a local cleanup. New clinic rows carry
 -- sync_origin NULL from now on; the sinks' accept filter treats NULL as "not mine".

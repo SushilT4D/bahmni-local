@@ -1,8 +1,8 @@
 -- =============================================================================
--- NOT RUN BY THE HUB INSTALLER -- KEPT FOR HISTORY (F-072).
+-- NOT RUN BY THE HUB INSTALLER -- KEPT FOR HISTORY.
 --
 -- This file predates the F-049/F-051 cleanup (the fleet-wide drop of the
--- sync_origin column and its triggers, 2026-09-09) and encodes the pre-F-049
+-- sync_origin column and its triggers, 2026-09-09) and encodes the pre
 -- design. It cannot run anywhere today. hub/install/tasks/050-base-db.sh owns
 -- what it used to do, and derives it live instead: both hub publications are
 -- built as UNFILTERED `FOR TABLE` lists from sync/subsystems.conf -- the hub
@@ -11,7 +11,7 @@
 -- hub"). Nothing in hub/install/ references this file; do not wire it back in
 -- without closing F-072 first.
 -- =============================================================================
--- ADDED 2026-09-04 (sync-core F-025). Makes the CLOUD relay clinic-authored lab rows
+-- Makes the CLOUD relay clinic-authored lab rows
 -- onward, which it does not do today.
 --
 -- THE DEFECT. The hub's dbz_clinlims_owned publication is row-filtered to

@@ -6,7 +6,7 @@
 -- PostgreSQL sequences at increment_by=10 (verified 2026-09-04: sample_*_seq all
 -- carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
 -- nodes both mint sale_order id=1 for different orders. Under an idempotent upsert
--- keyed on the PK (L-010) that is not a loud failure -- it is silent data loss: the
+-- keyed on the PK that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
 -- SCOPE. Only the 12 synced business tables plus the join/child tables that hang off
@@ -26,8 +26,8 @@
 --
 -- NOT COVERED, ON PURPOSE: Odoo's ir_sequence table, which mints the human-facing
 -- document numbers (SO0001, WH/OUT/0001). Those are business identifiers, not the sync
--- key, so L-010 does not protect them -- exactly the MRN/accession exposure recorded as
--- F-005. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
+-- key, so striding does not protect them -- the same exposure the MRN and the lab accession
+-- number have. Two clinics WILL both mint SO0001. That needs a per-node prefix and is filed
 -- separately; this script does not pretend to fix it.
 --
 -- Usage: psql -U postgres -d odoo -v residue=4 -f odoo/apply-odoo-sequence-striding.sql

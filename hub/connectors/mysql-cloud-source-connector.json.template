@@ -20,7 +20,7 @@
 
     "//whitelist": "THE LOOP GUARD. The cloud binlog also records every UP-direction sink",
     "//whitelist2": "write (121k patients). Capturing those here would send clinic data straight",
-    "//whitelist3": "back down = an infinite loop. Only cloud-OWNED tables may appear (L-001).",
+    "//whitelist3": "back down = an infinite loop. Only cloud-OWNED tables may appear.",
     "table.include.list": "${TABLE_INCLUDE_LIST}",
 
     "schema.history.internal.kafka.bootstrap.servers": "${CLOUD_KAFKA_BOOTSTRAP}",

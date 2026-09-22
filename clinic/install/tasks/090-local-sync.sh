@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The clinic's own sync layer, in the order the repo scripts expect. Judged on
-# TASK state, never connector state (F-027).
+# TASK state, never connector state.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "90 · local sync"
@@ -54,7 +54,7 @@ if [ -n "$restart_status" ] && [ "$restart_status" != "{}" ]; then
     done
   fi
 fi
-# Judged on TASK state (F-027), polled: a small host needs more than the old
+# Judged on TASK state, polled: a small host needs more than the old
 # fixed 30 s to start fourteen connectors. A connector with no task at all is
 # NOT running (any() over an empty list is false and used to pass). A FAILED
 # task never heals by waiting, so it ends the wait at once.

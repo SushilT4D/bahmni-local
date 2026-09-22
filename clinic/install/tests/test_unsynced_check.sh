@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unsynced-table check (ADR-005, F-085): clinic/scripts/preflight.sh's WARN
+# Unsynced-table check: clinic/scripts/preflight.sh's WARN
 # section for tables outside the synced set that touch it by FK and have
 # rows. Exercises the SQL-building and allowlist/subsystems parsing without a
 # database -- pulled out via the unsynced-check:begin/:end markers, the same

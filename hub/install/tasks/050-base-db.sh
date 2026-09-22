@@ -9,13 +9,13 @@
 # Publications here are UNFILTERED FOR TABLE lists, unlike a clinic's own
 # row-filtered publication (id % 10 = residue). That is not an oversight: a
 # spoke publishes only the rows it owns so it never re-publishes what it
-# received (L-008), but the hub's whole job is to relay everything every
+# received, but the hub's whole job is to relay everything every
 # spoke sent it onward to every other spoke -- per-table filtering would
 # silently drop the very rows this layer exists to move (see
 # hub/openelis/enable-hub-relay.sql's header for the incident that happens
 # when a hub publication IS row-filtered). Replication origins are the same
 # story the other way around: a spoke needs one so its own customizer jar can
-# tell a replayed write from a local one (L-009), but an origin on the hub
+# tell a replayed write from a local one, but an origin on the hub
 # would make it start filtering its own relay -- so this task creates none
 # and asserts none exist.
 set -euo pipefail
@@ -239,7 +239,7 @@ build_publication(){
 build_publication odoo odoo public dbz_odoo_owned
 build_publication openelis clinlims clinlims dbz_clinlims_owned
 
-# --- Privilege read-back: a positive assertion, not a silent GRANT (AL-008) -
+# --- Privilege read-back: a positive assertion, not a silent GRANT -
 # The GRANT statements in create_pg_sink_role succeed even against a role
 # that ends up with no matching privilege (a schema typo, the wrong
 # search_path) -- GRANT itself never fails that way. Ask Postgres directly,

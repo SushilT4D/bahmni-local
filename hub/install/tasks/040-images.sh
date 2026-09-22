@@ -25,7 +25,7 @@ setup_compose
 # `compose config` failing left `for img in $(...)` iterating zero times, after
 # which `missing` was empty and this task reported "every image present (0)" --
 # a check that had verified nothing announcing success, over a compose
-# invocation that had actually died (AL-008). stderr is kept and shown in that
+# invocation that had actually died. stderr is kept and shown in that
 # failure rather than sent to /dev/null, since it names the reason.
 images_err="$(mktemp -t hub-images.XXXXXX)"
 trap 'rm -f "$images_err"' EXIT

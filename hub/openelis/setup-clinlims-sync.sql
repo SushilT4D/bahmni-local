@@ -1,8 +1,8 @@
 -- =============================================================================
--- NOT RUN BY THE HUB INSTALLER -- KEPT FOR HISTORY (F-072).
+-- NOT RUN BY THE HUB INSTALLER -- KEPT FOR HISTORY.
 --
 -- This file predates the F-049/F-051 cleanup (the fleet-wide drop of the
--- sync_origin column and its triggers, 2026-09-09) and encodes the pre-F-049
+-- sync_origin column and its triggers, 2026-09-09) and encodes the pre
 -- design. It cannot run anywhere today. hub/install/tasks/050-base-db.sh owns
 -- what it used to do, and derives it live instead: both hub publications are
 -- built as UNFILTERED `FOR TABLE` lists from sync/subsystems.conf -- the hub
@@ -11,7 +11,7 @@
 -- hub"). Nothing in hub/install/ references this file; do not wire it back in
 -- without closing F-072 first.
 -- =============================================================================
--- Module 28 — clinlims sync setup for one node. Parameterised by :residue
+-- clinlims sync setup for one node. Parameterised by :residue
 -- (4 = Rawach clinic, 0 = cloud) via psql -v. Idempotent.
 
 -- psql does not substitute :vars inside dollar-quoted bodies, so stash the residue
@@ -39,12 +39,12 @@ ALTER TABLE clinlims.sample_item   REPLICA IDENTITY FULL;
 ALTER TABLE clinlims.analysis      REPLICA IDENTITY FULL;
 ALTER TABLE clinlims.result        REPLICA IDENTITY FULL;
 
--- 3. The row-filtered publication — THIS is Module 28's per-row single-writer (L-001).
+-- 3. The row-filtered publication — THIS is Module 28's per-row single-writer.
 --    Each node publishes ONLY the rows it owns (id % 10 = its residue), so a row
 --    written by the sink (carrying the OTHER residue) is never re-captured here.
 --    No loop, enforced by the database rather than an SMT.
 --    Feed tables (event_records, event_records_queue, markers, failed_events) are
---    NEVER in this list — Gate 1 of the double-fire defence (BL-050).
+--    NEVER in this list — Gate 1 of the double-fire defence.
 DROP PUBLICATION IF EXISTS dbz_clinlims_owned;
 CREATE PUBLICATION dbz_clinlims_owned
   FOR TABLE clinlims.sample      WHERE (id % 10 = :residue),

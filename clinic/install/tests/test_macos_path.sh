@@ -128,7 +128,7 @@ printf '%s' "$out" | grep -q 'FAILED' && bad "dry run without podman printed a F
 [ "$rc" -eq 0 ] && ok_ "dry run without podman exits 0" || bad "dry run without podman exits $rc: $out"
 
 # ============================================================================
-# host-macos.sh under DRY=1 must do NOTHING real: finding 11 (2026-09-21) --
+# host-macos.sh under DRY=1 must do NOTHING real: finding 11 --
 # it still reached the network (curl for Homebrew) and created directories
 # (mkdir for the LaunchAgent) outside anything run() wrapped. PATH holds only
 # fake curl/mkdir/brew/podman/launchctl, each appending its own name to a log

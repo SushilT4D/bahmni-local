@@ -21,7 +21,7 @@ podman_machine_size(){
 }
 
 host_macos(){
-  # Finding 11 (2026-09-21): DRY=1 still reached the network (the Homebrew
+  # Finding 11: DRY=1 still reached the network (the Homebrew
   # `curl | bash` line evaluates its command substitution to build the
   # would-print string BEFORE run() ever gets called, so run()'s own DRY
   # check never got a chance) and still wrote to disk (`mkdir -p` for the

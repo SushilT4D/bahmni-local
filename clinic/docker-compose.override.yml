@@ -76,7 +76,7 @@ services:
     volumes: !override
       - './.local-config-scratch:/usr/local/bahmni_config'
   bahmni-mysql:
-    # BL-045: striding as SERVER FLAGS, not `SET PERSIST`.
+    # striding as SERVER FLAGS, not `SET PERSIST`.
     #   • SET PERSIST is MySQL 8.0+ only and fails on the cloud (5.6.51, ERROR 1193)
     #   • SET PERSIST writes mysqld-auto.cnf into the DATADIR, so it is lost on a volume
     #     rebuild and the node silently reverts to increment 1
@@ -84,7 +84,7 @@ services:
     # Offset 4 = Rawach, per Sushil's clinic map (Manpur 1, Bedawal 2, Ghated 3, Rawach 4,
     # Bagdunda 5, Kojawada 6; cloud 10). This lab clinic is Rawach (RAW prefix, Location-15).
     #
-    # BL-039 durable fix (2026-08-28): wait_timeout was MySQL's stock 28800 (8h) on both
+    # BL-039 durable fix: wait_timeout was MySQL's stock 28800 (8h) on both
     # nodes — never a decision, just the default. The JDBC sinks hold pooled connections
     # between writes and validate nothing on checkout, so any idle gap longer than 8h left
     # them holding a dead socket; the next write got `Broken pipe`, Debezium wrapped it as
@@ -153,7 +153,7 @@ services:
       -c max_wal_senders=10
 
   # NEW SERVICE (not in Sushil's compose — the clinic side has never had OpenELIS).
-  # Module 28 §3.1. Profile-gated so it never starts by accident; start it by name.
+  # Profile-gated so it never starts by accident; start it by name.
   openelis:
     profiles: ["openelis"]
     image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:-1.1.0-111}'
@@ -204,13 +204,13 @@ services:
   # interpolate ${OPENELIS_HOST}/${OPENELIS_PORT} — could only ever render
   # "http://:/" no matter what .env said. That is the real shape of BL-048.
   openmrs:
-    # F-050 / BL-014. This container had NO memory limit and grew to 5.7 GB of
+    # This container had NO memory limit and grew to 5.7 GB of
     # ANONYMOUS memory on Rawach in one day -- cgroup memory.stat read anon 5715
     # MiB against only 7 MiB of file cache -- while OMRS_JAVA_MEMORY_OPTS caps the
     # heap at 2048m and metaspace at 512m. So roughly 3 GB sits OUTSIDE the heap,
     # where the heap cap cannot reach it. The VM was left with 168 MB available
     # and swap fully consumed, which is how the hub's OpenMRS died for three days
-    # (BL-069): unbounded, so the kernel took the container rather than the
+    # unbounded, so the kernel took the container rather than the
     # container failing itself.
     #
     # PER NODE, and required: Ghated runs the same image and heap settings at
@@ -294,7 +294,7 @@ services:
       # call throws NoClassDefFoundError on EVERY Odoo XML-RPC request. Upstream
       # swallows it (catch Throwable, log), so customers are still written: the
       # cost is a 30-line stack trace per event -- 336 a minute on Rawach on
-      # 2026-09-15. These jars stop that; they do NOT restore the configured
+      # These jars stop that; they do NOT restore the configured
       # reply timeout, which was never applied and still is not: Spring 6.0's
       # setReadTimeout on this factory is a no-op and logs "has no effect"
       # once. A hung Odoo still stalls the feed worker. Versions are the ones Spring Boot

@@ -1,7 +1,7 @@
 #!/bin/bash
 # check-sink-tasks.sh — sweep ALL connectors and judge on TASK state, not connector state.
 #
-# Why this exists (BL-038/BL-039, 2026-08-20): a Kafka Connect connector object stays
+# Why this exists: a Kafka Connect connector object stays
 # RUNNING while its task is FAILED. We had 7 of 19 sink tasks dead — the whole patient
 # registration path — while every connector, every container, and the source connector
 # all reported healthy. The existing check-sink-connectors.sh inspects ONE connector at

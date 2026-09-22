@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # L-010 business identifiers: MRN and accession numbers are NOT the sync key, so
-# striding does not protect them (BL-046, BL-049). OpenELIS and Odoo are set
+# striding does not protect them. OpenELIS and Odoo are set
 # here (node-local SQL). The registration prefix lives in a TRACKED config file
 # shared by the fleet, so it is checked and the exact edit printed, never
 # written -- a dirty tree would fail every node's drift check. The idgen source
@@ -20,7 +20,7 @@ APP="${CFG_DIR}/openmrs/apps/registration/app.json"
 node_local=0; case "$CFG_DIR" in "${CLINIC_DIR}/extracted/"*) node_local=1 ;; esac
 if [ ! -f "$APP" ]; then
   if [ "$node_local" = 1 ] && [ "${DRY}" != 1 ]; then
-    # the tree the services mount is empty: nothing after this can work (F-067)
+    # the tree the services mount is empty: nothing after this can work
     fail "no registration app.json under ${CFG_DIR#${CLINIC_DIR}/}: the UI/config extraction has not run -- resume with --from 045"
   elif [ "$node_local" = 1 ]; then info "would: find ${APP#${CLINIC_DIR}/} written by task 045, prefix ${MRN_PREFIX}"
   else warn "registration app.json not found at ${APP#${CLINIC_DIR}/} (fixture checkout?)"; fi

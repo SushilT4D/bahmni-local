@@ -1,4 +1,4 @@
--- sync-core, 2026-09-10 (F-053): master tables that clinics DO write (Odoo creates a
+-- master tables that clinics DO write (Odoo creates a
 -- res_country_state per new spelling it sees in patient addresses) must mint ids on the same
 -- stride as everything else, or two nodes coin the same id for different rows. Not synced yet
 -- (decision open); this only makes the ids collision-free. Run on every node AFTER the node's

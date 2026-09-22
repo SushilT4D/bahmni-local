@@ -1,12 +1,12 @@
 x-default-logging: &default
   # Was literally `{}`, so x-log-config below merged nothing and every service
   # inheriting it ran json-file with NO rotation. Verified at runtime on
-  # 2026-09-15: HostConfig.LogConfig read driver=json-file opts=map[] on all of
+  # HostConfig.LogConfig read driver=json-file opts=map[] on all of
   # them, and the resolved config showed 29 of 29 services without max-size.
   #
   # By then /var/lib/docker/containers held 2.5 GB on a VM with 1.6 GB free --
   # cloud-openelis-1 1695 MB and kafka-connect 799 MB in single unrotated logs --
-  # on a node already under the 5 GB preflight floor (F-022).
+  # on a node already under the 5 GB preflight floor.
   #
   # 50m x 3 bounds each container at 150 MB. Log options are fixed at container
   # CREATION: existing containers keep the old config until recreated, so this

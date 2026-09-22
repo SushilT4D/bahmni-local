@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADDED 2026-09-04. Registers the Odoo CDC connectors, substituting credentials from
+# Registers the Odoo CDC connectors, substituting credentials from
 # .env at registration time so no committed file holds a literal secret. The four
 # clinlims connector JSONs predate this and DO carry literals -- see the note in
 # f74613f; do not copy their pattern.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ADR-005: the two hand-written Odoo connector configs (clinic and hub) each
+# the two hand-written Odoo connector configs (clinic and hub) each
 # carry their OWN table.include.list and transforms.agg.regex, independent of
 # sync/subsystems.conf and of each other -- FOUR copies of "which Odoo tables
 # are synced" that a table can be added to some of and not others. That is

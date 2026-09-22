@@ -1,7 +1,7 @@
 -- SUPERSEDED 2026-09-09 on clinic nodes: the row filters and *_origin triggers this file
 -- creates are retired by retire-write-origin-guard.sql once the node runs PG16 with the
--- replication-origin guard (sync-core F-044). The column and sequences it creates stay.
--- Module 28 — clinlims sync setup for one node. Parameterised by :residue
+-- replication-origin guard. The column and sequences it creates stay.
+-- clinlims sync setup for one node. Parameterised by :residue
 -- (4 = Rawach clinic, 0 = cloud) via psql -v. Idempotent.
 
 -- psql does not substitute :vars inside dollar-quoted bodies, so stash the residue
@@ -35,13 +35,13 @@ ALTER TABLE clinlims.sample_item   REPLICA IDENTITY FULL;
 ALTER TABLE clinlims.analysis      REPLICA IDENTITY FULL;
 ALTER TABLE clinlims.result        REPLICA IDENTITY FULL;
 
--- 3. The row-filtered publication — THIS is Module 28's per-row single-writer (L-001).
+-- 3. The row-filtered publication — THIS is Module 28's per-row single-writer.
 --    Each node publishes ONLY the rows it owns (id % 10 = its residue), so a row
 --    written by the sink (carrying the OTHER residue) is never re-captured here.
 --    No loop, enforced by the database rather than an SMT.
 --    Feed tables (event_records, event_records_queue, markers, failed_events) are
---    NEVER in this list — Gate 1 of the double-fire defence (BL-050).
--- SUPERSEDED 2026-09-02 (sync-core F-015). The residue filter below is what this
+--    NEVER in this list — Gate 1 of the double-fire defence.
+-- The residue filter below is what this
 -- publication used to carry:
 --   FOR TABLE clinlims.sample WHERE (id % 10 = :residue), ...
 -- It could only express "this row belongs to one node forever", so an edit made at

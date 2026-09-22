@@ -51,7 +51,7 @@ remote.producer.max.in.flight.requests.per.connection = 1
 remote.producer.delivery.timeout.ms = 7200000
 remote.producer.request.timeout.ms = 120000
 
-# ---- throughput tuning (2026-08-19) ----
+# ---- throughput tuning ----
 # max.in.flight=1 (kept, preserves ordering on retry) serialises batches, so
 # throughput = batch size / RTT. Measured RTT ~40 ms => ~25 batches/s. Without
 # linger/batching each batch carried <1 record => ~12 msg/s observed.
