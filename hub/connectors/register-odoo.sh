@@ -13,7 +13,7 @@ for name in "$@"; do
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
   body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
          python3 "$ROOT/connectors/_render_connector.py" "$f") || {
-    # Fix round 1 (code review, Minor): _render_connector.py substitutes
+    # _render_connector.py substitutes
     # every value (passwords included) into cfg BEFORE its own unresolved-
     # placeholder check, so on some future failure path $body could carry
     # the rendered config, passwords and all -- masked with the same
@@ -23,8 +23,8 @@ for name in "$@"; do
   }
   # Connect's response echoes the connector config back, database.password and
   # connection.password included -- so the body is never written to disk (was
-  # /tmp/.reg.out, a fixed, world-readable path: F-073, converged here on the
-  # same fix as clinic/connectors/register-odoo.sh, bab605f/d66aae8). It's held
+  # /tmp/.reg.out, a fixed, world-readable path -- the same fix as
+  # clinic/connectors/register-odoo.sh). It's held
   # only in this shell's own memory, split on the trailing newline curl's -w
   # appends, and on a non-2xx it's printed with any password value masked
   # before the human ever sees it.

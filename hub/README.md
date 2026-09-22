@@ -191,8 +191,8 @@ second file on disk bought nothing but exposure.
 
 Every fleet image pin (`KAFKA_IMAGE`, `DEBEZIUM_CONNECT_IMAGE`,
 `KAFKA_UI_IMAGE`, ...) is copied in from `sync/versions.env` at compose time
-(`versions_put`) -- change a pin there, never in `hub/.env` directly (L-005:
-lockstep, cloud first, one place).
+(`versions_put`) -- change a pin there, never in `hub/.env` directly (lockstep,
+cloud first, one place).
 
 ## Tasks
 
@@ -209,7 +209,7 @@ Each task is idempotent, ends with a value read back from the live system
 | `060-kafka` | The KRaft controller + broker + Schema Registry come up; the broker's cluster id matches; port 9092 is published on the declared `KAFKA_SASL_BIND` (read back from the container); the published SASL_PLAINTEXT listener authenticates the mirrormaker user; Schema Registry answers. |
 | `070-connect` | Kafka Connect comes up with all three plugin classes (MySQL source, Postgres source, JDBC sink) resolved; kafka-ui comes up behind a real login -- the login page answers, an unauthenticated API call is refused, and `KAFKA_UI_USER`/`KAFKA_UI_PASSWORD` actually log in and read the cluster back. |
 | `080-sources` | The base MySQL is fit for Debezium 3.6.2 (major version 8+); the down-direction MySQL source and the two up-direction Postgres relay sources are registered, all RUNNING (connector and every task); both down-direction replication slots are active; schema-history retention is `-1`; the heartbeat keys are present in both Postgres sources' configs. |
-| `085-base-fixes` | Two fixes to the BASE stack's own files (outside this checkout, under `BASE_DIR` -- an ambient override, required, same class as `KAFKA_CONTAINER`; e.g. `/home/bahmni-hub/iplit-base`), applied by hand on the Azure hub 2026-09-21 and now idempotent here: D7 inserts a login-stopgap `RewriteCond`/`RewriteRule` block into the base's `proxy-config/bahmni-proxy.conf` (marker-guarded, backed up once as `.bak-pre-f080`), proves it with the proxy container's own config test (`httpd -t`/`apachectl -t`), and reloads gracefully; D8 mounts the clinic's quieter `clinic/odoo/logback-erp-connect.xml` onto `odoo-connect` through the base's `docker-compose.override.yml` (backed up once as `.bak-pre-d8`), proves it with `docker compose config -q`, and recreates only that one service when its mounts do not already carry the file. |
+| `085-base-fixes` | Three fixes to the BASE stack's own files (outside this checkout, under `BASE_DIR` -- an ambient override, required, same class as `KAFKA_CONTAINER`; e.g. `/home/bahmni-hub/iplit-base`), each idempotent: a login-stopgap `RewriteCond`/`RewriteRule` block inserted into the base's `proxy-config/bahmni-proxy.conf` (recognised by its own pattern on a rerun, backed up once as `.bak-pre-login-stopgap`), proven with the proxy container's own config test (`httpd -t`/`apachectl -t`) and reloaded gracefully; the clinic's quieter `clinic/odoo/logback-erp-connect.xml` mounted onto `odoo-connect` through the base's `docker-compose.override.yml` (backed up once as `.bak-pre-override`), proven with `docker compose config -q`, recreating only that one service when its mounts do not already carry the file; and an InnoDB buffer-pool and redo-log file for the base MySQL, sized from the host's memory and mounted the same way. |
 | `090-exit-checks` | Everything above still holds, read fresh: disk free under the broker's own data volume; every connector and task still RUNNING; both replication slots retain under 2 GB; 9092 is still published on the declared bind and the SASL listener still answers; `hub/.env` and the JAAS file are still mode 600; nothing under `hub/` is dirty in git (edits elsewhere in the checkout are named, not failed -- a hub host legitimately carries its own base-stack changes). It also prints the base OpenMRS `event_records` count, informationally. |
 | `100-join` | Nothing about the hub itself -- prints the operator hand-off (see below). |
 
@@ -256,11 +256,8 @@ a spoke publishes only the rows it owns so it never re-publishes what it
 received, but the hub relays everything, so per-table filtering would
 silently drop the rows this layer exists to move.
 
-**F-072**: `hub/openelis/enable-hub-relay.sql` and
-`hub/openelis/setup-clinlims-sync.sql` predate this design (pre-F-049) and
-are **not** part of the procedure above -- the publications are derived
-live from `sync/subsystems.conf` by `050-base-db.sh`, not from those two
-files. They are kept for history, not run by anything here.
+There is no hand-written publication SQL for the hub: the publications are
+derived live from `sync/subsystems.conf` by `050-base-db.sh`.
 
 ## kafka-ui
 

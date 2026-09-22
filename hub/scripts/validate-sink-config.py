@@ -6,13 +6,13 @@ Two layers of check:
 1. The five hand-written rules that were previously inlined in
    generate-sink-connectors.sh. They catch the specific ways this generator has
    produced dead configs before (bash eating a literal $1, a doubled topic
-   prefix, BL-005's silent-drop setting, a missing BL-039 restart flag).
+   prefix, the silent-drop errors.tolerance=all, a missing restart-on-errors flag).
 
 2. NEW: a diff against `known-good.json`, the committed record of a sink that
    actually works. `known-good.json` is a FLOOR, not a ceiling: every key it
    declares must be present, and every key whose value is table- and
    environment-independent must match exactly. Extra keys in the generated
-   config are fine - that is how later hardening (BL-039 restart/retry, pool
+   config are fine - that is how later hardening (restart/retry, pool
    settings, errors.tolerance) was added without invalidating the shape.
 
    This is the executable half of an invariant that had only ever been a
@@ -53,7 +53,7 @@ ENVIRONMENT_KEYS = {
     "connection.password",
     # embeds MYSQL_SERVER_NAME / database name, which vary per clinic
     "transforms.dropPrefix.regex",
-    # since 2026-09-14 the hub serves several clinics, so the topic carries the
+    # the hub serves several clinics, so the topic carries the
     # clinic's MirrorMaker alias and server name; generator_rules() checks its
     # SHAPE instead.
     "topics",
@@ -94,22 +94,22 @@ def generator_rules(cfg, database_name):
     if not cfg.get("transforms.dropPrefix.replacement"):
         errs.append("empty RegexRouter replacement (bare $1 was expanded by bash)")
     if cfg.get("errors.tolerance") == "all":
-        errs.append("errors.tolerance=all silently drops records (BL-005)")
+        errs.append("errors.tolerance=all silently drops records")
     if cfg.get("connection.restart.on.errors") != "true":
-        errs.append("missing BL-039 connection.restart.on.errors")
+        errs.append("missing connection.restart.on.errors (a closed idle connection would kill the task for good)")
     if not cfg.get("primary.key.fields"):
         errs.append("empty primary.key.fields")
 
-    # L-010 is BLOCKING, and stated here rather than left to the known-good diff
+    # The sync-key rule is stated here rather than left to the known-good diff
     # so the failure names the invariant instead of reporting a shape mismatch.
     # The sync key must be collision-free BY CONSTRUCTION: under v1 that is the
     # strided integer PK carried in the Kafka record KEY. record_value keys the
     # upsert on a value field, which striding does not protect. This generator
-    # emitted record_value until 2026-09-14 while every live sink ran record_key.
+    # once emitted record_value while every live sink ran record_key.
     pkm = cfg.get("primary.key.mode")
     if pkm != "record_key":
         errs.append(
-            f"L-010 BLOCKING: primary.key.mode is {pkm!r}, must be 'record_key' "
+            f"primary.key.mode is {pkm!r}, must be 'record_key' "
             "(the strided integer PK, not a value field)"
         )
 

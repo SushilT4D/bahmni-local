@@ -6,12 +6,12 @@
 # so the whitelist can never drift from the declared ownership split.
 set -euo pipefail
 # The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
-# is created mode 600, not the default 644 (final review, Important 8). umask
+# is created mode 600, not the default 644. umask
 # here rather than a chmod afterwards: a chmod leaves a window in which the
 # rendered file is world-readable, however short.
 umask 077
 
-# Two roots, resolved separately (final review, Important 9):
+# Two roots, resolved separately:
 #   ROOT     the REPO checkout -- clinic/scripts/generate-table-config.sh and
 #            sync/local/tables.conf, which are repo files wherever the hub tree
 #            happens to live;
@@ -68,9 +68,9 @@ if not inc or '*' in inc:
 # LOOP GUARD, the one that matters. The cloud's binlog also records every
 # UP-direction sink write. If any clinic-owned table appears in this whitelist, the
 # cloud captures rows that just arrived FROM a clinic and MirrorMaker sends them
-# straight back down -- an infinite loop and an L-001 violation.
-# This is not hypothetical: on 2026-08-20 the cloud tables.conf (then debezium/cloud/) on the cloud host
-# had been extended from 7 to 19 tables (its header still said "Cloud -> local sync"),
+# straight back down -- an infinite loop.
+# This is not hypothetical: a cloud tables.conf once grew from 7 to 19 tables
+# (its header still said "Cloud -> local sync"),
 # so this generator produced a whitelist containing person/patient/visit/encounter.
 # A comment cannot prevent that. A computed intersection can.
 root = os.environ['ROOT']
@@ -88,21 +88,21 @@ if clash:
         "  (clinic-owned per sync/local/tables.conf, and cloud-owned per this one)\n"
         "\n"
         "  This is NOT a claim that the hub must never capture them. The running hub DOES\n"
-        "  capture person and person_name, deliberately. ADR-003 section 7: spokes publish\n"
+        "  capture person and person_name, deliberately. The relay rule: spokes publish\n"
         "  only their own writes, THE HUB PUBLISHES EVERYTHING, spokes drop their own echo.\n"
         "  That is the mechanism that makes a patient registered at one clinic visible at\n"
         "  another. The hub's up-direction sinks therefore run WITHOUT sql_log_bin=0 by\n"
-        "  construction (ADR-004, BL-068); on MySQL 5.6 they could not set it in any case,\n"
+        "  construction; on MySQL 5.6 they could not set it in any case,\n"
         "  SYSTEM_VARIABLES_ADMIN being an 8.0 privilege. The clinics, on 8.0, do set it,\n"
         "  which is what stops the relayed row travelling back up.\n"
         "\n"
-        "  The refusal stands because that rule is recorded as DESIGNED BUT UNTESTED\n"
-        "  (ADR-003) over an open constitution gap (L-008 unsuperseded, the proposed L-011\n"
-        "  never adopted; ADR-004 lists it 'not resolved'). Generating a source config from\n"
-        "  an unratified rule would put this file ahead of the decision.\n"
+        "  The refusal stands because that relay rule is designed but not yet ratified\n"
+        "  or tested end to end. Generating a source config from an unratified rule\n"
+        "  would put this file ahead of the decision.\n"
         "\n"
         "  So do not simply add the table here to silence this. If the clinic needs the\n"
-        "  table to arrive -- which is the BL-042 case -- mark it with the role field:\n"
+        "  table to arrive -- a cloud-created user must reach the clinic whole -- mark it\n"
+        "  with the role field:\n"
         "\n"
         "      person:person_id:relay\n"
         "\n"
@@ -113,7 +113,7 @@ if clash:
         "  that is the accident this guard exists to catch.\n"
         "\n"
         "  Marking a table does NOT ratify the relay. The hub keeps publishing only what\n"
-        "  the cloud authors until ADR-003 s7 is settled; `generate-table-config.sh cloud\n"
+        "  the cloud authors until the relay rule is ratified; `generate-table-config.sh cloud\n"
         "  --include-relay` is the explicit opt-in for when it is.")
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")

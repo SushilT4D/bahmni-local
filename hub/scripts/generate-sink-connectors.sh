@@ -3,19 +3,14 @@
 #
 # Usage: generate-sink-connectors.sh [clinic ...]     (default: every clinic)
 #
-# WHY THIS WAS REWRITTEN. The previous version could serve exactly
-# one clinic: it named every connector mysql-sink-${table} with no clinic
-# component, so a second clinic's run overwrote the first clinic's files and,
-# on registration, PUT over its live connectors. Clinic 2's twelve sinks were
-# therefore created by hand as mysql-sink-ghated-* and existed in no file in any
-# repo -- only in Kafka Connect's internal config topic.
-#
-# It also could not serve clinic 1 any more: the L-008 guard below refused any
-# table listed in this directory's tables.conf, and person/person_name were
-# added there on 2026-09-14, so the loop exited 1 on person.
+# Every connector is named mysql-sink-<clinic>-<table>: a name without the clinic
+# component would let a second clinic's run overwrite the first clinic's files
+# and, on registration, PUT over its live connectors. The table list is the
+# CLINIC's (see below); a table listed in both directions is warned about, not
+# refused -- see the ownership note in the loop.
 set -e
 # Every file this script writes carries REMOTE_MYSQL_PASSWORD in plaintext, so
-# they are created mode 600, not the default 644 (final review, Important 8).
+# they are created mode 600, not the default 644.
 # umask rather than a chmod per file: a chmod leaves a window in which the
 # rendered config is world-readable, however short.
 umask 077
@@ -28,11 +23,10 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 # CLINIC's (sync/local/tables.conf), NOT this directory's tables.conf --
 # which lists the tables that flow the other way.
 #
-# Until 2026-08-27 this defaulted to ${PROJECT_DIR}/tables.conf and generated
-# up-direction sinks for users/role/role_privilege/role_role/user_property/
-# user_role/provider, all subscribed to topics the clinic never publishes. Those
-# seven measured 0 messages while person/patient/visit carried 122k/122k/478k:
-# inert, but they reported RUNNING and inflated any "all sinks green" check.
+# Generating up-direction sinks from this directory's tables.conf instead would
+# produce sinks for users/role/role_privilege/role_role/user_property/user_role/
+# provider, all subscribed to topics the clinic never publishes: inert, but
+# reporting RUNNING and inflating any "all sinks green" check.
 TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/local/tables.conf}"
 DOWN_TABLES_CONF="${PROJECT_DIR}/tables.conf"
 CLINICS_CONF="${CLINICS_CONF:-${PROJECT_DIR}/clinics.conf}"
@@ -80,17 +74,15 @@ while IFS= read -r cline || [ -n "$cline" ]; do
         table="${BASH_REMATCH[1]}"
         pk="${BASH_REMATCH[2]}"
 
-        # L-008, NOT L-001. A table appearing in BOTH directions is legitimate:
-        # L-008 is per-ROW ownership and explicitly permits more than one node to
-        # write a table provided no two nodes write the same row, which the
-        # strided PK guarantees. This check used to `exit 1` here, which encoded
-        # the SUPERSEDED per-table rule L-001 and, once person/person_name were
-        # added to the down list on 2026-09-14, stopped the generator dead on
-        # clinic 1. It warns now, because a bidirectional table is still worth a
-        # human glance -- it is only safe ABOVE that table's base_id floor
-        # (architecture 4; rows below it occupy all ten residues, F-067/BL-067).
+        # A table appearing in BOTH directions is legitimate: ownership is per
+        # ROW, and more than one node may write a table provided no two nodes
+        # write the same row, which the strided PK guarantees. Refusing such a
+        # table (per-table ownership) would stop the generator dead on
+        # person/person_name, which the hub relays. It warns instead, because a
+        # bidirectional table is still worth a human glance -- it is only safe
+        # ABOVE that table's base_id floor (rows below it occupy all ten residues).
         if [ -f "${DOWN_TABLES_CONF}" ] && grep -qE "^[[:space:]]*${table}:" "${DOWN_TABLES_CONF}"; then
-            echo "  NOTE ${table}: bidirectional (also in ${DOWN_TABLES_CONF##*/}). Safe under L-008 only above its base_id floor." >&2
+            echo "  NOTE ${table}: bidirectional (also in ${DOWN_TABLES_CONF##*/}). Safe only above its base_id floor." >&2
         fi
 
         connector_name="${name_prefix}${table}"
@@ -99,7 +91,7 @@ while IFS= read -r cline || [ -n "$cline" ]; do
 
         # SHAPE IS AUTHORITATIVE: connectors/known-good.json is the committed
         # record of a sink that actually works, and the validator diffs against
-        # it. Both were refreshed 2026-09-14 from the LIVE hub.
+        # it. Both were taken from a LIVE hub.
         #
         # Heredoc is UNQUOTED, so bash expands $ and collapses \\ . Therefore:
         #   - a literal $1 for RegexRouter must be written \$1 (bare $1 expands
@@ -125,30 +117,28 @@ while IFS= read -r cline || [ -n "$cline" ]; do
 
     "insert.mode": "upsert",
 
-    "//L-010": "record_key, NOT record_value. L-010 requires the sync key to be",
-    "//L-010b": "collision-free by construction: under v1 that is the STRIDED",
-    "//L-010c": "INTEGER PK carried in the Kafka record key, never the UUID and",
-    "//L-010d": "never a value field. This generator emitted record_value until",
-    "//L-010e": "2026-09-14 while all 24 live sinks ran record_key -- so running it",
-    "//L-010f": "would have downgraded every one of them out of compliance.",
+    "//pkmode": "record_key, NOT record_value. The sync key must be",
+    "//pkmode2": "collision-free by construction: that is the STRIDED",
+    "//pkmode3": "INTEGER PK carried in the Kafka record key, never the UUID and",
+    "//pkmode4": "never a value field. A generator emitting record_value would",
+    "//pkmode5": "downgrade every live sink out of compliance.",
     "primary.key.mode": "record_key",
     "primary.key.fields": "${pk}",
     "delete.enabled": "true",
     "auto.create": "true",
     "auto.evolve": "true",
 
-    "//BL-039": "connection.restart.on.errors defaults to FALSE, so MySQL closing an idle",
-    "//BL-039b": "pooled connection (wait_timeout) or a DB restart is treated as UNRECOVERABLE:",
-    "//BL-039c": "the task dies permanently while connector.state still reads RUNNING.",
-    "//BL-039d": "Added to the sink TEMPLATE on 2026-08-20 but not here -- and this",
-    "//BL-039e": "generator, not the template, is what register-all-sink-connectors.sh",
-    "//BL-039f": "registers. Six cloud sinks were found FAILED on 2026-08-27 as a result.",
+    "//restart": "connection.restart.on.errors defaults to FALSE, so MySQL closing an idle",
+    "//restart2": "pooled connection (wait_timeout) or a DB restart is treated as UNRECOVERABLE:",
+    "//restart3": "the task dies permanently while connector.state still reads RUNNING.",
+    "//restart4": "This generator, not the template, is what register-all-sink-connectors.sh",
+    "//restart5": "registers, so the flag is set HERE.",
     "connection.restart.on.errors": "true",
     "errors.retry.timeout": "-1",
     "errors.retry.delay.max.ms": "60000",
     "flush.max.retries": "10",
 
-    "//agroal": "F-007 REAL FIX, 2026-09-02, MOVED TO AGROAL 2026-09-17 (Debezium 3.6.2",
+    "//agroal": "Survive a MySQL restart and idle-connection closes, on Agroal (Debezium 3.6.2",
     "//agroal2": "dropped c3p0 for Agroal, DBZ-8899). The four hibernate.c3p0.* keys this",
     "//agroal3": "generator used to emit are inert under 3.6.2: Hibernate parses them,",
     "//agroal4": "matches them against no active provider, and silently drops them -- same",
@@ -161,20 +151,20 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     "//agroal11": "connection.pool.timeout is Debezium's own native property (not",
     "//agroal12": "provider-specific) and is kept, set directly to the value that used to",
     "//agroal13": "need the hibernate.c3p0.timeout passthrough. Same role as before: survive a",
-    "//agroal14": "MySQL restart, which wait_timeout does not. The 2026-09-02 kill-45-",
-    "//agroal15": "connections proof was run under c3p0/3.2.4 and has not been independently",
+    "//agroal14": "MySQL restart, which wait_timeout does not. The kill-45-connections",
+    "//agroal15": "proof was run under c3p0/3.2.4 and has not been independently",
     "//agroal16": "re-run under Agroal/3.6.2 on this exact scenario.",
     "hibernate.agroal.validateOnBorrow": "true",
     "hibernate.agroal.idleValidation_s": "300",
 
-    "//pool-cap": "F-013 REAL FIX, 2026-09-02. The lever is max_size, NOT min_size.",
+    "//pool-cap": "Pool cap. The lever is max_size, NOT min_size.",
     "//pool-cap2": "min=5 with an unbounded max held 120 conns for 25 sinks. min_size=1",
     "//pool-cap3": "ALONE made it worse -- 493 conns, ceiling hit, 5 sinks FAILED --",
     "//pool-cap4": "because c3p0 then grows by acquire_increment, whose default is 32.",
     "//pool-cap5": "min=1 + max=2 + acquire_increment=1 gave a hard bound: 48 conns for",
     "//pool-cap6": "25 sinks, all RUNNING. Do NOT set min_size=0: 4 sinks then die on boot",
     "//pool-cap7": "with 'Unable to determine Dialect without JDBC metadata'. acquire_increment",
-    "//pool-cap8": "is dropped 2026-09-17 (no Agroal equivalent -- Agroal has no configurable",
+    "//pool-cap8": "is dropped (no Agroal equivalent -- Agroal has no configurable",
     "//pool-cap9": "growth-batch-size knob); max_size=2 alone remains the hard bound under",
     "//pool-cap10": "Agroal, which opens connections up to max_size on demand with no separate",
     "//pool-cap11": "increment step.",
@@ -182,9 +172,9 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     "connection.pool.max_size": "2",
     "connection.pool.timeout": "1800",
 
-    "//BL-005": "NOT errors.tolerance=all. 'all' silently DROPS a failing record -- an",
-    "//BL-005b": "out-of-order FK row vanishes with no park, no DLQ, no trace, defeating",
-    "//BL-005c": "Set explicitly so the intent is visible.",
+    "//tolerance": "NOT errors.tolerance=all. 'all' silently DROPS a failing record -- an",
+    "//tolerance2": "out-of-order FK row vanishes with no park, no DLQ, no trace, defeating",
+    "//tolerance3": "Set explicitly so the intent is visible.",
     "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",

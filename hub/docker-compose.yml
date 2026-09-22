@@ -82,8 +82,8 @@ services:
       KAFKA_OPTS: >-
         -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
         -Dzookeeper.sasl.client=false
-      # MM-07: cp-kafka's preflight (cub zk-ready) sees the JAAS file in
-      # KAFKA_OPTS and then demands a SASL zookeeper — but his zookeeper is
+      # cp-kafka's preflight (cub zk-ready) sees the JAAS file in
+      # KAFKA_OPTS and then demands a SASL zookeeper — but the zookeeper is
       # plain, so the probe times out even though the session establishes.
       # This env tells the probe zookeeper SASL is off. Broker config unchanged.
       ZOOKEEPER_SASL_ENABLED: "FALSE"

@@ -11,9 +11,9 @@
 # spoke publishes only the rows it owns so it never re-publishes what it
 # received, but the hub's whole job is to relay everything every
 # spoke sent it onward to every other spoke -- per-table filtering would
-# silently drop the very rows this layer exists to move (see
-# hub/openelis/enable-hub-relay.sql's header for the incident that happens
-# when a hub publication IS row-filtered). Replication origins are the same
+# silently drop the very rows this layer exists to move (a row-filtered hub
+# publication holds every clinic's lab rows and forwards none of them).
+# Replication origins are the same
 # story the other way around: a spoke needs one so its own customizer jar can
 # tell a replayed write from a local one, but an origin on the hub
 # would make it start filtering its own relay -- so this task creates none

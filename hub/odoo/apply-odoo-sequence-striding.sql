@@ -1,10 +1,9 @@
--- ADDED 2026-09-04 (sync-core, D7 Odoo full-replication build).
+-- Odoo sequence striding on the hub.
 --
 -- WHY THIS EXISTS. OpenMRS avoids cross-node primary-key collisions with MySQL's
 -- auto_increment_increment=10 plus a per-node auto_increment_offset, so Rawach mints
 -- 4, 14, 24 ... and the cloud mints 10, 20, 30 .... clinlims does the same with
--- PostgreSQL sequences at increment_by=10 (verified 2026-09-04: sample_*_seq all
--- carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
+-- PostgreSQL sequences at increment_by=10 (sample_*_seq all carry incr=10). Odoo ships every sequence at increment_by=1 starting at 1, so two
 -- nodes both mint sale_order id=1 for different orders. Under an idempotent upsert
 -- keyed on the PK that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
@@ -47,8 +46,8 @@ DECLARE
   v_max     bigint;
   v_last    bigint;
   v_next    bigint;
-  -- Renamed onto the Odoo 16 table set 2026-09-17 (sync-core Task 4, matching
-  -- staging): the unit-of-measure and two invoicing tables changed names between
+  -- The Odoo 16 table set (matching staging): the unit-of-measure and two
+  -- invoicing tables changed names between
   -- Odoo versions; the other nine carry over unchanged.
   v_tables  text[] := ARRAY[
     'res_partner',
