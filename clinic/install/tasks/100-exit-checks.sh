@@ -38,8 +38,18 @@ else
   fail "Odoo login page did not answer 200 on :${odoo_port} within ${odoo_boot_s}s (ODOO_BOOT_TIMEOUT_S), last code ${odoo_last_code:-none} -- a 303 to /web/database/selector means config/odoo/odoo.conf is missing or its dbfilter matches more than one database: run scripts/seed-odoo-conf.sh. Otherwise: ${COMPOSE_CMD} logs odoo"
 fi
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
-mark="INSTALL-PROBE-$(date -u +%Y%m%dT%H%M%SZ)"
-printf "update res_partner set comment='%s' where id=(select min(id) from res_partner where active) returning id" "$mark" | ct exec -i "$PG" psql -U postgres -d odoo -At >/dev/null
+# probe-row:begin
+# The probe is a row this node OWNS: an insert takes the next id from the
+# strided sequence, so it lands on this node's residue and no other node can
+# write the same hub row. An update of the oldest row would touch a legacy
+# id every clinic shares, so each clinic's probe would overwrite the last
+# one's on the hub. The marker carries the slug so the hub can look for this
+# clinic's marker and no other's.
+mark="INSTALL-PROBE-${CLINIC_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
+probe_id="$(printf "insert into res_partner (name, active, comment, create_date, write_date) values ('Install probe %s', true, '%s', now(), now()) returning id" "${CLINIC_SLUG}" "$mark" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null | head -1)"
+case "$probe_id" in ''|*[!0-9]*) fail "could not insert the install probe into res_partner (got '${probe_id:-nothing}')" ;; esac
+[ $(( probe_id % 10 )) -eq "${RESIDUE}" ] && ok "install probe row ${probe_id} on this node's residue ${RESIDUE}" || fail "install probe row ${probe_id} is not on residue ${RESIDUE}: res_partner_id_seq is not strided for this node"
+# probe-row:end
 # Wrapped so a dead Odoo (HTTP 500, refused connection, auth failure, ...)
 # never dumps a 20-line xmlrpc.client.ProtocolError traceback into the log --
 # lib.sh's ERR trap already dumped the whole heredoc TWICE the first time
