@@ -100,6 +100,16 @@ if [ "${TWIN_GUARD_SKIP:-0}" = 1 ]; then
   warn "twin guard skipped (TWIN_GUARD_SKIP=1): not checking whether another node named ${LOCAL_CLUSTER_ALIAS} is already mirroring into the hub"
 else
   hb_topic="${LOCAL_CLUSTER_ALIAS}.heartbeats"
+  # own-mm2:begin
+  # On a rerun of this task the node's OWN MirrorMaker from the earlier run is
+  # still producing heartbeats, which would read as a twin. Stop it before the
+  # two reads; it is started again below with the freshly rendered properties.
+  if [ "$(ct inspect --format '{{.State.Running}}' mirrormaker-connect 2>/dev/null || true)" = true ]; then
+    info "this node's own MirrorMaker is running from an earlier run; stopping it so the twin check reads only other nodes"
+    ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium stop mirrormaker-connect >/dev/null )
+    sleep 5
+  fi
+  # own-mm2:end
   # the client properties live only inside the kafka container, for the two reads
   printf 'security.protocol=SASL_PLAINTEXT\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="%s" password="%s";\n' "${REMOTE_KAFKA_USERNAME}" "${REMOTE_KAFKA_PASSWORD}" \
     | ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.properties'
