@@ -236,8 +236,16 @@ has_placeholders(){
   done
   return 0
 }
-refuse_inherited_alias(){
-  case "$1" in source|ghated|rawach|cloud|remote) fail "LOCAL_CLUSTER_ALIAS '$1' is another node's identity (AL-022); a new node takes its own slug" ;; esac
+refuse_inherited_alias(){ # ALIAS [SLUG]
+  # The cluster alias is this node's own slug and nothing else: an env copied
+  # from another node carries that node's alias, and MirrorMaker would then
+  # publish under the wrong name. With the slug known, equality is the rule;
+  # without it, the names other nodes and the templates use are refused.
+  if [ -n "${2:-}" ]; then
+    [ "$1" = "$2" ] || fail "LOCAL_CLUSTER_ALIAS '$1' is not this node's slug '$2' -- an alias inherited from another node's env; a node takes its own slug"
+    return 0
+  fi
+  case "$1" in source|ghated|rawach|cloud|remote) fail "LOCAL_CLUSTER_ALIAS '$1' is another node's identity; a new node takes its own slug" ;; esac
 }
 # --- fleet registry -----------------------------------------------------------
 # sync/fleet/<slug>.env holds a clinic's non-secret identity (MRN prefix, site

@@ -95,7 +95,7 @@ for k in $REQUIRED; do eval "v=\${$k:-}"; [ -n "$v" ] || missing="$missing $k"; 
 printf '%s' "$MRN_PREFIX" | grep -Eq '^[A-Z]{2,4}$' || fail "MRN_PREFIX '$MRN_PREFIX' must be 2-4 capital letters"
 printf '%s' "$SITE_NUMBER" | grep -Eq '^[0-9]{1,5}$' || fail "SITE_NUMBER '$SITE_NUMBER' must be digits"
 derive_identity "$CLINIC_SLUG" "$RESIDUE"
-refuse_inherited_alias "$LOCAL_CLUSTER_ALIAS"
+refuse_inherited_alias "$LOCAL_CLUSTER_ALIAS" "$CLINIC_SLUG"
 PLATFORM="$(detect_platform)"; export PLATFORM
 export CLINIC_DIR REPO_DIR LEDGER
 

@@ -11,7 +11,7 @@ r="$(ledger_residue "${CLINIC_SLUG}")"
 c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
 [ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one (docs/sync-core/residues.txt)"
 ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
-refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}"
+refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
 
 # 2. fresh install only
 # fresh-only:begin

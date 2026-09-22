@@ -119,9 +119,14 @@ printf 'A=1\nB=<x>\nC=\nMAIL_USER=\n' > "$f"
 assert_eq "has_placeholders lists B and C, honours allowlist" "$(has_placeholders "$f" "MAIL_USER" | tr '\n' ' ')" "B C "
 
 # inherited alias
-( refuse_inherited_alias source ) >/dev/null 2>&1; assert_rc "alias source refused" $? 1
-( refuse_inherited_alias ghated ) >/dev/null 2>&1; assert_rc "alias ghated refused" $? 1
-( refuse_inherited_alias azure )  >/dev/null 2>&1; assert_rc "alias azure accepted" $? 0
+# the alias must be this node's own slug; a name from another node's env is inherited
+( refuse_inherited_alias source azure ) >/dev/null 2>&1; assert_rc "alias source on node azure refused" $? 1
+( refuse_inherited_alias ghated azure ) >/dev/null 2>&1; assert_rc "alias ghated on node azure refused" $? 1
+( refuse_inherited_alias ghated ghated ) >/dev/null 2>&1; assert_rc "alias ghated on node ghated accepted (a node may be ghated)" $? 0
+( refuse_inherited_alias azure azure )  >/dev/null 2>&1; assert_rc "alias azure on node azure accepted" $? 0
+( refuse_inherited_alias manpur azure ) >/dev/null 2>&1; assert_rc "any alias that is not the slug is refused" $? 1
+( refuse_inherited_alias source ) >/dev/null 2>&1; assert_rc "without a slug, a template name is still refused" $? 1
+( refuse_inherited_alias azure )  >/dev/null 2>&1; assert_rc "without a slug, an unlisted name passes" $? 0
 
 # secrets and ids
 s1="$(gen_secret)"; s2="$(gen_secret)"
