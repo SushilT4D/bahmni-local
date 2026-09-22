@@ -257,6 +257,35 @@ fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continu
 # ping passes against it and the restore then dies with ERROR 1045 (manpur's fresh VM,
 # 2026-09-18; the hub rebuild met the same temp server). That server runs --skip-networking,
 # so 127.0.0.1 is the discriminator. MYSQL_PWD keeps the password off the command line.
+# --- MySQL sizing -------------------------------------------------------------
+# The image's defaults (128 MB buffer pool, 100 MB redo log) starve a node with
+# gigabytes of memory: every read misses the cache and a restore checkpoints
+# constantly. One conf.d file, sized from the memory the database server can
+# see, mounted read-only -- never SET PERSIST (lost with the data volume) and
+# never more `command:` flags (compose replaces the whole list).
+node_mem_mb(){ # memory the database server can see, in MB; NODE_MEM_MB overrides
+  if [ -n "${NODE_MEM_MB:-}" ]; then printf '%s\n' "$NODE_MEM_MB"; return; fi
+  if [ "${PLATFORM:-$(detect_platform)}" = macos ]; then
+    # the containers run inside the podman machine, so its memory is the ceiling
+    local m; m="$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || true)"
+    case "$m" in ''|*[!0-9]*) m="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1048576 ))" ;; esac
+    printf '%s\n' "$m"
+  else
+    awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0
+  fi
+}
+mysql_pool_mb(){ # MEM_MB -> buffer pool MB: a quarter, 128 MB steps, 512..4096
+  local mem="${1:-0}" mb
+  case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
+  mb=$(( mem / 4 / 128 * 128 ))
+  [ "$mb" -gt 4096 ] && mb=4096
+  [ "$mb" -lt 512 ] && mb=512
+  printf '%s\n' "$mb"
+}
+mysql_tuning_cnf(){ # POOL_MB -> the conf.d file's text
+  printf '# rendered by the installer from the memory this node gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\n' "$1"
+}
+
 mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select 1"' 2>/dev/null)" = 1 ]; }
 # user_in_group_db GROUP : is $USER a member of GROUP in the group DATABASE? `id -nG`
 # with no argument lists the running PROCESS's groups, which never contain a group that

@@ -22,6 +22,15 @@ put BAHMNI_UI_DIR "${CLINIC_DIR}/extracted/htdocs/bahmni"          # filled by t
 put BAHMNI_CONFIG_DIR "${CLINIC_DIR}/extracted/bahmni_config"       # filled by task 045 from BAHMNI_CONFIG_IMAGE
 put LOKI_URL "http://localhost:3100/loki/api/v1/push"
 
+# MySQL sizing: one conf.d file the compose file mounts read-only (F-088's
+# restore ran hours on the image's 128 MB buffer pool). Rendered here, beside
+# the env, from the memory the database server can see; a dry run renders it
+# too, since it is regenerated on every run and holds no secret.
+mem_mb="$(node_mem_mb)"; pool_mb="$(mysql_pool_mb "$mem_mb")"
+mkdir -p "${CLINIC_DIR}/config/mysql"
+mysql_tuning_cnf "$pool_mb" > "${CLINIC_DIR}/config/mysql/sync-tuning.cnf"
+ok "mysql tuning: buffer pool ${pool_mb} MB (node memory ${mem_mb} MB), redo log 512 MB -> config/mysql/sync-tuning.cnf"
+
 # identity (derived by install.sh; never the example's values)
 for k in BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS MYSQL_AUTO_INCREMENT_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME; do
   eval "put $k \"\${$k}\""

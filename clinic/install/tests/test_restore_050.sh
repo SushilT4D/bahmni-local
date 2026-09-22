@@ -13,14 +13,14 @@ eq(){ [ "$2" = "$3" ] && ok_ "$1" || bad "$1: got '$2', want '$3'"; }
 T50="${HERE}/../tasks/050-databases.sh"
 blk="$(sed -n '/# restore-rules:begin/,/# restore-rules:end/p' "$T50")"
 [ -n "$blk" ] || { bad "050 has no restore-rules block"; exit 1; }
-call(){ env -i PATH="$PATH" bash -c "${blk}
+call(){ env -i PATH="$PATH" bash -c ". '${HERE}/../lib.sh'; ${blk}
 \"\$@\"" _ "$@" 2>&1; }
 
 # buffer pool for the restore: a quarter of what the database server can see, 128 MB steps, 128..4096
 eq "pool: 13924 MB host -> 3456" "$(call restore_pool_mb 13924)" 3456
 eq "pool: 64 GB host is capped at 4096" "$(call restore_pool_mb 65536)" 4096
-eq "pool: a 400 MB machine keeps the stock 128" "$(call restore_pool_mb 400)" 128
-eq "pool: junk input keeps the stock 128" "$(call restore_pool_mb '')" 128
+eq "pool: a 400 MB machine gets the 512 floor" "$(call restore_pool_mb 400)" 512
+eq "pool: junk input gets the 512 floor" "$(call restore_pool_mb '')" 512
 
 sql="$(call restore_tune_sql 3456)"
 printf '%s' "$sql" | grep -q 'innodb_buffer_pool_size=3623878656' && ok_ "tune: buffer pool in bytes" || bad "tune: no buffer pool bytes: $sql"

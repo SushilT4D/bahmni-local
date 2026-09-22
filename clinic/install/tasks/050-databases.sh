@@ -19,6 +19,11 @@ for i in $(seq 1 60); do
 done
 [ "$hm" = 1 ] && [ "$hp" = 1 ] || fail "databases not answering after 5 min: mysql=$hm postgres=$hp (mysql=0 means no authenticated answer over TCP yet: docker logs ${MY} | tail)"
 ok "bahmni-mysql and bahmni-postgres answer"
+# the rendered conf.d file must be in force in the RUNNING server, not just on disk
+want_mb="$(sed -nE 's/^innodb_buffer_pool_size *= *([0-9]+)M$/\1/p' "${CLINIC_DIR}/config/mysql/sync-tuning.cnf" 2>/dev/null || true)"
+got_b="$(ct exec "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select @@innodb_buffer_pool_size"' 2>/dev/null || echo 0)"
+[ -n "$want_mb" ] && [ "$(( ${got_b:-0} / 1048576 ))" -ge "$want_mb" ] && ok "mysql innodb_buffer_pool_size ${want_mb} MB in force (read back from the server)" \
+  || fail "mysql buffer pool is $(( ${got_b:-0} / 1048576 )) MB, config/mysql/sync-tuning.cnf says ${want_mb:-?} MB: the conf.d mount is not in force (compose up -d --force-recreate bahmni-mysql)"
 # the flags must be in Config.Cmd, not only in the compose file (F-007)
 ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offset=${RESIDUE}" && ok "mysql runs with --auto-increment-offset=${RESIDUE}" || fail "mysql Config.Cmd lacks --auto-increment-offset=${RESIDUE}"
 
@@ -33,14 +38,7 @@ psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 # cannot be "the person table exists": that is also true of a restore that was
 # interrupted at a later table, and a rerun would carry on with half a
 # database. Pure functions, tested in tests/test_restore_050.sh.
-restore_pool_mb(){ # MEM_MB the database server can see -> buffer pool MB for the restore
-  local mem="${1:-0}" mb
-  case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
-  mb=$(( mem / 4 / 128 * 128 ))
-  [ "$mb" -gt 4096 ] && mb=4096
-  [ "$mb" -lt 128 ] && mb=128
-  printf '%s\n' "$mb"
-}
+restore_pool_mb(){ mysql_pool_mb "$1"; }   # the node's standing size (lib.sh); the restore adds the redo log and relaxed flush
 restore_tune_sql(){ # POOL_MB -- SET GLOBAL only: gone at the next restart, never written to the data directory
   printf 'SET GLOBAL innodb_redo_log_capacity=2147483648; SET GLOBAL innodb_buffer_pool_size=%s; SET GLOBAL innodb_flush_log_at_trx_commit=2; SET GLOBAL sync_binlog=0;\n' "$(( $1 * 1048576 ))"
 }

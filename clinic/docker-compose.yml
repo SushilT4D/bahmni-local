@@ -229,6 +229,9 @@ services:
     volumes:
       - ${CONTAINER_DATA_PATH}/data/mysql:/var/lib/mysql
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums"
+      # InnoDB sizing rendered by the installer (task 020); read through my.cnf's
+      # !includedir. A single-file bind mount: edit in place, then recreate.
+      - "${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro"
 
     logging: *log-config
 

@@ -177,3 +177,4 @@ clinic/.openmrs-restore.done
 # node preflight fails on any untracked path, so each must be listed here.
 clinic/config/odoo/
 clinic/files/
+clinic/config/mysql/
