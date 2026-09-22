@@ -13,6 +13,10 @@ remote.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 # Enable replication from local to remote
 ${LOCAL_CLUSTER_ALIAS}->remote.enabled = true
 ${LOCAL_CLUSTER_ALIAS}->remote.topics = ${KAFKA_TOPIC_PATTERNS}
+# A topic that appears after MirrorMaker started is assigned only on this
+# refresh; a fresh node's first events would otherwise wait for the default
+# ten minutes.
+refresh.topics.interval.seconds = 60
 
 # Topics to replicate (regex pattern)
 # Generated from tables.conf - use specific topics for better control

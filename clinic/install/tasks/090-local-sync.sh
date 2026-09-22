@@ -114,7 +114,33 @@ else
 fi
 bash scripts/setup-mirrormaker.sh >/dev/null
 grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
+# mm2-topics:begin
+# MirrorMaker assigns a topic that appears after it started only on its next
+# topic refresh, so a fresh node's first event (the install probe, minutes
+# from now) would sit unmirrored until then. Create the node's up topics
+# first, from the same pattern MirrorMaker is given, so they are assigned at
+# start; the source connectors then write into existing topics.
+mm2_up_topics(){ # MM2_PROPERTIES ALIAS -> one plain topic name per line
+  awk -v k="$2->remote.topics" -F' *= *' '$1==k{print $2}' "$1" \
+    | tr -d '()' | tr '|' '\n' | sed 's/\\\././g' | grep -v '^$'
+}
+# mm2-topics:end
+up_topics="$(mm2_up_topics config/mirrormaker/mm2.properties "${LOCAL_CLUSTER_ALIAS}")"
+[ -n "$up_topics" ] || fail "mm2.properties carries no ${LOCAL_CLUSTER_ALIAS}->remote.topics pattern"
+printf '%s\n' "$up_topics" | while read -r t; do
+  ct exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --partitions 1 --replication-factor 1 --topic "$t" >/dev/null 2>&1 \
+    || fail "could not create topic ${t} on the local broker"
+done
+ok "up topics exist before MirrorMaker starts ($(printf '%s\n' "$up_topics" | grep -c .))"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d mirrormaker-connect >/dev/null )
 sleep 120
 exp="$(ct logs mirrormaker-connect 2>&1 | grep -c Expiring || true)"
 [ "${exp:-0}" = 0 ] && ok "mirrormaker: 0 expiring records after two minutes" || fail "mirrormaker is expiring records (${exp}) -- the hub is not reachable at ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}"
+# MirrorMaker must have taken the node's own Odoo topic, not only heartbeats
+odoo_topic="$(printf '%s\n' "$up_topics" | grep '\.odoo\.all$' | head -1)"
+assigned=0
+for i in $(seq 1 12); do
+  ct logs mirrormaker-connect 2>&1 | grep -E "replicating [0-9]+ topic-partitions ${LOCAL_CLUSTER_ALIAS}->remote:.*${odoo_topic}-0" >/dev/null 2>&1 && { assigned=1; break; }
+  sleep 10
+done
+[ "$assigned" = 1 ] && ok "mirrormaker replicates ${odoo_topic} (assigned at start)" || fail "mirrormaker has not reported ${odoo_topic} assigned within 2 more minutes: ${COMPOSE_CMD} logs mirrormaker-connect | grep 'topic-partitions'"
