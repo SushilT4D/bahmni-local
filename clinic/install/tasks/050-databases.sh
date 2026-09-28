@@ -32,17 +32,29 @@ ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offse
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 
-if [ "${PHASE:-install}" = seed ]; then
-  # the baseline goes: the applications first (so nothing holds a connection
-  # or writes mid-drop), then the three databases and the restore marker
+# drop-dbs:begin
+# drop_all_dbs WHY : the applications first (so nothing holds a connection or
+# writes mid-drop), then the three databases and the restore marker. The
+# MySQL drop is kept out of the binlog (a capture reading it would record a
+# schema that no longer exists), and every drop is read back: a database left
+# behind would be skipped by the restore below as "already there".
+drop_all_dbs(){
+  local db
   ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} ${PROFILES} stop openmrs odoo odoo-connect openelis proxy >/dev/null 2>&1 ) || true
-  printf 'drop database if exists openmrs' | mysql_root
+  printf 'SET sql_log_bin=0; DROP DATABASE IF EXISTS openmrs;\n' | mysql_root
+  [ "$(printf 'select count(*) from information_schema.schemata where schema_name="openmrs"' | mysql_root)" = 0 ] \
+    || fail "database openmrs is still there after the drop: ${CT} logs ${MY}"
   for db in odoo openelis; do
-    printf "select pg_terminate_backend(pid) from pg_stat_activity where datname='%s' and pid<>pg_backend_pid(); drop database if exists %s;\n" "$db" "$db" | ct exec -i "$PG" psql -U postgres -q >/dev/null
+    printf "select pg_terminate_backend(pid) from pg_stat_activity where datname='%s' and pid<>pg_backend_pid();\n" "$db" | ct exec -i "$PG" psql -U postgres -q >/dev/null
+    printf 'DROP DATABASE IF EXISTS %s;\n' "$db" | ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q \
+      || fail "could not drop database ${db} (a replication slot or a live connection holds it): ${CT} exec ${PG} psql -U postgres -c 'select slot_name, database from pg_replication_slots'"
+    [ "$(printf "select count(*) from pg_database where datname='%s'" "$db" | ct exec -i "$PG" psql -U postgres -At)" = 0 ] \
+      || fail "database ${db} is still there after the drop"
   done
   rm -f "${CLINIC_DIR}/.openmrs-restore.done"
-  ok "baseline databases dropped; restoring the seed"
-fi
+  ok "databases dropped ($1)"
+}
+# drop-dbs:end
 
 # restore-rules:begin
 # dump_dir : the folder this sitting restores from
@@ -69,6 +81,16 @@ restore_state(){ # PERSON_EXISTS(0|1) DONE_MARKER(0|1) DB_TABLES DUMP_TABLES -> 
 }
 # restore-rules:end
 D="$(dump_dir)"
+. "${INSTALL_DIR}/state.sh"
+if [ "${PHASE:-install}" = seed ]; then
+  drop_all_dbs "the baseline goes; restoring the seed"
+else
+  # A different baseline (a --baseline folder given on a rerun, or new pins)
+  # replaces the one already loaded; the same one is left alone.
+  bsha="$(cat "$D/openmrs.sql.gz" "$D/odoo.sql.gz" "$D/openelis.sql.gz" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"
+  old="$(stamp_get BASELINE_SHA)"
+  if [ -n "$old" ] && [ "$old" != "$bsha" ]; then drop_all_dbs "a different baseline replaces the loaded one"; fi
+fi
 
 # --- MySQL: openmrs
 DONE="${CLINIC_DIR}/.openmrs-restore.done"
@@ -85,7 +107,7 @@ case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
   skip) skip "openmrs schema already restored" ;;
   adopt) date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"; skip "openmrs schema already restored (${db_tables} of ${dump_tables} tables; marker written)" ;;
   interrupted)
-    fail "openmrs holds ${db_tables} of the dump's ${dump_tables} tables and has no completion marker: an earlier restore was interrupted. The installer does not drop a database. If this node holds nothing you need, drop it yourself and resume: ${CT} exec -i ${MY} sh -c 'mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"drop database openmrs\"'  then --from 050" ;;
+    fail "openmrs holds ${db_tables} of the dump's ${dump_tables} tables and has no completion marker: an earlier restore was interrupted. A half-restored database is not dropped automatically. If this node holds nothing you need, drop it yourself and resume: ${CT} exec -i ${MY} sh -c 'mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"drop database openmrs\"'  then --from 050" ;;
   restore)
     mem_mb="$(ct exec "$MY" awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
     pool_mb="$(restore_pool_mb "$mem_mb")"
@@ -214,7 +236,7 @@ got_clinlims="$(printf "select count(*) from pg_publication_tables where pubname
 [ "${got_clinlims:-0}" = "${want_clinlims}" ] && ok "publication dbz_clinlims_owned: ${got_clinlims} tables" || fail "publication dbz_clinlims_owned: ${got_clinlims:-0} tables, want ${want_clinlims}"
 fi
 if [ "${PHASE:-install}" = install ]; then
-  . "${INSTALL_DIR}/state.sh"
+  stamp_put BASELINE_SHA "$bsha"
   hp="$(printf 'select coalesce(max(person_id),0) from openmrs.person' | mysql_root)"
   hd="$(printf 'select coalesce(max(id),0) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
   he="$(printf 'select coalesce(max(id),0) from clinlims.sample' | ct exec -i "$PG" psql -U postgres -d openelis -At 2>/dev/null || printf 0)"

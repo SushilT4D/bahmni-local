@@ -22,7 +22,12 @@ lan_get(){ # HOST PATH -> body, fetched by name with the name pinned to this mac
 lan_code(){ curl -sk -o /dev/null -w '%{http_code}' --max-time 30 --resolve "$1:443:127.0.0.1" "https://$1$2" 2>/dev/null || true; }
 lan_get "$N" /openmrs/ws/rest/v1/session | grep -q '"authenticated"' && ok "https://${N}/openmrs answers as OpenMRS" \
   || fail "https://${N}/openmrs does not answer as OpenMRS: ${COMPOSE_CMD} logs proxy openmrs"
-if lan_get "$N" /openelis/ | grep -qi 'openelis'; then ok "https://${N}/openelis answers as OpenELIS"
+# Tomcat's own error page names the path it could not serve ("/openelis/"),
+# so the word alone proves nothing: the page OpenELIS lands on must answer 200
+# and must not be a Tomcat error page.
+elis_out="$(curl -sk -L --max-time 30 --resolve "$N:443:127.0.0.1" -w '\n%{http_code}' "https://$N/openelis/" 2>/dev/null || true)"
+elis_code="${elis_out##*$'\n'}"; elis_body="${elis_out%$'\n'*}"
+if [ "$elis_code" = 200 ] && printf '%s' "$elis_body" | grep -qi 'openelis' && ! printf '%s' "$elis_body" | grep -q 'HTTP Status'; then ok "https://${N}/openelis answers as OpenELIS"
 elif [ "${PHASE:-install}" = install ]; then
   fail "https://${N}/openelis does not answer as OpenELIS on the baseline database. If the baseline OpenELIS dump is too old for this OpenELIS, give install.sh a --baseline <dir> holding openmrs.sql.gz, odoo.sql.gz and openelis.sql.gz and re-run --from 048. Logs: ${COMPOSE_CMD} logs openelis"
 else
