@@ -50,11 +50,8 @@ services:
       retries: 5
       start_period: 60s
     ports:
-      - '${BAHMNI_PROXY_HTTP_PORT:?}:80'
-      - '${BAHMNI_PROXY_HTTPS_PORT:?}:443'
-      # Odoo at root on its own TLS port. Odoo emits absolute URLs and cannot be
-      # served under a sub-path, so it needs a port (or host) of its own.
-      - '${BAHMNI_ODOO_HTTPS_PORT:-9444}:444'
+      - '${BAHMNI_PROXY_HTTP_PORT:-80}:80'
+      - '${BAHMNI_PROXY_HTTPS_PORT:-443}:443'
     logging: *log-config
     restart: ${RESTART_POLICY}
     environment:

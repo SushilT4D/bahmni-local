@@ -51,19 +51,17 @@ apply_prefix(){ # DIR : the node's registration prefix, if one was given
   chmod 644 "$t"; mv "$t" "$app"
 }
 
-apply_landing(){ # DIR : point the landing page's Odoo tile at THIS node's own
-  # TLS port (a clinic serves Odoo at root on ${BAHMNI_ODOO_HTTPS_PORT:-9444},
-  # not at IPLIT's erp-<host> DNS convention, which no clinic's DNS has -- the
-  # tile would open a name that does not exist); and disable any
-  # landing tile for a service this clinic does not run (default: metabase,
-  # crater -- clinics have neither; LANDING_DISABLE overrides the list).
+apply_landing(){ # DIR : point the landing page's Odoo tile at odoo.<LAN_NAME>
+  # (Odoo lives at the root of its own name on this clinic), and disable any
+  # tile for a service this clinic does not run (default: metabase, crater --
+  # clinics have neither; LANDING_DISABLE overrides the list).
   local wl="$1/bahmni_config/openmrs/apps/home/whiteLabel.json" t disable="${LANDING_DISABLE:-metabase crater}"
   [ -f "$wl" ] || return 0
   t="$(mktemp "${wl}.XXXXXX")"
-  jq --arg port "${BAHMNI_ODOO_HTTPS_PORT:-}" --arg disable "$disable" '
+  jq --arg lan "${LAN_NAME:-}" --arg disable "$disable" '
     ($disable | split(" ") | map(select(length > 0))) as $dis
     | .landingPage = ((.landingPage // []) | map(
-        (if $port != "" and .name == "odoo" then (.linkPort = ($port | tonumber)) | del(.linkPrefix) else . end)
+        (if $lan != "" and .name == "odoo" then (.linkHost = ("odoo." + $lan)) | del(.linkPrefix, .linkPort) else . end)
         | (if (.name as $n | $dis | index($n)) then .enabled = false else . end)
       ))
   ' "$wl" > "$t" || { rm -f "$t"; die "jq could not edit ${wl}"; }
