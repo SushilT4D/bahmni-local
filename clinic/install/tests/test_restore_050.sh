@@ -70,4 +70,7 @@ printf '%s' "$drop" | grep -q 'sql_log_bin=0' && ok_ "the MySQL drop is kept out
 printf '%s' "$drop" | grep -q 'ON_ERROR_STOP=1' && ok_ "a failed Postgres drop stops the task" || bad "a failed Postgres drop passes silently"
 printf '%s' "$drop" | grep -q 'still there after the drop' && ok_ "each drop is read back" || bad "the drop is not read back"
 grep -q 'BASELINE_SHA' "$T50" && ok_ "a changed baseline is dropped and restored" || bad "a changed baseline is never loaded"
+# a module changeset id longer than 63 characters cannot be recorded in a
+# varchar(63) changelog: the module then fails to start on every boot
+grep -q 'MODIFY ID VARCHAR(255)' "$T50" && ok_ "050 widens liquibasechangelog.ID so long changeset ids can be recorded" || bad "050 leaves liquibasechangelog.ID at the dump's width"
 exit "$fails"

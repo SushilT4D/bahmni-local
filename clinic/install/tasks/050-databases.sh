@@ -150,6 +150,13 @@ case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
 esac
 persons="$(printf 'select count(*) from openmrs.person' | mysql_root)"; obs="$(printf 'select count(*) from openmrs.obs' | mysql_root)"
 [ "${persons:-0}" -gt 0 ] && ok "openmrs restored: person=${persons} obs=${obs}" || fail "openmrs.person is empty after restore"
+# The dumps carry liquibasechangelog.ID as varchar(63). A module changeset
+# whose id is longer cannot be recorded -- not even as MARK_RAN -- so that
+# module (and every module needing it) fails to start on every boot. 255 is
+# Liquibase's own width; the table is never captured by sync.
+printf 'SET sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog MODIFY ID VARCHAR(255) NOT NULL;\n' | mysql_root
+[ "$(printf 'select character_maximum_length from information_schema.columns where table_schema="openmrs" and table_name="liquibasechangelog" and column_name="ID"' | mysql_root)" = 255 ] \
+  && ok "openmrs liquibasechangelog.ID is varchar(255)" || fail "could not widen openmrs.liquibasechangelog.ID"
 if [ "${PHASE:-install}" = seed ]; then
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
