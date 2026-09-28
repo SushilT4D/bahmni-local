@@ -109,7 +109,7 @@ EOF"
   # The machine has no swap by default: when the stack's peak (a restore, a
   # first boot) outgrows the machine, the kernel kills a database instead of
   # slowing down. A 4 GiB swapfile, persisted in fstab.
-  run podman machine ssh "sudo sh -c '[ -f /var/swapfile ] || { fallocate -l 4G /var/swapfile && chmod 600 /var/swapfile && mkswap /var/swapfile >/dev/null; }; swapon --show=NAME --noheadings | grep -qx /var/swapfile || swapon /var/swapfile; grep -q /var/swapfile /etc/fstab || echo \"/var/swapfile none swap defaults 0 0\" >> /etc/fstab'"
+  run podman machine ssh "sudo sh -c '[ -f /var/swapfile ] || { fallocate -l 4G /var/swapfile && chmod 600 /var/swapfile && mkswap /var/swapfile >/dev/null; }; swapon --show=NAME --noheadings | grep -qx /var/swapfile || swapon /var/swapfile; grep -qs /var/swapfile /etc/fstab || echo \"/var/swapfile none swap defaults 0 0\" >> /etc/fstab'"
   if [ "${DRY}" != 1 ]; then
     sw="$(podman machine ssh "swapon --show=NAME --noheadings" 2>/dev/null | tr -d '\r' | grep -x /var/swapfile || true)"
     [ -n "$sw" ] && ok "podman machine has 4 GiB of swap (/var/swapfile)" || fail "podman machine has no swap: podman machine ssh swapon --show"
