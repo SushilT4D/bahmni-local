@@ -187,7 +187,7 @@ services:
       # maintenance.html and unauthorized.html (the image's COPY ./htdocs/ picks it up on
       # the next build); mounted here so the fix applies without rebuilding the image.
       - './proxy/htdocs/internalError.html:/usr/share/nginx/html/internalError.html:ro'
-      # getAppLink's linkPort branch (without it the Odoo tile opens erp-<host>,
+      # getAppLink's linkHost branch (without it the Odoo tile opens erp-<host>,
       # a name no clinic's DNS has) -- mounted so an edit
       # applies without rebuilding the proxy image, same as internalError.html.
       - './proxy/htdocs/index.html:/usr/share/nginx/html/index.html:ro'

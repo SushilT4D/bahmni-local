@@ -1,17 +1,42 @@
-# clinic/install — one installer for every clinic node
+# clinic/install — install a clinic machine, then seed it at go-live
 
-Takes a fresh macOS (rootless podman) or Linux (Docker) host to a syncing clinic
-node of this fleet from three things: this checkout on `feat/bahmni-kraft`, the
-clinic's name, and a folder with three database dumps plus their passwords.
+Two sittings, two people, on a fresh macOS (rootless podman) or Linux (Docker) host:
 
-    clinic/install/install.sh --clinics                                  # who is registered
-    clinic/install/install.sh --clinic <slug> --seed ~/seed --dry-run    # every refusal, no changes
-    clinic/install/install.sh --clinic <slug> --seed ~/seed [--cert-hostname <name>]
+    # the operator, before the machine ships (no hub data needed)
+    clinic/install/install.sh --clinics                                          # who is registered
+    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> --dry-run
+    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> [--cert-hostname <name>] [--baseline <dir>]
+
+    # clinic staff, on site, at go-live, with the folder the operator copied
+    clinic/install/seed.sh --seed <folder> [--discard-baseline-data] [--dry-run]
+
+`install.sh` builds the host, the images and the name service, and starts Bahmni on
+a disposable baseline (IPLIT's own database images, pinned in `sync/versions.env`;
+`--baseline <dir>` supplies `openmrs.sql.gz`, `odoo.sql.gz` and `openelis.sql.gz`
+instead). No sync runs and nothing is captured. It ends with the machine marked
+INSTALLED (`clinic/.install-state`).
+
+`seed.sh` refuses a seed folder with no manifest, a dump older than six days (the
+hub keeps a week of changes; `SEED_MAX_AGE_DAYS`), a damaged dump, a dump from the
+wrong OpenMRS or Odoo version or taken before the hub partitioned its address ids,
+a machine whose LAN name no longer points at it, a machine already seeded, and
+records entered before seeding (unless `--discard-baseline-data`). Then it replaces
+the three databases with the hub's, strides them, sets the site identity, checks the
+hub credentials, starts the feeds and the sync layer, and proves the node. It ends
+SEEDED; the operator then joins the clinic to the hub. A seed that stops part-way
+is run again as is: it redoes the restore from the start.
+
+Staff open `https://bahmni.clinic/` (Bahmni, `/openmrs`, `/openelis`) and
+`https://odoo.bahmni.clinic/` (Odoo). The certificate is self-signed: each device
+accepts the browser warning once per name. dnsmasq on this machine answers for both
+names with its current address; the clinic router must hand out this machine as the
+ONLY DNS server and reserve its address. To test from another computer without the
+router, point both names at the machine in that computer's hosts file.
 
 `--clinic` composes the twelve answers itself: identity from `sync/fleet/<slug>.env`
 (MRN prefix, site number, phone), the residue from `sync/clinics.txt` (the only
-place it lives), the hub endpoint from `sync/hub.env`, and the four passwords from
-`<seed>/secrets.env` (written by the operator's `install-clinic.sh seed`). Whatever
+place it lives), the hub endpoint from `sync/hub.env`, and the four hub credentials
+from `--secrets` (the operator's hub secrets file). Whatever
 is still missing is asked on the terminal — the certificate hostname always, unless
 `--cert-hostname` is given — and the result is kept in `~/clinic-<slug>.env` (mode
 600) so a resume needs nothing typed again. With no terminal and a value missing
@@ -35,7 +60,7 @@ tool: an existing `clinic/.env` is a refusal.
 
 It refuses to start when: the slug is not registered, or has no row in
 `sync/clinics.txt`, or another row holds its residue (the operator allocates,
-commits, pushes first); a seed file is missing or not gzip; `clinic/.env` exists;
+commits, pushes first); `clinic/.env` exists;
 the alias would be another node's; disk < 60 GB, RAM < 8 GB, or a stack port is
 taken.
 
