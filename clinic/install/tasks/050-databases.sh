@@ -79,6 +79,15 @@ restore_state(){ # PERSON_EXISTS(0|1) DONE_MARKER(0|1) DB_TABLES DUMP_TABLES -> 
   elif [ "${4:-0}" -gt 0 ] && [ "${3:-0}" -ge "$4" ]; then echo adopt
   else echo interrupted; fi
 }
+# definer_sql : stdin is a dump; prints a CREATE USER + GRANT for every
+# DEFINER account it names. A trigger or view whose definer does not exist
+# fails the first statement that fires it (ERROR 1449), and a dump taken
+# elsewhere names that server's accounts, not this one's. The accounts are
+# locked: nobody logs in as them, they only own the objects.
+definer_sql(){
+  { grep -oE 'DEFINER=`[^`]+`@`[^`]+`' || true; } | sort -u \
+    | sed -E "s/DEFINER=\`([^\`]+)\`@\`([^\`]+)\`/CREATE USER IF NOT EXISTS '\1'@'\2' ACCOUNT LOCK; GRANT ALL ON openmrs.* TO '\1'@'\2';/"
+}
 # restore-rules:end
 D="$(dump_dir)"
 . "${INSTALL_DIR}/state.sh"
@@ -103,6 +112,11 @@ if [ "$has_person" = 1 ] && [ "$has_done" = 0 ]; then
   db_tables="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_type="BASE TABLE"' | mysql_root)"
   dump_tables="$(gunzip -c "${D}/openmrs.sql.gz" | grep -c '^CREATE TABLE ' || true)"
 fi
+if [ "${PHASE:-install}" = install ] && [ "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" = interrupted ]; then
+  # the baseline holds nothing anyone entered: start it again
+  drop_all_dbs "an interrupted baseline restore is redone"
+  has_person=0; has_done=0
+fi
 case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
   skip) skip "openmrs schema already restored" ;;
   adopt) date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"; skip "openmrs schema already restored (${db_tables} of ${dump_tables} tables; marker written)" ;;
@@ -117,6 +131,12 @@ case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
     trap revert EXIT
     restore_tune_sql "$pool_mb" | mysql_root >/dev/null && info "restore settings: buffer pool ${pool_mb} MB (server sees ${mem_mb} MB), redo log 2 GB, relaxed flush -- SET GLOBAL only, put back when the restore ends" \
       || info "could not raise the restore settings (older MySQL?); restoring on the server's own"
+    n_def="$(gunzip -c "${D}/openmrs.sql.gz" | definer_sql | tee "${CLINIC_DIR}/.openmrs-definers.sql" | grep -c 'CREATE USER' || true)"
+    if [ "${n_def:-0}" -gt 0 ]; then
+      { printf 'SET sql_log_bin=0;\n'; cat "${CLINIC_DIR}/.openmrs-definers.sql"; } | mysql_root
+      ok "definer accounts the dump names: ${n_def} (locked; they own its triggers and views)"
+    fi
+    rm -f "${CLINIC_DIR}/.openmrs-definers.sql"
     info "restoring openmrs (this is the slow one: 10 min on an SSD laptop, an hour or more on a small cloud disk)"
     ( while sleep 300; do
         mb="$(printf 'select round(sum(data_length+index_length)/1048576) from information_schema.tables where table_schema="openmrs"' | mysql_root 2>/dev/null || true)"

@@ -51,6 +51,18 @@ dd(){ env -i PATH="$PATH" PHASE="$1" CLINIC_DIR=/c REPO_DIR=/tmp SEED_DIR=/s bas
 dump_dir" 2>&1; }
 eq "install restores the baseline" "$(dd install)" /c/extracted/baseline
 eq "seed restores the seed folder" "$(dd seed)" /s
+# every DEFINER account the dump names exists before the load: a trigger or
+# view whose definer is missing fails the first insert that fires it
+ds="$(printf '%s\n' 'CREATE DEFINER=`openmrs-user`@`%` TRIGGER t1' '/*!50013 DEFINER=`openmrs-user`@`%` SQL SECURITY DEFINER */' '/*!50017 DEFINER=`app`@`localhost`*/' 'INSERT INTO x VALUES (1);' | call definer_sql)"
+printf '%s' "$ds" | grep -qF "CREATE USER IF NOT EXISTS 'openmrs-user'@'%' ACCOUNT LOCK;" && ok_ "definer account created, locked" || bad "no definer account: $ds"
+printf '%s' "$ds" | grep -qF "GRANT ALL ON openmrs.* TO 'openmrs-user'@'%';" && ok_ "definer account may run its triggers" || bad "no grant: $ds"
+printf '%s' "$ds" | grep -qF "'app'@'localhost'" && ok_ "every distinct definer is covered" || bad "second definer missing: $ds"
+[ "$(printf '%s\n' "$ds" | grep -c 'CREATE USER')" = 2 ] && ok_ "each definer once" || bad "duplicates: $ds"
+[ -z "$(printf 'INSERT INTO x VALUES (1);\n' | call definer_sql)" ] && ok_ "a dump with no definer yields nothing" || bad "no-definer dump produced output"
+grep -q 'definer_sql' "$T50" && grep -q 'gunzip -c "${D}/openmrs.sql.gz" | definer_sql' "$T50" && ok_ "050 creates the definers before the load" || bad "050 does not create definer accounts"
+# a baseline restore that stopped part-way is redone (the baseline holds nothing
+# anyone entered); a seed's is still left for the operator
+grep -q 'an interrupted baseline restore is redone' "$T50" && ok_ "interrupted baseline restore is redone" || bad "interrupted baseline restore still refuses"
 # the drop that precedes a seed (or a changed baseline) is checked, never replicated
 drop="$(sed -n '/# drop-dbs:begin/,/# drop-dbs:end/p' "$T50")"
 [ -n "$drop" ] && ok_ "050 has one drop routine" || bad "050 has no drop-dbs block"
