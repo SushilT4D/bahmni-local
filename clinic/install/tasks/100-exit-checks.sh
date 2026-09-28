@@ -5,9 +5,8 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "100 · exit checks"
-[ "${DRY}" = 1 ] && { info "would: run clinic/scripts/preflight.sh; write a marker into res_partner and read it back over XML-RPC"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: fetch the OpenMRS, OpenELIS and Odoo login pages through ${LAN_NAME:-bahmni.clinic}; at seed also run preflight.sh and a marker round-trip"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
-bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL above"
 # odoo-connect and the XML-RPC marker below can both look fine against a dead
 # Odoo (/var/lib/odoo owned by the wrong uid -- HTTP 500 on
 # every request, including XML-RPC, which curl-retries into looking like a
@@ -16,28 +15,34 @@ bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL a
 # this is retried, not a single probe. ODOO_BOOT_TIMEOUT_S (default 120,
 # probed every 10s) names the wait so its own message never drifts from what
 # actually ran.
-odoo_port="${BAHMNI_ODOO_HTTPS_PORT:-9444}"
-odoo_boot_s="${ODOO_BOOT_TIMEOUT_S:-120}"
-odoo_up=0; odoo_last_code=""
-for i in $(seq 1 $((odoo_boot_s / 10))); do
-  odoo_last_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "https://localhost:${odoo_port}/web/login" 2>/dev/null || true)"
-  [ "$odoo_last_code" = 200 ] && { odoo_up=1; break; }
-  sleep 10
-done
-if [ "$odoo_up" = 1 ]; then
-  ok "Odoo login page answers 200 on :${odoo_port}"
-  # a 200 page with a broken stylesheet looks the same to curl: read the CSS
-  # bundle the page names back through the proxy (a seed's bundle rows point
-  # at files this node does not have; task 050 drops them)
-  css_path="$(curl -sk --max-time 10 "https://localhost:${odoo_port}/web/login" 2>/dev/null | grep -oE 'href="[^"]*assets_frontend[^"]*\.css"' | head -1 | sed -E 's/href="([^"]*)"/\1/')"
-  css_code="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "https://localhost:${odoo_port}${css_path}" 2>/dev/null || true)"
-  [ -n "$css_path" ] && [ "$css_code" = 200 ] && ok "Odoo CSS bundle answers 200 (${css_path})" \
-    || fail "Odoo CSS bundle does not answer 200 (path '${css_path:-none found}', code ${css_code:-none}): the login page renders unstyled -- ${COMPOSE_CMD} logs odoo | grep -i asset"
+N="${LAN_NAME:-bahmni.clinic}"; O="odoo.${N}"
+lan_get(){ # HOST PATH -> body, fetched by name with the name pinned to this machine
+  curl -sk -L --max-time 30 --resolve "$1:443:127.0.0.1" "https://$1$2" 2>/dev/null || true
+}
+lan_code(){ curl -sk -o /dev/null -w '%{http_code}' --max-time 30 --resolve "$1:443:127.0.0.1" "https://$1$2" 2>/dev/null || true; }
+lan_get "$N" /openmrs/ws/rest/v1/session | grep -q '"authenticated"' && ok "https://${N}/openmrs answers as OpenMRS" \
+  || fail "https://${N}/openmrs does not answer as OpenMRS: ${COMPOSE_CMD} logs proxy openmrs"
+if lan_get "$N" /openelis/ | grep -qi 'openelis'; then ok "https://${N}/openelis answers as OpenELIS"
+elif [ "${PHASE:-install}" = install ]; then
+  fail "https://${N}/openelis does not answer as OpenELIS on the baseline database. If the baseline OpenELIS dump is too old for this OpenELIS, give install.sh a --baseline <dir> holding openmrs.sql.gz, odoo.sql.gz and openelis.sql.gz and re-run --from 048. Logs: ${COMPOSE_CMD} logs openelis"
 else
-  # a 303 to /web/database/selector (instead of 200) means config/odoo/odoo.conf
-  # is missing, or its dbfilter matches more than one database.
-  fail "Odoo login page did not answer 200 on :${odoo_port} within ${odoo_boot_s}s (ODOO_BOOT_TIMEOUT_S), last code ${odoo_last_code:-none} -- a 303 to /web/database/selector means config/odoo/odoo.conf is missing or its dbfilter matches more than one database: run scripts/seed-odoo-conf.sh. Otherwise: ${COMPOSE_CMD} logs odoo"
+  fail "https://${N}/openelis does not answer as OpenELIS: ${COMPOSE_CMD} logs openelis"
 fi
+odoo_boot_s="${ODOO_BOOT_TIMEOUT_S:-120}"; odoo_up=0; odoo_last_code=""
+for i in $(seq 1 $((odoo_boot_s / 10))); do
+  odoo_last_code="$(lan_code "$O" /web/login)"; [ "$odoo_last_code" = 200 ] && { odoo_up=1; break; }; sleep 10
+done
+[ "$odoo_up" = 1 ] || fail "https://${O}/web/login did not answer 200 within ${odoo_boot_s}s (ODOO_BOOT_TIMEOUT_S), last code ${odoo_last_code:-none} -- a 303 to /web/database/selector means config/odoo/odoo.conf is missing or its dbfilter matches more than one database: run scripts/seed-odoo-conf.sh. Otherwise: ${COMPOSE_CMD} logs odoo proxy"
+ok "https://${O}/web/login answers 200"
+# a 200 page with a broken stylesheet looks the same to curl: read back the
+# CSS bundle the page names (a seed's bundle rows point at files this node
+# does not have; task 050 drops them)
+css_path="$(lan_get "$O" /web/login | grep -oE 'href="[^"]*assets_frontend[^"]*\.css"' | head -1 | sed -E 's/href="([^"]*)"/\1/' || true)"
+css_code="$(lan_code "$O" "${css_path}")"
+[ -n "$css_path" ] && [ "$css_code" = 200 ] && ok "Odoo CSS bundle answers 200 (${css_path})" \
+  || fail "Odoo CSS bundle does not answer 200 (path '${css_path:-none found}', code ${css_code:-none}): the login page renders unstyled -- ${COMPOSE_CMD} logs odoo | grep -i asset"
+if [ "${PHASE:-install}" = install ]; then ok "baseline stack answers at ${N} and ${O}"; exit 0; fi
+bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL above"
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 # probe-row:begin
 # The probe is a row this node OWNS: an insert takes the next id from the
