@@ -44,4 +44,10 @@ printf '%s' "$code" | grep -q 'restore_state ' && ok_ "050 decides through resto
 printf '%s' "$code" | grep -q 'restore_revert_sql' && printf '%s' "$code" | grep -q 'trap ' && ok_ "050 reverts the settings on any exit" || bad "050 has no revert trap"
 printf '%s' "$code" | grep -q 'still restoring' && ok_ "050 reports progress while it restores" || bad "050 restores in silence"
 printf '%s' "$code" | grep -qE 'DROP DATABASE' && bad "050 drops a database by itself" || ok_ "050 never drops a database itself"
+
+# which dumps each sitting restores: install the baseline, seed the seed folder
+dd(){ env -i PATH="$PATH" PHASE="$1" CLINIC_DIR=/c REPO_DIR=/tmp SEED_DIR=/s bash -c ". '${HERE}/../lib.sh'; ${blk}
+dump_dir" 2>&1; }
+eq "install restores the baseline" "$(dd install)" /c/extracted/baseline
+eq "seed restores the seed folder" "$(dd seed)" /s
 exit "$fails"

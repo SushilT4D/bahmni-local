@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # phase: both
-# Databases up, seeds restored, sync users created. Roles BEFORE restore so the
+# Databases up and restored: the baseline at install, the seed at seed (which
+# first drops the baseline). Sync users, roles and publications at seed only. Roles BEFORE restore so the
 # dumps' OWNER TO / GRANT lines resolve; sql_log_bin=0 so the restore is not
 # replayed to Kafka (the source connector starts later with snapshot no_data).
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
-begin_task "50 · databases + seed"
-[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; create roles; restore ${SEED_DIR}/{openmrs,odoo,openelis}.sql.gz; create debezium+sink MySQL users"; exit 0; }
+begin_task "50 · databases (${PHASE:-install}: $( [ "${PHASE:-install}" = seed ] && echo seed || echo baseline ))"
+[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; $( [ "${PHASE:-install}" = seed ] && echo "drop the baseline, restore ${SEED_DIR:-?}, create sync users, roles and publications" || echo "restore the baseline from ${CLINIC_DIR}/extracted/baseline and record its high-water marks" )"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
@@ -31,7 +32,21 @@ ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offse
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 
+if [ "${PHASE:-install}" = seed ]; then
+  # the baseline goes: the applications first (so nothing holds a connection
+  # or writes mid-drop), then the three databases and the restore marker
+  ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} ${PROFILES} stop openmrs odoo odoo-connect openelis proxy >/dev/null 2>&1 ) || true
+  printf 'drop database if exists openmrs' | mysql_root
+  for db in odoo openelis; do
+    printf "select pg_terminate_backend(pid) from pg_stat_activity where datname='%s' and pid<>pg_backend_pid(); drop database if exists %s;\n" "$db" "$db" | ct exec -i "$PG" psql -U postgres -q >/dev/null
+  done
+  rm -f "${CLINIC_DIR}/.openmrs-restore.done"
+  ok "baseline databases dropped; restoring the seed"
+fi
+
 # restore-rules:begin
+# dump_dir : the folder this sitting restores from
+dump_dir(){ if [ "${PHASE:-install}" = seed ]; then printf '%s\n' "${SEED_DIR}"; else printf '%s\n' "${CLINIC_DIR}/extracted/baseline"; fi; }
 # Stock MySQL (128 MB buffer pool, 100 MB redo log) checkpoints constantly
 # while loading a multi-gigabyte dump, and on a small cloud disk (about 500
 # IOPS) the restore then takes hours at near-total iowait -- so the load runs
@@ -53,6 +68,7 @@ restore_state(){ # PERSON_EXISTS(0|1) DONE_MARKER(0|1) DB_TABLES DUMP_TABLES -> 
   else echo interrupted; fi
 }
 # restore-rules:end
+D="$(dump_dir)"
 
 # --- MySQL: openmrs
 DONE="${CLINIC_DIR}/.openmrs-restore.done"
@@ -63,7 +79,7 @@ if [ "$has_person" = 1 ] && [ "$has_done" = 0 ]; then
   # a node restored before this marker existed, or an interrupted restore: count to tell them apart
   info "openmrs exists with no completion marker; counting the dump's tables to tell a finished restore from an interrupted one (a minute or two)"
   db_tables="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_type="BASE TABLE"' | mysql_root)"
-  dump_tables="$(gunzip -c "${SEED_DIR}/openmrs.sql.gz" | grep -c '^CREATE TABLE ' || true)"
+  dump_tables="$(gunzip -c "${D}/openmrs.sql.gz" | grep -c '^CREATE TABLE ' || true)"
 fi
 case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
   skip) skip "openmrs schema already restored" ;;
@@ -85,13 +101,14 @@ case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
         printf '  still restoring openmrs: %s MB loaded (%s)\n' "${mb:-?}" "$(date -u +%H:%M:%SZ)"
       done ) &
     hb=$!
-    ( printf 'SET sql_log_bin=0;\n'; gunzip -c "${SEED_DIR}/openmrs.sql.gz" ) | ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
+    ( printf 'SET sql_log_bin=0;\nCREATE DATABASE IF NOT EXISTS openmrs;\nUSE openmrs;\n'; gunzip -c "${D}/openmrs.sql.gz" ) | ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"'
     revert; trap - EXIT; hb=""
     date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"
     ;;
 esac
 persons="$(printf 'select count(*) from openmrs.person' | mysql_root)"; obs="$(printf 'select count(*) from openmrs.obs' | mysql_root)"
 [ "${persons:-0}" -gt 0 ] && ok "openmrs restored: person=${persons} obs=${obs}" || fail "openmrs.person is empty after restore"
+if [ "${PHASE:-install}" = seed ]; then
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
@@ -109,6 +126,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.person_name TO 'sink'@'%';
 FLUSH PRIVILEGES;
 SQL
 [ "$(printf "select count(*) from mysql.user where user in ('debezium','sink')" | mysql_root)" = 2 ] && ok "mysql users debezium, sink" || fail "mysql users not created"
+fi
 
 # --- PostgreSQL: roles, sink roles, databases, restores
 psql_pg <<SQL
@@ -129,7 +147,8 @@ SQL
 for db in odoo openelis; do
   if [ "$(printf "select count(*) from pg_database where datname='$db'" | ct exec -i "$PG" psql -U postgres -At)" = 1 ]; then skip "database $db exists"; else
     printf 'CREATE DATABASE %s OWNER odoo\n' "$db" | ct exec -i "$PG" psql -U postgres -q
-    gunzip -c "${SEED_DIR}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
+    [ "$db" = openelis ] && printf 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n' | ct exec -i "$PG" psql -U postgres -d openelis -q
+    gunzip -c "${D}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
   fi
 done
 # odoo-assets:begin
@@ -149,8 +168,10 @@ ok "odoo: dropped ${n:-0} asset-bundle attachment row(s) from the seed; Odoo reb
 # ALTER the role). The old `grep .env ||` guard skipped them when the password was
 # present, which stranded a node whose earlier run appended the password but failed
 # before creating the role (exactly what the create-before-DB bug above caused).
+if [ "${PHASE:-install}" = seed ]; then
 NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}"
 NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}"
+fi
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
 
@@ -165,6 +186,7 @@ partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U
 # NOT EXISTS first) -- adding it here too would just mean this ALTER strips it back out
 # on the next re-run of this task, only for the heartbeat script to re-add it. One owner
 # per piece of the publication.
+if [ "${PHASE:-install}" = seed ]; then
 sync_publication(){ # db  subsystems-prefix  pg-schema  pubname
   local db="$1" prefix="$2" schema="$3" pub="$4" tables t parts=""
   tables="$(subsystem_tables "${prefix}")"
@@ -190,3 +212,12 @@ got_odoo="$(printf "select count(*) from pg_publication_tables where pubname='db
 got_clinlims="$(printf "select count(*) from pg_publication_tables where pubname='dbz_clinlims_owned'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
 [ "${got_odoo:-0}" = "${want_odoo}" ] && ok "publication dbz_odoo_owned: ${got_odoo} tables" || fail "publication dbz_odoo_owned: ${got_odoo:-0} tables, want ${want_odoo}"
 [ "${got_clinlims:-0}" = "${want_clinlims}" ] && ok "publication dbz_clinlims_owned: ${got_clinlims} tables" || fail "publication dbz_clinlims_owned: ${got_clinlims:-0} tables, want ${want_clinlims}"
+fi
+if [ "${PHASE:-install}" = install ]; then
+  . "${INSTALL_DIR}/state.sh"
+  hp="$(printf 'select coalesce(max(person_id),0) from openmrs.person' | mysql_root)"
+  hd="$(printf 'select coalesce(max(id),0) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
+  he="$(printf 'select coalesce(max(id),0) from clinlims.sample' | ct exec -i "$PG" psql -U postgres -d openelis -At 2>/dev/null || printf 0)"
+  stamp_put HWM_OPENMRS_PERSON "${hp:-0}"; stamp_put HWM_ODOO_PARTNER "${hd:-0}"; stamp_put HWM_OPENELIS_SAMPLE "${he:-0}"
+  ok "baseline marks: openmrs person ${hp:-0}, odoo res_partner ${hd:-0}, openelis sample ${he:-0} (the seed counts rows above these)"
+fi
