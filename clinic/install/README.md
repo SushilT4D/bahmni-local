@@ -42,8 +42,7 @@ taken.
 It never touches the hub, the ledgers or GitHub. Task 110 prints the hub join
 for the operator (`skills/install-clinic.sh join <slug>` in the workspace).
 
-Not in this version: LAN hostname / dnsmasq (see `initialize/` on `main`),
-upgrades of an existing node, mTLS or per-site ACLs (unmet fleet-wide),
+Not in this version: upgrades of an existing node, mTLS or per-site ACLs (unmet fleet-wide),
 a per-node registration `defaultIdentifierPrefix` (task 070 prints the edit).
 
 Tests: `bash clinic/install/tests/run.sh` (no runtime needed). On Darwin this

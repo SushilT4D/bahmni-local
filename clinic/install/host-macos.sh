@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # macOS host layer: Homebrew, podman, the podman machine, DOCKER_HOST for
-# docker-compose, and a LaunchAgent that starts the machine at login. What
-# initialize/01,02,03,11 on main do, minus dnsmasq and the privileged
-# ports this stack does not need (8081/9443/9444). Rootless, as Ghated runs.
+# docker-compose, a LaunchAgent that starts the machine at login, dnsmasq for
+# the clinic LAN name, and ports 80/443 for the proxy. Shape from
+# initialize/01,02,03,08,11 on main. Rootless podman.
 
 # podman_machine_size HOST_MIB HOST_CPUS : sets MACHINE_MIB / MACHINE_CPUS for
 # a NEW machine (never called to resize an existing one -- see host_macos
@@ -100,4 +100,18 @@ EOF"
     run launchctl load "$plist"
     ok "LaunchAgent installed: ${plist}"
   else skip "LaunchAgent present"; fi
+  # The proxy publishes 80 and 443. Rootless podman runs containers as a user
+  # inside the podman machine, where Linux refuses ports below
+  # ip_unprivileged_port_start (1024 by default); lower it to 80 there, and
+  # persist it. A rootful machine is not the fix: its storage is separate,
+  # and this node's databases live on the rootless one's volumes.
+  run podman machine ssh "printf 'net.ipv4.ip_unprivileged_port_start=80\n' | sudo tee /etc/sysctl.d/90-clinic-low-ports.conf >/dev/null && sudo sysctl -q --system"
+  if [ "${DRY}" != 1 ]; then
+    lp="$(podman machine ssh sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null | tr -d '\r')"
+    [ "${lp:-1024}" -le 80 ] && ok "podman machine allows ports from ${lp}" || fail "podman machine still refuses ports below ${lp:-unknown}: podman machine ssh sysctl net.ipv4.ip_unprivileged_port_start"
+  fi
+  # the clinic LAN name (dns.sh)
+  . "${INSTALL_DIR}/dns.sh"
+  dns_install_macos "${LAN_NAME:-bahmni.clinic}"
+  dns_check "${LAN_NAME:-bahmni.clinic}"
 }
