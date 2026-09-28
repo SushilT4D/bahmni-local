@@ -84,9 +84,13 @@ dns_install_linux(){ # NAME
 dns_check(){ # NAME : both names answer with this machine's address
   local name="$1" ip got n
   [ "${DRY}" = 1 ] && { info "would: check ${name} and odoo.${name} resolve to this machine"; return 0; }
+  local budget="${DNS_WAIT_S:-30}" t
   ip="$(lan_ip)"
   for n in "$name" "odoo.${name}"; do
-    got="$(lan_resolve "$n" "$ip")"
-    [ -n "$got" ] && [ "$got" = "$ip" ] && ok "${n} -> ${ip} (dnsmasq)" || fail "${n} resolves to '${got:-nothing}', want ${ip}: sudo dnsmasq --test; check that nothing else holds port 53 on 127.0.0.1"
+    # dnsmasq is still starting when its service manager returns
+    t=0; got="$(lan_resolve "$n" "$ip")"
+    while [ "$got" != "$ip" ] && [ "$t" -lt "$budget" ]; do sleep 2; t=$((t + 2)); got="$(lan_resolve "$n" "$ip")"; done
+    [ -n "$got" ] && [ "$got" = "$ip" ] && ok "${n} -> ${ip} (dnsmasq)" \
+      || fail "${n} did not resolve to ${ip} within ${budget}s (DNS_WAIT_S), last answer '${got:-nothing}': dnsmasq --test -C \$(brew --prefix)/etc/dnsmasq.conf on macOS; check that nothing else holds port 53"
   done
 }

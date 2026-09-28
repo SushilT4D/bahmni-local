@@ -29,6 +29,11 @@ grep -q 'dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" macos' "${HERE}/../dns.s
 # the gate asks the address LAN devices ask, not loopback
 grep -q 'lan_resolve "$name" "$ip"' "${HERE}/../tasks/005-seed-gate.sh" && ok_ "seed gate asks the LAN address" || bad "seed gate asks loopback"
 case "$(lan_name_verdict 10.0.0.9 10.0.0.5 bahmni.clinic)" in *"--only 010"*) ok_ "a moved machine's refusal names the re-point command" ;; *) bad "moved-machine refusal names no fix" ;; esac
+# dnsmasq is still starting when its service manager returns: the check waits
+# on a named budget instead of reading one early empty answer as a failure
+D="$(sed -n '/^dns_check()/,/^}/p' "${HERE}/../dns.sh")"
+printf '%s' "$D" | grep -q 'DNS_WAIT_S' && ok_ "dns_check waits on a named budget" || bad "dns_check reads one answer and fails"
+printf '%s' "$D" | grep -q 'within' && ok_ "its FAIL names the budget" || bad "its FAIL does not name the budget"
 # the Linux package starts dnsmasq on install, and its stock wildcard bind
 # collides with systemd-resolved: our config must be in place first
 L="$(sed -n '/^dns_install_linux()/,/^}/p' "${HERE}/../dns.sh" | grep -v "would:")"
