@@ -12,7 +12,7 @@ eq(){ [ "$2" = "$3" ] && ok_ "$1" || bad "$1: got '$2', want '$3'"; }
 LIB="${HERE}/../lib.sh"; T20="${HERE}/../tasks/020-env.sh"; CL="${HERE}/../../docker-compose.yml"; OV="${HERE}/../../docker-compose.override.yml"
 call(){ env -i PATH="$PATH" bash -c ". '$LIB'; \"\$@\"" _ "$@" 2>&1; }
 
-eq "pool: 13924 MB -> 3456" "$(call mysql_pool_mb 13924)" 3456
+eq "pool: 13924 MB -> 2688 (a fifth)" "$(call mysql_pool_mb 13924)" 2688
 eq "pool: 65536 MB capped at 4096" "$(call mysql_pool_mb 65536)" 4096
 eq "pool: 2048 MB -> 512 (floor)" "$(call mysql_pool_mb 2048)" 512
 eq "pool: junk -> 512 (floor)" "$(call mysql_pool_mb '')" 512

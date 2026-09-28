@@ -106,6 +106,14 @@ EOF"
   # persist it. A rootful machine is not the fix: its storage is separate,
   # and this node's databases live on the rootless one's volumes.
   run podman machine ssh "printf 'net.ipv4.ip_unprivileged_port_start=80\n' | sudo tee /etc/sysctl.d/90-clinic-low-ports.conf >/dev/null && sudo sysctl -q --system"
+  # The machine has no swap by default: when the stack's peak (a restore, a
+  # first boot) outgrows the machine, the kernel kills a database instead of
+  # slowing down. A 4 GiB swapfile, persisted in fstab.
+  run podman machine ssh "sudo sh -c '[ -f /var/swapfile ] || { fallocate -l 4G /var/swapfile && chmod 600 /var/swapfile && mkswap /var/swapfile >/dev/null; }; swapon --show=NAME --noheadings | grep -qx /var/swapfile || swapon /var/swapfile; grep -q /var/swapfile /etc/fstab || echo \"/var/swapfile none swap defaults 0 0\" >> /etc/fstab'"
+  if [ "${DRY}" != 1 ]; then
+    sw="$(podman machine ssh "swapon --show=NAME --noheadings" 2>/dev/null | tr -d '\r' | grep -x /var/swapfile || true)"
+    [ -n "$sw" ] && ok "podman machine has 4 GiB of swap (/var/swapfile)" || fail "podman machine has no swap: podman machine ssh swapon --show"
+  fi
   if [ "${DRY}" != 1 ]; then
     lp="$(podman machine ssh sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null | tr -d '\r')"
     [ "${lp:-1024}" -le 80 ] && ok "podman machine allows ports from ${lp}" || fail "podman machine still refuses ports below ${lp:-unknown}: podman machine ssh sysctl net.ipv4.ip_unprivileged_port_start"

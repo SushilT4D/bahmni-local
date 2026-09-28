@@ -17,7 +17,7 @@ call(){ env -i PATH="$PATH" bash -c ". '${HERE}/../lib.sh'; ${blk}
 \"\$@\"" _ "$@" 2>&1; }
 
 # buffer pool for the restore: a quarter of what the database server can see, 128 MB steps, 128..4096
-eq "pool: 13924 MB host -> 3456" "$(call restore_pool_mb 13924)" 3456
+eq "pool: 13924 MB host -> 2688" "$(call restore_pool_mb 13924)" 2688
 eq "pool: 64 GB host is capped at 4096" "$(call restore_pool_mb 65536)" 4096
 eq "pool: a 400 MB machine gets the 512 floor" "$(call restore_pool_mb 400)" 512
 eq "pool: junk input gets the 512 floor" "$(call restore_pool_mb '')" 512

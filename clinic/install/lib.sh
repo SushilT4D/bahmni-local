@@ -281,10 +281,10 @@ node_mem_mb(){ # memory the database server can see, in MB; NODE_MEM_MB override
     awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0
   fi
 }
-mysql_pool_mb(){ # MEM_MB -> buffer pool MB: a quarter, 128 MB steps, 512..4096
+mysql_pool_mb(){ # MEM_MB -> buffer pool MB: a fifth, 128 MB steps, 512..4096 (the rest of the stack shares a 10 GiB VM)
   local mem="${1:-0}" mb
   case "$mem" in ''|*[!0-9]*) mem=0 ;; esac
-  mb=$(( mem / 4 / 128 * 128 ))
+  mb=$(( mem / 5 / 128 * 128 ))
   [ "$mb" -gt 4096 ] && mb=4096
   [ "$mb" -lt 512 ] && mb=512
   printf '%s\n' "$mb"

@@ -19,7 +19,13 @@ connect_s="${CONNECT_BOOT_TIMEOUT_S:-1800}"
 info "waiting up to $((connect_s/60)) min for Kafka Connect's REST port (it scans every plugin first; CONNECT_BOOT_TIMEOUT_S overrides)"
 up=0; for i in $(seq 1 $((connect_s/5))); do curl -sf --max-time 5 localhost:8083/connector-plugins >/dev/null 2>&1 && { up=1; break; }; sleep 5; done
 [ "$up" = 1 ] || fail "Kafka Connect's REST port did not answer within $((connect_s/60)) min: ${COMPOSE_CMD} logs kafka-connect"
-( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka-ui >/dev/null 2>&1 ) || warn "kafka-ui did not start (a convenience, not part of the sync path): ${COMPOSE_CMD} --profile debezium up -d kafka-ui"
+# kafka-ui is an admin convenience that costs ~300 MB the node may not have:
+# started only when asked for (CLINIC_KAFKA_UI=1), or by hand later.
+if [ "${CLINIC_KAFKA_UI:-0}" = 1 ]; then
+  ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka-ui >/dev/null 2>&1 ) || warn "kafka-ui did not start (a convenience, not part of the sync path): ${COMPOSE_CMD} --profile debezium up -d kafka-ui"
+else
+  info "kafka-ui not started (CLINIC_KAFKA_UI=1 starts it; or later: ${COMPOSE_CMD} --profile debezium up -d kafka-ui)"
+fi
 plugins="$(curl -s localhost:8083/connector-plugins | jq -r '.[].class' | grep -cE 'MySqlConnector|PostgresConnector|JdbcSinkConnector')"
 [ "$plugins" = 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink" || fail "connect plugins missing (${plugins}/3) -- are the jars mounted as files?"
 til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
