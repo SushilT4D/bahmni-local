@@ -16,6 +16,9 @@ podman_machine_size(){
   local host_mib="$1" host_cpus="$2" mem cpus
   mem=$(( host_mib * 55 / 100 )); [ "$mem" -le 12288 ] || mem=12288
   mem=$(( (mem / 1024) * 1024 ))
+  # A 16 GiB Mac mini is the clinic machine: 55% of it is below the stack's
+  # 10 GiB, so it gets the 10 GiB anyway (62%) and nothing else should run on it.
+  [ "$mem" -ge 10240 ] || [ "$host_mib" -lt 16384 ] || mem=10240
   cpus=$(( host_cpus - 2 )); [ "$cpus" -le 8 ] || cpus=8; [ "$cpus" -ge 2 ] || cpus=2
   MACHINE_MIB="$mem"; MACHINE_CPUS="$cpus"
 }
@@ -50,10 +53,7 @@ host_macos(){
     host_cpus="${HOST_CPUS:-$(sysctl -n hw.ncpu)}"
     podman_machine_size "$host_mib" "$host_cpus"
     if [ "$MACHINE_MIB" -lt 10240 ]; then
-      # the exact threshold, not a rounded guess: the smallest host RAM whose
-      # 55% still rounds (down, to a multiple of 1024) to >= 10240 MiB.
-      needed_mib=$(( (10240 * 100 + 54) / 55 ))
-      fail "this Mac has ${host_mib} MiB RAM; 55% of it rounds down to ${MACHINE_MIB} MiB, below the 10 GiB (10240 MiB) a clinic's podman machine needs. This host needs at least ${needed_mib} MiB (~$(( (needed_mib + 1023) / 1024 )) GiB) of RAM for the installer to size a machine here"
+      fail "this Mac has ${host_mib} MiB RAM; a clinic's podman machine needs 10 GiB (10240 MiB), which this installer gives a Mac of 16 GiB (16384 MiB) or more"
     fi
     info "creating the podman machine (${MACHINE_CPUS} CPU, ${MACHINE_MIB} MiB, 120 GiB, rootless; 55% of ${host_mib} MiB host RAM, capped at 12288)"
     run podman machine init --cpus "${MACHINE_CPUS}" --memory "${MACHINE_MIB}" --disk-size 120

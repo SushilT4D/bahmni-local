@@ -61,7 +61,7 @@ tool: an existing `clinic/.env` is a refusal.
 It refuses to start when: the slug is not registered, or has no row in
 `sync/clinics.txt`, or another row holds its residue (the operator allocates,
 commits, pushes first); `clinic/.env` exists;
-the alias would be another node's; disk < 60 GB, RAM < 8 GB, or a stack port is
+the alias would be another node's; disk < 45 GB (`CLINIC_MIN_DISK_GB`), RAM < 8 GB (a Mac needs 16 GB: its podman machine gets 10 GB), or a stack port is
 taken.
 
 It never touches the hub, the ledgers or GitHub. Task 110 prints the hub join

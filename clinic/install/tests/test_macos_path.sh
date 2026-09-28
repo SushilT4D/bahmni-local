@@ -103,7 +103,10 @@ printf '%s' "$out" | grep -qi 'no podman machine yet' && ok_ "no-machine case is
 HM="${HERE}/../host-macos.sh"
 mem_of(){ ( . "$HM"; podman_machine_size "$1" 8; printf '%s' "$MACHINE_MIB" ); }
 cpu_of(){ ( . "$HM"; podman_machine_size 24576 "$1"; printf '%s' "$MACHINE_CPUS" ); }
-[ "$(mem_of 18432)" = 9216 ] && ok_ "sizing: 18432 MiB host -> 9216 MiB machine (below the 10 GiB floor)" || bad "sizing 18432 gave $(mem_of 18432)"
+[ "$(mem_of 16384)" = 10240 ] && ok_ "sizing: a 16 GiB Mac gets the 10 GiB floor" || bad "sizing 16384 gave $(mem_of 16384)"
+[ "$(mem_of 18432)" = 10240 ] && ok_ "sizing: 18432 MiB host -> the 10 GiB floor" || bad "sizing 18432 gave $(mem_of 18432)"
+[ "$(mem_of 12288)" = 6144 ] && ok_ "sizing: a 12 GiB Mac stays below the floor (refused)" || bad "sizing 12288 gave $(mem_of 12288)"
+grep -q 'CLINIC_MIN_DISK_GB:-45' "${HERE}/../tasks/000-preflight.sh" && ok_ "disk floor 45 GB, overridable" || bad "disk floor is not CLINIC_MIN_DISK_GB (45)"
 [ "$(mem_of 24576)" = 12288 ] && ok_ "sizing: 24576 MiB host -> 12288 MiB machine" || bad "sizing 24576 gave $(mem_of 24576)"
 [ "$(mem_of 65536)" = 12288 ] && ok_ "sizing: 65536 MiB host -> 12288 MiB machine (capped)" || bad "sizing 65536 gave $(mem_of 65536)"
 [ "$(cpu_of 4)" = 2 ] && ok_ "sizing: 4 host cpus -> 2 machine cpus" || bad "sizing cpus=4 gave $(cpu_of 4)"
