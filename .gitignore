@@ -171,3 +171,4 @@ clinic/.openmrs-restore.done
 clinic/config/odoo/
 clinic/files/
 clinic/config/mysql/
+clinic/.install-state
