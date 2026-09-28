@@ -422,6 +422,13 @@ mk_podman_shim(){
   export PATH="${INSTALL_DIR}/.bin:${PATH}"
 }
 check_eq(){ if [ "$2" = "$3" ]; then ok "$1 = $2"; else fail "$1: got '$2', want '$3'"; fi; }
+# pull_image IMAGE ARCH : the native pull; on an arm64 host an image published
+# only for amd64 has no arm64 entry in its index, so the native pull fails every
+# time -- pull the amd64 image instead (it runs emulated, as preflight says).
+pull_image(){
+  ct pull "$1" && return 0
+  case "$2" in arm64|aarch64) ct pull --platform linux/amd64 "$1" ;; *) return 1 ;; esac
+}
 
 # The fleet's one pin file (lockstep, cloud first -- change here,
 # nowhere else). REPO_DIR may itself be overridden by a test harness pointing

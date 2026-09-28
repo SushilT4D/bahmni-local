@@ -61,7 +61,7 @@ for img in $(compose config --images 2>/dev/null | sort -u); do
   case "$img" in bahmni-local/*) continue ;; esac
   ct image inspect "$img" >/dev/null 2>&1 && continue
   for attempt in 1 2 3; do
-    if ct pull "$img"; then break; fi
+    if pull_image "$img" "$arch"; then break; fi
     warn "pull ${img} attempt ${attempt}/3 failed; retrying in 10s"; sleep 10
   done
 done
