@@ -52,6 +52,14 @@ seed_resume_verdict(){
   return 1
 }
 
+# resume_redoes_drop FROM ONLY : does this run reach task 050, which drops the
+# databases? Only such a run is dangerous once the sync layer has started.
+resume_redoes_drop(){
+  local n="${2:-${1:-}}"
+  [ -z "$n" ] && return 0
+  [ "$((10#$n))" -le 50 ]
+}
+
 sha256_of(){ # FILE
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }

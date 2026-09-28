@@ -46,6 +46,13 @@ expect "resume: --from on INSTALLED refused" 1 "--from and --only only resume a 
 expect "resume: --only on SEEDED refused" 1 "--from and --only only resume a seed that stopped part-way" seed_resume_verdict SEEDED "" 050
 expect "resume: --from 050 on SEEDING ok" 0 "ok" seed_resume_verdict SEEDING 050 ""
 expect "resume: --from 005 on SEEDING ok (the gate runs again)" 0 "ok" seed_resume_verdict SEEDING 005 ""
+# after sync started only a resume that re-runs the drop (050 or earlier) is refused
+resume_redoes_drop "" ""    && ok_ "no flags: the whole seed, drop included" || bad "no flags should redo the drop"
+resume_redoes_drop 050 ""   && ok_ "--from 050 redoes the drop" || bad "--from 050 should redo the drop"
+resume_redoes_drop 005 ""   && ok_ "--from 005 redoes the drop" || bad "--from 005 should redo the drop"
+resume_redoes_drop 090 ""   && bad "--from 090 does not redo the drop" || ok_ "--from 090 resumes past the drop"
+resume_redoes_drop "" 100   && bad "--only 100 does not redo the drop" || ok_ "--only 100 resumes past the drop"
+resume_redoes_drop "" 050   && ok_ "--only 050 redoes the drop" || bad "--only 050 should redo the drop"
 # early data
 expect "a count that could not be read refuses" 1 "could not count the records entered before seeding" early_data_verdict "" 0 0 0
 expect "a non-numeric count refuses"      1 "could not count the records entered before seeding" early_data_verdict 0 "ERROR:" 0 0

@@ -36,8 +36,11 @@ derive_identity "$CLINIC_SLUG" "$RESIDUE"
 . "${INSTALL_DIR}/state.sh"
 st="$(stamp_get STATE)"
 v="$(seed_resume_verdict "$st" "${FROM}" "${ONLY}")" || { printf '\n  >>> %s\n\n' "$v" >&2; fail "$v"; }
+# once the sync layer has started, only a resume that would drop the
+# databases again (task 050 or earlier) is refused; one past it is safe
 if [ -n "${FROM}${ONLY}" ]; then
-  v="$(stamp_gate_verdict "$st" "$(stamp_get SYNC_STARTED)")" || { printf '\n  >>> %s\n\n' "$v" >&2; fail "$v"; }
+  sync_started=0; resume_redoes_drop "${FROM}" "${ONLY}" && sync_started="$(stamp_get SYNC_STARTED)"
+  v="$(stamp_gate_verdict "$st" "${sync_started:-0}")" || { printf '\n  >>> %s\n\n' "$v" >&2; fail "$v"; }
 fi
 PLATFORM="$(detect_platform)"
 export SEED_DIR DISCARD ONLY FROM PLATFORM DRY CLINIC_DIR REPO_DIR LEDGER CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CERT_HOSTNAME LAN_NAME
