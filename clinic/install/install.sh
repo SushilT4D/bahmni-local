@@ -6,13 +6,15 @@
 # for the operator.
 #
 # Usage:
-#   clinic/install/install.sh --clinic <slug> --seed <dir> [--cert-hostname <name>]
+#   clinic/install/install.sh --clinic <slug> [--secrets <file>] [--baseline <dir>] [--cert-hostname <name>]
 #                             [--runtime docker|podman] [--only NNN] [--from NNN] [--dry-run]
-#   clinic/install/install.sh --answers clinic-<slug>.env --seed <dir> ...   (hand-written answers)
+#   clinic/install/install.sh --answers clinic-<slug>.env ...   (hand-written answers)
 #   clinic/install/install.sh --clinics | --list
+# --secrets: the operator's hub secrets file (the four hub credentials).
+# --baseline: three dumps to run on until the seed, instead of the pinned baseline images.
 # --clinic composes the twelve answers from sync/fleet/<slug>.env, the residue
-# ledger, sync/hub.env and <seed>/secrets.env, asking on the terminal for what
-# is still missing, and keeps them in ~/clinic-<slug>.env (mode 600) for resumes.
+# ledger, sync/hub.env and --secrets, asking on the terminal for what is still
+# missing, and keeps them in ~/clinic-<slug>.env (mode 600) for resumes.
 set -euo pipefail
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export INSTALL_DIR
@@ -20,15 +22,16 @@ export INSTALL_DIR
 . "${INSTALL_DIR}/lib.sh"
 TASKS_DIR="${TASKS_DIR:-${INSTALL_DIR}/tasks}"
 
-usage(){ sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
-ANSWERS=""; CLINIC=""; CERT_HOSTNAME_ARG=""; SEED_DIR=""; ONLY=""; FROM=""; LIST=0; CLINICS=0
+usage(){ sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+ANSWERS=""; CLINIC=""; CERT_HOSTNAME_ARG=""; SECRETS_FILE=""; BASELINE_DIR=""; ONLY=""; FROM=""; LIST=0; CLINICS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --answers) ANSWERS="$2"; shift 2 ;;
     --clinic)  CLINIC="$2"; shift 2 ;;
     --clinics) CLINICS=1; shift ;;
     --cert-hostname) CERT_HOSTNAME_ARG="$2"; shift 2 ;;
-    --seed)    SEED_DIR="$2"; shift 2 ;;
+    --secrets)  SECRETS_FILE="$2"; shift 2 ;;
+    --baseline) BASELINE_DIR="$2"; shift 2 ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
     --only)    ONLY="$2"; shift 2 ;;
     --from)    FROM="$2"; shift 2 ;;
@@ -54,11 +57,11 @@ if [ -z "$ANSWERS" ] && [ -z "$CLINIC" ]; then
   fi
 fi
 [ -z "$ANSWERS" ] || [ -f "$ANSWERS" ] || fail "answers file not found: $ANSWERS"
-[ -n "$SEED_DIR" ] || { usage; fail "--seed <dir> is required (openmrs.sql.gz, odoo.sql.gz, openelis.sql.gz)"; }
-[ -d "$SEED_DIR" ] || fail "seed dir not found: $SEED_DIR"
-SEED_DIR="$(cd "$SEED_DIR" && pwd)"; export SEED_DIR
+if [ -n "$SECRETS_FILE" ]; then [ -f "$SECRETS_FILE" ] || fail "secrets file not found: $SECRETS_FILE"; SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"; fi
+if [ -n "$BASELINE_DIR" ]; then [ -d "$BASELINE_DIR" ] || fail "baseline dir not found: $BASELINE_DIR"; BASELINE_DIR="$(cd "$BASELINE_DIR" && pwd)"; fi
+export SECRETS_FILE BASELINE_DIR
 
-# --clinic: the answers come from the repo, the seed and the terminal, and are
+# --clinic: the answers come from the repo, --secrets and the terminal, and are
 # kept for resumes. Nothing secret is printed.
 compose_answers(){
   local slug="$1" f r out k
@@ -69,16 +72,16 @@ compose_answers(){
   if [ -s "$out" ] && [ -z "$(answers_missing "$out")" ]; then
     info "answers: reusing $out (delete it to compose afresh)"; ANSWERS="$out"; return 0
   fi
-  set -a; . "$f"; . "${HUB_ENV}"; [ ! -f "${SEED_DIR}/secrets.env" ] || . "${SEED_DIR}/secrets.env"; set +a
+  set -a; . "$f"; . "${HUB_ENV}"; [ -z "${SECRETS_FILE}" ] || . "${SECRETS_FILE}"; set +a
   [ "$(printf '%s' "${CLINIC_SLUG:-}" | tr 'A-Z' 'a-z')" = "$slug" ] || fail "$f says CLINIC_SLUG='${CLINIC_SLUG:-}', not $slug"
   RESIDUE="$r"; [ -n "${SITE_NUMBER:-}" ] || SITE_NUMBER="$r"
   [ -z "${CERT_HOSTNAME_ARG}" ] || CERT_HOSTNAME="${CERT_HOSTNAME_ARG}"
   ask CERT_HOSTNAME "certificate hostname (the name staff will open Bahmni at)" "$(hostname -f 2>/dev/null || hostname)" "sync/fleet/${slug}.env or --cert-hostname"
   ask CLINIC_PHONE "clinic phone, E.164" "+910000000000" "sync/fleet/${slug}.env"
-  for k in $SECRET_KEYS; do ask_secret "$k" "${SEED_DIR}/secrets.env (written by install-clinic.sh seed)"; done
+  for k in $SECRET_KEYS; do ask_secret "$k" "--secrets"; done
   export RESIDUE SITE_NUMBER
   answers_write "$out"; ANSWERS="$out"
-  info "answers: composed $out (mode 600) from $f, ${LEDGER}, ${HUB_ENV} and the seed's secrets"
+  info "answers: composed $out (mode 600) from $f, ${LEDGER}, ${HUB_ENV} and the hub secrets"
 }
 [ -z "$CLINIC" ] || compose_answers "$(printf '%s' "$CLINIC" | tr 'A-Z' 'a-z')"
 
@@ -86,9 +89,9 @@ compose_answers(){
 # present and non-empty. Secrets are never printed.
 REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 set -a; . "$ANSWERS"; set +a
-# The fleet's image pins (sync/versions.env) -- task 000's seed-shape gate reads
-# OPENMRS_IMAGE_NAME from here, and every task after it sees the same pins.
+# The fleet's image pins (sync/versions.env): every task sees the same pins.
 set -a; . "${VERSIONS_FILE}"; set +a
+LAN_NAME="${LAN_NAME:-bahmni.clinic}"; export LAN_NAME
 missing=""
 for k in $REQUIRED; do eval "v=\${$k:-}"; [ -n "$v" ] || missing="$missing $k"; done
 [ -z "$missing" ] || fail "answers file is missing:$missing"
@@ -135,13 +138,16 @@ log "install log: ${INSTALL_LOG}"
 
 log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} platform=${PLATFORM} runtime=$(detect_runtime) dry=${DRY}"
 log "  clinic dir: ${CLINIC_DIR}"
-log "  seed:       ${SEED_DIR}"
+log "  baseline:   ${BASELINE_DIR:-the pinned baseline images}"
 
 if [ -n "$CLINIC" ]; then how="--clinic $(printf '%q' "$CLINIC")"; else how="--answers $(printf '%q' "$ANSWERS")"; fi
-how="${how} --seed $(printf '%q' "$SEED_DIR")"
 [ -z "${SECRETS_FILE:-}" ] || how="${how} --secrets $(printf '%q' "$SECRETS_FILE")"
 [ -z "${BASELINE_DIR:-}" ] || how="${how} --baseline $(printf '%q' "$BASELINE_DIR")"
 run_tasks install "$(printf '%q' "$0") ${how}"
+. "${INSTALL_DIR}/state.sh"
+if [ "${DRY}" != 1 ] && [ -z "${ONLY}" ]; then
+  stamp_put STATE INSTALLED; stamp_put INSTALLED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+fi
 log ""
-log "done: every task's check passed. The hub join printed by task 110 is the operator's next step."
+log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"
 log "install log: ${INSTALL_LOG}"

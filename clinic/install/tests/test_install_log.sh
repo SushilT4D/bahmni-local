@@ -13,7 +13,7 @@ assert_not_contains(){ if printf '%s' "$2" | grep -q -- "$3"; then printf '  FAI
 count_of(){ printf '%s' "$1" | grep -c -- "$2" || true; }
 
 I="${HERE}/../install.sh"
-mkdir -p "$TMP/seed" "$TMP/clinic" "$TMP/tasks"; : > "$TMP/seed/openmrs.sql.gz"
+mkdir -p "$TMP/clinic" "$TMP/tasks"
 cat > "$TMP/answers.env" <<EOF
 CLINIC_SLUG=azure
 RESIDUE=7
@@ -34,7 +34,7 @@ printf '#!/usr/bin/env bash\necho "fake task ran"\n' > "$TMP/tasks/05-probe.sh"
 # 1. dry run, explicit INSTALL_LOG: header + one timing line per task.
 # ---------------------------------------------------------------------------
 LOG1="$TMP/run1.log"
-out="$(TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG1" bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run 2>&1)"; rc=$?
+out="$(TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG1" bash "$I" --answers "$TMP/answers.env" --dry-run 2>&1)"; rc=$?
 assert_eq "successful dry run still exits 0" "$rc" "0"
 [ -f "$LOG1" ] && printf '  ok   %s\n' "log file was created" || { printf '  FAIL log file was not created\n'; fails=$((fails+1)); }
 log1="$(cat "$LOG1" 2>/dev/null)"
@@ -50,7 +50,7 @@ assert_contains "log path is printed at the end of the run" "$out" "install log:
 # ---------------------------------------------------------------------------
 printf '#!/usr/bin/env bash\nexit 3\n' > "$TMP/tasks/06-boom.sh"
 LOG2="$TMP/run2.log"
-out="$(TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG2" bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run 2>&1)"; rc=$?
+out="$(TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG2" bash "$I" --answers "$TMP/answers.env" --dry-run 2>&1)"; rc=$?
 assert_eq "a failing task still exits 1 (exit code unchanged)" "$rc" "1"
 log2="$(cat "$LOG2" 2>/dev/null)"
 assert_contains "log names the failing task" "$log2" "06-boom"
@@ -62,8 +62,8 @@ rm -f "$TMP/tasks/06-boom.sh"
 # 3. running twice appends: two headers, not a fresh file each time.
 # ---------------------------------------------------------------------------
 LOG3="$TMP/run3.log"
-TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG3" bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run >/dev/null 2>&1
-TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG3" bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run >/dev/null 2>&1
+TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG3" bash "$I" --answers "$TMP/answers.env" --dry-run >/dev/null 2>&1
+TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG3" bash "$I" --answers "$TMP/answers.env" --dry-run >/dev/null 2>&1
 log3="$(cat "$LOG3" 2>/dev/null)"
 n_headers="$(count_of "$log3" '===== .*slug=azure')"
 assert_eq "running twice appends (two headers)" "$n_headers" "2"
@@ -72,7 +72,7 @@ assert_eq "running twice appends (two headers)" "$n_headers" "2"
 # 4. --from / --only show up in the header when given.
 # ---------------------------------------------------------------------------
 LOG4="$TMP/run4.log"
-TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG4" bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run --only 05 >/dev/null 2>&1
+TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" INSTALL_LOG="$LOG4" bash "$I" --answers "$TMP/answers.env" --dry-run --only 05 >/dev/null 2>&1
 assert_contains "header names --only when given" "$(cat "$LOG4" 2>/dev/null)" "--only 05"
 
 # ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ assert_contains "header names --only when given" "$(cat "$LOG4" 2>/dev/null)" "-
 # ---------------------------------------------------------------------------
 mkdir -p "$TMP/home" "$TMP/scratch-tmp"
 out="$(env -u INSTALL_LOG TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" HOME="$TMP/home" TMPDIR="$TMP/scratch-tmp/" \
-  bash "$I" --answers "$TMP/answers.env" --seed "$TMP/seed" --dry-run 2>&1)"; rc=$?
+  bash "$I" --answers "$TMP/answers.env" --dry-run 2>&1)"; rc=$?
 assert_eq "dry run (no INSTALL_LOG) still exits 0" "$rc" "0"
 home_logs="$(find "$TMP/home" -name 'clinic-install-*.log' 2>/dev/null | wc -l | tr -d ' ')"
 assert_eq "dry run wrote nothing under \$HOME" "$home_logs" "0"

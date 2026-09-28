@@ -37,6 +37,10 @@ for k in BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS
   eval "put $k \"\${$k}\""
 done
 put PHONE_NUMBER "${CLINIC_PHONE}"
+# the answers the seed sitting needs, kept on the node: at go-live nobody
+# re-types them and no answers file travels with the machine
+put CLINIC_SLUG "${CLINIC_SLUG}"; put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
+put CERT_HOSTNAME "${CERT_HOSTNAME}"; put LAN_NAME "${LAN_NAME:-bahmni.clinic}"
 put DEBEZIUM_SNAPSHOT_MODE no_data
 put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
 if [ "${PLATFORM}" = macos ]; then put RESTART_POLICY always; else put RESTART_POLICY unless-stopped; fi
@@ -66,7 +70,8 @@ put REMOTE_KAFKA_USERNAME "${REMOTE_KAFKA_USERNAME}"
 put REMOTE_KAFKA_PASSWORD "${REMOTE_KAFKA_PASSWORD}"
 put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # file is mounted, unused under SASL_PLAINTEXT
 
-# secrets bound to the seed (pasted) and secrets born here (generated)
+# hub credentials (from the operator's secrets file; the seed's databases carry the matching users)
+# and secrets born here (generated)
 put OPENMRS_ATOMFEED_PASSWORD "${OPENMRS_ATOMFEED_PASSWORD}"
 put OPENELIS_ATOMFEED_PASSWORD "${OPENELIS_ATOMFEED_PASSWORD}"
 put ODOO_ATOMFEED_PASSWORD "${ODOO_ATOMFEED_PASSWORD}"

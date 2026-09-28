@@ -38,72 +38,6 @@ fi
 ok "no live clinic/.env yet"
 # fresh-only:end
 
-# 3. the seed
-for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
-  [ -s "${SEED_DIR}/$f" ] || fail "seed file missing or empty: ${SEED_DIR}/$f"
-  gzip -t "${SEED_DIR}/$f" 2>/dev/null || fail "seed file is not valid gzip: ${SEED_DIR}/$f"
-done
-ok "seed: three dumps present and gzip-valid ($(du -sh "${SEED_DIR}" | cut -f1))"
-
-# Seed-shape gate: the seed must be the shape the pinned images expect. The 1.2.0 dump carries
-# IPLIT's changeset 20251223-drop-default-value-from-column (the only changeset unique to
-# 1.2.0 among the synced tables' history); an Odoo 16 dump has uom_uom, an Odoo 10 dump product_uom.
-# gzip is wrapped in `{ ... || true; }` because grep -m1 closes its read end the instant
-# it matches -- on a dump where the match is early and the rest of the stream is still
-# large, gzip gets SIGPIPE (exit 141) while still writing. Under `set -o pipefail` (this
-# task's shebang) a bare `gzip -dc f | grep -qm1 pat` would then report the WHOLE
-# pipeline as failed with rc=141 even though grep found its match. `{ gzip ... || true; }`
-# makes the left side of the pipe always report 0, so pipefail sees only grep's status.
-{ gzip -dc "${SEED_DIR}/openmrs.sql.gz" 2>/dev/null || true; } | grep -qm1 '20251223-drop-default-value-from-column' \
-  || fail "seed openmrs.sql.gz is not an iplit-1.2.0 dump (changeset 20251223-drop-default-value-from-column absent); the hub must be on ${OPENMRS_IMAGE_NAME} before it is dumped"
-{ gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null || true; } | grep -qm1 -E 'CREATE TABLE (public\.)?uom_uom\b' \
-  || fail "seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)"
-ok "seed shape: openmrs iplit-1.2.0, odoo 16"
-
-# Address-table gate: a seed dumped before the hub strode village_village and
-# res_partner_attributes would hand a clinic built from it ids the hub also
-# uses (a clinic-minted village_village row can stop a sink).
-# Checked here, before a single byte of the seed reaches a database.
-#
-# pg_dump emits a serial id's owning sequence in one of two shapes: a plain
-# "CREATE SEQUENCE ... INCREMENT BY n" a couple of lines after the table, or,
-# for an identity column, a multi-line "ALTER TABLE ... ADD GENERATED ... AS
-# IDENTITY ( SEQUENCE NAME ... INCREMENT BY n ... )". Both name the sequence
-# on one line and carry INCREMENT BY within the next handful -- read the ~8
-# lines following the first line that names it and take the first INCREMENT
-# BY found. Streamed straight from the gz (one gzip -dc | awk pass covering
-# both tables), never unpacked to disk -- the real dump is 7.6 MB.
-address_seq_out="$(gzip -dc "${SEED_DIR}/odoo.sql.gz" 2>/dev/null | awk '
-  function chk(tbl) { if ($0 ~ ("CREATE TABLE (public\\.)?" tbl "[[:space:](]")) print "TABLE_FOUND=" tbl }
-  { chk("village_village"); chk("res_partner_attributes") }
-  index($0, "village_village_id_seq") > 0 && w1 == 0 { w1 = 9 }
-  w1 > 0 {
-    if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=village_village_id_seq=" n; w1 = 0 }
-    else w1--
-  }
-  index($0, "res_partner_attributes_id_seq") > 0 && w2 == 0 { w2 = 9 }
-  w2 > 0 {
-    if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=res_partner_attributes_id_seq=" n; w2 = 0 }
-    else w2--
-  }
-')" || true
-address_seq_check(){ # TABLE SEQ
-  local table="$1" seq="$2" tfound inc
-  # `|| true` on each read: grep exits 1 on zero matches, a legitimate result
-  # here (a wrong-shape seed), not an error -- under this task's set -e -o
-  # pipefail a bare grep -c/grep|head|cut miss would otherwise abort through
-  # the generic ERR trap instead of this function's own named fail() message.
-  tfound="$(printf '%s\n' "${address_seq_out}" | grep -c "^TABLE_FOUND=${table}\$" || true)"
-  inc="$(printf '%s\n' "${address_seq_out}" | grep "^INC=${seq}=" | head -1 | cut -d= -f3 || true)"
-  [ "${tfound:-0}" -ge 1 ] \
-    || fail "seed odoo.sql.gz has no ${table} table -- wrong-shape seed (this table's ids are partitioned across the fleet); take a fresh seed with skills/install-clinic.sh seed"
-  [ "$inc" = 10 ] \
-    || fail "seed odoo.sql.gz: ${seq} is not INCREMENT BY 10 (found ${inc:-none}) -- this seed was dumped before the hub partitioned its address and customer-attribute ids; a clinic built from it would hand out ${table} ids the hub also uses; take a fresh seed with skills/install-clinic.sh seed"
-}
-address_seq_check village_village village_village_id_seq
-address_seq_check res_partner_attributes res_partner_attributes_id_seq
-ok "seed shape: village_village, res_partner_attributes sequences step 10"
-
 [ "${PREFLIGHT_SKIP_HOST:-0}" = 1 ] && { ok "host facts skipped (PREFLIGHT_SKIP_HOST)"; exit 0; }
 
 # 4. host facts
@@ -113,7 +47,7 @@ require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt inst
 # with NO FAIL line). -P stops a long device
 # name from wrapping and misaligning $4.
 avail_gb="$(( $(df -Pk "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
-[ "$avail_gb" -ge 60 ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < 60 GB (the seed restores to ~11 GB of MySQL, Kafka and logs need the rest)"
+[ "$avail_gb" -ge 60 ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < 60 GB (a restored clinic database takes ~11 GB of MySQL; Kafka and logs need the rest)"
 if [ "${PLATFORM}" = macos ]; then ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"; else ram_mb="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"; fi
 [ "$ram_mb" -ge 8192 ] && ok "RAM ${ram_mb} MB" || fail "RAM ${ram_mb} MB < 8192 MB"
 # cpu-budget:begin
@@ -158,12 +92,12 @@ if [ "${PLATFORM}" = macos ] && [ "$(detect_runtime)" = podman ]; then
   fi
 fi
 # macos-facts:end
-for p in 8081 9443 9444 5433 8052 8083 9092; do
+for p in 80 443 5433 8052 8083 9092; do
   if (command -v lsof >/dev/null && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1) || (command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":$p "); then
     fail "port $p is already in use on this host"
   fi
 done
-ok "ports 8081 9443 9444 5433 8052 8083 9092 free"
+ok "ports 80 443 5433 8052 8083 9092 free"
 want_br="${EXPECTED_BRANCH:-feat/bahmni-kraft}"
 br="$(git -C "${REPO_DIR}" branch --show-current 2>/dev/null || true)"
 [ "$br" = "$want_br" ] && ok "checkout on ${want_br} ($(git -C "${REPO_DIR}" rev-parse --short HEAD))" || fail "checkout is on '${br}', expected ${want_br} (EXPECTED_BRANCH overrides, e.g. to install from a branch under test)"

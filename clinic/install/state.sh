@@ -65,3 +65,41 @@ early_data_verdict(){
   printf 'records were entered on this machine before seeding (%s); seeding replaces them. If they are only tests, run again with --discard-baseline-data. Otherwise call the operator.\n' "$what"
   return 1
 }
+
+# seed_shape_verdict DIR : the dumps come from the pinned OpenMRS and Odoo
+# versions, and the hub had partitioned its address and customer-attribute
+# ids before it was dumped (a seed taken earlier would hand this clinic ids
+# the hub also uses, and a clinic-minted village row can stop a sink).
+# Streamed straight from the gz, never unpacked to disk.
+seed_shape_verdict(){
+  local dir="$1" f out tfound inc t q
+  for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
+    [ -s "$dir/$f" ] || { printf 'seed file missing or empty: %s\n' "$dir/$f"; return 1; }
+    gzip -t "$dir/$f" 2>/dev/null || { printf 'seed file is not valid gzip: %s\n' "$dir/$f"; return 1; }
+  done
+  # `{ gzip ... || true; }`: grep -m1 closes the pipe at its first match, gzip
+  # then dies of SIGPIPE, and pipefail would report the whole pipeline failed
+  { gzip -dc "$dir/openmrs.sql.gz" 2>/dev/null || true; } | grep -qm1 '20251223-drop-default-value-from-column' \
+    || { printf 'seed openmrs.sql.gz is not an iplit-1.2.0 dump (changeset 20251223-drop-default-value-from-column absent); the hub must be on %s before it is dumped\n' "${OPENMRS_IMAGE_NAME:-the pinned OpenMRS}"; return 1; }
+  { gzip -dc "$dir/odoo.sql.gz" 2>/dev/null || true; } | grep -qm1 -E 'CREATE TABLE (public\.)?uom_uom\b' \
+    || { printf 'seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)\n'; return 1; }
+  # pg_dump names a serial id's sequence either as CREATE SEQUENCE ... INCREMENT BY n
+  # or inside a multi-line ADD GENERATED ... AS IDENTITY ( ... INCREMENT BY n ... ):
+  # take the first INCREMENT BY within the lines after the first line naming it
+  out="$({ gzip -dc "$dir/odoo.sql.gz" 2>/dev/null || true; } | awk '
+    function chk(tbl) { if ($0 ~ ("CREATE TABLE (public\\.)?" tbl "[[:space:](]")) print "TABLE_FOUND=" tbl }
+    { chk("village_village"); chk("res_partner_attributes") }
+    index($0, "village_village_id_seq") > 0 && w1 == 0 { w1 = 9 }
+    w1 > 0 { if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=village_village_id_seq=" n; w1 = -1 } else w1-- }
+    index($0, "res_partner_attributes_id_seq") > 0 && w2 == 0 { w2 = 9 }
+    w2 > 0 { if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=res_partner_attributes_id_seq=" n; w2 = -1 } else w2-- }
+  ')"
+  for t in village_village res_partner_attributes; do
+    q="${t}_id_seq"
+    tfound="$(printf '%s\n' "$out" | grep -c "^TABLE_FOUND=${t}\$" || true)"
+    inc="$(printf '%s\n' "$out" | grep "^INC=${q}=" | head -1 | cut -d= -f3 || true)"
+    [ "${tfound:-0}" -ge 1 ] || { printf 'seed odoo.sql.gz has no %s table -- wrong-shape seed (this table'"'"'s ids are partitioned across the fleet); ask the operator for a fresh seed\n' "$t"; return 1; }
+    [ "$inc" = 10 ] || { printf 'seed odoo.sql.gz: %s is not INCREMENT BY 10 (found %s) -- this seed was dumped before the hub partitioned its address and customer-attribute ids; a clinic built from it would hand out %s ids the hub also uses; ask the operator for a fresh seed\n' "$q" "${inc:-none}" "$t"; return 1; }
+  done
+  printf 'ok seed shape: openmrs iplit-1.2.0, odoo 16; village_village, res_partner_attributes sequences step 10\n'
+}
