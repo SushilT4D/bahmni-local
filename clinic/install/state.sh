@@ -66,6 +66,16 @@ early_data_verdict(){
   return 1
 }
 
+# lan_name_verdict RESOLVED CURRENT_IP NAME : staff reach the stack by NAME, so
+# it must resolve to the address this machine has now (a machine moved to a new
+# network, or onto another interface, keeps an answer that points elsewhere).
+lan_name_verdict(){
+  local got="$1" ip="$2" name="$3"
+  [ -n "$got" ] || { printf '%s does not resolve on this machine: the name service installed with it is not answering. Call the operator.\n' "$name"; return 1; }
+  [ "$got" = "$ip" ] || { printf '%s resolves to %s, but this machine is %s: it was moved to another network or interface since install. Call the operator.\n' "$name" "$got" "$ip"; return 1; }
+  printf 'ok\n'
+}
+
 # seed_shape_verdict DIR : the dumps come from the pinned OpenMRS and Odoo
 # versions, and the hub had partitioned its address and customer-attribute
 # ids before it was dumped (a seed taken earlier would hand this clinic ids
