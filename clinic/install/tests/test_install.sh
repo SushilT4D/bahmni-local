@@ -83,14 +83,14 @@ out="$(F bash "$I" --clinic azure --cert-hostname h --dry-run </dev/null 2>&1)";
 assert_eq "no secrets and no terminal refuses" "$rc" "1"
 assert_contains "and names the secrets file" "$out" "REMOTE_KAFKA_PASSWORD is not set and there is no terminal to ask on: put it in --secrets"
 printf 'CLINIC_SLUG=azure\nMRN_PREFIX=AZR\nSITE_NUMBER=\nCLINIC_PHONE=\nCERT_HOSTNAME=\n' > "$TMP/fleet/azure.env"   # phone empty: it must be asked
-out="$(printf 'h.test\n\nmm\na\nb\nc\n' | INSTALL_INTERACTIVE=1 F bash "$I" --clinic azure --dry-run --only 05 2>&1)"
+out="$(printf 'h.test\n\nqZ7sekretQ\na\nb\nc\n' | INSTALL_INTERACTIVE=1 F bash "$I" --clinic azure --dry-run --only 05 2>&1)"
 assert_contains "terminal answers reach the task" "$out" "T:bahmni-azure:1:AZR:bahmni.clinic"
 assert_eq "typed hostname kept" "$(grep -E '^CERT_HOSTNAME=' "$A")" "CERT_HOSTNAME=h.test"
 assert_eq "empty answer takes the default" "$(grep -E '^CLINIC_PHONE=' "$A")" "CLINIC_PHONE=+910000000000"
-assert_eq "typed secret kept, quoted only when needed" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$A")" "REMOTE_KAFKA_PASSWORD=mm"
-[ "$(printf '%s' "$out" | grep -c 'mm')" = 0 ] && printf '  ok   secret never echoed\n' || { printf '  FAIL secret echoed in output\n'; fails=$((fails+1)); }
+assert_eq "typed secret kept, quoted only when needed" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$A")" "REMOTE_KAFKA_PASSWORD=qZ7sekretQ"
+[ "$(printf '%s' "$out" | grep -c 'qZ7sekretQ')" = 0 ] && printf '  ok   secret never echoed\n' || { printf '  FAIL secret echoed in output\n'; fails=$((fails+1)); }
 rm -f "$A"
-out="$(printf 'azure\nh.test\n\nmm\na\nb\nc\n' | INSTALL_INTERACTIVE=1 F bash "$I" --dry-run --only 05 2>&1)"
+out="$(printf 'azure\nh.test\n\nqZ7sekretQ\na\nb\nc\n' | INSTALL_INTERACTIVE=1 F bash "$I" --dry-run --only 05 2>&1)"
 assert_contains "no flag on a terminal: picks from the table" "$out" "which clinic is this host?"
 assert_contains "and installs it" "$out" "T:bahmni-azure"
 out="$(F bash "$I" --dry-run </dev/null 2>&1)"
