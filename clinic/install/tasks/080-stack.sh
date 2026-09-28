@@ -32,7 +32,7 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
-url="https://localhost:${BAHMNI_PROXY_HTTPS_PORT:-9443}/openmrs/ws/rest/v1/session"
+url="https://localhost/openmrs/ws/rest/v1/session"
 # The FIRST boot is the long one: the Initializer loads the masterdata CSVs into
 # the seeded database once (checksums persist under CONTAINER_DATA_PATH, later
 # boots skip them). Measured: 17 min on Rawach, 36 min on manpur's 1-vCPU VM --
@@ -50,6 +50,29 @@ case "$rc" in
        fail "OpenMRS did not answer within $((boot_s/60)) min (last HTTP code: ${last:-none}): ${COMPOSE_CMD} logs openmrs proxy"
      fi ;;
 esac
+if [ "${PHASE:-install}" = install ]; then
+  ok "baseline stack up; odoo-connect stays stopped until the seed (its feed users are the hub's)"
+  exit 0
+fi
+# The four hub credentials were written at install; the hub may have rotated
+# one since. Check each against the data just restored before any feed runs.
+omrs_login(){ # USER PASS -> 0 if OpenMRS authenticates them
+  curl -sk --max-time 20 -u "$1:$2" "$url" 2>/dev/null | grep -q '"authenticated":true'
+}
+omrs_login "${OPENMRS_ATOMFEED_USER}" "${OPENMRS_ATOMFEED_PASSWORD}" && ok "OpenMRS accepts OPENMRS_ATOMFEED_USER" \
+  || fail "OpenMRS refuses the OpenMRS feed user's password in clinic/.env: the hub's credential changed after install. Call the operator (they update OPENMRS_ATOMFEED_PASSWORD in clinic/.env; then run seed.sh again)"
+omrs_login "${OPENELIS_ATOMFEED_USER}" "${OPENELIS_ATOMFEED_PASSWORD}" && ok "OpenMRS accepts OPENELIS_ATOMFEED_USER" \
+  || fail "OpenMRS refuses the OpenELIS feed user's password in clinic/.env: the hub's credential changed after install. Call the operator (they update OPENELIS_ATOMFEED_PASSWORD in clinic/.env; then run seed.sh again)"
+odoo_login_ok(){
+  python3 - "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" <<'PY2' 2>/dev/null
+import sys, xmlrpc.client
+u, p, port = sys.argv[1:4]
+try:
+    sys.exit(0 if xmlrpc.client.ServerProxy(f"http://localhost:{port}/xmlrpc/2/common").authenticate("odoo", u, p, {}) else 1)
+except Exception:
+    sys.exit(1)
+PY2
+}
 # the markers are only safe to park while odoo-connect is down
 [ "$(ct inspect --format '{{.State.Running}}' "$OC" 2>/dev/null || printf false)" = false ] || fail "odoo-connect is running before its markers are parked (it would replay every past event)"
 feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
@@ -95,6 +118,9 @@ SQL
   got="$(printf "select last_read_entry_id from markers where feed_uri=:'f'" | mk "$uri")"
   [ "$got" = "$entry" ] && ok "marker $f -> page ${page##*/}, entry ${entry##*:}" || fail "marker $f did not take: the table holds '${got}', wanted '${entry}'"
 done
+ok_odoo=0; for i in $(seq 1 12); do odoo_login_ok && { ok_odoo=1; break; }; sleep 10; done
+[ "$ok_odoo" = 1 ] && ok "Odoo accepts ODOO_ATOMFEED_USER" \
+  || fail "Odoo refuses the Odoo feed user's password in clinic/.env (or Odoo is not answering on :${ODOO_PORT:-8069}): the hub's credential may have changed after install. Call the operator"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local up -d odoo-connect >/dev/null )
 r0="$(ct inspect --format '{{.RestartCount}}' "$OC" 2>/dev/null || printf 0)"
 sleep 120

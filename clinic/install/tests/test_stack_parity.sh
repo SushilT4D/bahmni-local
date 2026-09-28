@@ -52,4 +52,9 @@ has "$CL/docker-compose.override.yml" "proxy/htdocs/index\.html:/usr/share/nginx
 # exit checks: an Odoo that only answers HTTP 500 must fail the install, not
 # just the marker round-trip further down the same task
 has "$HERE/../tasks/100-exit-checks.sh" '/web/login' && has "$HERE/../tasks/100-exit-checks.sh" 'BAHMNI_ODOO_HTTPS_PORT' && ok_ "100 checks Odoo's /web/login before the XML-RPC marker" || bad "100 does not check Odoo's /web/login"
+S80="${HERE}/../tasks/080-stack.sh"
+grep -q 'PHASE:-install}" = install' "$S80" && ok_ "080 stops after OpenMRS at install" || bad "080 has no install-sitting exit"
+grep -q 'https://localhost/openmrs/ws/rest/v1/session' "$S80" && ok_ "080 waits on 443" || bad "080 still waits on a non-default port"
+grep -q 'odoo_login_ok' "$S80" && ok_ "080 checks the Odoo atomfeed login before odoo-connect" || bad "no Odoo credential check"
+grep -q 'OPENELIS_ATOMFEED_USER' "$S80" && ok_ "080 checks the OpenELIS feed user" || bad "no OpenELIS feed-user check"
 exit "$fails"
