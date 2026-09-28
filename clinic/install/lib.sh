@@ -298,6 +298,21 @@ mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -
 # with no argument lists the running PROCESS's groups, which never contain a group that
 # usermod added a moment ago -- and that is exactly the moment task 010 asks.
 user_in_group_db(){ id -nG "${USER:-$(id -un)}" 2>/dev/null | tr ' ' '\n' | grep -qx "$1"; }
+# docker_group_reexec CMD ARGS... : a shell opened before the login user joined
+# the docker group cannot reach the daemon ("permission denied"). When the user
+# IS in the group, run the same command again under it rather than stop.
+# _KRAFT_SG marks the re-run so a daemon that still refuses is reported, not
+# looped on.
+docker_group_reexec(){
+  [ "${DRY:-0}" = 1 ] && return 0
+  [ "${PLATFORM:-$(detect_platform)}" = linux ] && [ "$(detect_runtime)" = docker ] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  docker info >/dev/null 2>&1 && return 0
+  [ "${_KRAFT_SG:-}" != 1 ] && command -v sg >/dev/null 2>&1 && user_in_group_db docker || return 0
+  info "docker is refusing this shell, which predates the docker group; running again under the group (no re-login needed)"
+  export _KRAFT_SG=1
+  exec sg docker -c "$(printf '%q ' "$@")"
+}
 fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [ -f "$f" ] && printf '%s\n' "$f"; }
 # fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }

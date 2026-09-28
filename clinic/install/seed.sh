@@ -9,6 +9,7 @@ INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export INSTALL_DIR
 # shellcheck source=lib.sh
 . "${INSTALL_DIR}/lib.sh"
 TASKS_DIR="${TASKS_DIR:-${INSTALL_DIR}/tasks}"
+ORIG_ARGS=("$@")
 usage(){ sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 SEED_DIR=""; DISCARD=0; ONLY=""; FROM=""
 while [ $# -gt 0 ]; do
@@ -24,6 +25,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SEED_DIR" ] || { usage; fail "--seed <folder> is required: the folder the operator copied onto this machine"; }
 [ -d "$SEED_DIR" ] || fail "seed folder not found: $SEED_DIR"
+docker_group_reexec "$0" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 SEED_DIR="$(cd "$SEED_DIR" && pwd)"
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "this machine is not installed yet (no clinic/.env); the operator runs install.sh first. Call the operator."

@@ -22,6 +22,7 @@ export INSTALL_DIR
 . "${INSTALL_DIR}/lib.sh"
 TASKS_DIR="${TASKS_DIR:-${INSTALL_DIR}/tasks}"
 
+ORIG_ARGS=("$@")
 usage(){ sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 ANSWERS=""; CLINIC=""; CERT_HOSTNAME_ARG=""; SECRETS_FILE=""; BASELINE_DIR=""; ONLY=""; FROM=""; LIST=0; CLINICS=0
 while [ $# -gt 0 ]; do
@@ -42,6 +43,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 export DRY RUNTIME="${RUNTIME:-}"
+docker_group_reexec "$0" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 
 if [ "$LIST" = 1 ]; then
   for t in "${TASKS_DIR}"/[0-9]*-*.sh; do printf '  %s\n' "$(basename "$t" .sh)"; done; exit 0
