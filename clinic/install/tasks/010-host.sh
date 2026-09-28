@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "10 · host (${PLATFORM}, $(detect_runtime))"

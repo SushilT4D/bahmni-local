@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 # IPLIT's UI and config, copied out of the two images pinned in sync/versions.env
 # into clinic/extracted/ (gitignored, node-local). The clinic's one nginx serves
 # them and OpenMRS + OpenELIS read the same config tree -- no second web server,

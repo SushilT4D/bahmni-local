@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: both
 # The node's own proof: preflight green, and a value written that could not
 # pre-exist, read back through the application, not a row count.
 set -euo pipefail

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 # Render clinic/.env: derived identity, the ten absolute path keys at clinic/,
 # generated secrets, the pasted five, fleet constants. Written to a temp file and
 # moved into place only after the compose config gate passes.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 # Bind-mount directories from the RENDERED compose config (never a hand list),
 # so a new mount in the compose is created here without editing this file;
 # then the per-node certificate.

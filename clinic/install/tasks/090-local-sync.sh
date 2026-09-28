@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: seed
 # The clinic's own sync layer, in the order the repo scripts expect. Judged on
 # TASK state, never connector state.
 set -euo pipefail

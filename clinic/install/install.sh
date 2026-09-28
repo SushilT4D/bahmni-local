@@ -137,29 +137,11 @@ log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} platform=${PLATFOR
 log "  clinic dir: ${CLINIC_DIR}"
 log "  seed:       ${SEED_DIR}"
 
-for t in "${TASKS_DIR}"/[0-9]*-*.sh; do
-  n="$(basename "$t" .sh)"; num="${n%%-*}"
-  if [ -n "$ONLY" ] && [ "$num" != "$ONLY" ]; then continue; fi
-  if [ -n "$FROM" ] && [ "$num" -lt "$FROM" ]; then continue; fi
-  if [ -n "$CLINIC" ]; then how="--clinic $CLINIC"; else how="--answers $ANSWERS"; fi
-  t0=$(date +%s)
-  rc=0; bash "$t" || rc=$?
-  t1=$(date +%s); dt=$((t1 - t0))
-  if [ "$rc" = 75 ] && [ "${_KRAFT_SG:-}" != 1 ] && command -v sg >/dev/null 2>&1; then
-    # task 010 added us to the docker group; re-exec the remaining tasks under the
-    # group so no manual re-login is needed. _KRAFT_SG guards against a loop.
-    log "  ${n} ${dt}s rc=75: activating the docker group and continuing (no re-login needed)..."
-    export _KRAFT_SG=1
-    if [ -n "$CLINIC" ]; then sel="--clinic $(printf '%q' "$CLINIC")"; else sel="--answers $(printf '%q' "$ANSWERS")"; fi
-    exec sg docker -c "$(printf '%q' "$0") ${sel} --seed $(printf '%q' "$SEED_DIR") --from ${num}"
-  fi
-  if [ "$rc" != 0 ]; then
-    log "  ${n} ${dt}s STOPPED rc=${rc}"
-    printf '\n  STOPPED at task %s. Fix what its FAIL (or FAILED rc=) line names, then resume with: %s %s --seed %s --from %s\n  install log: %s\n' "$n" "$0" "$how" "$SEED_DIR" "$num" "${INSTALL_LOG}" >&2
-    exit 1
-  fi
-  log "  ${n} ${dt}s done"
-done
+if [ -n "$CLINIC" ]; then how="--clinic $(printf '%q' "$CLINIC")"; else how="--answers $(printf '%q' "$ANSWERS")"; fi
+how="${how} --seed $(printf '%q' "$SEED_DIR")"
+[ -z "${SECRETS_FILE:-}" ] || how="${how} --secrets $(printf '%q' "$SECRETS_FILE")"
+[ -z "${BASELINE_DIR:-}" ] || how="${how} --baseline $(printf '%q' "$BASELINE_DIR")"
+run_tasks install "$(printf '%q' "$0") ${how}"
 log ""
 log "done: every task's check passed. The hub join printed by task 110 is the operator's next step."
 log "install log: ${INSTALL_LOG}"

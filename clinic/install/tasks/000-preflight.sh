@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 # Everything that can refuse, refuses here, before a machine is touched.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
@@ -163,6 +164,7 @@ for p in 8081 9443 9444 5433 8052 8083 9092; do
   fi
 done
 ok "ports 8081 9443 9444 5433 8052 8083 9092 free"
+want_br="${EXPECTED_BRANCH:-feat/bahmni-kraft}"
 br="$(git -C "${REPO_DIR}" branch --show-current 2>/dev/null || true)"
-[ "$br" = "feat/bahmni-kraft" ] && ok "checkout on feat/bahmni-kraft ($(git -C "${REPO_DIR}" rev-parse --short HEAD))" || fail "checkout is on '${br}', expected feat/bahmni-kraft"
+[ "$br" = "$want_br" ] && ok "checkout on ${want_br} ($(git -C "${REPO_DIR}" rev-parse --short HEAD))" || fail "checkout is on '${br}', expected ${want_br} (EXPECTED_BRANCH overrides, e.g. to install from a branch under test)"
 [ -d "${REPO_DIR}/clinic" ] && [ -d "${REPO_DIR}/sync" ] && [ -d "${REPO_DIR}/cloud" ] && ok "layout clinic/ cloud/ sync/ present" || fail "this checkout predates the Stage 4 layout (needs d386445 or newer)"

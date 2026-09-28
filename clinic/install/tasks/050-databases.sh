@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: both
 # Databases up, seeds restored, sync users created. Roles BEFORE restore so the
 # dumps' OWNER TO / GRANT lines resolve; sql_log_bin=0 so the restore is not
 # replayed to Kafka (the source connector starts later with snapshot no_data).

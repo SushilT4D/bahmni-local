@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: install
 # Images the stack needs before anything starts: pulled ones, the two built
 # locally, the OpenMRS fallback for podman, and the Connect plugin jars.
 set -euo pipefail

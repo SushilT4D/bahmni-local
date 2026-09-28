@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: seed
 # Business identifiers: MRN and accession numbers are NOT the sync key, so
 # striding does not protect them. OpenELIS and Odoo are set
 # here (node-local SQL). The registration prefix lives in a TRACKED config file

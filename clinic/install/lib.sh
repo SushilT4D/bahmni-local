@@ -425,3 +425,38 @@ versions_put(){
     env_put "$f" "$k" "$v"
   done < "${VERSIONS_FILE}"
 }
+
+# --- phases -------------------------------------------------------------------
+# A clinic is built in two sittings: install (operator, before the machine
+# ships: host, images, a disposable baseline, no sync) and seed (clinic staff,
+# on site: the hub's data replaces the baseline, sync starts). Each task file's
+# line 2 says which sitting runs it; a task that differs by sitting reads $PHASE.
+task_phase(){ # FILE -> install | seed | both
+  local p; p="$(sed -n '2s/^# phase: *//p' "$1")"
+  case "$p" in install|seed|both) printf '%s\n' "$p" ;; *) printf 'both\n' ;; esac
+}
+phase_runs(){ # PHASE TASK_PHASE
+  [ "$2" = both ] || [ "$1" = "$2" ]
+}
+run_tasks(){ # PHASE RESUME_HINT : every matching task in order; ONLY / FROM honoured
+  local phase="$1" hint="$2" t n num rc t0 dt
+  export PHASE="$phase"
+  for t in "${TASKS_DIR}"/[0-9]*-*.sh; do
+    n="$(basename "$t" .sh)"; num="${n%%-*}"
+    phase_runs "$phase" "$(task_phase "$t")" || continue
+    if [ -n "${ONLY:-}" ] && [ "$num" != "$ONLY" ]; then continue; fi
+    if [ -n "${FROM:-}" ] && [ "$num" -lt "$FROM" ]; then continue; fi
+    t0=$(date +%s); rc=0; bash "$t" || rc=$?; dt=$(( $(date +%s) - t0 ))
+    if [ "$rc" = 75 ] && [ "${_KRAFT_SG:-}" != 1 ] && command -v sg >/dev/null 2>&1; then
+      log "  ${n} ${dt}s rc=75: activating the docker group and continuing (no re-login needed)..."
+      export _KRAFT_SG=1
+      exec sg docker -c "${hint} --from ${num}"
+    fi
+    if [ "$rc" != 0 ]; then
+      log "  ${n} ${dt}s STOPPED rc=${rc}"
+      printf '\n  STOPPED at task %s. Fix what its FAIL (or FAILED rc=) line names, then resume with: %s --from %s\n  log: %s\n' "$n" "$hint" "$num" "${INSTALL_LOG:-}" >&2
+      exit 1
+    fi
+    log "  ${n} ${dt}s done"
+  done
+}

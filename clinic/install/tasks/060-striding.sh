@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: seed
 # Per-row ownership before the first application write: MySQL striding (server flags are
 # set; this moves the captured tables' AUTO_INCREMENT above their floors),
 # Postgres sequences at the residue (mandatory even though the dumps carry

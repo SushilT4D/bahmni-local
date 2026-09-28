@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: both
 # The application stack. odoo-connect is started LAST and only after its
 # atom-feed markers are parked at the head of each feed: the seed carries the
 # event_records that made Rawach replay ~303k events through the hub.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# phase: seed
 # The clinic's authority ends here. The hub side is the operator's, from the
 # workspace: skills/install-clinic.sh join <slug>. Printed, never executed.
 set -euo pipefail
