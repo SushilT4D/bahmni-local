@@ -422,6 +422,14 @@ mk_podman_shim(){
   export PATH="${INSTALL_DIR}/.bin:${PATH}"
 }
 check_eq(){ if [ "$2" = "$3" ]; then ok "$1 = $2"; else fail "$1: got '$2', want '$3'"; fi; }
+# topic_events TOPIC : the end offset of partition 0 on this node's broker. A
+# topic that does not exist yet (nothing written since a fresh seed) has 0
+# events; its failed lookup must not end a set -e task.
+topic_events(){
+  local n
+  n="$({ ct exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null || true; } | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
+  printf '%s\n' "${n:-0}"
+}
 # pull_image IMAGE ARCH : the native pull; on an arm64 host an image published
 # only for amd64 has no arm64 entry in its index, so the native pull fails every
 # time -- pull the amd64 image instead (it runs emulated, as preflight says).

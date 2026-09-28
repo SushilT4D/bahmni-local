@@ -169,8 +169,8 @@ else
     hub_has="$(ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --list 2>/dev/null | grep -cx "$offsets_topic" || true)"
     local_events=0
     for t in $up_topics; do
-      n="$(ct exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$t" 2>/dev/null | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
-      local_events=$(( local_events + ${n:-0} ))
+      n="$(topic_events "$t")"
+      local_events=$(( local_events + n ))
     done
     [ "${MM2_OFFSET_RESET_FORCE:-0}" = 1 ] && warn "MM2_OFFSET_RESET_FORCE=1: the hub's position for ${LOCAL_CLUSTER_ALIAS} is treated as a previous node's even though this node has mirrored ${local_events} event(s); MirrorMaker re-reads this node's topics from their first event"
     case "$(mm2_reset_needed "$twin_quiet" "$local_events" "${hub_has:-0}" "${MM2_OFFSET_RESET_FORCE:-0}")" in
