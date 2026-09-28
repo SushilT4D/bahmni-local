@@ -8,7 +8,7 @@ set -euo pipefail
 begin_task "05 · seed gate"
 refuse(){ printf '\n  >>> %s\n\n' "$1" >&2; fail "$1"; }
 st="$(stamp_get STATE)"
-v="$(stamp_gate_verdict "$st")" || refuse "$v"
+v="$(stamp_gate_verdict "$st" "$(stamp_get SYNC_STARTED)")" || refuse "$v"
 ok "machine state ${st}"
 v="$(seed_manifest_verdict "${SEED_DIR}" "$(date +%s)" "${SEED_MAX_AGE_DAYS:-6}")" || refuse "$v"
 taken="${v#ok }"
@@ -21,11 +21,13 @@ ok "${name} resolves to this machine (${ip})"
 setup_compose; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 if [ "$st" = INSTALLED ]; then
-  # rows created after install, above the marks install recorded
-  no="$(printf 'select count(*) from openmrs.person where person_id > %s' "$(stamp_get HWM_OPENMRS_PERSON)" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null || printf 0)"
-  nd="$(printf 'select count(*) from res_partner where id > %s' "$(stamp_get HWM_ODOO_PARTNER)" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null || printf 0)"
-  ne="$(printf 'select count(*) from clinlims.sample where id > %s' "$(stamp_get HWM_OPENELIS_SAMPLE)" | ct exec -i "$PG" psql -U postgres -d openelis -At 2>/dev/null || printf 0)"
-  v="$(early_data_verdict "${no:-0}" "${nd:-0}" "${ne:-0}" "${DISCARD:-0}")" || refuse "$v"
+  # rows created after install, above the marks install recorded; a missing
+  # mark or a database that does not answer yields no number, and the verdict
+  # then refuses rather than reading it as zero
+  no="$(printf 'select count(*) from openmrs.person where person_id > %s' "$(stamp_get HWM_OPENMRS_PERSON)" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null || true)"
+  nd="$(printf 'select count(*) from res_partner where id > %s' "$(stamp_get HWM_ODOO_PARTNER)" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null || true)"
+  ne="$(printf 'select count(*) from clinlims.sample where id > %s' "$(stamp_get HWM_OPENELIS_SAMPLE)" | ct exec -i "$PG" psql -U postgres -d openelis -At 2>/dev/null || true)"
+  v="$(early_data_verdict "$no" "$nd" "$ne" "${DISCARD:-0}")" || refuse "$v"
   case "$v" in discard*) warn "discarding what was entered before seeding: ${v#discard }" ;; *) ok "nothing was entered before seeding" ;; esac
 else
   ok "an earlier seed stopped part-way; it is redone from the start"

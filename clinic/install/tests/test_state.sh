@@ -31,7 +31,24 @@ mk "$(iso $((now - 7*86400)))"; expect "7-day-old dump refused" 1 "the dump is 7
 mk "$(iso $((now + 2*86400)))"; expect "future dump refused" 1 "the dump is dated in the future" seed_manifest_verdict "$S" "$now" 6
 mk "$(iso $((now - 3600)))"; printf 'x' | gzip >> "$S/odoo.sql.gz"
 expect "damaged dump refused" 1 "odoo.sql.gz does not match its checksum" seed_manifest_verdict "$S" "$now" 6
+# install never runs over a seeded machine (a --from resume would skip task 000
+# and stamp it INSTALLED again, re-opening it to a seed that drops live data)
+expect "install: fresh machine ok"        0 "ok" install_gate_verdict "" ""
+expect "install: INSTALLED ok (resume)"   0 "ok" install_gate_verdict INSTALLED ""
+expect "install: SEEDED refused"          1 "this machine is already seeded" install_gate_verdict SEEDED ""
+expect "install: SEEDING refused"         1 "this machine is being seeded" install_gate_verdict SEEDING ""
+expect "install: SEEDED --only 010 ok (re-point the name service)" 0 "ok" install_gate_verdict SEEDED 010
+# a seed that reached the sync layer cannot be redone by dropping databases
+expect "gate: SEEDING after sync started refused" 1 "this seed stopped after the sync layer had started" stamp_gate_verdict SEEDING 1
+# seed.sh --from/--only only resume a seed that stopped part-way, past the gate
+expect "resume: no flags ok"              0 "ok" seed_resume_verdict INSTALLED "" ""
+expect "resume: --from on INSTALLED refused" 1 "--from and --only only resume a seed that stopped part-way" seed_resume_verdict INSTALLED 050 ""
+expect "resume: --only on SEEDED refused" 1 "--from and --only only resume a seed that stopped part-way" seed_resume_verdict SEEDED "" 050
+expect "resume: --from 050 on SEEDING ok" 0 "ok" seed_resume_verdict SEEDING 050 ""
+expect "resume: --from 005 on SEEDING ok (the gate runs again)" 0 "ok" seed_resume_verdict SEEDING 005 ""
 # early data
+expect "a count that could not be read refuses" 1 "could not count the records entered before seeding" early_data_verdict "" 0 0 0
+expect "a non-numeric count refuses"      1 "could not count the records entered before seeding" early_data_verdict 0 "ERROR:" 0 0
 expect "nothing entered ok"         0 "ok"      early_data_verdict 0 0 0 0
 expect "patients entered refused"   1 "records were entered on this machine before seeding" early_data_verdict 3 0 1 0
 expect "patients entered, discard"  0 "discard" early_data_verdict 3 0 1 1

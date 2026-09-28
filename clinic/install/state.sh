@@ -10,15 +10,46 @@ stamp_put(){ # KEY VALUE
   env_put "${STATE_FILE}" "$1" "$2"
 }
 
-# stamp_gate_verdict STATE : the seed sitting runs once, after install.
-# SEEDING is allowed: an earlier seed stopped part-way and its databases hold
-# nothing anyone entered, so it is redone from the start.
+# install_gate_verdict STATE ONLY : install never runs over a seeded machine.
+# A resume (--from) skips the fresh-install check in task 000 and would stamp
+# the machine INSTALLED again, re-opening it to a seed that drops live data.
+# The one exception is re-running the host layer alone (--only 010), which
+# re-points the name service after the machine moved and touches no data.
+install_gate_verdict(){
+  case "${1:-}" in
+    SEEDED|SEEDING)
+      [ "${2:-}" = 010 ] && { printf 'ok\n'; return 0; }
+      if [ "$1" = SEEDED ]; then printf 'this machine is already seeded; install.sh would put it back to the baseline state. Only --only 010 (the name service) may run on it.\n'
+      else printf 'this machine is being seeded; install.sh would put it back to the baseline state. Finish or rerun the seed (seed.sh) instead.\n'; fi
+      return 1 ;;
+    *) printf 'ok\n' ;;
+  esac
+}
+
+# stamp_gate_verdict STATE [SYNC_STARTED] : the seed sitting runs once, after
+# install. SEEDING is allowed: an earlier seed stopped part-way and its
+# databases hold nothing anyone entered, so it is redone from the start --
+# unless it got as far as the sync layer, whose replication slots and
+# connector positions a database drop would leave pointing at nothing.
 stamp_gate_verdict(){
   case "${1:-}" in
-    INSTALLED|SEEDING) printf 'ok\n' ;;
+    SEEDING)
+      if [ "${2:-0}" = 1 ]; then printf 'this seed stopped after the sync layer had started; redoing it needs the operator (replication state must be cleared first). Call the operator.\n'; return 1; fi
+      printf 'ok\n' ;;
+    INSTALLED) printf 'ok\n' ;;
     SEEDED) printf 'this machine is already seeded; a clinic is seeded once. Call the operator.\n'; return 1 ;;
     *) printf 'this machine is not installed yet (no install state found); the operator runs install.sh first. Call the operator.\n'; return 1 ;;
   esac
+}
+
+# seed_resume_verdict STATE FROM ONLY : --from and --only skip tasks, the gate
+# (005) among them, so they may only resume a seed that already passed it and
+# stopped part-way (SEEDING).
+seed_resume_verdict(){
+  if [ -z "${2:-}" ] && [ -z "${3:-}" ]; then printf 'ok\n'; return 0; fi
+  [ "${1:-}" = SEEDING ] && { printf 'ok\n'; return 0; }
+  printf -- '--from and --only only resume a seed that stopped part-way; this machine is %s. Run seed.sh --seed <folder> without them.\n' "${1:-not installed}"
+  return 1
 }
 
 sha256_of(){ # FILE
@@ -58,7 +89,11 @@ seed_manifest_verdict(){
 # Nothing entered before seeding survives it, so the seed refuses rather than
 # silently discarding someone's work, unless told to.
 early_data_verdict(){
-  local o="$1" d="$2" e="$3" discard="$4" what
+  local o="$1" d="$2" e="$3" discard="$4" what n
+  # a count that could not be read is not zero: fail closed
+  for n in "$o" "$d" "$e"; do
+    case "$n" in ''|*[!0-9]*) printf 'could not count the records entered before seeding (a database is not answering yet); wait a few minutes and run the same command again. If it persists, call the operator.\n'; return 1 ;; esac
+  done
   what="OpenMRS people: ${o}, Odoo customers: ${d}, OpenELIS samples: ${e}"
   if [ "$o" = 0 ] && [ "$d" = 0 ] && [ "$e" = 0 ]; then printf 'ok\n'; return 0; fi
   if [ "$discard" = 1 ]; then printf 'discard %s\n' "$what"; return 0; fi

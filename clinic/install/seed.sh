@@ -29,6 +29,14 @@ E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "this machine is not installed yet (no clinic/.env); the operator runs install.sh first. Call the operator."
 set -a; . "$E"; . "${VERSIONS_FILE}"; set +a
 derive_identity "$CLINIC_SLUG" "$RESIDUE"
+# The machine state decides whether a seed may run at all, and --from/--only
+# (which skip the gate task) may only resume one that already passed it.
+. "${INSTALL_DIR}/state.sh"
+st="$(stamp_get STATE)"
+v="$(seed_resume_verdict "$st" "${FROM}" "${ONLY}")" || { printf '\n  >>> %s\n\n' "$v" >&2; fail "$v"; }
+if [ -n "${FROM}${ONLY}" ]; then
+  v="$(stamp_gate_verdict "$st" "$(stamp_get SYNC_STARTED)")" || { printf '\n  >>> %s\n\n' "$v" >&2; fail "$v"; }
+fi
 PLATFORM="$(detect_platform)"
 export SEED_DIR DISCARD ONLY FROM PLATFORM DRY CLINIC_DIR REPO_DIR LEDGER CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CERT_HOSTNAME LAN_NAME
 if [ "$DRY" = 1 ]; then INSTALL_LOG="${INSTALL_LOG:-${TMPDIR:-/tmp}/clinic-seed-${CLINIC_SLUG}.log}"; else INSTALL_LOG="${INSTALL_LOG:-${HOME}/clinic-seed-${CLINIC_SLUG}.log}"; fi

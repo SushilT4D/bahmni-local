@@ -7,6 +7,9 @@ set -euo pipefail
 begin_task "90 · local sync"
 [ "${DRY}" = 1 ] && { info "would: debezium profile up; generate+register source, retention, heartbeat, odoo/clinlims connectors, local sinks; setup-mirrormaker; mirrormaker-connect up"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
+# From here on a seed that stops cannot be redone by dropping databases: the
+# replication slots and connector positions would point at what was dropped.
+. "${INSTALL_DIR}/state.sh"; stamp_put SYNC_STARTED 1
 # kafka-ui is NOT in this first up: it is gated on kafka-connect's health, and
 # compose gives up on a slow Connect long before Connect does (manpur, 1 vCPU:
 # "dependency failed to start: container kafka-connect is unhealthy"). The wait

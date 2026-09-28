@@ -126,7 +126,7 @@ fi
 export INSTALL_LOG
 exec > >(tee -a "${INSTALL_LOG}") 2>&1
 if [ "${_INSTALL_LOG_STARTED:-0}" != 1 ]; then
-  gitsha="$(cd "${REPO_DIR}" && git rev-parse --short HEAD 2>/dev/null)"; gitsha="${gitsha:-unknown}"
+  gitsha="$(cd "${REPO_DIR}" && git rev-parse --short HEAD 2>/dev/null || true)"; gitsha="${gitsha:-unknown}"
   hdr="$(date -u +%Y-%m-%dT%H:%M:%SZ) clinic-install slug=${CLINIC_SLUG} platform=${PLATFORM} runtime=$(detect_runtime) sha=${gitsha}"
   [ -n "$FROM" ] && hdr="${hdr} --from ${FROM}"
   [ -n "$ONLY" ] && hdr="${hdr} --only ${ONLY}"
@@ -140,6 +140,10 @@ log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} platform=${PLATFOR
 log "  clinic dir: ${CLINIC_DIR}"
 log "  baseline:   ${BASELINE_DIR:-the pinned baseline images}"
 
+# never over a seeded machine, whatever --from says (a resume skips task 000's
+# fresh-install check and would stamp the machine INSTALLED again)
+. "${INSTALL_DIR}/state.sh"
+v="$(install_gate_verdict "$(stamp_get STATE)" "${ONLY}")" || fail "$v"
 if [ -n "$CLINIC" ]; then how="--clinic $(printf '%q' "$CLINIC")"; else how="--answers $(printf '%q' "$ANSWERS")"; fi
 [ -z "${SECRETS_FILE:-}" ] || how="${how} --secrets $(printf '%q' "$SECRETS_FILE")"
 [ -z "${BASELINE_DIR:-}" ] || how="${how} --baseline $(printf '%q' "$BASELINE_DIR")"

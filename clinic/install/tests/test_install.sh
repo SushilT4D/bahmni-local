@@ -95,4 +95,10 @@ assert_contains "no flag on a terminal: picks from the table" "$out" "which clin
 assert_contains "and installs it" "$out" "T:bahmni-azure"
 out="$(F bash "$I" --dry-run </dev/null 2>&1)"
 assert_contains "no flag and no terminal: says what is required" "$out" "--clinic <slug> or --answers <file> is required"
+# a seeded machine is never put back to the baseline, not even by a resume
+mkdir -p "$TMP/c2"; printf 'STATE=SEEDED\n' > "$TMP/c2/.install-state"
+out="$(CLINIC_DIR="$TMP/c2" VERSIONS_FILE="${HERE}/../../../sync/versions.env" TASKS_DIR="$TMP/tasks" LEDGER="$TMP/l" bash "$I" --answers "$TMP/answers.env" --from 010 --dry-run 2>&1)"; rc=$?
+assert_eq "install --from on a seeded machine refused (rc)" "$rc" "1"
+assert_contains "and says why" "$out" "this machine is already seeded"
+assert_eq "the stamp still says SEEDED" "$(cat "$TMP/c2/.install-state")" "STATE=SEEDED"
 exit "$fails"
