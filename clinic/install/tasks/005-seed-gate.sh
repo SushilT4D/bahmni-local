@@ -16,7 +16,7 @@ ok "seed taken ${taken} (limit ${SEED_MAX_AGE_DAYS:-6} days); three dumps match 
 v="$(seed_shape_verdict "${SEED_DIR}")" || refuse "$v"
 ok "${v#ok }"
 name="${LAN_NAME:-bahmni.clinic}"; ip="$(lan_ip)"
-v="$(lan_name_verdict "$(lan_resolve "$name")" "$ip" "$name")" || refuse "$v"
+v="$(lan_name_verdict "$(lan_resolve "$name" "$ip")" "$ip" "$name")" || refuse "$v"
 ok "${name} resolves to this machine (${ip})"
 setup_compose; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"

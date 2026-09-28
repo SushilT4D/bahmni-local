@@ -106,8 +106,8 @@ early_data_verdict(){
 # network, or onto another interface, keeps an answer that points elsewhere).
 lan_name_verdict(){
   local got="$1" ip="$2" name="$3"
-  [ -n "$got" ] || { printf '%s does not resolve on this machine: the name service installed with it is not answering. Call the operator.\n' "$name"; return 1; }
-  [ "$got" = "$ip" ] || { printf '%s resolves to %s, but this machine is %s: it was moved to another network or interface since install. Call the operator.\n' "$name" "$got" "$ip"; return 1; }
+  [ -n "$got" ] || { printf '%s does not resolve on this machine (asked at %s): the name service is not answering on this network. Call the operator; they re-point it with: clinic/install/install.sh --clinic <slug> --only 010\n' "$name" "${ip:-no address}"; return 1; }
+  [ "$got" = "$ip" ] || { printf '%s resolves to %s, but this machine is %s: it was moved to another network or interface since install. Call the operator; they re-point the name service with: clinic/install/install.sh --clinic <slug> --only 010\n' "$name" "$got" "$ip"; return 1; }
   printf 'ok\n'
 }
 

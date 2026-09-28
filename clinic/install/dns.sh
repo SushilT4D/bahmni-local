@@ -8,10 +8,20 @@
 # bash 3.2 compatible.
 DNS_UPSTREAMS="${DNS_UPSTREAMS:-1.1.1.1 8.8.8.8}"
 
-dnsmasq_conf(){ # NAME IFACE UPSTREAMS
+dnsmasq_conf(){ # NAME IFACE UPSTREAMS [linux|macos]
   local name="$1" ifc="$2" u
   printf '# rendered by the clinic installer\n'
-  printf 'interface=%s\nlisten-address=127.0.0.1\nbind-dynamic\nno-resolv\n' "$ifc"
+  if [ "${4:-linux}" = macos ]; then
+    # dnsmasq on macOS has no bind-dynamic: binding named interfaces there
+    # fixes the addresses present at start, so a lease that changes later is
+    # never served. A wildcard bind follows any address; local-service keeps
+    # it answering only hosts on this machine's own subnets.
+    printf 'local-service\nno-resolv\n'
+  else
+    # bind-dynamic follows address changes on Linux and leaves systemd-resolved's
+    # 127.0.0.53 alone
+    printf 'interface=%s\nlisten-address=127.0.0.1\nbind-dynamic\nno-resolv\n' "$ifc"
+  fi
   for u in $3; do printf 'server=%s\n' "$u"; done
   printf 'local=/%s/\ninterface-name=%s,%s\ninterface-name=odoo.%s,%s\n' "$name" "$name" "$ifc" "$name" "$ifc"
 }
@@ -24,8 +34,9 @@ lan_ip(){
   if [ "$(detect_platform)" = macos ]; then ipconfig getifaddr "$i" 2>/dev/null || true
   else ip -4 -o addr show dev "$i" 2>/dev/null | awk '{split($4,a,"/"); print a[1]; exit}'; fi
 }
-lan_resolve(){ # NAME -> first A record dnsmasq gives on this machine
-  { dig +short +time=2 +tries=1 "$1" A @127.0.0.1 2>/dev/null || true; } | grep -E '^[0-9.]+$' | head -1 || true
+lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
+  # Ask the machine's LAN address to see what clinic devices see.
+  { dig +short +time=2 +tries=1 "$1" A "@${2:-127.0.0.1}" 2>/dev/null || true; } | grep -E '^[0-9.]+$' | head -1 || true
 }
 
 dns_install_macos(){ # NAME
@@ -39,7 +50,7 @@ dns_install_macos(){ # NAME
   prefix="$(brew --prefix)"; d="${prefix}/etc/dnsmasq.d"
   mkdir -p "$d"
   grep -qxF "conf-dir=${d}/,*.conf" "${prefix}/etc/dnsmasq.conf" 2>/dev/null || printf 'conf-dir=%s/,*.conf\n' "$d" >> "${prefix}/etc/dnsmasq.conf"
-  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" > "${d}/bahmni-clinic.conf"
+  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" macos > "${d}/bahmni-clinic.conf"
   info "dnsmasq listens on port 53, which needs root: macOS asks for your password once"
   sudo brew services restart dnsmasq >/dev/null
   sudo mkdir -p /etc/resolver
@@ -75,7 +86,7 @@ dns_check(){ # NAME : both names answer with this machine's address
   [ "${DRY}" = 1 ] && { info "would: check ${name} and odoo.${name} resolve to this machine"; return 0; }
   ip="$(lan_ip)"
   for n in "$name" "odoo.${name}"; do
-    got="$(lan_resolve "$n")"
+    got="$(lan_resolve "$n" "$ip")"
     [ -n "$got" ] && [ "$got" = "$ip" ] && ok "${n} -> ${ip} (dnsmasq)" || fail "${n} resolves to '${got:-nothing}', want ${ip}: sudo dnsmasq --test; check that nothing else holds port 53 on 127.0.0.1"
   done
 }
