@@ -61,8 +61,9 @@ omrs_login(){ # USER PASS -> 0 if OpenMRS authenticates them
 }
 omrs_login "${OPENMRS_ATOMFEED_USER}" "${OPENMRS_ATOMFEED_PASSWORD}" && ok "OpenMRS accepts OPENMRS_ATOMFEED_USER" \
   || fail "OpenMRS refuses the OpenMRS feed user's password in clinic/.env: the hub's credential changed after install. Call the operator (they update OPENMRS_ATOMFEED_PASSWORD in clinic/.env; then run seed.sh again)"
-omrs_login "${OPENELIS_ATOMFEED_USER}" "${OPENELIS_ATOMFEED_PASSWORD}" && ok "OpenMRS accepts OPENELIS_ATOMFEED_USER" \
-  || fail "OpenMRS refuses the OpenELIS feed user's password in clinic/.env: the hub's credential changed after install. Call the operator (they update OPENELIS_ATOMFEED_PASSWORD in clinic/.env; then run seed.sh again)"
+# OPENELIS_ATOMFEED_* is an OpenELIS account (OpenMRS and odoo-connect log in
+# to OpenELIS with it to read its feeds); OpenELIS offers no plain login check,
+# so it is proven when those feeds run, not here.
 odoo_login_ok(){
   python3 - "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" <<'PY2' 2>/dev/null
 import sys, xmlrpc.client
