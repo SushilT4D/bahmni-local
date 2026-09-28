@@ -101,7 +101,10 @@ fi
 # memAvailable of 1157 MB, so memFree would have raised a false FAIL against the
 # 1024 MB floor every time.
 if [ -z "${disk:-}" ] || [ -z "${mem:-}" ]; then
-  if read -r d2 m2 <<< "$("$CT" info --format json 2>/dev/null | python3 -c '
+  # A docker CLI pointed at podman's socket answers `info` in Docker's shape,
+  # without these fields: ask podman itself whenever it is installed.
+  info_ct="$CT"; command -v podman >/dev/null 2>&1 && info_ct=podman
+  if read -r d2 m2 <<< "$("$info_ct" info --format json 2>/dev/null | python3 -c '
 import json,sys
 try: d=json.load(sys.stdin)
 except Exception: sys.exit(1)
@@ -113,7 +116,7 @@ print((alloc-used)//1048576, avail//1048576)
 ' 2>/dev/null)"; then
     [ -n "${d2:-}" ] && disk="$d2"
     [ -n "${m2:-}" ] && mem="$m2"
-    probe="${CT} info"
+    probe="${info_ct} info"
   fi
 fi
 # A probe that returns nothing must SAY so. Under rootless podman the nsenter

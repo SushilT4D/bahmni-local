@@ -155,4 +155,9 @@ rm -rf "$TMPD"
 [ -z "$calls" ] && ok_ "DRY=1: host_macos calls none of curl/mkdir/brew/podman/launchctl" || bad "DRY=1 still called: $calls"
 [ "$rc" -eq 0 ] && ok_ "DRY=1: host_macos exits 0" || bad "DRY=1 host_macos exits $rc: $out"
 
+# a docker CLI pointed at podman's socket answers `info` in Docker's shape,
+# without podman's store/memory fields: preflight's VM probe must ask podman
+PF="${HERE}/../../scripts/preflight.sh"
+grep -q 'info_ct=podman' "$PF" && ok_ "preflight measures the VM with podman info when podman is installed" || bad "preflight asks \$CT info, which a docker CLI answers without the VM numbers"
+
 exit "$fails"
