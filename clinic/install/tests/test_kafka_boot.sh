@@ -6,7 +6,17 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 C="$(cd "${HERE}/../.." && pwd)"
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
-docker info >/dev/null 2>&1 || { printf '  skip docker is not available here; this test needs a real docker\n'; exit 0; }
+# A daemon that is installed but not running can make `docker info` hang
+# rather than fail; wait for it on a named budget (DOCKER_PROBE_S).
+docker_answers(){
+  docker info >/dev/null 2>&1 & local p=$! i=0
+  while kill -0 "$p" 2>/dev/null; do
+    [ "$i" -ge "${DOCKER_PROBE_S:-15}" ] && { kill "$p" 2>/dev/null; return 1; }
+    sleep 1; i=$((i+1))
+  done
+  wait "$p"
+}
+docker_answers || { printf '  skip docker does not answer here within %ss; this test needs a real docker\n' "${DOCKER_PROBE_S:-15}"; exit 0; }
 TMP="$(mktemp -d)"; P=kboottest; CK=kboottest-kafka
 mkdir -p "$TMP/clinic" "$TMP/sync"
 cp "$C/.env.example" "$TMP/clinic/.env.example"; cp "$C/../sync/versions.env" "$TMP/sync/"
