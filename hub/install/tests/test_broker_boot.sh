@@ -9,11 +9,10 @@
 # install, against the real base network and real hub/.env).
 #
 # The compose file pins
-# container_name: kafka / kafka-controller -- fixed names, not namespaced by
-# -p hubtest -- and this Mac runs a real bahmni-local clinic stack under
-# exactly those names on 127.0.0.1:9092/9093, so the happy path never ran.
-# boot-override.yml (this directory) renames the two boot containers to
-# hubtest-kafka / hubtest-kafka-controller and resets kafka's published ports
+# container_name: kafka -- a fixed name, not namespaced by -p hubtest -- and a
+# host may run a real stack under that name, so the happy path would never run.
+# boot-override.yml (this directory) renames the node's container to
+# hubtest-kafka and resets kafka's published ports
 # to nothing, so this test now runs its real happy path beside that stack
 # instead of skipping around it. Only docker-level identifiers (exec/inspect/
 # logs) use the renamed names -- compose service names, hostnames and every
@@ -47,7 +46,6 @@ PROJ=hubtest
 COMPOSE_F="${HUB_DIR}/docker-compose.yml"
 OVERRIDE_F="${HERE}/boot-override.yml"
 CKAFKA=hubtest-kafka
-CCTRL=hubtest-kafka-controller
 tmp_env="${TMP_ROOT}/broker-boot.env"
 up_log="${TMP_ROOT}/broker-boot-up.log"
 jaas_path="${HUB_DIR}/kafka_server_jaas.conf"
@@ -65,7 +63,7 @@ trap cleanup EXIT
 if docker network create "$NET" >/dev/null 2>&1; then ok "throwaway network ${NET} created"; else bad "could not create network ${NET}"; fi
 
 # The image pins compose needs to INTERPOLATE the file (every service's
-# ${VAR:?} is resolved even though only kafka-controller/kafka are started)
+# ${VAR:?} is resolved even though only kafka is started)
 # plus the cluster id and the throwaway network -- nothing else in hub/.env
 # is referenced by docker-compose.yml itself, EXCEPT kafka-ui's
 # KAFKA_UI_USER/KAFKA_UI_PASSWORD: compose interpolates the WHOLE
@@ -96,8 +94,8 @@ ok "temp .env written with the fleet's image pins + cluster id ${CID} + network 
 write_jaas "$jaas_path" testadmin testfleet
 ok "temp JAAS written at ${jaas_path} (a throwaway copy; the real hub/kafka_server_jaas.conf is never written)"
 
-if dc up -d kafka-controller kafka >"$up_log" 2>&1; then
-  ok "docker compose up -d kafka-controller kafka (containers ${CCTRL}, ${CKAFKA})"
+if dc up -d kafka >"$up_log" 2>&1; then
+  ok "docker compose up -d kafka (container ${CKAFKA})"
 else
   bad "docker compose up failed: $(tail -5 "$up_log" | tr '\n' ' ')"
 fi
@@ -111,6 +109,8 @@ if [ "$answered" = 1 ]; then
   ok "broker answers kafka-broker-api-versions on kafka:29092 within 120s"
   got="$(docker exec "$CKAFKA" cat /var/lib/kafka/data/meta.properties 2>/dev/null | sed -n 's/^cluster.id=//p' || true)"
   [ "$got" = "$CID" ] && ok "meta.properties cluster.id matches the generated ${CID}" || bad "meta.properties cluster.id='${got}' want '${CID}'"
+  mv="$(docker exec "$CKAFKA" kafka-features --bootstrap-server kafka:29092 describe 2>/dev/null | grep 'metadata.version' | sed -nE 's/.*FinalizedVersionLevel:[[:space:]]*([^[:space:]]+).*/\1/p')"
+  [ -n "$mv" ] && ok "metadata.version finalized at ${mv} (the controller role is live)" || bad "metadata.version not finalized: the controller role did not come up"
 else
   bad "broker did not answer kafka-broker-api-versions on kafka:29092 within 120s -- $(docker logs --tail 30 "$CKAFKA" 2>&1 | tr '\n' ' ')"
 fi

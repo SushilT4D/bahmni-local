@@ -48,16 +48,16 @@
 #      The real hub/.env's checksum is asserted unchanged at the end.
 #
 # HOW IT RUNS BESIDE A REAL STACK. hub/docker-compose.yml pins fixed
-# container_names (kafka, kafka-controller, schema-registry, kafka-connect,
+# container_names (kafka, kafka-connect,
 # kafka-ui) and this host already runs a real bahmni-local clinic stack under
-# exactly those names, on 127.0.0.1:9092/8082/8083/8086. boot-override.yml +
+# exactly those names, on 127.0.0.1:9092/8083/8086. boot-override.yml +
 # source-override.yml rename every one of them to hubtest-* and republish their
-# ports (19092/18082/18083/18080); the overrides reach the task scripts through
+# ports (19092/18083/18080); the overrides reach the task scripts through
 # COMPOSE_FILE, which lib.sh's own compose() helper honours without knowing
 # anything about them. The tasks address the renamed containers and ports
 # through the documented ambient overrides -- KAFKA_CONTAINER,
-# HUB_CONNECT_URL_OVERRIDE, HUB_SCHEMA_REGISTRY_URL_OVERRIDE,
-# HUB_KAFKA_UI_URL_OVERRIDE, SASL_LISTENER_PORT, HUB_MIN_DISK_GB,
+# HUB_CONNECT_URL_OVERRIDE, HUB_KAFKA_UI_URL_OVERRIDE (with HUB_KAFKA_UI=1),
+# SASL_LISTENER_PORT, HUB_MIN_DISK_GB,
 # HUB_EXIT_CHECKS_SKIP_GIT -- so this is the real, unmodified production code
 # path, just addressed by different names. It never touches the real
 # containers.
@@ -111,9 +111,7 @@ ELIS_C=hubtest-src-elis
 # explicitly for exactly this asymmetric shape.
 PG_SUPERUSER=odoo
 ELIS_SUPERUSER=postgres
-CTRL_C=hubtest-kafka-controller
 KAFKA_C=hubtest-kafka
-SR_C=hubtest-schema-registry
 CONNECT_C=hubtest-kafka-connect
 UI_C=hubtest-kafka-ui
 PROJ=hubtest-src
@@ -151,13 +149,13 @@ cleanup(){
   if [ "${fails:-0}" -gt 0 ]; then
     printf '\n  -- run failed (%s failure(s)): last 60 log lines per hubtest container, before teardown --\n' "$fails" >&2
     if [ -f "$env_path" ]; then set -a; . "$env_path" 2>/dev/null; set +a; fi
-    for c in "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C" "$MY_C" "$PG_C" "$ELIS_C"; do
+    for c in "$KAFKA_C" "$CONNECT_C" "$UI_C" "$MY_C" "$PG_C" "$ELIS_C"; do
       printf '\n  --- docker logs --tail 60 %s ---\n' "$c" >&2
       ct logs --tail 60 "$c" 2>&1 | mask_env_secrets $HUB_KEYS | sed 's/^/    /' >&2
     done
   fi
   [ -f "$env_path" ] && dc down -v >/dev/null 2>&1 || true
-  for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
+  for c in "$MY_C" "$PG_C" "$ELIS_C" "$KAFKA_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
   ct network rm "$NET" >/dev/null 2>&1 || true
   # The whole throwaway tree, secrets and rendered configs included. Nothing
   # under the real hub/ was ever written, so there is nothing to restore.
@@ -171,9 +169,9 @@ trap cleanup EXIT
 # creating anything new so a stale run never collides with this one. Temp
 # FILES need no such sweep any more: every one this run creates lives under
 # $TMP_ROOT, which nothing else shares.
-for c in "$MY_C" "$PG_C" "$ELIS_C" "$CTRL_C" "$KAFKA_C" "$SR_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
+for c in "$MY_C" "$PG_C" "$ELIS_C" "$KAFKA_C" "$CONNECT_C" "$UI_C"; do ct rm -f -v "$c" >/dev/null 2>&1 || true; done
 ct network rm "$NET" >/dev/null 2>&1 || true
-docker volume rm -f "${PROJ}_kafka-data" "${PROJ}_kafka-controller-data" "${PROJ}_connect-data" >/dev/null 2>&1 || true
+docker volume rm -f "${PROJ}_kafka-data" "${PROJ}_connect-data" >/dev/null 2>&1 || true
 ok "pre-run cleanup: no leftover hubtest-* containers, network or volumes"
 
 ct network create "$NET" >/dev/null 2>&1 && ok "throwaway network ${NET} created" || { bad "could not create network ${NET}"; printf '%s\n' "$fails failure(s)"; exit 1; }
@@ -328,7 +326,7 @@ export COMPOSE_PROJECT_NAME="$PROJ"
 export HUB_ENV="$tmp_hubenv"
 export KAFKA_CONTAINER="$KAFKA_C"
 export HUB_CONNECT_URL_OVERRIDE="http://127.0.0.1:18083"
-export HUB_SCHEMA_REGISTRY_URL_OVERRIDE="http://127.0.0.1:18082"
+export HUB_KAFKA_UI=1
 export HUB_KAFKA_UI_URL_OVERRIDE="http://127.0.0.1:18080"
 export SASL_LISTENER_PORT=19092
 export KAFKA_SASL_BIND=127.0.0.1
@@ -339,7 +337,7 @@ export HUB_MIN_DISK_GB=1
 # what either check is proving).
 export HUB_MIN_IMAGE_DISK_GB=1
 export HUB_EXIT_CHECKS_SKIP_GIT=1
-ok "overrides exported: COMPOSE_FILE(3 files), project ${PROJ}, KAFKA_CONTAINER=${KAFKA_C}, connect 18083, registry 18082, kafka-ui 18080, SASL 19092, KAFKA_SASL_BIND=127.0.0.1, HUB_MIN_DISK_GB=1, HUB_MIN_IMAGE_DISK_GB=1"
+ok "overrides exported: COMPOSE_FILE(3 files), project ${PROJ}, KAFKA_CONTAINER=${KAFKA_C}, connect 18083, kafka-ui 18080 (HUB_KAFKA_UI=1), SASL 19092, KAFKA_SASL_BIND=127.0.0.1, HUB_MIN_DISK_GB=1, HUB_MIN_IMAGE_DISK_GB=1"
 
 INSTALL="${REPO_DIR}/hub/install/install.sh"
 run_installer(){ # LABEL -> prints the run's output, sets RC
@@ -421,7 +419,7 @@ assert_line "task 060 ran"                                 "60 · kafka"
 assert_line "060 matched the cluster id"                   "cluster id ="
 assert_line "060 read the published 9092 binding back"     "clinic-facing 9092 published on 127.0.0.1:19092"
 assert_line "060 proved SASL on the published port"        "SASL listener answers on the published 19092 as mirrormaker"
-assert_line "060 proved schema registry serves"            "schema registry answers on http://127.0.0.1:18082/subjects"
+assert_line "060 proved the controller role is live"       "the controller role is live"
 assert_line "task 070 ran"                                 "70 · kafka connect"
 assert_line "070 resolved all three plugin classes"        "connect plugins: MySql, Postgres, JdbcSink"
 assert_line "070 proved kafka-ui's login page answers"     "kafka-ui login page answers on http://127.0.0.1:18080"

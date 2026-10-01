@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$HERE/../.." &
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 V="$REPO/sync/versions.env"
 [ -f "$V" ] && ok "versions.env exists" || bad "sync/versions.env missing"
-for k in KAFKA_IMAGE SCHEMA_REGISTRY_IMAGE MM2_IMAGE DEBEZIUM_CONNECT_IMAGE DEBEZIUM_SCRIPTING_VERSION GROOVY_VERSION OPENMRS_IMAGE_NAME MYSQL_IMAGE POSTGRES_IMAGE ODOO_IMAGE_NAME ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG; do
+for k in KAFKA_IMAGE MM2_IMAGE DEBEZIUM_CONNECT_IMAGE DEBEZIUM_SCRIPTING_VERSION GROOVY_VERSION OPENMRS_IMAGE_NAME MYSQL_IMAGE POSTGRES_IMAGE ODOO_IMAGE_NAME ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG; do
   grep -qE "^${k}=." "$V" && ok "key $k" || bad "key $k missing from versions.env"
 done
 # the exact pins the spec (§10.2) fixes -- value must match exactly, but the
@@ -16,7 +16,7 @@ grep -qE '^DEBEZIUM_CONNECT_IMAGE=quay\.io/debezium/connect:3\.6\.2\.Final([[:sp
 grep -qE '^OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1\.2\.0-1200-03([[:space:]]|$)' "$V" && ok "openmrs 1.2.0" || bad "OPENMRS_IMAGE_NAME is not iplit-1.2.0-1200-03"
 # no literal tag for these images in either compose file (comments excluded)
 for f in clinic/docker-compose.yml clinic/docker-compose.override.yml hub/docker-compose.yml; do
-  hits="$(grep -nE '^\s*image:' "$REPO/$f" | grep -E 'cp-kafka:|cp-kafka-connect:|cp-schema-registry:|debezium/connect:|mysql:[0-9]|postgres:[0-9]|odoo-1[06]:|odoo-connect:|openmrs:iplit' | grep -vE '\$\{' || true)"
+  hits="$(grep -nE '^\s*image:' "$REPO/$f" | grep -E 'cp-kafka:|cp-kafka-connect:|debezium/connect:|mysql:[0-9]|postgres:[0-9]|odoo-1[06]:|odoo-connect:|openmrs:iplit' | grep -vE '\$\{' || true)"
   [ -z "$hits" ] && ok "$f has no literal pins" || bad "$f still carries literal pins: $hits"
 done
 # Compose resolves to the pinned images when versions.env is the environment.

@@ -1,6 +1,6 @@
 # Compose override for test_sources.sh ONLY -- layered on TOP of
-# boot-override.yml (kafka/kafka-controller renamed to hubtest-kafka/
-# hubtest-kafka-controller, kafka's host ports reset). This file adds the
+# boot-override.yml (kafka renamed to hubtest-kafka, its host ports
+# reset). This file adds the
 # third and last container test_sources.sh needs: a throwaway Kafka Connect,
 # renamed the same way and for the same reason (hub/docker-compose.yml pins
 # container_name: kafka-connect, and this Mac already runs a real one).
@@ -14,23 +14,12 @@
 # ports key at all) -- so a real replacement value needs `!override`, not
 # `!reset`.
 #
-# `depends_on: !override` replaces the base file's map wholesale, dropping
-# the schema-registry dependency entirely rather than merely leaving it
-# unmentioned (compose's default map merge is key-by-key, which would keep
-# schema-registry's entry untouched, and a container literally named
-# schema-registry collides with the real stack the same way kafka-connect
-# does). Nothing test_sources.sh proves needs schema-registry: every
-# converter in play, on kafka-connect itself and on all three registered
-# connectors, is JsonConverter -- schema-registry exists in
-# hub/docker-compose.yml only because a later Avro/Confluent-format connector
-# might want it, not because anything here does.
-#
 # Service name inside the compose network stays "kafka-connect" (container_name
 # is a docker-level identifier only), so BOOTSTRAP_SERVERS: kafka:29092 and
 # every ${REMOTE_SERVER_NAME}-prefixed connector config needs no change here.
 #
 # KAFKA_HEAP_OPTS: same trim and same reasoning as boot-
-# override.yml's kafka/kafka-controller -- a map key, merges additively into
+# override.yml's kafka -- a map key, merges additively into
 # the base file's `environment` map. Three connectors and a handful of test
 # rows are nowhere near what the Debezium Connect image's own default heap
 # assumes.
@@ -41,17 +30,7 @@
 # the end of the install (sasl_listener_ok, hub/install/lib.sh), so this
 # layer republishes just the SASL port -- on 19092, never the real 9092 --
 # and test_sources.sh exports SASL_LISTENER_PORT=19092 to match before
-# running 090. 9093 (the base file's other kafka mapping) is not needed by
-# anything here and stays unpublished.
-#
-# schema-registry: task 060 brings it up for real
-# now that the live smoke runs the INSTALLER rather than a hand-picked pair of
-# tasks, so it needs the same treatment as every other service here -- renamed
-# (this Mac already runs a real container called schema-registry) and
-# republished on 18082 instead of the base file's own 127.0.0.1:8082, which
-# that real one already holds. 060 dials it through
-# HUB_SCHEMA_REGISTRY_URL_OVERRIDE. The heap trim is the same reasoning as
-# kafka's above: nothing here stores a single Avro schema.
+# running 090.
 #
 # kafka-ui: the only real proof that its login is on -- a throwaway
 # instance, renamed and republished on 18080 rather than the real 8080, so
@@ -65,17 +44,8 @@ services:
   kafka:
     ports: !override
       - '127.0.0.1:19092:9092'
-  schema-registry:
-    container_name: hubtest-schema-registry
-    ports: !override
-      - '127.0.0.1:18082:8081'
-    environment:
-      SCHEMA_REGISTRY_HEAP_OPTS: "-Xms256m -Xmx512m"
   kafka-connect:
     container_name: hubtest-kafka-connect
-    depends_on: !override
-      kafka:
-        condition: service_healthy
     ports: !override
       - '127.0.0.1:18083:8083'
     environment:

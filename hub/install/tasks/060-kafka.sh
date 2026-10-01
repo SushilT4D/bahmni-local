@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Boots the KRaft controller + broker + Schema Registry, then proves two
+# Boots the Kafka node (broker and controller in one), then proves two
 # things a green `compose up` does not: the broker actually answers with the
 # cluster id hub/.env expects, and the SASL_PLAINTEXT listener published for
 # remote clinics authenticates the mirrormaker user. That SASL check runs from
@@ -11,13 +11,13 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · kafka"
-[ "${DRY}" = 1 ] && { info "would: compose up -d kafka-controller kafka schema-registry; wait for the broker on kafka:29092; check cluster id; read back which host interface port 9092 is published on and compare it with hub/.env's KAFKA_SASL_BIND; prove the SASL listener on the published 9092 from the host network; check schema registry on :8082"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: compose up -d kafka; wait for the broker on kafka:29092; check its controller role is live (metadata.version finalized); check cluster id; read back which host interface port 9092 is published on and compare it with hub/.env's KAFKA_SASL_BIND; prove the SASL listener on the published 9092 from the host network"; exit 0; }
 setup_compose
 [ -f "${HUB_DIR}/.env" ] || fail "${HUB_DIR}/.env not found -- run install.sh, which composes it"
 # shellcheck disable=SC1091
 set -a; . "${HUB_DIR}/.env"; set +a
 
-compose up -d kafka-controller kafka schema-registry >/dev/null
+compose up -d kafka >/dev/null
 
 # $KAFKA_CONTAINER, never a literal `kafka`: the
 # name is "kafka" in production -- hub/docker-compose.yml pins that exact
@@ -33,6 +33,11 @@ for i in $(seq 1 60); do
 done
 [ "$answered" = 1 ] || fail "broker did not answer kafka-broker-api-versions --bootstrap-server kafka:29092 within 300s"
 ok "broker answers on kafka:29092"
+
+# A broker can answer while its controller role never came up; a finalized
+# metadata.version exists only once the node's own quorum elected it.
+mv="$(ct exec "$KAFKA_CONTAINER" kafka-features --bootstrap-server kafka:29092 describe 2>/dev/null | grep 'metadata.version' | sed -nE 's/.*FinalizedVersionLevel:[[:space:]]*([^[:space:]]+).*/\1/p' || true)"
+[ -n "$mv" ] && ok "metadata.version finalized at ${mv} (the controller role is live)" || fail "kafka answers but metadata.version is not finalized: its controller role did not come up -- ${CT} logs ${KAFKA_CONTAINER} | grep -i -E 'raft|controller'"
 
 cid="$(ct exec "$KAFKA_CONTAINER" cat /var/lib/kafka/data/meta.properties 2>/dev/null | sed -n 's/^cluster.id=//p' || true)"
 check_eq "cluster id" "$cid" "$KAFKA_CLUSTER_ID"
@@ -57,15 +62,3 @@ fi
 reason="$(sasl_listener_ok)" \
   && ok "SASL listener answers on the published ${SASL_LISTENER_PORT:-9092} as mirrormaker (advertised as ${REMOTE_KAFKA_HOST})" \
   || fail "${reason} -- check kafka_server_jaas.conf and REMOTE_KAFKA_PASSWORD"
-
-# HUB_SCHEMA_REGISTRY_URL_OVERRIDE: the same class of test-only override as
-# KAFKA_CONTAINER and SASL_LISTENER_PORT -- the
-# live smoke republishes the registry on a throwaway host port, because this
-# host may already run a real one bound to 8082. Production never sets it.
-SR_URL="${HUB_SCHEMA_REGISTRY_URL_OVERRIDE:-http://localhost:8082}"
-answered=0
-for i in $(seq 1 60); do
-  curl -sf --max-time 5 "${SR_URL}/subjects" >/dev/null 2>&1 && { answered=1; break; }
-  sleep 5
-done
-[ "$answered" = 1 ] && ok "schema registry answers on ${SR_URL}/subjects" || fail "schema registry did not answer at ${SR_URL}/subjects within 300s"

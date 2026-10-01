@@ -1,6 +1,7 @@
 # hub/
 
-The sync layer (Kafka, Schema Registry, Kafka Connect, kafka-ui) as its own
+The sync layer (one Kafka node holding both KRaft roles, Kafka Connect, and
+kafka-ui on request) as its own
 compose project, split out of `cloud/` so one hub can serve several clinics.
 This file replaces the sync half of `cloud/README.md` -- `cloud/` is the base
 Bahmni application stack (OpenMRS/Odoo/OpenELIS); everything about the sync
@@ -118,8 +119,8 @@ Add `KAFKA_SASL_BIND=127.0.0.1` for a lab hub whose 9092 is fronted by
 
 ## The clinic-facing listener: 9092 is public by default
 
-The broker publishes two ports. `9093` (the KRaft controller) is bound to
-`127.0.0.1` and stays that way. `9092` -- the SASL_PLAINTEXT listener every
+The broker publishes one port. `9093` is the controller listener inside the
+container and is not published at all. `9092` -- the SASL_PLAINTEXT listener every
 clinic's MirrorMaker dials -- is published on **`KAFKA_SASL_BIND`, which
 defaults to `0.0.0.0`**: a hub exists to be dialled, and a hub bound to
 loopback is a hub no clinic can reach.
@@ -206,8 +207,8 @@ Each task is idempotent, ends with a value read back from the live system
 | `030-jaas` | `kafka_server_jaas.conf` is generated (never hand-written or committed) with the admin and mirrormaker users, mode 600; `hub/connectors/` exists. |
 | `040-images` | Every image `docker compose config --images` names is present locally. |
 | `050-base-db` | The MySQL sink+debezium accounts and the Postgres `odoo_sink`/`clinlims_sink` roles exist, are granted, and authenticate over the network; the two ownership publications are converged from `sync/subsystems.conf`; a heartbeat table exists in both databases; sequence striding holds; no `hub_%` replication origin exists on either Postgres instance.; the base's source roles (`odoo`, `clinlims`) are granted REPLICATION and read back |
-| `060-kafka` | The KRaft controller + broker + Schema Registry come up; the broker's cluster id matches; port 9092 is published on the declared `KAFKA_SASL_BIND` (read back from the container); the published SASL_PLAINTEXT listener authenticates the mirrormaker user; Schema Registry answers. |
-| `070-connect` | Kafka Connect comes up with all three plugin classes (MySQL source, Postgres source, JDBC sink) resolved; kafka-ui comes up behind a real login -- the login page answers, an unauthenticated API call is refused, and `KAFKA_UI_USER`/`KAFKA_UI_PASSWORD` actually log in and read the cluster back. |
+| `060-kafka` | The Kafka node (broker and controller in one) comes up; its controller role is live (`metadata.version` finalized); the broker's cluster id matches; port 9092 is published on the declared `KAFKA_SASL_BIND` (read back from the container); the published SASL_PLAINTEXT listener authenticates the mirrormaker user. |
+| `070-connect` | Kafka Connect comes up with all three plugin classes (MySQL source, Postgres source, JDBC sink) resolved; with `HUB_KAFKA_UI=1` (it is not started otherwise), kafka-ui comes up behind a real login -- the login page answers, an unauthenticated API call is refused, and `KAFKA_UI_USER`/`KAFKA_UI_PASSWORD` actually log in and read the cluster back. |
 | `080-sources` | The base MySQL is fit for Debezium 3.6.2 (major version 8+); the down-direction MySQL source and the two up-direction Postgres relay sources are registered, all RUNNING (connector and every task); both down-direction replication slots are active; schema-history retention is `-1`; the heartbeat keys are present in both Postgres sources' configs. |
 | `085-base-fixes` | Three fixes to the BASE stack's own files (outside this checkout, under `BASE_DIR` -- an ambient override, required, same class as `KAFKA_CONTAINER`; e.g. `/home/bahmni-hub/iplit-base`), each idempotent: a login-stopgap `RewriteCond`/`RewriteRule` block inserted into the base's `proxy-config/bahmni-proxy.conf` (recognised by its own pattern on a rerun, backed up once as `.bak-pre-login-stopgap`), proven with the proxy container's own config test (`httpd -t`/`apachectl -t`) and reloaded gracefully; the clinic's quieter `clinic/odoo/logback-erp-connect.xml` mounted onto `odoo-connect` through the base's `docker-compose.override.yml` (backed up once as `.bak-pre-override`), proven with `docker compose config -q`, recreating only that one service when its mounts do not already carry the file; and an InnoDB buffer-pool and redo-log file for the base MySQL, sized from the host's memory and mounted the same way. |
 | `090-exit-checks` | Everything above still holds, read fresh: disk free under the broker's own data volume; every connector and task still RUNNING; both replication slots retain under 2 GB; 9092 is still published on the declared bind and the SASL listener still answers; `hub/.env` and the JAAS file are still mode 600; nothing under `hub/` is dirty in git (edits elsewhere in the checkout are named, not failed -- a hub host legitimately carries its own base-stack changes). It also prints the base OpenMRS `event_records` count, informationally. |

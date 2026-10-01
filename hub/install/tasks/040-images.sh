@@ -16,7 +16,7 @@ setup_compose
 
 # Pull every image compose resolves. compose runs in HUB_DIR (lib.sh's
 # CLINIC_DIR override), so docker/podman compose auto-loads hub/.env for the
-# ${KAFKA_IMAGE}/${SCHEMA_REGISTRY_IMAGE}/${DEBEZIUM_CONNECT_IMAGE} pins --
+# ${KAFKA_IMAGE}/${DEBEZIUM_CONNECT_IMAGE} pins --
 # never a literal tag here. Per-image pull (not `compose pull`, which is
 # all-or-nothing) skips what is already present and retries a transient
 # failure a few times before giving up on that one image.

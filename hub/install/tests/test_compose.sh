@@ -3,7 +3,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; HUB="$(cd "$HERE/../.." && pwd)"; fails=0
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 [ -f "$HUB/docker-compose.yml" ] && ok "hub compose exists" || bad "hub/docker-compose.yml missing"
-# KAFKA_IMAGE, SCHEMA_REGISTRY_IMAGE and DEBEZIUM_CONNECT_IMAGE are fleet pins
+# KAFKA_IMAGE and DEBEZIUM_CONNECT_IMAGE are fleet pins
 # (sync/versions.env) the example does not carry -- hub_compose_env's
 # versions_put writes them at render time (hub/install/lib.sh), not this file.
 # KAFKA_SASL_BIND is given a REAL value rather than the placeholder "x" every
@@ -12,12 +12,25 @@ ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((f
 # ports line is `${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092` now, not a pinned
 # 127.0.0.1). `env` applies assignments in order, so this one wins over the
 # generated placeholder ahead of it.
-hubcfg(){ local bind="$1"; shift; env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') $(grep -oE '^[A-Z_]+=[^ ]*' "$HUB/../sync/versions.env" | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet KAFKA_SASL_BIND="$bind" docker compose -f "$HUB/docker-compose.yml" config "$@"; }
+hubcfg(){ local bind="$1"; shift; env $(grep -oE '^[A-Z_]+=' "$HUB/.env.example" | sed 's/=$/=x/' | tr '\n' ' ') $(grep -oE '^[A-Z_]+=[^ ]*' "$HUB/../sync/versions.env" | tr '\n' ' ') KAFKA_BASE_NETWORK=testnet KAFKA_SASL_BIND="$bind" docker compose -f "$HUB/docker-compose.yml" --profile ui config "$@"; }
 hubcfg 0.0.0.0 >/tmp/hubcfg.yml 2>/tmp/hubcfg.err \
   && ok "hub compose validates with the example keys" || { bad "hub compose does not validate: $(head -3 /tmp/hubcfg.err)"; }
-for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  ${s}:" /tmp/hubcfg.yml && ok "service $s" || bad "service $s missing"; done
+for s in kafka kafka-connect; do grep -qE "^  ${s}:" /tmp/hubcfg.yml && ok "service $s" || bad "service $s missing"; done
+cfg="$(hubcfg 0.0.0.0 --format json 2>/dev/null)"
+for s in kafka-controller schema-registry; do printf '%s' "$cfg" | jq -e --arg s "$s" '.services | has($s)' >/dev/null && bad "hub still declares $s" || ok "no $s service"; done
+kenv="$(printf '%s' "$cfg" | jq -r '.services.kafka.environment')"
+[ "$(printf '%s' "$kenv" | jq -r '.KAFKA_PROCESS_ROLES')" = "broker,controller" ] && ok "kafka holds both roles" || bad "kafka roles: $(printf '%s' "$kenv" | jq -r '.KAFKA_PROCESS_ROLES')"
+[ "$(printf '%s' "$kenv" | jq -r '.KAFKA_CONTROLLER_QUORUM_VOTERS')" = "1@kafka:9093" ] && ok "kafka votes for itself" || bad "voters: $(printf '%s' "$kenv" | jq -r '.KAFKA_CONTROLLER_QUORUM_VOTERS')"
+printf '%s' "$kenv" | jq -r '.KAFKA_LISTENERS' | grep -q 'CONTROLLER://0.0.0.0:9093' && ok "controller listener declared" || bad "no CONTROLLER listener"
+printf '%s' "$kenv" | jq -r '.KAFKA_ADVERTISED_LISTENERS' | grep -q CONTROLLER && bad "controller listener advertised" || ok "controller listener not advertised"
+[ "$(printf '%s' "$kenv" | jq -r '.KAFKA_HEAP_OPTS')" = "-Xms512m -Xmx1g" ] && ok "kafka heap stated (1 GiB)" || bad "kafka heap: $(printf '%s' "$kenv" | jq -r '.KAFKA_HEAP_OPTS')"
+[ "$(printf '%s' "$cfg" | jq -r '.services["kafka-connect"].environment.HEAP_OPTS')" = "-Xms256m -Xmx1g" ] && ok "connect heap stated (1 GiB)" || bad "connect heap not stated"
+printf '%s' "$cfg" | jq -e '.volumes | has("kafka-controller-data")' >/dev/null && bad "controller volume still declared" || ok "no controller volume"
+awk '/^  kafka-ui:/{f=1} f' "$HUB/docker-compose.yml" | head -6 | grep -qE '^    profiles: \[ "ui" \]' && ok "kafka-ui only on request (profile ui)" || bad "kafka-ui starts by default"
+left="$(git -C "$HUB/.." grep -il 'kafka-controller\|schema-registry\|SCHEMAREGISTRY' -- hub ':!*.md' ':!hub/install/tests/test_compose.sh' 2>/dev/null)"
+[ -z "$left" ] && ok "nothing under hub/ names the controller or a registry" || bad "still named in: $(printf '%s' "$left" | tr '\n' ' ')"
 grep -qE 'name: testnet' /tmp/hubcfg.yml && grep -qE 'external: true' /tmp/hubcfg.yml && ok "attaches to the base network" || bad "external network not declared"
-for s in kafka-controller kafka schema-registry kafka-connect; do grep -qE "^  ${s}:" "$HUB/../cloud/docker-compose.yml" && bad "cloud/ still defines $s" || ok "cloud/ no longer defines $s"; done
+for s in kafka kafka-connect; do grep -qE "^  ${s}:" "$HUB/../cloud/docker-compose.yml" && bad "cloud/ still defines $s" || ok "cloud/ no longer defines $s"; done
 
 # kafka-ui: exists, wired to the central sync/versions.env pin
 # (never a hardcoded tag in the compose file), and bound to 127.0.0.1 only.
@@ -53,8 +66,7 @@ grep -qF -e 'KAFKA_SASL_BIND:-0.0.0.0}:9092:9092' "$HUB/docker-compose.yml" \
 grep -qE "^ *- '127\\.0\\.0\\.1:9092:9092'" "$HUB/docker-compose.yml" \
   && bad "kafka still pins a loopback 9092 mapping" || ok "no pinned loopback 9092 mapping left in the compose file"
 # Rendered: what compose actually installs for the 9092 mapping specifically
-# (9093, the controller port, stays loopback on purpose and must not be read
-# here by accident) -- read as JSON, so this depends on no output shape.
+# (9093, the controller port, is not published at all) -- read as JSON, so this depends on no output shape.
 bind_of(){ hubcfg "$1" --format json 2>/dev/null | jq -r '.services.kafka.ports[] | select(.target==9092) | .host_ip'; }
 got="$(bind_of 0.0.0.0)"
 [ "$got" = "0.0.0.0" ] && ok "KAFKA_SASL_BIND=0.0.0.0 renders host_ip 0.0.0.0 on the 9092 mapping" || bad "KAFKA_SASL_BIND=0.0.0.0 rendered host_ip '${got:-<none>}' on 9092"
@@ -62,9 +74,8 @@ got="$(bind_of 127.0.0.1)"
 [ "$got" = "127.0.0.1" ] && ok "KAFKA_SASL_BIND=127.0.0.1 renders a loopback 9092 mapping (the lab-hub case)" || bad "KAFKA_SASL_BIND=127.0.0.1 rendered host_ip '${got:-<none>}' on 9092"
 got="$(bind_of '')"
 [ "$got" = "0.0.0.0" ] && ok "an empty KAFKA_SASL_BIND falls back to the public 0.0.0.0 default" || bad "an empty KAFKA_SASL_BIND rendered host_ip '${got:-<none>}' on 9092, want the 0.0.0.0 default"
-# 9093 (the controller port) is untouched by all of this and stays loopback.
-got="$(hubcfg 0.0.0.0 --format json 2>/dev/null | jq -r '.services.kafka.ports[] | select(.target==9093) | .host_ip')"
-[ "$got" = "127.0.0.1" ] && ok "the controller port 9093 is still bound to 127.0.0.1 only" || bad "9093's host_ip is '${got:-<none>}', want 127.0.0.1"
+# 9093 is the controller listener inside the container; nothing publishes it.
+[ -z "$(hubcfg 0.0.0.0 --format json 2>/dev/null | jq -r '.services.kafka.ports[] | select(.target==9093) | .target')" ] && ok "the controller port 9093 is not published at all" || bad "9093 is still published"
 
 git -C "$HUB/.." ls-files cloud/kafka_server_jaas.conf | grep -q . && bad "JAAS still tracked" || ok "JAAS not tracked"
 # `check-ignore -q` refuses more than one pathname ("--quiet is only valid
