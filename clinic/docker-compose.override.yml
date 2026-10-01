@@ -51,8 +51,6 @@ services:
       - '127.0.0.1:8084:8083'
   kafka:
     logging: *rotate
-    ports: !override
-      - '127.0.0.1:9092:9092'
   kafka-ui:
     logging: *rotate
     ports: !override

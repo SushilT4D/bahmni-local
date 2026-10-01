@@ -19,7 +19,7 @@
   podman exec -it <kafka-container-name> bash
 
   # List offset topic contents
-  kafka-console-consumer --bootstrap-server localhost:9092 \
+  kafka-console-consumer --bootstrap-server kafka:29092 \
     --topic connect-offsets \
     --from-beginning \
     --property print.key=true \
@@ -42,7 +42,7 @@
 
 # Option C: Manual Kafka Topic Deletion (advanced)
   # Delete offset entries for this connector from Kafka
-  kafka-delete-records --bootstrap-server localhost:9092 \
+  kafka-delete-records --bootstrap-server kafka:29092 \
     --offset-json-file <offset-delete-spec.json>
 
 # Step 5: Configure Fresh Start

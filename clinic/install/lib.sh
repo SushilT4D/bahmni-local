@@ -427,7 +427,7 @@ check_eq(){ if [ "$2" = "$3" ]; then ok "$1 = $2"; else fail "$1: got '$2', want
 # events; its failed lookup must not end a set -e task.
 topic_events(){
   local n
-  n="$({ ct exec kafka kafka-get-offsets --bootstrap-server localhost:9092 --topic "$1" 2>/dev/null || true; } | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
+  n="$({ ct exec kafka kafka-get-offsets --bootstrap-server kafka:29092 --topic "$1" 2>/dev/null || true; } | sed -nE 's/^.*:0:([0-9]+)$/\1/p' | head -1)"
   printf '%s\n' "${n:-0}"
 }
 # pull_image IMAGE ARCH : the native pull; on an arm64 host an image published

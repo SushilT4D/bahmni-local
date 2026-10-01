@@ -81,7 +81,7 @@ for i in $(seq 1 $((tasks_s/15))); do
   [ -n "$failed" ] && { bad="$failed(FAILED)"; break; }
 done
 [ -z "$bad" ] && ok "every connector task RUNNING ($(curl -s localhost:8083/connectors | jq length))" || fail "tasks not RUNNING: ${bad}"
-ret="$(ct exec kafka kafka-configs --bootstrap-server localhost:9092 --entity-type topics --entity-name "schema-changes.${MYSQL_SERVER_NAME}" --describe 2>/dev/null | grep -oE 'retention.ms=-1' | head -1)"
+ret="$(ct exec kafka kafka-configs --bootstrap-server kafka:29092 --entity-type topics --entity-name "schema-changes.${MYSQL_SERVER_NAME}" --describe 2>/dev/null | grep -oE 'retention.ms=-1' | head -1)"
 [ "$ret" = "retention.ms=-1" ] && ok "schema-changes.${MYSQL_SERVER_NAME} retention -1" || fail "schema-changes topic retention is not -1 -- the schema-history topic must never expire"
 # twin-guard:begin
 # Two nodes installed under one clinic slug are exact twins -- same residue,
@@ -201,7 +201,7 @@ else
   ct exec kafka rm -f /tmp/twin-guard.properties >/dev/null 2>&1 || true
 fi
 printf '%s\n' "$up_topics" | while read -r t; do
-  ct exec kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --partitions 1 --replication-factor 1 --topic "$t" >/dev/null 2>&1 \
+  ct exec kafka kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --partitions 1 --replication-factor 1 --topic "$t" >/dev/null 2>&1 \
     || fail "could not create topic ${t} on the local broker"
 done
 ok "up topics exist before MirrorMaker starts ($(printf '%s\n' "$up_topics" | grep -c .))"

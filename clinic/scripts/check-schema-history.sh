@@ -16,12 +16,12 @@ echo ""
 
 # Check if schema history topic exists
 echo "2. Checking if schema history topic exists..."
-podman exec kafka kafka-topics --bootstrap-server localhost:9092 --list | grep -i "schema-changes" || echo "   Schema history topic not found"
+podman exec kafka kafka-topics --bootstrap-server kafka:29092 --list | grep -i "schema-changes" || echo "   Schema history topic not found"
 echo ""
 
 # Try to create the topic manually if it doesn't exist
 echo "3. Creating schema history topic if it doesn't exist..."
-podman exec kafka kafka-topics --bootstrap-server localhost:9092 \
+podman exec kafka kafka-topics --bootstrap-server kafka:29092 \
     --create \
     --topic "${SCHEMA_TOPIC}" \
     --partitions 1 \

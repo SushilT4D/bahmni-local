@@ -3,7 +3,7 @@
 # empties it, and the source can then only come back in snapshot.mode=recovery.
 # Run on every node after registering a MySQL source. Usage: scripts/set-schema-history-retention.sh <docker|podman> [bootstrap]
 set -euo pipefail
-T=${1:-docker}; BS=${2:-localhost:9092}
+T=${1:-docker}; BS=${2:-kafka:29092}
 # KAFKA_CONTAINER: the container this exec's into -- "kafka" everywhere real
 # (every clinic, the hub), overridden only by a test that must run this
 # script for real beside another real stack already holding that bare name.

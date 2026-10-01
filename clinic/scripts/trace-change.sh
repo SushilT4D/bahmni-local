@@ -94,11 +94,11 @@ if ! check_container "kafka"; then
     echo "   Start it with: podman-compose up -d kafka"
     echo ""
 else
-    TOPIC=$(podman exec kafka kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null | grep -i "$TABLE" | head -1 || echo "")
+    TOPIC=$(podman exec kafka kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null | grep -i "$TABLE" | head -1 || echo "")
     if [ -n "$TOPIC" ]; then
         echo -e "${GREEN}✓${NC}   Topic found: $TOPIC"
         OFFSET=$(podman exec kafka kafka-run-class kafka.tools.GetOffsetShell \
-          --broker-list localhost:9092 \
+          --broker-list kafka:29092 \
           --topic "$TOPIC" \
           --time -1 2>/dev/null | awk -F: '{sum+=$3} END {print sum}' || echo "0")
         echo "   Total messages: $OFFSET"
@@ -106,7 +106,7 @@ else
         # Check for recent messages
         echo "   Checking for messages containing: $RECORD_ID"
         MSG_COUNT=$(podman exec kafka kafka-console-consumer \
-          --bootstrap-server localhost:9092 \
+          --bootstrap-server kafka:29092 \
           --topic "$TOPIC" \
           --from-beginning \
           --max-messages 100 \
@@ -119,7 +119,7 @@ else
     else
         echo -e "${RED}✗${NC}   Topic not found for table: $TABLE"
         echo "   Available topics:"
-        podman exec kafka kafka-topics --bootstrap-server localhost:9092 --list 2>/dev/null | head -5 || echo "   (Could not list topics)"
+        podman exec kafka kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null | head -5 || echo "   (Could not list topics)"
     fi
 fi
 echo ""
@@ -166,6 +166,6 @@ echo "  3. Check MirrorMaker logs: podman logs mirrormaker-connect -f | grep -i 
 echo ""
 echo "To view recent messages from topic:"
 if [ -n "$TOPIC" ]; then
-    echo "  podman exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic $TOPIC --from-beginning --max-messages 10"
+    echo "  podman exec kafka kafka-console-consumer --bootstrap-server kafka:29092 --topic $TOPIC --from-beginning --max-messages 10"
 fi
 

@@ -326,15 +326,13 @@ services:
   # #########################################################
 
   # One node holds both KRaft roles: it is the cluster's only controller and
-  # its only broker. The CONTROLLER listener is declared here and never
-  # advertised: clients never dial it.
+  # its only broker. Clients, all on the Docker network, dial kafka:29092; the
+  # CONTROLLER listener is never advertised, and no port is published.
   kafka:
     profiles: [ "debezium" ]
     image: ${KAFKA_IMAGE:?}
     hostname: kafka
     container_name: kafka
-    ports:
-      - "9092:9092"
     environment:
       # a stated heap: the whole clinic stack must fit a 10 GiB container VM
       KAFKA_HEAP_OPTS: ${KAFKA_NODE_HEAP_OPTS:--Xms256m -Xmx1g}
@@ -343,10 +341,10 @@ services:
       KAFKA_PROCESS_ROLES: 'broker,controller'
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-      KAFKA_LISTENERS: 'CONTROLLER://0.0.0.0:9093,PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092'
+      KAFKA_LISTENERS: 'CONTROLLER://0.0.0.0:9093,PLAINTEXT://0.0.0.0:29092'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -363,7 +361,7 @@ services:
     healthcheck:
       # The probe starts a JVM. On a loaded 1-vCPU host (manpur) it cannot finish
       # in 5 s, and a 10 s interval keeps one JVM permanently starting.
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
       interval: 30s
       timeout: 20s
       retries: 5
