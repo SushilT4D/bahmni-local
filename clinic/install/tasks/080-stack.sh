@@ -27,7 +27,7 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 # class of defect (a non-1000 image uid), so they are swept here too, once,
 # before anything in this profile set is started -- images are present since
 # task 040, and every directory this sweeps already exists since task 030, so
-# one call here also covers what 090 starts later (kafka-controller, kafka,
+# one call here also covers what 090 starts later (kafka,
 # schema-registry, kafka-connect, mirrormaker-connect: no separate call there).
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )

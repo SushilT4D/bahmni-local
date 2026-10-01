@@ -24,8 +24,6 @@ services:
   # Rotation only: defined in the base file, bounded here.
   atomfeed-console:
     logging: *rotate
-  kafka-controller:
-    logging: *rotate
   # The registry listens on 8081 in its container; published on loopback as 8082.
   schema-registry:
     logging: *rotate
