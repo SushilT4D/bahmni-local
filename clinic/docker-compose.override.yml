@@ -24,11 +24,6 @@ services:
   # Rotation only: defined in the base file, bounded here.
   atomfeed-console:
     logging: *rotate
-  # The registry listens on 8081 in its container; published on loopback as 8082.
-  schema-registry:
-    logging: *rotate
-    ports: !override
-      - '127.0.0.1:8082:8081'
   # Keep the sync layer loopback-only: nothing here should be on the LAN.
   kafka-connect:
     logging: *rotate

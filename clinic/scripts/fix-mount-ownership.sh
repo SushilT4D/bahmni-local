@@ -54,7 +54,7 @@ begin_task "fix-mount-ownership: bind-mounted data directories"
 # bind-mounted data directory a non-root image user must write. Add a new one
 # here when a new such service is introduced -- the directories themselves
 # always come from the merged compose config, never a hand-maintained list.
-SERVICES="odoo kafka kafka-connect mirrormaker-connect schema-registry"
+SERVICES="odoo kafka kafka-connect mirrormaker-connect"
 
 # COMPOSE_JSON_FILE is a testability hook: tests feed a fixture through it
 # instead of a real compose config.

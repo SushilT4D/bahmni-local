@@ -12,7 +12,6 @@ fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; 
 svc(){ awk -v s="  $1:" '$0==s{p=1;next} p&&/^  [a-z]/{p=0} p' "$Y"; }
 has(){ svc "$1" | grep -q -- "$2" && ok_ "$1: $3" || bad "$1: $3 (no '$2')"; }
 has kafka            'KAFKA_HEAP_OPTS: ${KAFKA_NODE_HEAP_OPTS:--Xms256m -Xmx1g}' "one node, both roles, heap up to 1 GiB"
-has schema-registry  'SCHEMA_REGISTRY_HEAP_OPTS: ${SCHEMA_REGISTRY_HEAP_OPTS:--Xmx256m}' "heap 256 MB"
 has kafka-connect    'HEAP_OPTS: ${CONNECT_HEAP_OPTS:--Xms256m -Xmx768m}' "heap up to 768 MB"
 has mirrormaker-connect 'KAFKA_HEAP_OPTS: ${MM2_HEAP_OPTS:--Xms256m -Xmx768m}' "heap up to 768 MB"
 svc atomfeed-console | grep -qE 'profiles:.*"local"' && bad "atomfeed-console still starts with the local profile" || ok_ "atomfeed-console only on request"

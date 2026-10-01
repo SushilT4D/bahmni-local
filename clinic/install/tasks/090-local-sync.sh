@@ -14,7 +14,7 @@ setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -
 # compose gives up on a slow Connect long before Connect does (manpur, 1 vCPU:
 # "dependency failed to start: container kafka-connect is unhealthy"). The wait
 # for Connect is ours, on a named budget; the UI follows and is never fatal.
-( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka schema-registry kafka-connect >/dev/null )
+( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka kafka-connect >/dev/null )
 connect_s="${CONNECT_BOOT_TIMEOUT_S:-1800}"
 info "waiting up to $((connect_s/60)) min for Kafka Connect's REST port (it scans every plugin first; CONNECT_BOOT_TIMEOUT_S overrides)"
 up=0; for i in $(seq 1 $((connect_s/5))); do curl -sf --max-time 5 localhost:8083/connector-plugins >/dev/null 2>&1 && { up=1; break; }; sleep 5; done

@@ -28,7 +28,7 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 # before anything in this profile set is started -- images are present since
 # task 040, and every directory this sweeps already exists since task 030, so
 # one call here also covers what 090 starts later (kafka,
-# schema-registry, kafka-connect, mirrormaker-connect: no separate call there).
+# kafka-connect, mirrormaker-connect: no separate call there).
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
