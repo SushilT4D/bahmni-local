@@ -16,6 +16,7 @@ services:
   # (9093) is neither advertised nor published.
   kafka:
     image: ${KAFKA_IMAGE:?}
+    restart: unless-stopped
     hostname: kafka
     container_name: kafka
     logging: *rotate
@@ -70,6 +71,7 @@ services:
 
   kafka-connect:
     image: ${DEBEZIUM_CONNECT_IMAGE:?}
+    restart: unless-stopped
     hostname: kafka-connect
     container_name: kafka-connect
     logging: *rotate
@@ -114,6 +116,7 @@ services:
   kafka-ui:
     profiles: [ "ui" ]
     image: ${KAFKA_UI_IMAGE:?}
+    restart: unless-stopped
     hostname: kafka-ui
     container_name: kafka-ui
     logging: *rotate
