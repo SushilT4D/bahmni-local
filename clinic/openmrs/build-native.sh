@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Native arm64 rebuild of the pinned OpenMRS image, replacing the 662-4-era
-# build.sh for this purpose (build.sh + Dockerfile stay in the tree, unused --
-# see clinic/install/tasks/040-images.sh, which calls this instead on arm64).
+# Native arm64 rebuild of the pinned OpenMRS image (called by
+# clinic/install/tasks/040-images.sh on arm64).
 #
 # IPLIT's image is linux/amd64 only. On Apple Silicon under podman it runs
 # under QEMU: bare Tomcat+WAR start took 26,153 ms on Ghated, and

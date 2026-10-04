@@ -128,30 +128,10 @@ echo "3. MirrorMaker Connector"
 # Check if MirrorMaker container is running
 if ! check_container "mirrormaker-connect"; then
     echo -e "${RED}✗${NC}   MirrorMaker Connect container not running"
-    echo "   Start it with: podman-compose up -d mirrormaker-connect"
+    echo "   Start it with: docker compose --profile debezium up -d mirrormaker-connect"
     echo ""
 else
-    # Check if service is accessible
-    if check_service "http://localhost:8084/connectors" "MirrorMaker Connect"; then
-        MM_CONNECTOR=$(curl -s http://localhost:8084/connectors 2>/dev/null | jq -r '.[0]' 2>/dev/null || echo "")
-        if [ -n "$MM_CONNECTOR" ] && [ "$MM_CONNECTOR" != "null" ]; then
-            echo "   Connector: $MM_CONNECTOR"
-            check_status "  Status" "http://localhost:8084/connectors/$MM_CONNECTOR/status"
-            MM_TASKS=$(curl -s http://localhost:8084/connectors/$MM_CONNECTOR/status 2>/dev/null | jq -r '.tasks[]?.state // empty' 2>/dev/null)
-            if [ -n "$MM_TASKS" ]; then
-                for task in $MM_TASKS; do
-                    if [ "$task" = "RUNNING" ]; then
-                        echo -e "${GREEN}✓${NC}   Task: $task"
-                    else
-                        echo -e "${RED}✗${NC}   Task: $task"
-                    fi
-                done
-            fi
-        else
-            echo -e "${RED}✗${NC}   No MirrorMaker connectors found"
-            echo "   Register MirrorMaker connector with: ./scripts/register-mirrormaker.sh"
-        fi
-    fi
+    echo -e "${GREEN}✓${NC}   MirrorMaker container running (it serves no REST API: a growing count of 'Expiring' lines in its log means records are not reaching the hub)"
 fi
 echo ""
 

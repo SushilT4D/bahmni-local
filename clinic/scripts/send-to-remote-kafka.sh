@@ -1,6 +1,7 @@
 #!/bin/bash
 # Send a Debezium-formatted change event directly to remote Kafka
 # This bypasses local MySQL and tests: Remote Kafka → JDBC Sink → Remote MySQL
+# It leaves the test row in the hub's database; delete it there afterwards.
 # Usage: ./send-to-remote-kafka.sh <table_name> <record_id> [operation]
 # Example: ./send-to-remote-kafka.sh person 99999 create
 #          ./send-to-remote-kafka.sh person 99999 update
@@ -21,7 +22,7 @@ RECORD_ID="${2:-$(date +%s)}"
 OP="${3:-create}"  # create, update, or delete
 SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 TOPIC="${SERVER_NAME}.openmrs.${TABLE}"
-REMOTE_KAFKA="${REMOTE_KAFKA_BOOTSTRAP_SERVERS:-bhs-tech4dev.bahmni.in:9092}"
+REMOTE_KAFKA="${REMOTE_KAFKA_BOOTSTRAP_SERVERS:?set REMOTE_KAFKA_BOOTSTRAP_SERVERS to the hub to write into}"
 REMOTE_USER="${REMOTE_KAFKA_USERNAME:-mirrormaker}"
 REMOTE_PASS="${REMOTE_KAFKA_PASSWORD}"
 

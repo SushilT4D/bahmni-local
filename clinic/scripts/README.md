@@ -27,13 +27,12 @@ emit connector/topic definitions.
 
 **Register / unregister** — talk to the local Kafka Connect REST API.
 `register-source-connector.sh`, `register-local-sink-connectors.sh`,
-`register-mirrormaker.sh`, `deploy-connectors.sh`, `update-connector.sh`,
-`unregister-connectors.sh`, `delete-connectors.sh`.
+`unregister-connectors.sh`.
 
 **Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
 MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 `check-sink-tasks.sh`, `check-sink-connectors.sh`, `check-source-connectors.sh`,
-`check-mirrormaker.sh`, `check-schema-history.sh`, `check-status.sh`,
+`check-mirrormaker.sh`, `check-schema-history.sh`,
 `trace-change.sh`, `test-replication.sh`.
 
 > `preflight.sh` runs **entirely on this node** and opens no connections. The
@@ -54,17 +53,13 @@ the sync key, not a tuning knob.
 schema-history topic must never expire) and `apply-slot-heartbeat.sh` (heartbeat
 table plus publication membership in both Postgres databases).
 
-**Data movement** — `mysqldump.sh`, `backup_bahmni_lite.sh`,
-`restore_bahmni_lite.sh`.
-
 > Seeding a clinic from cloud data is a **manual** step: take the dump and share
 > the file. Nothing here SSHes to the hub to dump and download — see the note
 > below.
 
-**Recovery** — `fix-offsets.sh`, `restart-connectors.sh`.
-
-**Ad-hoc probes** — `send-to-remote-kafka.{sh,py}`, `test-kafka-auth.py`,
-`configure_debezium.sh`, `config.sh`.
+**Ad-hoc probes** — `send-to-remote-kafka.sh` (writes one test row into the
+hub's database through its sink; needs `REMOTE_KAFKA_BOOTSTRAP_SERVERS`),
+`test-kafka-auth.py`.
 
 ## Conventions
 
