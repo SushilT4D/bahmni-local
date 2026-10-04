@@ -80,7 +80,7 @@ Shape credit: the `initialize/` tree on `main`.
 
 The runtime is rootless **podman**, driven through `docker-compose` over
 `DOCKER_HOST` (never `podman-compose`) -- see `host-macos.sh` for Homebrew,
-the podman machine and the LaunchAgent that restarts it at login.
+the podman machine and the LaunchAgent that starts it, and the containers, at login.
 
 IPLIT's `OPENMRS_IMAGE_NAME` is `linux/amd64`-only. On an arm64 host, task 040
 does not pull it -- it runs `openmrs/build-native.sh`, which extracts
@@ -106,3 +106,18 @@ above 55%, on every later run). The 55% ceiling is Rawach's own 18 GB Mac's
 rule: a 15 GB (83%) VM there made macOS swap fill the disk, and the
 Virtualization framework killed it four times in one day. An existing
 machine is never resized automatically, only warned about.
+
+## After a power cut
+
+Every service carries a restart policy, so the container runtime brings the
+stack back when the machine boots. Two settings are manual, once per machine:
+
+- **PC:** in the firmware setup, set the machine to power on when AC power
+  returns.
+- **Mac:** turn on automatic login for the clinic user (System Settings >
+  Users & Groups). FileVault must be off. The installer sets power-on after a
+  power failure itself and warns about the other two.
+
+A node installed before the restart policies were added picks them up when
+its containers are recreated: `docker compose up -d` in `clinic/`, once.
+

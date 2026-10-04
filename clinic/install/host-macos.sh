@@ -36,7 +36,7 @@ host_macos(){
   # DRY: one guard at the top, nothing below it (brew, podman, mkdir,
   # launchctl) runs at all.
   if [ "${DRY}" = 1 ]; then
-    info "would install Homebrew + podman/docker-compose/jq via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login"
+    info "would install Homebrew + podman/docker-compose/jq via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login, and set power-on after a power failure"
     return 0
   fi
   if ! command -v brew >/dev/null 2>&1; then
@@ -100,6 +100,12 @@ EOF"
     run launchctl load "$plist"
     ok "LaunchAgent installed: ${plist}"
   else skip "LaunchAgent present"; fi
+  # A portable has no autorestart setting; pmset refuses it and the install goes on.
+  sudo pmset -a autorestart 1 2>/dev/null && ok "powers on after a power failure" || warn "this Mac does not offer power-on after a power failure (pmset autorestart)"
+  [ -n "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)" ] && ok "automatic login is on" \
+    || warn "automatic login is off: after a power cut nothing starts until someone logs in. Turn it on in System Settings > Users & Groups"
+  case "$(fdesetup status 2>/dev/null || true)" in *"FileVault is Off"*) true ;; *) false ;; esac && ok "FileVault is off" \
+    || warn "FileVault is on: the Mac waits at the unlock screen after a power cut, and automatic login cannot be turned on"
   # The proxy publishes 80 and 443. Rootless podman runs containers as a user
   # inside the podman machine, where Linux refuses ports below
   # ip_unprivileged_port_start (1024 by default); lower it to 80 there, and
