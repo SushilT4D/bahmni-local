@@ -22,8 +22,6 @@ services:
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
   mirrormaker-connect:
     logging: *rotate
-    ports: !override
-      - '127.0.0.1:8084:8083'
   kafka:
     logging: *rotate
   kafka-ui:

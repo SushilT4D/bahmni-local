@@ -5,14 +5,6 @@ x-default-logging: &default
     max-size: "50m"
     max-file: "3"
 
-x-loki-logging: &loki
-  driver: loki
-  options:
-    loki-url: ${LOKI_URL:?}
-    mode: non-blocking
-    max-buffer-size: 4m
-    loki-retries: "3"
-
 x-log-config: &log-config
   <<: *default
 
@@ -102,7 +94,6 @@ services:
       - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/home/bahmni/uploaded-files"
       - "${CONTAINER_DATA_PATH}/data/bahmni-patient-images:/home/bahmni/patient_images"
       - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/home/bahmni/document_images"
-      - "${CONTAINER_DATA_PATH}/data/bahmni-clinical-forms:/home/bahmni/clinical_forms"
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
     logging: *log-config
@@ -126,15 +117,6 @@ services:
       HOST: ${ODOO_DB_HOST}
       USER: ${ODOO_DB_USER}
       PASSWORD: ${ODOO_DB_PASSWORD}
-    logging: *log-config
-    restart: ${RESTART_POLICY}
-
-  bahmni-web:
-    image: ${BAHMNI_WEB_IMAGE:?}
-    profiles: ["unused"]
-    volumes:
-      - "${BAHMNI_CONFIG_DIR:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
-      - "${BAHMNI_UI_DIR:?}:/usr/local/apache2/htdocs/bahmni/:ro"
     logging: *log-config
     restart: ${RESTART_POLICY}
 
@@ -216,50 +198,6 @@ services:
       OPENMRS_DB_NAME: ${OPENMRS_DB_NAME}
       OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME}
       OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}
-
-  restore_volumes:
-    image: bash:5.2.15
-    profiles: ["restore"]
-    command: "bash /restore_docker_volumes.sh"
-    volumes:
-        - "${RESTORE_ARTIFACTS_PATH}:/restore-artifacts"
-        - '../backup_restore/restore_docker_volumes.sh:/restore_docker_volumes.sh'
-        - 'bahmni-patient-images:/mounts/bahmni-patient-images'
-        - 'bahmni-document-images:/mounts/bahmni-document-images'
-        - 'bahmni-clinical-forms:/mounts/bahmni-clinical-forms'
-        - 'bahmni-lab-results:/mounts/bahmni-lab-results'
-        - 'bahmni-uploaded-files:/mounts/bahmni-uploaded-files'
-        - 'bahmni-queued-reports:/mounts/bahmni-queued-reports'
-        - 'configuration_checksums:/mounts/configuration_checksums'
-  
-  cdss:
-    profiles: [ "cdss" ]
-    image: bahmni/cdss-reference:${CDSS_IMAGE_TAG:?}
-    environment:
-      JAVA_OPTS: ${CDSS_JAVA_SERVER_OPTS}
-    logging: *log-config
-
-  snowstorm-lite:
-    profiles: [ "snowstorm-lite" ]
-    image: snomedinternational/snowstorm-lite:${SNOWSTORM_LITE_IMAGE_TAG:?}
-    environment:
-      JDK_JAVA_OPTIONS: ${SNOWSTORM_LITE_JAVA_SERVER_OPTS}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/fhir/CodeSystem"]
-      interval: 60s
-      timeout: 15s
-      retries: 10
-    logging: *log-config
-
-  load-snowstorm-lite-data:
-    profiles: [ "snowstorm-lite" ]
-    image: alpine
-    command: "sh /load-snowstorm-data.sh"
-    environment:
-      SNOWSTORM_LITE_ADMIN_PASSWORD: ${SNOWSTORM_LITE_ADMIN_PASSWORD:?}
-    logging: *log-config
-    volumes:
-      - '../snomed-resources/load-snowstorm-data.sh:/load-snowstorm-data.sh'
 
   kafka:
     profiles: [ "debezium" ]
@@ -344,8 +282,6 @@ services:
     image: ${MM2_IMAGE:?}
     hostname: mirrormaker-connect
     container_name: mirrormaker-connect
-    ports:
-      - "8084:8083"
     environment:
       KAFKA_HEAP_OPTS: ${MM2_HEAP_OPTS:--Xms256m -Xmx768m}
       CONNECT_BOOTSTRAP_SERVERS: kafka:29092
@@ -399,12 +335,3 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
-
-volumes:
-  bahmni-patient-images:
-  bahmni-document-images:
-  bahmni-clinical-forms:
-  bahmni-lab-results:
-  bahmni-uploaded-files:
-  bahmni-queued-reports:
-  configuration_checksums:
