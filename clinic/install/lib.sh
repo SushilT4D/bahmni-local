@@ -490,3 +490,17 @@ run_tasks(){ # PHASE RESUME_HINT : every matching task in order; ONLY / FROM hon
     log "  ${n} ${dt}s done"
   done
 }
+# elis_page_ok CODE BODY : the page OpenELIS lands on answers 200, names
+# OpenELIS, and is not Tomcat's own error page (which names the path it could
+# not serve, "/openelis/", so the word alone proves nothing). The body is
+# judged whole, never piped into `grep -q`: grep stops at the first match, the
+# writer dies of SIGPIPE on its next chunk, and under pipefail a page that
+# matched reads as one that did not.
+elis_page_ok(){
+  local lc
+  [ "$1" = 200 ] || return 1
+  lc="$(printf '%s' "$2" | tr 'A-Z' 'a-z')"
+  case "$lc" in *openelis*) ;; *) return 1 ;; esac
+  case "$2" in *'HTTP Status'*) return 1 ;; esac
+  return 0
+}
