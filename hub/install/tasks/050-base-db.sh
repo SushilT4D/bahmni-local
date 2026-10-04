@@ -50,7 +50,7 @@ ELIS="${BASE_ELIS_CONTAINER:-$PG}"; ELIS_SUPERUSER="${BASE_ELIS_SUPERUSER:-$BASE
 # back is pushed through mask_env_secrets (a MySQL syntax error near a
 # password clause otherwise echoes the clause, secret included).
 
-ver="$(printf 'select version()' | mysql_root | head -1)"
+ver="$(printf 'select version()' | mysql_root | head -1)"  # pipe-ok: one-row result
 [ -n "$ver" ] || fail "could not read MySQL version from ${MY}"
 ok "base mysql version ${ver}"
 

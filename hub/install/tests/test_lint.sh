@@ -166,4 +166,26 @@ else
   bad "could not find elis_setting(){ ... } in ${PREFLIGHT} to check"
 fi
 
+# --- 4. early-exit pipe lint -------------------------------------------------
+# Every task runs under pipefail. A body piped into a consumer that stops
+# reading early (grep -q, grep -m, head) fails the pipeline when the match is
+# FOUND: the consumer exits, the writer's next chunk dies of SIGPIPE, and
+# pipefail reports failure. Whether that race is lost depends on the OS and
+# the size of the body, so it passes on one machine and fails on another.
+# Judge a captured value with has_text/has_line (lib.sh) instead. A line that
+# keeps such a pipe ends in `|| true`, or says why it is safe with a
+# `# pipe-ok: <reason>` note (one-row query output, a single-match file).
+pipe_hits="$(cd "$HUB" && grep -nE '\|[[:space:]]*(grep[[:space:]][^|]*-[a-zA-Z]*[qm][a-zA-Z]*([[:space:]]|$)|head([[:space:]]|$))' install/lib.sh install/install.sh install/tasks/*.sh \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' | grep -vE '\|\|[[:space:]]*true' | grep -v 'pipe-ok:' || true)"
+if [ -z "$pipe_hits" ]; then ok "no early-exit pipe without || true or a pipe-ok note"
+else bad "early-exit pipes under pipefail (use has_text/has_line, or justify with # pipe-ok:):"; printf '%s\n' "$pipe_hits" | sed 's/^/       /'; fi
+# has_text / has_line judge a large body whole, under pipefail
+. "$HUB/install/lib.sh" 2>/dev/null || true
+big="$(printf 'topic-%s\n' $(seq 1 20000))"
+( set -euo pipefail; has_line "$big" topic-3 ) && ok "has_line finds an early line in a 200 KB body under pipefail" || bad "has_line misses an early line in a large body"
+( set -euo pipefail; has_line "$big" topic-3x ) && bad "has_line matches a line that is not there" || ok "has_line refuses a line that is not there"
+( set -euo pipefail; has_line "$big" topic- ) && bad "has_line matches a prefix, not a whole line" || ok "has_line matches whole lines only"
+( set -euo pipefail; has_text "{\"name\":\"hub\"} $big" '"name":"hub"' ) && ok "has_text finds a substring in a large body" || bad "has_text misses a substring"
+( set -euo pipefail; has_text "$big" '"name":"hub"' ) && bad "has_text matches text that is not there" || ok "has_text refuses text that is not there"
+
 printf '%s\n' "$fails failure(s)"; exit $((fails>0))

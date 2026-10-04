@@ -57,7 +57,9 @@ fi
 # The four hub credentials were written at install; the hub may have rotated
 # one since. Check each against the data just restored before any feed runs.
 omrs_login(){ # USER PASS -> 0 if OpenMRS authenticates them
-  curl -sk --max-time 20 -u "$1:$2" "$url" 2>/dev/null | grep -q '"authenticated":true'
+  local reply
+  reply="$(curl -sk --max-time 20 -u "$1:$2" "$url" 2>/dev/null)" || reply=""
+  has_text "$reply" '"authenticated":true'
 }
 omrs_login "${OPENMRS_ATOMFEED_USER}" "${OPENMRS_ATOMFEED_PASSWORD}" && ok "OpenMRS accepts OPENMRS_ATOMFEED_USER" \
   || fail "OpenMRS refuses the OpenMRS feed user's password in clinic/.env: the hub's credential changed after install. Call the operator (they update OPENMRS_ATOMFEED_PASSWORD in clinic/.env; then run seed.sh again)"

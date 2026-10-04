@@ -130,7 +130,7 @@ stopgap_insert(){
     ok "login stopgap: ${f} already carries the comma-stripping rewrite rules (inserted by this task or by hand)"
     return 0
   fi
-  anchor_ln="$(grep -nE 'RewriteRule.*CO=reporting_session.*:true:true\]' "$f" 2>/dev/null | head -n1 | cut -d: -f1)"
+  anchor_ln="$(grep -nE 'RewriteRule.*CO=reporting_session.*:true:true\]' "$f" 2>/dev/null | head -n1 | cut -d: -f1)"  # pipe-ok: the anchor rule occurs once in the file
   [ -n "$anchor_ln" ] || fail "login stopgap: no secure reporting_session cookie rule (RewriteRule ... CO=reporting_session ... :true:true]) found in ${f} -- cannot anchor the rewrite block inside the 443 vhost (is BASE_DIR=${BASE_DIR:-<unset>} really the base stack's own proxy-config?)"
   if [ "${DRY}" = 1 ]; then
     info "would: back up ${f} to ${backup} (if not already present) and insert the comma-stripping rewrite block after line ${anchor_ln} (the reporting_session cookie rule, inside the 443 vhost)"
@@ -373,7 +373,9 @@ fi
 # base-sizing:begin
 # The base stack's MySQL (openmrsdb) runs on the image's defaults: a 128 MB
 # buffer pool and a 100 MB redo log for a 7 GB database, so every read misses
-# the cache. One conf.d file, sized from the memory the host gives it, mounted
+# the cache. It also runs MySQL 8's default ONLY_FULL_GROUP_BY, under which
+# Bahmni's patient search answers 500, so nobody can register or find a
+# patient through the hub's UI; the clinics run NO_ENGINE_SUBSTITUTION. One conf.d file, sized from the memory the host gives it, mounted
 # read-only through my.cnf's !includedir. Twin of clinic/install/lib.sh's
 # mysql_pool_mb / mysql_tuning_cnf -- the same rule on both sides, checked by
 # tests/test_base_fixes.sh against that file.
@@ -386,7 +388,7 @@ base_pool_mb(){ # MEM_MB -> buffer pool MB: a quarter, 128 MB steps, 512..4096
   printf '%s\n' "$mb"
 }
 base_tuning_cnf(){ # POOL_MB -> the conf.d file's text
-  printf '# rendered by hub/install from the memory this host gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\n' "$1"
+  printf '# rendered by hub/install from the memory this host gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\nsql_mode = NO_ENGINE_SUBSTITUTION\n' "$1"
 }
 # base-sizing:end
 
@@ -401,8 +403,9 @@ if [ "${DRY}" = 1 ]; then
   info "would: render ${TUNING_CNF} (buffer pool ${base_pool} MB from ${base_mem_mb} MB host memory, redo log 512 MB); ensure ${OVERRIDE_FILE} mounts it read-only onto ${TUNING_TARGET} for ${BASE_MYSQL_SERVICE}; recreate only ${BASE_MYSQL_CONTAINER} unless its mounts already include that path; read innodb_buffer_pool_size back from the server"
 else
   base_tuning_cnf "$base_pool" > "${TUNING_CNF}.new" && chmod 644 "${TUNING_CNF}.new"
+  tuning_changed=0
   if [ -f "$TUNING_CNF" ] && cmp -s "$TUNING_CNF" "${TUNING_CNF}.new"; then rm -f "${TUNING_CNF}.new"; ok "innodb sizing: ${TUNING_CNF} unchanged (buffer pool ${base_pool} MB)"
-  else mv "${TUNING_CNF}.new" "$TUNING_CNF"; ok "innodb sizing: rendered ${TUNING_CNF} (buffer pool ${base_pool} MB from ${base_mem_mb} MB host memory, redo log 512 MB)"; fi
+  else mv "${TUNING_CNF}.new" "$TUNING_CNF"; tuning_changed=1; ok "innodb sizing: rendered ${TUNING_CNF} (buffer pool ${base_pool} MB from ${base_mem_mb} MB host memory, redo log 512 MB, sql_mode NO_ENGINE_SUBSTITUTION)"; fi
   override_ensure "$OVERRIDE_FILE" "$TUNING_TARGET" "$BASE_MYSQL_SERVICE" "./openmrsdb-tuning.cnf" "innodb sizing"
   if ( cd "$BASE_DIR" && ${COMPOSE_CMD:?setup_compose first} config -q ); then
     ok "innodb sizing: ${OVERRIDE_FILE} still parses (docker compose config -q)"
@@ -412,7 +415,16 @@ else
   fi
   mounted="$(ct inspect --format '{{range .Mounts}}{{.Destination}} {{end}}' "$BASE_MYSQL_CONTAINER" 2>/dev/null || true)"
   case " $mounted " in
-    *" ${TUNING_TARGET} "*) ok "innodb sizing: ${BASE_MYSQL_CONTAINER} already mounts ${TUNING_TARGET} -- nothing to recreate" ;;
+    *" ${TUNING_TARGET} "*)
+      if [ "$tuning_changed" = 1 ]; then
+        # MySQL reads conf.d only at start: a changed file under an existing
+        # mount is not in force until the server restarts
+        ct restart "$BASE_MYSQL_CONTAINER" >/dev/null \
+          && ok "innodb sizing: restarted ${BASE_MYSQL_CONTAINER} so the changed ${TUNING_TARGET} is read" \
+          || fail "innodb sizing: could not restart ${BASE_MYSQL_CONTAINER} to apply the changed ${TUNING_TARGET}"
+      else
+        ok "innodb sizing: ${BASE_MYSQL_CONTAINER} already mounts ${TUNING_TARGET} -- nothing to recreate"
+      fi ;;
     *)
       # a MySQL recreate is a short OpenMRS outage; the Debezium source reconnects on its own
       ( cd "$BASE_DIR" && ${COMPOSE_CMD} up -d --no-deps "$BASE_MYSQL_SERVICE" ) \
@@ -428,4 +440,25 @@ else
   done
   [ "$(( got_b / 1048576 ))" -ge "$base_pool" ] && ok "innodb sizing: innodb_buffer_pool_size $(( got_b / 1048576 )) MB in force (read back from the server)" \
     || fail "innodb sizing: the server reports $(( got_b / 1048576 )) MB, the file says ${base_pool} MB -- the conf.d mount is not in force"
+  base_sql(){ ct exec -i "$BASE_MYSQL_CONTAINER" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N'; }
+  got_mode="$(printf 'select @@global.sql_mode' | base_sql 2>/dev/null)" || got_mode=""
+  case "$got_mode" in
+    '') fail "query rules: could not read @@global.sql_mode from ${BASE_MYSQL_CONTAINER}" ;;
+    *ONLY_FULL_GROUP_BY*) fail "query rules: ${BASE_MYSQL_CONTAINER} still runs ONLY_FULL_GROUP_BY (${got_mode}) -- Bahmni's patient search answers 500 under it; is a --sql-mode on the base compose command overriding ${TUNING_TARGET}?" ;;
+    *) ok "query rules: sql_mode ${got_mode} in force (read back from the server)" ;;
+  esac
+  # Module changesets carry ids longer than the dump's varchar(63)
+  # (Medication Administration's is 69 characters), and Liquibase then fails
+  # the module at start. Written with sql_log_bin=0 so the down-direction
+  # source never sees a schema change it would have to replay.
+  width_sql='select character_maximum_length from information_schema.columns where table_schema="openmrs" and table_name="liquibasechangelog" and column_name="ID"'
+  width="$(printf '%s' "$width_sql" | base_sql 2>/dev/null)" || width=""
+  case "$width" in ''|*[!0-9]*) fail "liquibase ids: could not read openmrs.liquibasechangelog.ID's width (got '${width}')" ;; esac
+  if [ "$width" -lt 255 ]; then
+    printf 'SET sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog MODIFY ID VARCHAR(255) NOT NULL;\n' | base_sql >/dev/null \
+      || fail "liquibase ids: could not widen openmrs.liquibasechangelog.ID from varchar(${width})"
+    width="$(printf '%s' "$width_sql" | base_sql 2>/dev/null)" || width=""
+  fi
+  [ "$width" = 255 ] && ok "liquibase ids: openmrs.liquibasechangelog.ID is varchar(255)" \
+    || fail "liquibase ids: openmrs.liquibasechangelog.ID is varchar(${width:-?}), want 255"
 fi

@@ -290,7 +290,7 @@ mysql_pool_mb(){ # MEM_MB -> buffer pool MB: a fifth, 128 MB steps, 512..4096 (t
   printf '%s\n' "$mb"
 }
 mysql_tuning_cnf(){ # POOL_MB -> the conf.d file's text
-  printf '# rendered by the installer from the memory this node gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\n' "$1"
+  printf '# rendered by the installer from the memory this node gives its database server\n[mysqld]\ninnodb_buffer_pool_size = %sM\ninnodb_redo_log_capacity = 512M\nsql_mode = NO_ENGINE_SUBSTITUTION\n' "$1"
 }
 
 mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select 1"' 2>/dev/null)" = 1 ]; }
@@ -490,6 +490,10 @@ run_tasks(){ # PHASE RESUME_HINT : every matching task in order; ONLY / FROM hon
     log "  ${n} ${dt}s done"
   done
 }
+# has_text BODY NEEDLE : judge a captured value whole. Under pipefail,
+# `printf "$body" | grep -q` fails when the match is FOUND: grep exits at the
+# first hit and the writer's next chunk dies of SIGPIPE.
+has_text(){ case "$1" in *"$2"*) return 0 ;; esac; return 1; }
 # elis_page_ok CODE BODY : the page OpenELIS lands on answers 200, names
 # OpenELIS, and is not Tomcat's own error page (which names the path it could
 # not serve, "/openelis/", so the word alone proves nothing). The body is

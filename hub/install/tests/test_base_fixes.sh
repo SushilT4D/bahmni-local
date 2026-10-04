@@ -311,12 +311,11 @@ assert_eq "base_pool_mb: 2048 -> 512 (floor)" "$(sizing base_pool_mb 2048)" 512
 sizingcnf="$(sizing base_tuning_cnf 3456)"
 assert_contains "base_tuning_cnf: buffer pool line" "$sizingcnf" "innodb_buffer_pool_size = 3456M"
 assert_contains "base_tuning_cnf: redo log line" "$sizingcnf" "innodb_redo_log_capacity = 512M"
-# one rule on both sides: the clinic's lib.sh must size identically
+# The pool share differs on purpose: a clinic's whole stack shares a 10 GiB VM
+# on a Mac, so its MySQL gets a fifth (clinic/install/lib.sh mysql_pool_mb);
+# the hub's base MySQL gets a quarter. The rendered file is one rule on both.
 CLINIC_LIB="$(cd "$(dirname "$TASK")/../../../clinic/install" && pwd)/lib.sh"
-for mem in 400 2048 8192 13924 65536; do
-  c="$(env -i PATH="$PATH" bash -c ". '$CLINIC_LIB'; mysql_pool_mb $mem" 2>/dev/null)"
-  assert_eq "hub and clinic size ${mem} MB the same" "$(sizing base_pool_mb $mem)" "$c"
-done
+assert_eq "clinic gives MySQL a fifth: 13924 -> 2688" "$(env -i PATH="$PATH" bash -c ". '$CLINIC_LIB'; mysql_pool_mb 13924" 2>/dev/null)" 2688
 assert_eq "hub and clinic render the same [mysqld] body" "$(sizing base_tuning_cnf 1024 | grep -v '^#')" "$(env -i PATH="$PATH" bash -c ". '$CLINIC_LIB'; mysql_tuning_cnf 1024" | grep -v '^#')"
 # the override editor takes the service name: an openmrsdb: mount lands under openmrsdb, not odoo-connect
 sizingdir="${TMP_ROOT}/sizing"; mkdir -p "$sizingdir"
@@ -341,6 +340,21 @@ oc=t[t.index('  odoo-connect:'):t.index('  openmrsdb:')] if t.index('  odoo-conn
 db=t[t.index('  openmrsdb:'):]
 sys.exit(0 if ('openmrsdb-tuning' in db and 'openmrsdb-tuning' not in oc and 'logback' in oc) else 1)
 EOF
+
+# --- query rules and liquibase ID width for the base MySQL --------------------
+# Bahmni's patient search groups by columns it does not aggregate; with
+# ONLY_FULL_GROUP_BY (MySQL 8's default) it answers 500, so nobody can register
+# or find a patient through the hub's UI. The clinics run NO_ENGINE_SUBSTITUTION;
+# the hub's conf.d file says the same, one rule on both sides.
+assert_contains "base_tuning_cnf: sql_mode line" "$sizingcnf" "sql_mode = NO_ENGINE_SUBSTITUTION"
+grep -q 'ONLY_FULL_GROUP_BY' "$TASK" && grep -q '@@global.sql_mode' "$TASK" && ok "085 reads sql_mode back and refuses ONLY_FULL_GROUP_BY" || bad "085 does not read sql_mode back from the server"
+# a conf.d file that changes on a MySQL already mounting it is read only at start
+grep -q 'tuning_changed' "$TASK" && grep -q 'restart "\$BASE_MYSQL_CONTAINER"\|restart "$BASE_MYSQL_CONTAINER"' "$TASK" && ok "085 restarts MySQL when the tuning file changes under an existing mount" || bad "085 leaves a changed tuning file unread until the next restart"
+# module changesets have ids longer than 63 characters (Medication Administration's
+# is 69); the base dumps carry liquibasechangelog.ID varchar(63), as the clinic's do
+grep -q 'MODIFY ID VARCHAR(255)' "$TASK" && ok "085 widens liquibasechangelog.ID to 255" || bad "085 leaves liquibasechangelog.ID at the dump's width"
+grep -q 'sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog' "$TASK" && ok "the widening stays out of the binlog the down source reads" || bad "the widening is written to the binlog"
+grep -q 'character_maximum_length' "$TASK" && ok "085 reads the width back from information_schema" || bad "085 does not read the width back"
 
 printf '%s\n' "$fails failure(s)"
 exit $((fails>0))

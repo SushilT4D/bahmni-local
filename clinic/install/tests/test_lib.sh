@@ -221,4 +221,13 @@ assert_eq "mysql_ready keeps the password off the command line" "$(grep -cE -- '
 assert_eq "task 050 waits with mysql_ready, not mysqladmin" "$(grep -c mysqladmin "${HERE}/../tasks/050-databases.sh")/$(grep -c 'mysql_ready "\$MY"' "${HERE}/../tasks/050-databases.sh")" "0/1"
 assert_eq "task 050 asks postgres over TCP too (its init server is socket-only)" "$(grep -c 'pg_isready -h 127.0.0.1' "${HERE}/../tasks/050-databases.sh")" "1"
 
+# has_text judges a captured reply whole: piping it into grep -q under pipefail
+# fails when the match is FOUND (SIGPIPE), on some machines and not others
+big="{\"authenticated\":true}$(head -c 100000 /dev/zero | tr '\000' 'x')"
+rc=0; ( set -euo pipefail; has_text "$big" '"authenticated":true' ) || rc=$?
+assert_rc "has_text finds text at the start of a 100 KB reply" "$rc" 0
+rc=0; ( set -euo pipefail; has_text "$big" '"authenticated":false' ) || rc=$?
+assert_rc "has_text refuses text that is not there" "$rc" 1
+assert_eq "080's credential check judges the reply whole, never through grep -q" "$(grep -cF "| grep -q '\"authenticated\":true'" "${HERE}/../tasks/080-stack.sh")" "0"
+exit "$fails"
 exit "$fails"

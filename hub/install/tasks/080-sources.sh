@@ -49,7 +49,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 # has a test of its own.
 # mysql_root: hub/install/lib.sh (this task and 050-base-db.sh each used to
 # carry an identical copy).
-ver="$(printf 'select version()' | mysql_root | head -1)"
+ver="$(printf 'select version()' | mysql_root | head -1)"  # pipe-ok: one-row result
 bad="$(mysql_major_ok "$ver")" \
   && ok "base mysql version ${ver} fit for Debezium 3.6.2 (major >= 8)" \
   || fail "base mysql ${ver} on ${MY} unfit: ${bad} -- rebuild the hub's base on MySQL 8.0.39 (the version pinned in sync/versions.env) before this task."
@@ -93,7 +93,7 @@ fi
 reg_out="$(CONNECT_URL="$CONNECT_URL" NODE=cloud bash "${HUB_DIR}/connectors/register-odoo.sh" odoo-cloud-source clinlims-cloud-source 2>&1 || true)"
 printf '%s\n' "$reg_out" | mask_env_secrets ODOO_DB_PASSWORD CLINLIMS_SOURCE_PASSWORD ODOO_SINK_PASSWORD CLINLIMS_SINK_PASSWORD | sed 's/^/  /'
 for name in odoo-cloud-source clinlims-cloud-source; do
-  printf '%s\n' "$reg_out" | grep -qE "^  ${name}: HTTP 2[0-9][0-9]\$" \
+  printf '%s\n' "$reg_out" | grep -E "^  ${name}: HTTP 2[0-9][0-9]\$" >/dev/null \
     || fail "${name} did not register with a 2xx (see masked output above)"
 done
 ok "odoo-cloud-source, clinlims-cloud-source registered via connectors/register-odoo.sh NODE=cloud"
@@ -138,7 +138,8 @@ wait_running clinlims-cloud-source 180
 schema_topic="schema-changes.${CLOUD_MYSQL_SERVER_NAME}"
 topic_seen=0
 for i in $(seq 1 24); do
-  ct exec "$KAFKA_CONTAINER" kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null | grep -qx "$schema_topic" && { topic_seen=1; break; }
+  topic_list="$(ct exec "$KAFKA_CONTAINER" kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null)" || topic_list=""
+  has_line "$topic_list" "$schema_topic" && { topic_seen=1; break; }
   sleep 5
 done
 [ "$topic_seen" = 1 ] || fail "topic ${schema_topic} never appeared within 120s of mysql-cloud-source-connector reaching RUNNING"
@@ -220,7 +221,7 @@ wait_slot dbz_clinlims_down openelis 900
 # (Already proven once, as a precondition, in step 5's bounded wait -- this is
 # its own separate, explicit `kafka-topics --list` assertion.)
 topics="$(ct exec "$KAFKA_CONTAINER" kafka-topics --bootstrap-server kafka:29092 --list)"
-printf '%s\n' "$topics" | grep -qx "$schema_topic" \
+has_line "$topics" "$schema_topic" \
   && ok "topic ${schema_topic} exists" \
   || fail "topic ${schema_topic} not found in kafka-topics --list"
 

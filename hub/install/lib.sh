@@ -468,6 +468,12 @@ placeholder_value(){
   esac
   return 1
 }
+# has_text BODY NEEDLE / has_line BODY LINE : judge a captured value whole.
+# Under pipefail, `printf "$body" | grep -q` fails when the match is FOUND:
+# grep exits at the first hit and the writer's next chunk dies of SIGPIPE
+# (tests/test_lint.sh, early-exit pipe lint). has_line matches one whole line.
+has_text(){ case "$1" in *"$2"*) return 0 ;; esac; return 1; }
+has_line(){ case $'\n'"$1"$'\n' in *$'\n'"$2"$'\n'*) return 0 ;; esac; return 1; }
 jaas_escape(){ printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 
 # pg_lit_escape STR : doubles every single quote, for safe embedding inside a
@@ -628,8 +634,8 @@ sys.stdout.write("username=%s&password=%s" % (urllib.parse.quote_plus(user), url
       *) printf 'kafka-ui login POST to %s/login answered HTTP %s, expected a 302 redirect\n' "$url" "${login_code:-<none>}"; exit 1 ;;
     esac
     clusters_body="$(curl -s --max-time 10 -b "$cookie_jar" "${url}/api/clusters" 2>/dev/null || true)"
-    printf '%s' "$clusters_body" | grep -qF '"name":"hub"' && exit 0
-    printf 'kafka-ui authenticated /api/clusters (%s) did not carry cluster "hub" (got: %s)\n' "$url" "$(printf '%s' "$clusters_body" | head -c 200)"
+    has_text "$clusters_body" '"name":"hub"' && exit 0
+    printf 'kafka-ui authenticated /api/clusters (%s) did not carry cluster "hub" (got: %s)\n' "$url" "${clusters_body:0:200}"
     exit 1
   )
 }
