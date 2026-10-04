@@ -1,44 +1,19 @@
-# Host-side deviations from the base compose file for a clinic node.
-# Compose auto-merges docker-compose.override.yml. `!override` REPLACES the list —
-# a plain merge would append and keep the base file's binding.
+# Clinic-node changes to the base file. `!override` replaces a list instead of
+# appending to it.
 x-rotate-logs: &rotate
-  # Rotation for the services that inherit NO logging config from the base file.
-  # These are the ones that actually fill the disk: odoo-connect and
-  # mirrormaker-connect can each hold a single multi-gigabyte json.log, enough
-  # to take a clinic's VM disk under the preflight floor.
-  #
-  # The base file defines x-log-config, but its x-default-logging was `{}` so it
-  # merged nothing, and these services never referenced it anyway. A YAML anchor
-  # is file-scoped and odoo-connect exists ONLY here, so it is
-  # redeclared.
-  #
-  # Log options are fixed at container CREATION: existing containers keep their
-  # unbounded config until recreated. Truncating the json.log reclaims the space
-  # meanwhile and is safe on a running container.
   driver: json-file
   options:
     max-size: "50m"
     max-file: "3"
 
 services:
-  # Rotation only: defined in the base file, bounded here.
   atomfeed-console:
     logging: *rotate
-  # Keep the sync layer loopback-only: nothing here should be on the LAN.
   kafka-connect:
     logging: *rotate
     ports: !override
       - '127.0.0.1:8083:8083'
-    # Replication-origin loop guard, clinic half (Debezium 3.6.2 replaced c3p0 with
-    # Agroal, DBZ-8899). The claim is config-only: each clinic-side PG sink's own connector
-    # JSON carries hibernate.agroal.initialSQL = pg_replication_origin_session_setup('hub_N'),
-    # one distinct origin per sink connector on this node, pool size 1 (PG allows one
-    # session per origin). Nothing to mount here for that anymore.
     volumes:
-      # Filter SMT runtime (jsr223.groovy) for the mysql source and the PG sinks. Previously
-      # docker-cp'd into the container and lost on recreate; see ext/fetch-scripting-jars.sh.
-      # Filenames follow sync/versions.env's GROOVY_VERSION / DEBEZIUM_SCRIPTING_VERSION,
-      # rendered into this node's live clinic/.env (still 4.0.22 / 3.2.4.Final there).
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-${GROOVY_VERSION:?}.jar:ro'
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
       - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
@@ -56,64 +31,23 @@ services:
     ports: !override
       - '127.0.0.1:8086:8080'
 
-  # Its entrypoint REWRITES whatever tree is mounted at /usr/local/bahmni_config.
-  # With our [GUESS] CONFIG_IMAGE_NAME (bahmni/default-config) that overwrote BHS's
-  # Amrit Clinics config with Bahmni defaults. Point it at a scratch dir so it can
-  # never touch bahmni_config/ again. (Service has no profile → always starts.)
+  # Its entrypoint rewrites whatever is mounted here, so it gets a scratch dir.
   bahmni-config:
     volumes: !override
       - './.local-config-scratch:/usr/local/bahmni_config'
   bahmni-mysql:
-    # striding as SERVER FLAGS, not `SET PERSIST`.
-    #   • SET PERSIST is MySQL 8.0+ only and fails on the cloud (5.6.51, ERROR 1193)
-    #   • SET PERSIST writes mysqld-auto.cnf into the DATADIR, so it is lost on a volume
-    #     rebuild and the node silently reverts to increment 1
-    # Base command is charset/sql-mode only and MUST be repeated: compose REPLACES `command`.
-    # The offset is this clinic's residue from sync/clinics.txt (the cloud is 10).
-    #
-    # wait_timeout: MySQL's stock 28800 (8h) was in force on both
-    # nodes — never a decision, just the default. The JDBC sinks hold pooled connections
-    # between writes and validate nothing on checkout, so any idle gap longer than 8h left
-    # them holding a dead socket; the next write got `Broken pipe`, Debezium wrapped it as
-    # a non-retriable ConnectException, and Connect killed the task permanently while the
-    # connector still read RUNNING. At BHS an overnight gap is normal operation, so this
-    # fired roughly every morning. 7 days outlives any realistic idle window including a
-    # long weekend. This line is what makes it survive a container restart.
+    # `command` replaces the base one, so the base flags are repeated.
+    # Striding is a server flag so it survives a rebuilt data volume.
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
       --auto-increment-increment=10 --auto-increment-offset=${MYSQL_AUTO_INCREMENT_OFFSET:?}
       --server-id=${MYSQL_SERVER_ID:?}
       --wait-timeout=604800 --interactive-timeout=604800
-    # ⚠ THIS LINE IS NOT RE-READ ON RESTART. A container created before the line
-    #   was added keeps the OLD command across `docker compose restart` and a
-    #   machine reboot, and stays on the stock 28800 -- the sinks then die again
-    #   after an overnight gap. `docker inspect <c> --format '{{.Config.Cmd}}' is
-    #   the only truthful check; the file agreeing with intent proves nothing.
-    #   Requires `up -d --force-recreate bahmni-mysql` to take effect.
-    #   The durable defence is now client-side: hibernate.c3p0.* on every JDBC sink.
 
-  # OpenELIS lands in THIS container as a second database (`openelis`, schema
-  # `clinlims`) alongside odoo. Two consequences: two logical-replication slots
-  # on one instance, and a version skew against upstream's own openelis-db image.
+  # Hosts both the odoo and the openelis databases.
   bahmni-postgres:
-    # PG15 or later (overriding the base file's ODOO_DB_IMAGE_NAME=postgres:14):
-    # publication row filters (WHERE id%10=residue) are PG15+ and are how per-row
-    # single-writer ownership can be enforced WITHOUT a scripting SMT — the shared
-    # Connect workers have no JSR223 engine, and adding one would disrupt the live
-    # MySQL sync on restart. This instance is disposable (clinlims only; Odoo unused).
-    # PG16 in fact: replication-origin filtering (`origin=none` on pgoutput) is
-    # PG16+ and is what replaced the row filter.
-    # Side-by-side: the 15 cluster stays untouched at data/postgresql for rollback; 16 was
-    # restored from a 16-client pg_dump into data/postgresql16 and verified identical
-    # (counts, publications + row filters, triggers, strided sequences, roles, extensions).
     image: ${POSTGRES_IMAGE:?}
-    # Seed dumps + task 050 connect as the `postgres` superuser (Rawach's PG16
-    # dir was a restore that had it). The base inits POSTGRES_USER=${ODOO_DB_USER}
-    # (=odoo), so a FRESH clinic has no `postgres` role -> task 050 fails "role
-    # postgres does not exist" (first live clinic, manpur). Init `postgres` here;
-    # the odoo role + odoo/openelis DBs are made by task 050. Existing nodes are
-    # unaffected (POSTGRES_USER is read only on an empty datadir).
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?}
@@ -121,44 +55,31 @@ services:
     volumes: !override
       - '${CONTAINER_DATA_PATH}/data/postgresql16:/var/lib/postgresql/data'
       - '${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro'
-    # Also joins the `openelis` profile: it now hosts the clinlims database too, so
-    # `up -d openelis` must be able to bring its own dependency up.
     profiles: ["odoo", "local", "openelis"]
-    # 5432 belongs to the host Homebrew Postgres (bahmni_dev / memory_db). Never take it.
     ports: !override
       - '127.0.0.1:5433:5432'
-    # Debezium's pgoutput needs logical decoding; the base image ships wal_level=replica.
-    # Two slots (odoo + openelis), so headroom above the default 10 is unnecessary but
-    # explicit values keep this readable.
     command: >-
       postgres
       -c wal_level=logical
       -c max_replication_slots=10
       -c max_wal_senders=10
 
-  # NEW SERVICE (not in the base compose — the clinic side has never had OpenELIS).
-  # Profile-gated so it never starts by accident; start it by name.
   openelis:
     profiles: ["openelis"]
     image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:-1.1.0-111}'
     ports:
       - '127.0.0.1:8052:8052'
-    # Upstream start.sh dies in liquibase (see openelis/start-no-migrate.sh header).
     command: ['/start-no-migrate.sh']
     volumes:
-      # start.sh symlinks /etc/bahmni_config/openelis -> /var/www/bahmni_config/openelis
-      # and runs the implementation liquibase from it.
       - '${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config:ro'
       - './openelis/start-no-migrate.sh:/start-no-migrate.sh:ro'
     environment:
       TZ: ${TZ}
-      # start.sh reads OPENELIS_DB_USERNAME; .env carries OPENELIS_DB_USER.
       OPENELIS_DB_SERVER: ${OPENELIS_DB_SERVER}
       OPENELIS_DB_PORT: ${OPENELIS_DB_PORT}
       OPENELIS_DB_NAME: ${OPENELIS_DB_NAME}
       OPENELIS_DB_USERNAME: ${OPENELIS_DB_USER}
       OPENELIS_DB_PASSWORD: ${OPENELIS_DB_PASSWORD}
-      # update_openmrs_host_port.sh rewrites the ELIS-side feed bookmarks to this host.
       OPENMRS_HOST: ${OPENMRS_HOST}
       OPENMRS_PORT: ${OPENMRS_PORT}
       OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER}
@@ -168,140 +89,42 @@ services:
         condition: service_healthy
     restart: ${RESTART_POLICY}
 
-  # Mount an nginx conf that adds the /openelis route. The image's own
-  # proxy/bahmni-nginx.conf is left untouched; this is a copy plus one location block.
+  # Mounted rather than built in, so an edit needs no image rebuild.
   proxy:
     volumes:
       - './proxy/bahmni-nginx.openelis.conf:/etc/nginx/nginx.conf:ro'
-      # error_page 500 501 502 -> /internalError.html had no such file, so nginx turned
-      # every upstream 500 into a 404. The page lives in proxy/htdocs/ beside
-      # maintenance.html and unauthorized.html (the image's COPY ./htdocs/ picks it up on
-      # the next build); mounted here so the fix applies without rebuilding the image.
       - './proxy/htdocs/internalError.html:/usr/share/nginx/html/internalError.html:ro'
-      # writes the resolver the app upstreams re-resolve through (see the proxy conf)
       - './proxy/05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh:ro'
-      # getAppLink's linkHost branch (without it the Odoo tile opens erp-<host>,
-      # a name no clinic's DNS has) -- mounted so an edit
-      # applies without rebuilding the proxy image, same as internalError.html.
       - './proxy/htdocs/index.html:/usr/share/nginx/html/index.html:ro'
 
-  # The base file's `openmrs` service forwards NO OPENELIS_* variables, so
-  # bahmnicore.properties.template and update_elis_host_port.sh — both of which
-  # interpolate ${OPENELIS_HOST}/${OPENELIS_PORT} — could only ever render
-  # "http://:/" no matter what .env said.
   openmrs:
-    # This container had NO memory limit and grew to 5.7 GB of
-    # ANONYMOUS memory on Rawach in one day -- cgroup memory.stat read anon 5715
-    # MiB against only 7 MiB of file cache -- while OMRS_JAVA_MEMORY_OPTS caps the
-    # heap at 2048m and metaspace at 512m. So roughly 3 GB sits OUTSIDE the heap,
-    # where the heap cap cannot reach it. The VM was left with 168 MB available
-    # and swap fully consumed, which is how the hub's OpenMRS died for three days
-    # unbounded, so the kernel took the container rather than the
-    # container failing itself.
-    #
-    # PER NODE, and required: Ghated runs the same image and heap settings at
-    # 2.8 GB after FIVE days, so this is not a general leak -- it tracks database
-    # size. A shared literal would either kill the larger node on sight or fail to
-    # bound the smaller one. Rawach 6g, Ghated 4g, both above measured usage.
+    # Set per node: memory outside the Java heap grows with the database size.
     mem_limit: ${OPENMRS_MEM_LIMIT:?}
     environment:
       OPENELIS_HOST: ${OPENELIS_HOST}
       OPENELIS_PORT: ${OPENELIS_PORT}
       OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
       OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
-    # Form definitions live on DISK; form_resource stores only the PATH. The
-    # restored production DB references 133 files under /home/bahmni/clinical_forms
-    # while the stock image ships 21, so opening a patient's Observations tab threw
-    #   "Unable to read from the file with name
-    #    /home/bahmni/clinical_forms/<uuid>.json (No such file or directory)"
-    # for Adult Case Sheet and 131 others.
-    #
-    # docker-compose.yml:90 carries the mount that would supply them, commented out.
-    # Mounting bahmni_home/clinical_forms ONLY, never the whole bahmni_home: the
-    # container also has uploaded-files/ and uploaded_results/ under /home/bahmni
-    # which the repo tree lacks, and a whole-directory mount would shadow them.
-    #
-    # Scope, measured: of the 136 references, 111 belong to RETIRED forms using
-    # the pre-UUID naming convention (…/Adult_Case_Sheet_1.json). Those files
-    # exist nowhere — not here, not in the repo, and not on the IPlet staging box
-    # bhs-sandbox.bahmni.in, checked directly (381 form files there, a superset of
-    # this repo's 370). Retired forms are never rendered, so that is correct, not
-    # a gap. All 25 references belonging to ACTIVE forms now resolve: 25/25
-    # present, 0 missing.
-    #
-    # Read-write on purpose: the implementer-interface writes new and edited forms
-    # here, so authored forms land in the repo working tree (and show up in
-    # `git status`) instead of vanishing with the container. :ro would break form
-    # authoring.
+    # Read-write: the implementer interface saves forms here.
     volumes:
       - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms:/home/bahmni/clinical_forms"
-  # ODOO. Staging runs bahmni/odoo-16:1.0.0, so a clinic runs the same: the
-  # base compose's own `odoo` service (image ${ODOO_IMAGE_NAME},
-  # HOST ${ODOO_DB_HOST} = bahmni-postgres) runs almost unmodified, with no
-  # private `odoodb` service or volume: Odoo 16 lives on
-  # the shared bahmni-postgres like OpenELIS, with its own
-  # publication/slot (dbz_odoo_owned) controlled independently there, same as
-  # before -- just without a second Postgres instance to get it.
-  #
-  # ONE LINE SURVIVES: platform. PROVEN by the Task 4 probe on this MacBook
-  # (arm64) -- `docker manifest inspect bahmni/odoo-16:1.0.0` carries only an
-  # amd64 manifest (plus an "unknown/unknown" attestation entry, no arm64), so
-  # a pull with no platform pin fails outright: "no matching manifest for
-  # linux/arm64/v8". The base compose's own `odoo` service has never carried
-  # this pin -- harmless on the fleet's actual amd64 Linux VMs, fatal on this
-  # arm64 dev/lab Mac. This is the pre-existing odoo-10 override's own comment
-  # turning out to be literally true ("Same disease as bahmni/odoo-16 and
-  # mysql:5.6"): the odoo-10 image needed the pin for the same reason odoo-16
-  # does, and removing the whole block would have silently dropped the pin
-  # along with everything else that block did carry a real reason to drop.
+  # The image is published for amd64 only.
   odoo:
     platform: linux/amd64
 
   odoo-connect:
     logging: *rotate
-    # Silences the image's root-DEBUG logback, whose CONSOLE appender has no
-    # rolling policy and so writes straight into the container's json.log. With
-    # org.apache.http.wire at DEBUG that is every HTTP header of every ATOM feed
-    # poll: 3,857 MB in about three hours on Rawach, the largest single consumer
-    # of a 58 GB VM disk, twice in one day. Rotation bounds the damage; this
-    # bounds the cause.
     volumes:
       - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
-      # Apache HttpClient 5, which the image needs and does not ship.
-      # openerp-client's XMLClient.setTimeout builds Spring 6's
-      # HttpComponentsClientHttpRequestFactory, compiled against HttpClient 5
-      # (org.apache.hc.*), while the WAR carries only HttpClient 4.5.13 -- so the
-      # call throws NoClassDefFoundError on EVERY Odoo XML-RPC request. Upstream
-      # swallows it (catch Throwable, log), so customers are still written: the
-      # cost is a 30-line stack trace per event, hundreds a minute on a busy
-      # clinic. These jars stop that; they do NOT restore the configured
-      # reply timeout, which was never applied and still is not: Spring 6.0's
-      # setReadTimeout on this factory is a no-op and logs "has no effect"
-      # once. A hung Odoo still stalls the feed worker. Versions are the ones Spring Boot
-      # 3.0.13's BOM manages for this spring-web (6.0.19); the SHA-1s in
-      # odoo/erp-connect-lib/SHA1SUMS match Maven Central. Unfixed on upstream
-      # master (openerp-client/pom.xml declares httpclient 4 only), so this
-      # stays until an image ships the jars.
-      # A missing source file would make the engine create an empty DIRECTORY
-      # of that name inside WEB-INF/lib and the fix would silently not apply;
-      # scripts/preflight.sh checks the jar is a file and the error is gone.
+      # HttpClient 5, which the image calls and does not ship.
       - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
       - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
       - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
     profiles: ["odoo","local"]
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
     platform: linux/amd64
-    # Reads THIS clinic's own feeds over the container network. Nothing here
-    # crosses a node boundary, which is what keeps the clinic working with the
-    # uplink cut (the sync operating policy).
     environment:
-      # There is no private odoodb service: Odoo 16 lives on the shared
-      # bahmni-postgres, so this names that. The base compose's own odoo service already
-      # points HOST at ${ODOO_DB_HOST} = bahmni-postgres; this is odoo-connect's own,
-      # differently-named variable for the same host.
       ODOO_DB_SERVER: bahmni-postgres
-      # staging sets this for odoo-connect 1.0.0 against Odoo 16; the pairing
-      # needs it
       IS_ODOO_16: "true"
       TZ: ${TZ}
       ODOO_DB_USERNAME: ${ODOO_DB_USER}
@@ -322,9 +145,3 @@ services:
       bahmni-postgres:
         condition: service_healthy
     restart: ${RESTART_POLICY}
-# There is no odoodb-data / odooapp-data named-volume block: odoodb does not
-# exist, and odoo's data rides the base compose's own bind mount under
-# CONTAINER_DATA_PATH, same as the
-# rest of the clinic's services. ODOO_DB_VOLUME_NAME / ODOO_APP_VOLUME_NAME are
-# still rendered into clinic/.env by task 020 (unused, harmless); not touched
-# here since only the compose side was in this task's scope.

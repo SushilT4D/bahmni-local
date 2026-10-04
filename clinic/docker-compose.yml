@@ -1,15 +1,5 @@
 
 x-default-logging: &default
-  # An empty `{}` here merges nothing into x-log-config below, so all 14
-  # services inheriting *log-config would run json-file with NO rotation
-  # (HostConfig.LogConfig reads driver=json-file opts=map[] on every one), and
-  # a single unrotated json.log can fill a clinic's VM disk past the preflight
-  # floor.
-  #
-  # 50m x 3 bounds each container at 150 MB, so 14 services cannot exceed ~2 GB.
-  # NOTE: log options are fixed at container CREATION -- existing containers keep
-  # their unbounded config until recreated. Truncating the json.log reclaims the
-  # space meanwhile and is safe while the container runs.
   driver: json-file
   options:
     max-size: "50m"
@@ -24,7 +14,6 @@ x-loki-logging: &loki
     loki-retries: "3"
 
 x-log-config: &log-config
-  # update this value to *loki if needed to see logs in grafana dashboard.
   <<: *default
 
 services:
@@ -33,17 +22,10 @@ services:
     image: bahmni-local/proxy:${PROXY_IMAGE_TAG}
     volumes:
       - ${CERTIFICATE_PATH}:/etc/tls:ro
-      # IPLIT's UI and config, copied out of the two images pinned in
-      # sync/versions.env by scripts/extract-ui-config.sh (installer task 045) into
-      # the gitignored clinic/extracted/. nginx serves them; no second web server.
       - "${BAHMNI_UI_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_UI_DIR (see .env.example)}:/usr/share/nginx/html/bahmni/:ro"
       - "${BAHMNI_CONFIG_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_CONFIG_DIR (see .env.example)}:/usr/share/nginx/html/bahmni_config/:ro"
-    # The image's own probe (wget http://localhost) could never pass: `localhost`
-    # is ::1 inside the container and nginx listens on IPv4 only, and port 80
-    # only redirects to a self-signed 443. This one asks for the login page over
-    # IPv4/TLS, so it also fails when the UI mount is empty -- "healthy"
-    # now means a browser would get the UI.
     healthcheck:
+      # IPv4 and TLS: inside the container `localhost` is ::1 and nginx listens on IPv4 only.
       test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/bahmni/home/index.html"]
       interval: 30s
       timeout: 10s
@@ -58,9 +40,6 @@ services:
       TZ: ${TZ}
 
   bahmni-config:
-    # The pinned IPLIT config image (was an unpinned bahmni/default-config:latest).
-    # The override points its rewrite at a scratch dir; the tree the services read
-    # is clinic/extracted/bahmni_config, filled from this same image by task 045.
     image: ${BAHMNI_CONFIG_IMAGE:?}
     volumes:
       - '${BAHMNI_CONFIG_PATH}:/usr/local/bahmni_config'
@@ -77,11 +56,7 @@ services:
 
   openmrs:
     profiles: ["emr","local", "bahmni-mart"]
-    # OPENMRS_IMAGE_NAME stays the fleet pin (sync/versions.env; rewritten into
-    # .env by versions_put on every install step, so it can never carry a
-    # node-local value). OPENMRS_RUN_IMAGE is set ONLY on arm64 hosts, by
-    # install task 040 (openmrs/build-native.sh's native rebuild, since
-    # OPENMRS_IMAGE_NAME is linux/amd64-only) -- an x86 clinic never sets it.
+    # OPENMRS_RUN_IMAGE is a native rebuild, set on arm64 hosts only.
     image: ${OPENMRS_RUN_IMAGE:-${OPENMRS_IMAGE_NAME:?}}
     environment:
       TZ: ${TZ}
@@ -92,7 +67,6 @@ services:
       OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
       OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
       OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
-      # OMRS_DEV_DEBUG_PORT: ${OMRS_DEV_DEBUG_PORT}
       OMRS_JAVA_SERVER_OPTS: ${OMRS_JAVA_SERVER_OPTS}
       OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
       SEND_MAIL: ${SEND_MAIL}
@@ -114,8 +88,6 @@ services:
       WEIGHT_CONCEPT_UUID: ${WEIGHT_CONCEPT_UUID}
       HEIGHT_CONCEPT_UUID: ${HEIGHT_CONCEPT_UUID}
       OMRS_DB_EXTRA_ARGS: ${OMRS_DB_EXTRA_ARGS}
-      # staging sets both for this image; its startup script otherwise falls back to
-      # the deprecated com.mysql.jdbc.Driver
       OMRS_DB_DRIVER_CLASS: ${OMRS_DB_DRIVER_CLASS:-com.mysql.cj.jdbc.Driver}
       LUCENE_SEARCH_INDEXING_STRATEGY: ${LUCENE_SEARCH_INDEXING_STRATEGY:-manual}
       LUCENE_MATCH_TYPE: ${LUCENE_MATCH_TYPE}
@@ -124,24 +96,15 @@ services:
       OPENMRS_RUNTIME_PROPERTIES_hibernate_format_sql: "false"
       OPENMRS_SERVER_PROPERTIES_hibernate_show_sql: "false"
       OPENMRS_SERVER_PROPERTIES_hibernate_format_sql: "false"
-    #ports:
-      # - ${OMRS_DEV_DEBUG_PORT}:${OMRS_DEV_DEBUG_PORT}
     volumes:
-      # - "${CONTAINER_DATA_PATH}/bahmni_home:/home/bahmni"
       - "${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config/:ro"
       - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/home/bahmni/uploaded_results"
       - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/home/bahmni/uploaded-files"
-      # - "${BAHMNI_OPENMRS_MODULES_PATH:?}/:/openmrs/data/modules/"
       - "${CONTAINER_DATA_PATH}/data/bahmni-patient-images:/home/bahmni/patient_images"
       - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/home/bahmni/document_images"
       - "${CONTAINER_DATA_PATH}/data/bahmni-clinical-forms:/home/bahmni/clinical_forms"
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
-      # - "${CONTAINER_DATA_PATH}/data/sms-token:/openmrs/data/sms-token"
-      # - "${CONTAINER_DATA_PATH}/scripts/openmrs/custom-startup.sh:/openmrs/startup.sh:ro"
-      # - "${CONTAINER_DATA_PATH}/data/openmrs/webapps:/usr/local/tomcat/webapps"
-    # depends_on:
-      # - openmrsdb
     logging: *log-config
     restart: ${RESTART_POLICY}
 
@@ -155,8 +118,6 @@ services:
       - ${EXTRA_ODOO_ADDONS_PATH}:/mnt/extra-addons
       - "${CONTAINER_DATA_PATH}/files/odoo:/var/lib/odoo/filestore"
       - "${CONTAINER_DATA_PATH}/config/odoo:/etc/odoo"
-      # # Uncomment the below volume only when you need to modify existing bahmni-addons. Also make sure to update the .env file variable with bahmni-odoo-modules github repo cloned path.
-      # - ${BAHMNI_ODOO_MODULES_PATH}:/opt/bahmni-erp/bahmni-addons
     depends_on:
       bahmni-postgres:
         condition: service_healthy
@@ -169,29 +130,17 @@ services:
     restart: ${RESTART_POLICY}
 
   bahmni-web:
-#    image: bahmni/bahmni-web:${BAHMNI_WEB_IMAGE_TAG:?}
     image: ${BAHMNI_WEB_IMAGE:?}
     profiles: ["unused"]
     volumes:
-      # The same trees the proxy already serves (see the proxy service's
-      # htdocs/bahmni and htdocs/bahmni_config mounts). An absolute path into one
-      # developer's laptop here would give anyone who enabled this service two
-      # empty read-only mounts and a blank UI.
       - "${BAHMNI_CONFIG_DIR:?}:/usr/local/apache2/htdocs/bahmni_config/:ro"
       - "${BAHMNI_UI_DIR:?}:/usr/local/apache2/htdocs/bahmni/:ro"
-      # - "${CONFIG_BACKUP:?}:/usr/local/apache2/htdocs/bahmni_config_backup/"
-      # - ${BAHMNI_APPS_PATH:?}/ui/app/:/usr/local/apache2/htdocs/bahmni
-      # - "${BAHMNI_APPS_PATH:?}/ui/node_modules/@bower_components/:/usr/local/apache2/htdocs/bahmni/components"
     logging: *log-config
     restart: ${RESTART_POLICY}
 
   implementer-interface:
     image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
     profiles: ["implementer-interface","emr","local"]
-    #volumes:
-    #  - "${IMPLEMENTER_INTERFACE_CODE_PATH:?}/dist:/usr/local/apache2/htdocs/implementer-interface"
-    # depends_on:  add this back when openmrs is ready -- 2025-12-15 sk
-    #   - openmrs
     logging: *log-config
     restart: ${RESTART_POLICY}
 
@@ -203,9 +152,6 @@ services:
     logging: *log-config
     restart: ${RESTART_POLICY}
 
-  # #########################################################
-  # Database Containers                                     #
-  # #########################################################
   bahmni-mysql:
     image: ${MYSQL_IMAGE:?}
     restart: always
@@ -222,8 +168,6 @@ services:
     volumes:
       - ${CONTAINER_DATA_PATH}/data/mysql:/var/lib/mysql
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums"
-      # InnoDB sizing rendered by the installer (task 020); read through my.cnf's
-      # !includedir. A single-file bind mount: edit in place, then recreate.
       - "${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro"
 
     logging: *log-config
@@ -259,15 +203,11 @@ services:
     environment:
       TZ: ${TZ}
       OPENMRS_HOST: ${OPENMRS_HOST:?}
-    # depends_on:  add this back when openmrs is ready -- 2025-12-15 sk
-    #   - openmrs
     logging: *log-config
     restart: ${RESTART_POLICY}
 
-
   atomfeed-console:
     image: bahmni/atomfeed-console:latest
-    # an admin tool, not part of running a clinic: start it by name when needed
     profiles: ["atomfeed-console"]
     restart: ${RESTART_POLICY}
     environment:
@@ -320,15 +260,7 @@ services:
     logging: *log-config
     volumes:
       - '../snomed-resources/load-snowstorm-data.sh:/load-snowstorm-data.sh'
-    #  - "${SNOWSTORM_RF2_FILE_PATH:?}:/snowstorm-data/snomed-data.zip:ro"
 
-  # #########################################################
-  # Debezium Containers                                        #
-  # #########################################################
-
-  # One node holds both KRaft roles: it is the cluster's only controller and
-  # its only broker. Clients, all on the Docker network, dial kafka:29092; the
-  # CONTROLLER listener is never advertised, and no port is published.
   kafka:
     profiles: [ "debezium" ]
     image: ${KAFKA_IMAGE:?}
@@ -336,7 +268,6 @@ services:
     hostname: kafka
     container_name: kafka
     environment:
-      # a stated heap: the whole clinic stack must fit a 10 GiB container VM
       KAFKA_HEAP_OPTS: ${KAFKA_NODE_HEAP_OPTS:--Xms256m -Xmx1g}
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
       KAFKA_NODE_ID: 1
@@ -352,17 +283,13 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-      # Extended retention for offline buffering (7 days default, increase if needed)
       KAFKA_LOG_RETENTION_HOURS: ${KAFKA_RETENTION_HOURS:-168}
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-      # Increase retention bytes to handle longer offline periods
       KAFKA_LOG_RETENTION_BYTES: ${KAFKA_RETENTION_BYTES:--1}
     volumes:
       - "${CONTAINER_DATA_PATH}/data/kafka:/var/lib/kafka/data"
     healthcheck:
-      # The probe starts a JVM. On a loaded 1-vCPU host (manpur) it cannot finish
-      # in 5 s, and a 10 s interval keeps one JVM permanently starting.
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
       interval: 30s
       timeout: 20s
@@ -381,7 +308,6 @@ services:
     ports:
       - "8083:8083"
     environment:
-      # a stated heap: the whole clinic stack must fit a 10 GiB container VM
       HEAP_OPTS: ${CONNECT_HEAP_OPTS:--Xms256m -Xmx768m}
       BOOTSTRAP_SERVERS: kafka:29092
       GROUP_ID: connect-cluster
@@ -406,13 +332,11 @@ services:
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j.properties:/kafka/config/log4j.properties"
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j2.yml:/kafka/config/log4j2.yml"
     healthcheck:
-      # Connect scans every plugin before its REST port opens: minutes on a small
-      # host. Without a start_period it was "unhealthy" after ~50 s and compose
-      # refused everything gated on it.
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
       timeout: 5s
       retries: 5
+      # Connect scans every plugin before its REST port opens.
       start_period: 900s
 
   mirrormaker-connect:
@@ -420,13 +344,9 @@ services:
     image: ${MM2_IMAGE:?}
     hostname: mirrormaker-connect
     container_name: mirrormaker-connect
-    # depends_on:
-    #   kafka:
-    #     condition: service_healthy
     ports:
       - "8084:8083"
     environment:
-      # a stated heap: the whole clinic stack must fit a 10 GiB container VM
       KAFKA_HEAP_OPTS: ${MM2_HEAP_OPTS:--Xms256m -Xmx768m}
       CONNECT_BOOTSTRAP_SERVERS: kafka:29092
       CONNECT_REST_PORT: 8083
@@ -443,14 +363,13 @@ services:
       CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
       CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
-      # Enable MirrorMaker connectors
       CONNECT_REST_ADVERTISED_PORT: 8083
       REMOTE_KAFKA_BOOTSTRAP_SERVERS: ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
       REMOTE_KAFKA_USERNAME: ${REMOTE_KAFKA_USERNAME:?}
       REMOTE_KAFKA_PASSWORD: ${REMOTE_KAFKA_PASSWORD:?}
       REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD:?}
       KAFKA_TOPIC_PATTERNS: ${KAFKA_TOPIC_PATTERNS:-.*}
-      # Next line because image has botched location to $base_dir/../config/connect-log4j.properties"
+      # The image looks for its log config in the wrong directory.
       KAFKA_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/kafka-connect/log4j.properties"
       LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest.RestServer=WARN,org.apache.kafka.clients.NetworkClient=WARN"
     volumes:
@@ -462,7 +381,6 @@ services:
     restart: unless-stopped
     command: ["/bin/bash", "/etc/kafka-connect/start-mm2.sh"]
 
-  # Optional: Kafka UI for monitoring local setup
   kafka-ui:
     profiles: [ "debezium" ]
     image: provectuslabs/kafka-ui:latest
@@ -481,23 +399,6 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
-      # Authentication
-      # AUTH_TYPE: "LOGIN_FORM"
-      # SPRING_SECURITY_USER_NAME: "admin"
-      # SPRING_SECURITY_USER_PASSWORD: "admin123"
-
-  # kafka-ui-proxy:
-  #   profiles: [ "debezium" ]
-  #   image: nginx:alpine
-  #   container_name: kafka-ui-proxy
-  #   ports:
-  #     - "8443:443"
-  #   volumes:
-  #     - ${CERTIFICATE_PATH}:/etc/nginx/certs:ro
-  #     - ./kafka-ui-nginx.conf:/etc/nginx/nginx.conf:ro
-  #   depends_on:
-  #     - kafka-ui
-  #   restart: ${RESTART_POLICY}
 
 volumes:
   bahmni-patient-images:

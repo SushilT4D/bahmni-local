@@ -1,9 +1,4 @@
 x-rotate-logs: &rotate
-  # For the services that do NOT reference *log-config in the base file and so
-  # inherit no logging config at all. Fixing x-default-logging alone covered
-  # only 13 of 29 here -- and left kafka-connect, holding a 799 MB unrotated
-  # json.log, among the uncovered. A YAML anchor is file-scoped, so it is
-  # redeclared rather than reused from the base file.
   driver: json-file
   options:
     max-size: "50m"
@@ -11,29 +6,16 @@ x-rotate-logs: &rotate
 
 services:
 
-  # One Kafka node holding both KRaft roles. Clinics dial the SASL listener on
-  # 9092; everything on this host dials kafka:29092; the CONTROLLER listener
-  # (9093) is neither advertised nor published.
   kafka:
+    # Clinics dial 9092 (SASL); this host dials kafka:29092; 9093 is never published.
     image: ${KAFKA_IMAGE:?}
     restart: unless-stopped
     hostname: kafka
     container_name: kafka
     logging: *rotate
     ports:
-      # The CLINIC-FACING SASL_PLAINTEXT listener. KAFKA_SASL_BIND (hub/.env,
-      # default 0.0.0.0) is the host interface it is published on: a real hub
-      # must be dialable by every clinic, so 9092 is public by default. This
-      # line used to pin 127.0.0.1 outright -- a hub no clinic could reach,
-      # which no operator could fix without editing this tracked file (which
-      # task 090's own git-clean check then refused). A lab hub that fronts
-      # 9092 with `tailscale serve` sets KAFKA_SASL_BIND=127.0.0.1 on purpose;
-      # tasks 060 and 090 read this binding back from the running container
-      # and warn loudly when it is loopback.
       - '${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092'
     environment:
-      # One node holds both KRaft roles. CLUSTER_ID must match the id in the
-      # kafka-data volume's meta.properties.
       KAFKA_HEAP_OPTS: ${HUB_KAFKA_HEAP_OPTS:--Xms512m -Xmx1g}
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
       KAFKA_NODE_ID: 1
@@ -52,10 +34,8 @@ services:
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_LOG_SEGMENT_BYTES: 1073741824
       KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-      # SASL configuration
       KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
       KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
-      # JAAS configuration (username/password)
       KAFKA_OPTS: >-
         -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
     volumes:
@@ -83,8 +63,6 @@ services:
     environment:
       HEAP_OPTS: ${HUB_CONNECT_HEAP_OPTS:--Xms256m -Xmx1g}
       BOOTSTRAP_SERVERS: kafka:29092
-        #CONNECT_SASL_MECHANISM: PLAIN
-        #CONNECT_SECURITY_PROTOCOL: SASL_PLAINTEXT
       GROUP_ID: connect-cluster
       CONFIG_STORAGE_TOPIC: docker-connect-configs
       CONFIG_STORAGE_REPLICATION_FACTOR: 1
@@ -109,10 +87,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Topic/consumer/Connect browser, behind a real login -- task 070 brings it
-  # up alongside kafka-connect and proves both the login page answers AND an
-  # unauthenticated API call is refused. 127.0.0.1 only: this is an operator
-  # convenience on the hub host itself, never a service another node dials.
   kafka-ui:
     profiles: [ "ui" ]
     image: ${KAFKA_UI_IMAGE:?}
