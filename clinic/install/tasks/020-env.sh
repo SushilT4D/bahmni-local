@@ -48,8 +48,8 @@ if [ "${PLATFORM}" = macos ]; then put RESTART_POLICY always; else put RESTART_P
 # (docker-compose.macos.yml): a virtiofs bind mount from the host is not a
 # POSIX filesystem, and PostgreSQL crash-recovers on it under load. Selected
 # through COMPOSE_FILE so every compose call, the installer's and an
-# operator's, loads the same three files.
-if [ "${PLATFORM}" = macos ]; then put COMPOSE_FILE docker-compose.yml:docker-compose.override.yml:docker-compose.macos.yml; fi
+# operator's, loads the same two files.
+if [ "${PLATFORM}" = macos ]; then put COMPOSE_FILE docker-compose.yml:docker-compose.macos.yml; fi
 # macos-compose:end
 
 # fleet constants the example does not carry (Rawach's live .env does)

@@ -11,7 +11,7 @@ bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 has(){ grep -vE '^[[:space:]]*#' "$1" | grep -qE -- "$2"; }
 svc(){ # FILE SERVICE : that service's block, comments dropped
   awk -v s="  $2:" '$0==s{p=1;next} p&&/^  [A-Za-z]/{exit} p' "$1" | grep -vE '^[[:space:]]*#'; }
-Y="$CL/docker-compose.yml"; O="$CL/docker-compose.override.yml"
+Y="$CL/docker-compose.yml"
 
 # pins
 for k in BAHMNI_WEB_IMAGE BAHMNI_CONFIG_IMAGE; do grep -qE "^$k=infoiplitin/[a-z-]+:[A-Za-z0-9._-]+" "$RP/sync/versions.env" && ok_ "sync/versions.env pins $k" || bad "sync/versions.env does not pin $k to an infoiplitin image"; done
@@ -21,8 +21,8 @@ grep -E '^BAHMNI_(WEB|CONFIG)_IMAGE=' "$RP/sync/versions.env" | grep -q ':latest
 svc "$Y" proxy   | grep -q 'BAHMNI_UI_DIR'     && ok_ "proxy serves the UI from BAHMNI_UI_DIR" || bad "proxy does not mount BAHMNI_UI_DIR"
 svc "$Y" proxy   | grep -q 'BAHMNI_CONFIG_DIR' && ok_ "proxy serves the config from BAHMNI_CONFIG_DIR" || bad "proxy does not mount BAHMNI_CONFIG_DIR"
 svc "$Y" openmrs | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openmrs reads BAHMNI_CONFIG_DIR" || bad "openmrs does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
-svc "$O" openelis | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openelis reads BAHMNI_CONFIG_DIR" || bad "openelis does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
-{ svc "$Y" proxy; svc "$Y" openmrs; svc "$O" openelis; } | grep -qE 'CONTAINER_DATA_PATH[^:]*/(htdocs/bahmni|bahmni_config)|\./bahmni-config' && bad "a consumer still mounts a committed tree" || ok_ "no consumer mounts a committed tree"
+svc "$Y" openelis | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openelis reads BAHMNI_CONFIG_DIR" || bad "openelis does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
+{ svc "$Y" proxy; svc "$Y" openmrs; svc "$Y" openelis; } | grep -qE 'CONTAINER_DATA_PATH[^:]*/(htdocs/bahmni|bahmni_config)|\./bahmni-config' && bad "a consumer still mounts a committed tree" || ok_ "no consumer mounts a committed tree"
 svc "$Y" bahmni-config | grep -q 'BAHMNI_CONFIG_IMAGE' && ok_ "bahmni-config service runs the pinned image, not default-config:latest" || bad "bahmni-config service is not on BAHMNI_CONFIG_IMAGE"
 for k in BAHMNI_UI_DIR BAHMNI_CONFIG_DIR; do grep -qE "^$k=" "$CL/.env.example" && ok_ ".env.example carries $k" || bad ".env.example lacks $k"; done
 grep -qE '^/?clinic/extracted(\.prev)?/?|^extracted' "$RP/.gitignore" "$CL/.gitignore" 2>/dev/null && ok_ "extracted/ is gitignored" || bad "extracted/ is not gitignored"
@@ -30,7 +30,7 @@ has "$HERE/../tasks/020-env.sh" 'put BAHMNI_UI_DIR' && has "$HERE/../tasks/020-e
 [ -f "$HERE/../tasks/045-ui-config.sh" ] && has "$HERE/../tasks/045-ui-config.sh" 'extract-ui-config.sh' && ok_ "task 045 runs the extraction" || bad "no task 045 running scripts/extract-ui-config.sh"
 
 # settings staging carries
-svc "$O" odoo-connect | grep -qE 'IS_ODOO_16:.*true' && ok_ "odoo-connect has IS_ODOO_16=true" || bad "odoo-connect lacks IS_ODOO_16=true"
+svc "$Y" odoo-connect | grep -qE 'IS_ODOO_16:.*true' && ok_ "odoo-connect has IS_ODOO_16=true" || bad "odoo-connect lacks IS_ODOO_16=true"
 svc "$Y" openmrs | grep -q 'OMRS_DB_DRIVER_CLASS' && ok_ "openmrs passes OMRS_DB_DRIVER_CLASS" || bad "openmrs lacks OMRS_DB_DRIVER_CLASS"
 svc "$Y" openmrs | grep -q 'LUCENE_SEARCH_INDEXING_STRATEGY' && ok_ "openmrs passes LUCENE_SEARCH_INDEXING_STRATEGY" || bad "openmrs lacks LUCENE_SEARCH_INDEXING_STRATEGY"
 grep -qE '^OMRS_DB_DRIVER_CLASS=com\.mysql\.cj\.jdbc\.Driver' "$CL/.env.example" && grep -qE '^LUCENE_SEARCH_INDEXING_STRATEGY=manual' "$CL/.env.example" && ok_ ".env.example carries staging's two values" || bad ".env.example lacks the driver class / lucene strategy"
@@ -47,7 +47,7 @@ for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do grep -vE '^[[:space:]]
 # erp-<host> DNS convention (a name that does not resolve)
 has "$CL/proxy/htdocs/index.html" 'app\.linkHost' && ok_ "index.html's getAppLink opens linkHost" || bad "index.html has no linkHost branch in getAppLink"
 has "$CL/proxy/htdocs/index.html" 'linkPort' && bad "index.html still has a linkPort branch" || ok_ "index.html has no linkPort branch"
-has "$CL/docker-compose.override.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/index\.html:ro" && ok_ "override mounts proxy/htdocs/index.html so an edit needs no image rebuild" || bad "docker-compose.override.yml does not mount proxy/htdocs/index.html"
+has "$CL/docker-compose.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/index\.html:ro" && ok_ "compose mounts proxy/htdocs/index.html so an edit needs no image rebuild" || bad "docker-compose.yml does not mount proxy/htdocs/index.html"
 
 # exit checks: an Odoo that only answers HTTP 500 must fail the install, not
 # just the marker round-trip further down the same task

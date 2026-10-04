@@ -9,7 +9,7 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 eq(){ [ "$2" = "$3" ] && ok_ "$1" || bad "$1: got '$2', want '$3'"; }
-LIB="${HERE}/../lib.sh"; T20="${HERE}/../tasks/020-env.sh"; CL="${HERE}/../../docker-compose.yml"; OV="${HERE}/../../docker-compose.override.yml"
+LIB="${HERE}/../lib.sh"; T20="${HERE}/../tasks/020-env.sh"; CL="${HERE}/../../docker-compose.yml"
 call(){ env -i PATH="$PATH" bash -c ". '$LIB'; \"\$@\"" _ "$@" 2>&1; }
 
 eq "pool: 13924 MB -> 2688 (a fifth)" "$(call mysql_pool_mb 13924)" 2688
@@ -26,7 +26,7 @@ printf '%s' "$cnf" | grep -q '^innodb_redo_log_capacity *= *512M$' && ok_ "cnf: 
 code20="$(grep -vE '^[[:space:]]*#' "$T20")"
 printf '%s' "$code20" | grep -q 'mysql_tuning_cnf' && ok_ "020 renders the tuning file" || bad "020 does not render the tuning file"
 printf '%s' "$code20" | grep -q 'config/mysql/sync-tuning.cnf' && ok_ "020 writes clinic/config/mysql/sync-tuning.cnf" || bad "020 writes it elsewhere"
-grep -q 'config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro' "$CL" "$OV" && ok_ "compose mounts it read-only into conf.d" || bad "compose does not mount it"
+grep -q 'config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro' "$CL" && ok_ "compose mounts it read-only into conf.d" || bad "compose does not mount it"
 REPO="$(cd "${HERE}/../../.." && pwd)"
 ( cd "$REPO" && git check-ignore -q clinic/config/mysql/sync-tuning.cnf ) && ok_ "the rendered file is gitignored" || bad "the rendered file is not gitignored"
 

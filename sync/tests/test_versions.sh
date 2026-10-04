@@ -15,7 +15,7 @@ grep -qE '^KAFKA_IMAGE=confluentinc/cp-kafka:8\.3\.2([[:space:]]|$)' "$V" && ok 
 grep -qE '^DEBEZIUM_CONNECT_IMAGE=quay\.io/debezium/connect:3\.6\.2\.Final([[:space:]]|$)' "$V" && ok "debezium 3.6.2" || bad "DEBEZIUM_CONNECT_IMAGE is not 3.6.2.Final"
 grep -qE '^OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1\.2\.0-1200-03([[:space:]]|$)' "$V" && ok "openmrs 1.2.0" || bad "OPENMRS_IMAGE_NAME is not iplit-1.2.0-1200-03"
 # no literal tag for these images in either compose file (comments excluded)
-for f in clinic/docker-compose.yml clinic/docker-compose.override.yml hub/docker-compose.yml; do
+for f in clinic/docker-compose.yml hub/docker-compose.yml; do
   hits="$(grep -nE '^\s*image:' "$REPO/$f" | grep -E 'cp-kafka:|cp-kafka-connect:|debezium/connect:|mysql:[0-9]|postgres:[0-9]|odoo-1[06]:|odoo-connect:|openmrs:iplit' | grep -vE '\$\{' || true)"
   [ -z "$hits" ] && ok "$f has no literal pins" || bad "$f still carries literal pins: $hits"
 done

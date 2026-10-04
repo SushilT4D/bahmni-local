@@ -1,6 +1,6 @@
 # Fleet-wide residue ledger.  clinic_id:offset
 #
-# The increment (10) is set by docker-compose.override.yml's
+# The increment (10) is set by clinic/docker-compose.yml's
 # --auto-increment-increment; this file sets only the per-node OFFSET.
 # scripts/configure-pk-offsets.sh looks up the row whose key equals this
 # node's BHS_LOCATION (case-insensitive, first match wins).

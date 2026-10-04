@@ -12,9 +12,8 @@
 # write /kafka/connect/data. So this is a class of defect, not one directory --
 # every service below is swept the same way.
 #
-# Directories come from the MERGED compose config (docker-compose.yml plus
-# docker-compose.override.yml), never from grepping either file by hand, so a
-# mount added to either file is picked up here with no edit to this script.
+# Directories come from the rendered compose config, never from grepping the
+# file by hand, so a new mount is picked up here with no edit to this script.
 # The uid:gid an image runs as is read with a throwaway container (never the
 # real service), and a directory is only touched if its current owner differs.
 #

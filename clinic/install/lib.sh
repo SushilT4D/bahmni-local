@@ -83,6 +83,16 @@ setup_compose(){
     [ -n "${DOCKER_HOST:-}" ] || export DOCKER_HOST="$(podman_socket)"
   fi
   export CT COMPOSE_CMD
+  compose_files_exist
+}
+# Every file clinic/.env's COMPOSE_FILE names must exist, or every compose call fails.
+compose_files_exist(){
+  local cf f missing=""
+  cf="$( [ -f "${CLINIC_DIR}/.env" ] && env_get "${CLINIC_DIR}/.env" COMPOSE_FILE 2>/dev/null || true)"
+  [ -n "$cf" ] || return 0
+  local IFS=:
+  for f in $cf; do [ -f "${CLINIC_DIR}/$f" ] || missing="$missing $f"; done
+  [ -z "$missing" ] || fail "clinic/.env COMPOSE_FILE names a file that does not exist:${missing}. Set it to the files that do, e.g. COMPOSE_FILE=docker-compose.yml:docker-compose.macos.yml on macOS"
 }
 ct(){ "${CT:?setup_compose first}" "$@"; }
 # compose ARGS... : always from the clinic dir, always with the fleet's profiles.

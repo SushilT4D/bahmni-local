@@ -45,7 +45,7 @@ clinic/connectors/mysql-source-connector.json
 clinic/connectors/mysql-local-source-connector.json
 
 # The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
-# /usr/local/bahmni_config. docker-compose.override.yml points it here so it can
+# /usr/local/bahmni_config. clinic/docker-compose.yml points it here so it can
 # never touch bahmni_config/ again - so this tree is churn the service owns,
 # regenerated on every boot, and must never be committed.
 .local-config-scratch/

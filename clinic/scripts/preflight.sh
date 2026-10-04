@@ -296,7 +296,7 @@ case "$st" in *"not RUNNING: []") ok "$st";; *) bad "$st";; esac
 
 
 # --- odoo-connect -----------------------------------------------------------
-# The image lacks Apache HttpClient 5 and the compose override bind-mounts three
+# The image lacks Apache HttpClient 5 and the compose file bind-mounts three
 # jars into its WEB-INF/lib. Two ways for that to silently
 # not apply: the source file missing, so the engine creates an empty DIRECTORY
 # of the jar's name; or a container recreated from an older override. Both

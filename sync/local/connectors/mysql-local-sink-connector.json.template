@@ -50,7 +50,7 @@
     "//agroal10": "no configurable test-query hook (no equivalent of preferredTestQuery) --",
     "//agroal11": "it validates via the JDBC driver's own Connection.isValid(). Same role as",
     "//agroal12": "the old four keys: survive a MySQL restart, which the server-side",
-    "//agroal13": "wait_timeout does not (see docker-compose.override.yml). The",
+    "//agroal13": "wait_timeout does not (see clinic/docker-compose.yml). The",
     "//agroal14": "kill-45 proof (killed 45 sink connections server-side, next write landed in",
     "//agroal15": "5s, every task RUNNING; control sink without these keys FAILED with Broken",
     "//agroal16": "pipe) was run under c3p0/3.2.4 and has not been independently re-run under",

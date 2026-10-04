@@ -1,4 +1,3 @@
-
 x-default-logging: &default
   driver: json-file
   options:
@@ -16,6 +15,11 @@ services:
       - ${CERTIFICATE_PATH}:/etc/tls:ro
       - "${BAHMNI_UI_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_UI_DIR (see .env.example)}:/usr/share/nginx/html/bahmni/:ro"
       - "${BAHMNI_CONFIG_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_CONFIG_DIR (see .env.example)}:/usr/share/nginx/html/bahmni_config/:ro"
+      # Mounted rather than built in, so an edit needs no image rebuild.
+      - './proxy/bahmni-nginx.openelis.conf:/etc/nginx/nginx.conf:ro'
+      - './proxy/htdocs/internalError.html:/usr/share/nginx/html/internalError.html:ro'
+      - './proxy/05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh:ro'
+      - './proxy/htdocs/index.html:/usr/share/nginx/html/index.html:ro'
     healthcheck:
       # IPv4 and TLS: inside the container `localhost` is ::1 and nginx listens on IPv4 only.
       test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/bahmni/home/index.html"]
@@ -33,8 +37,9 @@ services:
 
   bahmni-config:
     image: ${BAHMNI_CONFIG_IMAGE:?}
+    # Its entrypoint rewrites whatever is mounted here, so it gets a scratch dir.
     volumes:
-      - '${BAHMNI_CONFIG_PATH}:/usr/local/bahmni_config'
+      - './.local-config-scratch:/usr/local/bahmni_config'
     logging: *log-config
     restart: ${RESTART_POLICY}
 
@@ -50,6 +55,8 @@ services:
     profiles: ["emr","local", "bahmni-mart"]
     # OPENMRS_RUN_IMAGE is a native rebuild, set on arm64 hosts only.
     image: ${OPENMRS_RUN_IMAGE:-${OPENMRS_IMAGE_NAME:?}}
+    # Set per node: memory outside the Java heap grows with the database size.
+    mem_limit: ${OPENMRS_MEM_LIMIT:?}
     environment:
       TZ: ${TZ}
       OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
@@ -88,6 +95,10 @@ services:
       OPENMRS_RUNTIME_PROPERTIES_hibernate_format_sql: "false"
       OPENMRS_SERVER_PROPERTIES_hibernate_show_sql: "false"
       OPENMRS_SERVER_PROPERTIES_hibernate_format_sql: "false"
+      OPENELIS_HOST: ${OPENELIS_HOST}
+      OPENELIS_PORT: ${OPENELIS_PORT}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
     volumes:
       - "${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config/:ro"
       - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/home/bahmni/uploaded_results"
@@ -96,12 +107,16 @@ services:
       - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/home/bahmni/document_images"
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
+      # Read-write: the implementer interface saves forms here.
+      - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms:/home/bahmni/clinical_forms"
     logging: *log-config
     restart: ${RESTART_POLICY}
 
   odoo:
     profiles: ["odoo","local"]
     image: '${ODOO_IMAGE_NAME:?[ERROR]}'
+    # The image is published for amd64 only.
+    platform: linux/amd64
     ports:
       - '8069:8069'
     volumes:
@@ -117,6 +132,40 @@ services:
       HOST: ${ODOO_DB_HOST}
       USER: ${ODOO_DB_USER}
       PASSWORD: ${ODOO_DB_PASSWORD}
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  odoo-connect:
+    profiles: ["odoo","local"]
+    image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
+    platform: linux/amd64
+    volumes:
+      - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
+      # HttpClient 5, which the image calls and does not ship.
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
+    environment:
+      ODOO_DB_SERVER: bahmni-postgres
+      IS_ODOO_16: "true"
+      TZ: ${TZ}
+      ODOO_DB_USERNAME: ${ODOO_DB_USER}
+      ODOO_DB_PASSWORD: ${ODOO_DB_PASSWORD}
+      OPENMRS_HOST: ${OPENMRS_HOST}
+      OPENMRS_PORT: ${OPENMRS_PORT}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD}
+      OPENELIS_HOST: ${OPENELIS_HOST}
+      OPENELIS_PORT: ${OPENELIS_PORT}
+      OPENELIS_ATOMFEED_USER: ${OPENELIS_ATOMFEED_USER}
+      OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
+      ODOO_HOST: ${ODOO_HOST}
+      ODOO_PORT: ${ODOO_PORT}
+      ODOO_ATOMFEED_USER: ${ODOO_ATOMFEED_USER}
+      ODOO_ATOMFEED_PASSWORD: ${ODOO_ATOMFEED_PASSWORD}
+    depends_on:
+      bahmni-postgres:
+        condition: service_healthy
     logging: *log-config
     restart: ${RESTART_POLICY}
 
@@ -138,7 +187,13 @@ services:
     image: ${MYSQL_IMAGE:?}
     restart: always
     profiles: ["emr","local", "metabase", "bahmni-mart"]
-    command: --character-set-server=utf8 --collation-server=utf8_general_ci --sql-mode=NO_ENGINE_SUBSTITUTION
+    # Striding is a server flag so it survives a rebuilt data volume.
+    command: >-
+      --character-set-server=utf8 --collation-server=utf8_general_ci
+      --sql-mode=NO_ENGINE_SUBSTITUTION
+      --auto-increment-increment=10 --auto-increment-offset=${MYSQL_AUTO_INCREMENT_OFFSET:?}
+      --server-id=${MYSQL_SERVER_ID:?}
+      --wait-timeout=604800 --interactive-timeout=604800
     ports:
       - 3306:3306
     environment:
@@ -151,28 +206,58 @@ services:
       - ${CONTAINER_DATA_PATH}/data/mysql:/var/lib/mysql
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro"
-
     logging: *log-config
 
+  # Hosts both the odoo and the openelis databases.
   bahmni-postgres:
-    profiles: ["odoo","local"]
-    image: '${ODOO_DB_IMAGE_NAME:?[ERROR]}'
+    profiles: ["odoo", "local", "openelis"]
+    image: ${POSTGRES_IMAGE:?}
+    command: >-
+      postgres
+      -c wal_level=logical
+      -c max_replication_slots=10
+      -c max_wal_senders=10
     volumes:
-      - ${CONTAINER_DATA_PATH}/data/postgresql:/var/lib/postgresql/data
-      - ${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro
+      - '${CONTAINER_DATA_PATH}/data/postgresql16:/var/lib/postgresql/data'
+      - '${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -U odoo']
       interval: 10s
       timeout: 5s
       retries: 10
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5433:5432'
     environment:
       TZ: ${TZ}
-      POSTGRES_DB: ${ODOO_DB_NAME:?}
-      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD}
-      POSTGRES_USER: ${ODOO_DB_USER}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?}
+      POSTGRES_DB: postgres
     logging: *log-config
+    restart: ${RESTART_POLICY}
+
+  openelis:
+    profiles: ["openelis"]
+    image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:-1.1.0-111}'
+    ports:
+      - '127.0.0.1:8052:8052'
+    command: ['/start-no-migrate.sh']
+    volumes:
+      - '${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config:ro'
+      - './openelis/start-no-migrate.sh:/start-no-migrate.sh:ro'
+    environment:
+      TZ: ${TZ}
+      OPENELIS_DB_SERVER: ${OPENELIS_DB_SERVER}
+      OPENELIS_DB_PORT: ${OPENELIS_DB_PORT}
+      OPENELIS_DB_NAME: ${OPENELIS_DB_NAME}
+      OPENELIS_DB_USERNAME: ${OPENELIS_DB_USER}
+      OPENELIS_DB_PASSWORD: ${OPENELIS_DB_PASSWORD}
+      OPENMRS_HOST: ${OPENMRS_HOST}
+      OPENMRS_PORT: ${OPENMRS_PORT}
+      OPENMRS_ATOMFEED_USER: ${OPENMRS_ATOMFEED_USER}
+      OPENMRS_ATOMFEED_PASSWORD: ${OPENMRS_ATOMFEED_PASSWORD}
+    depends_on:
+      bahmni-postgres:
+        condition: service_healthy
     restart: ${RESTART_POLICY}
 
   patient-documents:
@@ -192,6 +277,7 @@ services:
     image: bahmni/atomfeed-console:latest
     profiles: ["atomfeed-console"]
     restart: ${RESTART_POLICY}
+    logging: *log-config
     environment:
       TZ: ${TZ}
       OPENMRS_DB_HOST: ${BAHMNI_MYSQL_HOST}
@@ -205,6 +291,7 @@ services:
     restart: ${RESTART_POLICY}
     hostname: kafka
     container_name: kafka
+    logging: *log-config
     environment:
       KAFKA_HEAP_OPTS: ${KAFKA_NODE_HEAP_OPTS:--Xms256m -Xmx1g}
       CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
@@ -240,11 +327,12 @@ services:
     restart: ${RESTART_POLICY}
     hostname: kafka-connect
     container_name: kafka-connect
+    logging: *log-config
     depends_on:
       kafka:
         condition: service_healthy
     ports:
-      - "8083:8083"
+      - '127.0.0.1:8083:8083'
     environment:
       HEAP_OPTS: ${CONNECT_HEAP_OPTS:--Xms256m -Xmx768m}
       BOOTSTRAP_SERVERS: kafka:29092
@@ -269,6 +357,12 @@ services:
       - "${CONTAINER_DATA_PATH}/data/kafka-connect:/kafka/connect/data"
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j.properties:/kafka/config/log4j.properties"
       - "${CONTAINER_DATA_PATH}/config/kafka-connect/log4j2.yml:/kafka/config/log4j2.yml"
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-jdbc/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '${CONTAINER_DATA_PATH}/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
@@ -282,6 +376,7 @@ services:
     image: ${MM2_IMAGE:?}
     hostname: mirrormaker-connect
     container_name: mirrormaker-connect
+    logging: *log-config
     environment:
       KAFKA_HEAP_OPTS: ${MM2_HEAP_OPTS:--Xms256m -Xmx768m}
       CONNECT_BOOTSTRAP_SERVERS: kafka:29092
@@ -323,13 +418,14 @@ services:
     restart: ${RESTART_POLICY}
     hostname: kafka-ui
     container_name: kafka-ui
+    logging: *log-config
     depends_on:
       kafka:
         condition: service_healthy
       kafka-connect:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - '127.0.0.1:8086:8080'
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092

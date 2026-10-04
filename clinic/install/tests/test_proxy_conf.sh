@@ -30,6 +30,5 @@ if [ -f "$R" ]; then
   [ "$(cat "$T/out.conf" 2>/dev/null)" = "resolver 10.89.0.1 valid=10s ipv6=off;" ] && ok_ "resolver written from resolv.conf's first nameserver" || bad "resolver file: $(cat "$T/out.conf" 2>/dev/null)"
   rm -rf "$T"
 else bad "no proxy/05-clinic-resolver.sh"; fi
-Y2="${HERE}/../../docker-compose.override.yml"
-grep -q '05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh' "$Y2" && ok_ "the resolver script is mounted into the proxy" || bad "resolver script not mounted"
+grep -q '05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh' "$Y" && ok_ "the resolver script is mounted into the proxy" || bad "resolver script not mounted"
 exit $((fails > 0))
