@@ -13,10 +13,9 @@ appjson_prefix(){ { jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev
 [ "${1:-}" = "--lib-only" ] && return 0 2>/dev/null
 
 begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
-# The config tree the services read: clinic/extracted/bahmni_config since task
-# 045 (node-local, gitignored), else the committed clinic/bahmni_config.
+# The config tree the services read, filled by task 045.
 CFG_DIR=""; [ -f "${CLINIC_DIR}/.env" ] && CFG_DIR="$(env_get "${CLINIC_DIR}/.env" BAHMNI_CONFIG_DIR 2>/dev/null || true)"
-[ -n "$CFG_DIR" ] || CFG_DIR="${CLINIC_DIR}/bahmni_config"
+[ -n "$CFG_DIR" ] || CFG_DIR="${CLINIC_DIR}/extracted/bahmni_config"
 APP="${CFG_DIR}/openmrs/apps/registration/app.json"
 node_local=0; case "$CFG_DIR" in "${CLINIC_DIR}/extracted/"*) node_local=1 ;; esac
 if [ ! -f "$APP" ]; then
