@@ -57,9 +57,7 @@ table plus publication membership in both Postgres databases).
 > the file. Nothing here SSHes to the hub to dump and download — see the note
 > below.
 
-**Ad-hoc probes** — `send-to-remote-kafka.sh` (writes one test row into the
-hub's database through its sink; needs `REMOTE_KAFKA_BOOTSTRAP_SERVERS`),
-`test-kafka-auth.py`.
+**Ad-hoc probes** — `test-kafka-auth.py`.
 
 ## Conventions
 
