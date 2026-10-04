@@ -37,25 +37,6 @@
 #      proxy moves to 8081/8444 (the established remap on this machine).
 # `!override` replaces the list; plain merge would APPEND and keep 0.0.0.0.
 services:
-  zookeeper:
-    ports: !override
-      - '127.0.0.1:2181:2181'
-  kafka:
-    ports: !override
-      - '127.0.0.1:9092:9092'
-      - '127.0.0.1:9093:9093'
-    # cp-kafka's preflight (cub zk-ready) sees the JAAS file in
-    # KAFKA_OPTS and then demands a SASL zookeeper — but the zookeeper is
-    # plain, so the probe times out even though the session establishes.
-    # This env tells the probe zookeeper SASL is off. Broker config unchanged.
-    environment:
-      ZOOKEEPER_SASL_ENABLED: "FALSE"
-  schema-registry:
-    ports: !override
-      - '127.0.0.1:8082:8081'   # host 8081 is the cloud proxy's HTTP remap
-  kafka-connect:
-    ports: !override
-      - '127.0.0.1:8083:8083'
   openmrsdb:
     ports: !override
       - '127.0.0.1:3306:3306'

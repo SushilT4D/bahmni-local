@@ -1,85 +1,15 @@
-# Local Setup
+# sync/local — what a clinic captures and sends up
 
-This directory contains the configuration for the **local** machine that captures changes from MySQL and replicates them to a remote server.
+This directory holds data, not a stack: the clinic's Kafka, Kafka Connect and
+MirrorMaker run from `clinic/docker-compose.yml`, and the clinic installer
+(`clinic/install/`) drives everything below through the scripts in
+`clinic/scripts/`.
 
-## Components
+| Path | Read by | What it says |
+|---|---|---|
+| `tables.conf` | `clinic/scripts/generate-table-config.sh`, `generate-connectors.sh`, `configure-pk-offsets.sh`, `setup-mirrormaker.sh`; the hub's `generate-cloud-source-connector.sh` and `generate-sink-connectors.sh` | The OpenMRS tables a clinic captures and sends to the hub (clinic → hub). The hub's own list (hub → clinic) is `hub/tables.conf`. |
+| `connectors/` | `clinic/scripts/generate-connectors.sh`, `generate-local-sink-connectors.sh` | Templates for the Debezium MySQL source and the clinic's local JDBC sinks. Rendered output goes to `connectors/generated/` (git-ignored). |
+| `mirrormaker-config/mm2.properties.template` | `clinic/scripts/setup-mirrormaker.sh` | MirrorMaker 2 settings for the clinic → hub copy. Rendered to `mm2.properties` (git-ignored). |
 
-- **Zookeeper** - Kafka coordination
-- **Kafka** - Local message broker (buffers events when offline)
-- **Kafka Connect** - Runs Debezium source connector
-- **Debezium MySQL Source Connector** - Captures changes from local MySQL
-- **MirrorMaker 2.0** - Replicates topics to remote Kafka
-
-## Quick Start
-
-1. **Copy environment template**:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Configure `.env`** with your settings:
-   - Local MySQL connection details
-   - Remote Kafka bootstrap servers
-
-3. **Generate MirrorMaker configuration**:
-   ```bash
-   ./scripts/setup-mirrormaker.sh
-   ```
-
-4. **Generate connector configurations**:
-   ```bash
-   ./scripts/setup-connectors.sh
-   ```
-
-5. **Update .env with generated values**:
-   ```bash
-   # Add TABLE_INCLUDE_LIST and KAFKA_TOPICS from:
-   #   ../../scripts/generate-table-config.sh local
-   ```
-
-6. **Start services**:
-   ```bash
-   docker-compose up -d
-   ```
-
-7. **Register source connector**:
-   ```bash
-   ./scripts/register-source-connector.sh
-   ```
-
-8. **Register MirrorMaker connector**:
-   ```bash
-   ./scripts/register-mirrormaker.sh
-   ```
-
-## Files
-
-- `docker-compose.yml` - Local infrastructure
-- `connectors/` - Connector configuration templates
-- `tables.conf` - Table configuration (person, patient, visit)
-- `mirrormaker-config/` - MirrorMaker configuration
-- `scripts/` - Setup and management scripts
-- `.env.example` - Environment variables template
-
-## Adding More Tables
-
-Canonical lists:
-- **This file** (`debezium/local/tables.conf`) — clinic → cloud CDC
-- **`../hub/tables.conf`** — cloud → clinic (users/roles/providers)
-
-Quick steps (local → cloud):
-1. Add a line here: `table:pk:base_id` or `table:pk`
-2. From repo root: `./scripts/generate-connectors.sh`
-3. Copy `TABLE_INCLUDE_LIST` / `KAFKA_TOPICS` into `.env` if needed
-4. `./scripts/register-source-connector.sh`
-
-## Offline Behavior
-
-When connectivity to remote Kafka is lost:
-- Events continue to be captured from MySQL
-- Events are buffered in local Kafka
-- MirrorMaker retries connection automatically
-- When connectivity returns, buffered events are synced
-
-See `../ARCHITECTURE.md` for details on offline behavior and architecture.
-
+To add a table to clinic → hub sync, add it to `tables.conf` and re-run the
+clinic installer's sync phase; the generators read it from here.

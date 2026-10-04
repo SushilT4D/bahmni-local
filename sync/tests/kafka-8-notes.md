@@ -2,8 +2,19 @@
 
 `sync/versions.env` pins
 `KAFKA_IMAGE=confluentinc/cp-kafka:8.3.2`, `MM2_IMAGE=confluentinc/cp-kafka-connect:8.3.2`,
-`SCHEMA_REGISTRY_IMAGE=confluentinc/cp-schema-registry:8.3.2` (all Apache Kafka
-4.3.x, KRaft only, Java 21 in the image), against `DEBEZIUM_CONNECT_IMAGE=quay.io/debezium/connect:3.6.2.Final`.
+and, at the time of these notes, `SCHEMA_REGISTRY_IMAGE=confluentinc/cp-schema-registry:8.3.2`
+(all Apache Kafka 4.3.x, KRaft only, Java 21 in the image), against
+`DEBEZIUM_CONNECT_IMAGE=quay.io/debezium/connect:3.6.2.Final`.
+
+> **Since then:** the clinic and the hub each run Kafka as one node holding
+> both roles (`KAFKA_PROCESS_ROLES: 'broker,controller'`), and the schema
+> registry is gone (every connector converts to JSON or raw bytes). The
+> `kafka-controller` and `schema-registry` services described below no longer
+> exist, so the two boot fixes for them (items 1 and 2) apply to nothing
+> today; they are kept as a record of what the 8.3.2 images reject. The
+> combined node needs neither: it advertises its PLAINTEXT listener, and has
+> no registry health check. `clinic/install/tests/test_kafka_boot.sh` and
+> `hub/install/tests/test_broker_boot.sh` boot it.
 
 ## Upstream upgrade-notes fetch: could not be completed
 

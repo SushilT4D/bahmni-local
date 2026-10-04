@@ -573,5 +573,3 @@ volumes:
   bahmni-clinical-forms:
   bahmni-lab-results:
   bahmni-lab-files:
-  zookeeper-data:
-  zookeeper-logs:
