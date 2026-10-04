@@ -14,4 +14,9 @@ grep -q 'PHASE:-install}" = install' "$S" && ok_ "install sitting stops after th
 # nothing: the page must answer 200 and not be a Tomcat error page
 grep -q 'HTTP Status' "$S" && ok_ "a Tomcat error page is not taken for OpenELIS" || bad "a Tomcat 404 would pass as OpenELIS"
 grep -q '"$elis_code" = 200' "$S" && ok_ "OpenELIS must answer 200" || bad "OpenELIS status code not checked"
+# OpenELIS starts after OpenMRS answers and can take minutes more on a small
+# machine: one early probe would stop a healthy install. The check waits on a
+# named budget, and its FAIL says how long it waited.
+grep -q 'OPENELIS_BOOT_TIMEOUT_S' "$S" && ok_ "OpenELIS waited for on a named budget" || bad "OpenELIS probed once, no wait"
+grep -qE 'does not answer as OpenELIS.*within' "$S" && ok_ "OpenELIS FAIL names the wait" || bad "OpenELIS FAIL does not name the wait"
 exit $((fails > 0))

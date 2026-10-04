@@ -24,14 +24,21 @@ lan_get "$N" /openmrs/ws/rest/v1/session | grep -q '"authenticated"' && ok "http
   || fail "https://${N}/openmrs does not answer as OpenMRS: ${COMPOSE_CMD} logs proxy openmrs"
 # Tomcat's own error page names the path it could not serve ("/openelis/"),
 # so the word alone proves nothing: the page OpenELIS lands on must answer 200
-# and must not be a Tomcat error page.
-elis_out="$(curl -sk -L --max-time 30 --resolve "$N:443:127.0.0.1" -w '\n%{http_code}' "https://$N/openelis/" 2>/dev/null || true)"
-elis_code="${elis_out##*$'\n'}"; elis_body="${elis_out%$'\n'*}"
-if [ "$elis_code" = 200 ] && printf '%s' "$elis_body" | grep -qi 'openelis' && ! printf '%s' "$elis_body" | grep -q 'HTTP Status'; then ok "https://${N}/openelis answers as OpenELIS"
+# and must not be a Tomcat error page. OpenELIS is still starting when OpenMRS
+# first answers, minutes longer on a small machine, so it is probed on a named
+# budget (OPENELIS_BOOT_TIMEOUT_S, default 300, every 10s).
+elis_boot_s="${OPENELIS_BOOT_TIMEOUT_S:-300}"; elis_up=0; elis_code=""
+for i in $(seq 1 $((elis_boot_s / 10))); do
+  elis_out="$(curl -sk -L --max-time 30 --resolve "$N:443:127.0.0.1" -w '\n%{http_code}' "https://$N/openelis/" 2>/dev/null || true)"
+  elis_code="${elis_out##*$'\n'}"; elis_body="${elis_out%$'\n'*}"
+  if [ "$elis_code" = 200 ] && printf '%s' "$elis_body" | grep -qi 'openelis' && ! printf '%s' "$elis_body" | grep -q 'HTTP Status'; then elis_up=1; break; fi
+  sleep 10
+done
+if [ "$elis_up" = 1 ]; then ok "https://${N}/openelis answers as OpenELIS"
 elif [ "${PHASE:-install}" = install ]; then
-  fail "https://${N}/openelis does not answer as OpenELIS on the baseline database. If the baseline OpenELIS dump is too old for this OpenELIS, give install.sh a --baseline <dir> holding openmrs.sql.gz, odoo.sql.gz and openelis.sql.gz and re-run --from 048. Logs: ${COMPOSE_CMD} logs openelis"
+  fail "https://${N}/openelis does not answer as OpenELIS within ${elis_boot_s}s (OPENELIS_BOOT_TIMEOUT_S), last code ${elis_code:-none}, on the baseline database. If the baseline OpenELIS dump is too old for this OpenELIS, give install.sh a --baseline <dir> holding openmrs.sql.gz, odoo.sql.gz and openelis.sql.gz and re-run --from 048. Logs: ${COMPOSE_CMD} logs openelis"
 else
-  fail "https://${N}/openelis does not answer as OpenELIS: ${COMPOSE_CMD} logs openelis"
+  fail "https://${N}/openelis does not answer as OpenELIS within ${elis_boot_s}s (OPENELIS_BOOT_TIMEOUT_S), last code ${elis_code:-none}: ${COMPOSE_CMD} logs openelis"
 fi
 odoo_boot_s="${ODOO_BOOT_TIMEOUT_S:-120}"; odoo_up=0; odoo_last_code=""
 for i in $(seq 1 $((odoo_boot_s / 10))); do
