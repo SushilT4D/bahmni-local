@@ -18,12 +18,12 @@ has 'listen-address=127.0.0.1'
 has 'interface=eth0'
 printf '%s\n' "$c" | grep -qE '^dhcp-' && bad "DHCP directive present" || ok_ "no DHCP"
 printf '%s\n' "$c" | grep -qE '^address=' && bad "a fixed address is pinned" || ok_ "no pinned address"
-# dnsmasq on macOS, told to keep to local hosts, binds each address it finds
-# at start and keeps them: after a new lease it answers on an address the
-# machine no longer has, and LAN devices get no answer. A wildcard bind
-# follows the machine to any address.
+# macOS dnsmasq has no bind-dynamic: binding named interfaces there fixes the
+# addresses present at start, so a lease that changes later is never served.
+# Wildcard binding, answering only the local subnets, follows any address.
 m="$(dnsmasq_conf bahmni.clinic en0 '1.1.1.1' macos)"
-printf '%s\n' "$m" | grep -qE '^(local-service|bind-interfaces|bind-dynamic|interface=|listen-address=)' && bad "macOS: binds per address (stays on the old address after a new lease)" || ok_ "macOS: wildcard bind, follows a new address"
+printf '%s\n' "$m" | grep -qxF 'local-service' && ok_ "macOS: answers local subnets only" || bad "macOS: no local-service"
+printf '%s\n' "$m" | grep -qE '^(bind-dynamic|bind-interfaces|interface=)' && bad "macOS: names an option macOS dnsmasq lacks or a fixed interface" || ok_ "macOS: no bind option it cannot honour"
 printf '%s\n' "$m" | grep -qxF 'interface-name=odoo.bahmni.clinic,en0' && ok_ "macOS: names follow en0's address" || bad "macOS: no interface-name"
 grep -q 'dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" macos' "${HERE}/../dns.sh" && ok_ "macOS installer renders the macOS form" || bad "macOS installer renders the Linux form"
 # the gate asks the address LAN devices ask, not loopback

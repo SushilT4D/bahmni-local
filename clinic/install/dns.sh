@@ -12,12 +12,12 @@ dnsmasq_conf(){ # NAME IFACE UPSTREAMS [linux|macos]
   local name="$1" ifc="$2" u
   printf '# rendered by the clinic installer\n'
   if [ "${4:-linux}" = macos ]; then
-    # dnsmasq on macOS has no bind-dynamic, and told to keep to local hosts
-    # (local-service) it binds each address present at start and keeps them:
-    # after a new lease it answers on an address the machine no longer has,
-    # and LAN devices get no answer. A wildcard bind follows the machine to
-    # any address; the clinic router keeps port 53 off the internet.
-    printf 'no-resolv\n'
+    # dnsmasq on macOS has no bind-dynamic: it listens on the addresses the
+    # machine has when it starts, and an address gained later is not served
+    # until dnsmasq restarts. The router's DHCP reservation keeps this
+    # machine's address fixed (README); a machine that moves anyway is caught
+    # by the seed gate. local-service answers only hosts on its own subnets.
+    printf 'local-service\nno-resolv\n'
   else
     # bind-dynamic follows address changes on Linux and leaves systemd-resolved's
     # 127.0.0.53 alone
