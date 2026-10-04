@@ -125,13 +125,6 @@ services:
     environment:
       AUTH_TYPE: LOGIN_FORM
       SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:?}
-      # Compose's ${VAR} substitution inserts hub/.env's raw value verbatim,
-      # byte for byte, into this environment entry -- unlike
-      # kafka_server_jaas.conf (a properties FILE this installer generates
-      # and must itself quote correctly), there is no second text format here
-      # for a "'" or "\" in the password to break out of, so no
-      # jaas_escape-style pass applies. gen_secret() (hub_compose_env's
-      # default for this key) only ever produces [A-Za-z0-9] regardless.
       SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?}
       KAFKA_CLUSTERS_0_NAME: hub
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
@@ -140,7 +133,7 @@ services:
 
 networks:
   default:
-    name: ${KAFKA_BASE_NETWORK:?set KAFKA_BASE_NETWORK to the base stack's network, e.g. cloud_default}
+    name: ${KAFKA_BASE_NETWORK:?set KAFKA_BASE_NETWORK to the base stack's network}
     external: true
 volumes:
   kafka-data:

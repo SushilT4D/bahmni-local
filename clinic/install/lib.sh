@@ -118,9 +118,8 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 # generates -- all of hub/.env's, every clinic answer file's -- is written
 # through this one function, so the old `python3 - "$f" "$k" "$v"` form put each
 # of them on the process list of the machine composing the file. Only the FILE
-# and the KEY (neither secret) stay in argv. hub/install/tests/test_lib.sh keeps
-# a static guard over this function's source: its python3 substep must read the
-# value from os.environ and must never read a third sys.argv element.
+# and the KEY (neither secret) stay in argv: the python3 substep reads the value
+# from os.environ and must never read a third sys.argv element.
 env_put(){
   local f="$1" k="$2" v="$3"
   case "$v" in

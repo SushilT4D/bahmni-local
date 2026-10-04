@@ -13,8 +13,7 @@ and, at the time of these notes, `SCHEMA_REGISTRY_IMAGE=confluentinc/cp-schema-r
 > exist, so the two boot fixes for them (items 1 and 2) apply to nothing
 > today; they are kept as a record of what the 8.3.2 images reject. The
 > combined node needs neither: it advertises its PLAINTEXT listener, and has
-> no registry health check. `clinic/install/tests/test_kafka_boot.sh` and
-> `hub/install/tests/test_broker_boot.sh` boot it.
+> no registry health check. `clinic/install/tests/test_kafka_boot.sh` boots it.
 
 ## Upstream upgrade-notes fetch: could not be completed
 

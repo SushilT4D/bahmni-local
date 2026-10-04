@@ -16,11 +16,7 @@ umask 077
 #            sync/local/tables.conf, which are repo files wherever the hub tree
 #            happens to live;
 #   HUB_ROOT the HUB directory -- the template, hub/.env and the default output.
-# Both fall back to this script's own location, which is what every production
-# call resolves to, so nothing changes there. They are separable because the
-# live smoke runs the installer against a temp COPY of hub/ (HUB_DIR): with one
-# combined root, this script would have looked for clinic/scripts inside that
-# copy (absent) and, worse, sourced the REAL hub/.env of a live hub.
+# Both fall back to this script's own location.
 ROOT="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 HUB_ROOT="${HUB_DIR:-${ROOT}/hub}"
 TEMPLATE="${HUB_ROOT}/connectors/mysql-cloud-source-connector.json.template"

@@ -172,3 +172,7 @@ clinic/config/odoo/
 clinic/files/
 clinic/config/mysql/
 clinic/.install-state
+
+# Kept on disk for local use, not part of the repository.
+cloud/
+hub/install/
