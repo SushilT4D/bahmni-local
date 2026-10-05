@@ -267,6 +267,31 @@ HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
 ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+# --- the hub link --------------------------------------------------------------
+# hub_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
+# environment, else sync/hub.env.
+hub_protocol(){
+  local p="${REMOTE_KAFKA_SECURITY_PROTOCOL:-}"
+  [ -n "$p" ] || p="$(env_get "${HUB_ENV}" REMOTE_KAFKA_SECURITY_PROTOCOL 2>/dev/null || true)"
+  printf '%s\n' "${p:-SASL_SSL}"
+}
+hub_tls(){ case "$(hub_protocol)" in *SSL) return 0 ;; *) return 1 ;; esac; }
+HUB_CA="${HUB_CA:-${REPO_DIR}/sync/hub-ca.pem}"
+# hub_truststore OUT IMAGE : a PKCS12 truststore holding sync/hub-ca.pem, made with
+# the image's keytool. The password comes from REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD
+# through the container's environment, never its command line.
+hub_truststore(){
+  local out="$1" img="$2" listing
+  [ -s "${HUB_CA}" ] || fail "the hub link is $(hub_protocol) but ${HUB_CA#${REPO_DIR}/} (the hub's certificate) is missing"
+  TSPW="${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD:?}" ct run --rm -i -e TSPW --entrypoint sh "$img" -c \
+    'cat > /tmp/ca.pem && keytool -importcert -noprompt -alias hub -file /tmp/ca.pem -keystore /tmp/t.p12 -storetype PKCS12 -storepass:env TSPW >/dev/null 2>&1 && cat /tmp/t.p12' \
+    < "${HUB_CA}" > "${out}.new" || { rm -f "${out}.new"; fail "keytool in ${img} could not make a truststore from ${HUB_CA#${REPO_DIR}/}"; }
+  [ -s "${out}.new" ] || { rm -f "${out}.new"; fail "the truststore made from ${HUB_CA#${REPO_DIR}/} is empty"; }
+  mv "${out}.new" "$out"; chmod 644 "$out"
+  listing="$(TSPW="${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}" ct run --rm -i -e TSPW --entrypoint sh "$img" -c \
+    'cat > /tmp/t.p12 && keytool -list -keystore /tmp/t.p12 -storetype PKCS12 -storepass:env TSPW' < "$out" 2>&1 || true)"
+  case "$listing" in *"hub, "*) return 0 ;; *) fail "the truststore does not open with REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD or holds no hub certificate" ;; esac
+}
 fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continue; basename "$f" .env; done; }
 # mysql_ready CONTAINER : true only when the FINAL server answers an authenticated query
 # over TCP. `mysqladmin ping` exits 0 even on "Access denied", and the official image's first

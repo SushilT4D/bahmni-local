@@ -67,7 +67,11 @@ put MAIL_USER ""; put MAIL_PASSWORD ""; put MAIL_FROM none@localhost
 put REMOTE_KAFKA_BOOTSTRAP_SERVERS "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}"
 put REMOTE_KAFKA_USERNAME "${REMOTE_KAFKA_USERNAME}"
 put REMOTE_KAFKA_PASSWORD "${REMOTE_KAFKA_PASSWORD}"
-put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # file is mounted, unused under SASL_PLAINTEXT
+put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # opens the truststore task 090 makes from sync/hub-ca.pem
+proto="$(hub_protocol)"
+case "$proto" in SASL_SSL|SASL_PLAINTEXT) ;; *) fail "REMOTE_KAFKA_SECURITY_PROTOCOL is '${proto}': SASL_SSL or SASL_PLAINTEXT" ;; esac
+[ "$proto" = SASL_PLAINTEXT ] || [ -s "${HUB_CA}" ] || fail "the hub link is SASL_SSL but ${HUB_CA#${REPO_DIR}/} (the hub's certificate) is missing"
+put REMOTE_KAFKA_SECURITY_PROTOCOL "$proto"
 
 # hub credentials (from the operator's secrets file; the seed's databases carry the matching users)
 # and secrets born here (generated)

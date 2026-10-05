@@ -6,7 +6,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 assert_eq(){ if [ "$2" = "$3" ]; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: got %q want %q\n' "$1" "$2" "$3"; fails=$((fails+1)); fi; }
 mkdir -p "$TMP/clinic"; cp "${HERE}/../../.env.example" "$TMP/clinic/.env.example"
-mkdir -p "$TMP/sync"; cp "${HERE}/../../../sync/versions.env" "$TMP/sync/"
+mkdir -p "$TMP/sync"; cp "${HERE}/../../../sync/versions.env" "${HERE}/../../../sync/hub.env" "$TMP/sync/"
 env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker \
   CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h.test \
   REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.test:9092 REMOTE_KAFKA_USERNAME=mirrormaker REMOTE_KAFKA_PASSWORD='p&w' \

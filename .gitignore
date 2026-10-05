@@ -112,6 +112,8 @@ cloud/connectors/clinlims-*.json
 # rest -- so they stay tracked.
 hub/.env
 hub/kafka_server_jaas.conf
+# the hub's TLS keystore and its two password files
+hub/tls/
 hub/connectors/mysql-sink-*.json
 hub/connectors/odoo-*-sink-all.json
 hub/connectors/clinlims-*-sink-all.json

@@ -7,7 +7,7 @@ x-rotate-logs: &rotate
 services:
 
   kafka:
-    # Clinics dial 9092 (SASL); this host dials kafka:29092; 9093 is never published.
+    # Clinics dial 9092 (SASL over TLS by default); this host dials kafka:29092; 9093 is never published.
     image: ${KAFKA_IMAGE:?}
     restart: unless-stopped
     hostname: kafka
@@ -23,9 +23,14 @@ services:
       KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,SASL_PLAINTEXT://${REMOTE_KAFKA_HOST:-localhost}:9092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,SASL_PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}:${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://${REMOTE_KAFKA_HOST:-localhost}:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # Read from hub/tls/ when the clinic listener is SASL_SSL; the two passwords are files there.
+      KAFKA_SSL_KEYSTORE_FILENAME: ${KAFKA_SSL_KEYSTORE_FILENAME:-kafka.keystore.p12}
+      KAFKA_SSL_KEYSTORE_TYPE: ${KAFKA_SSL_KEYSTORE_TYPE:-PKCS12}
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
@@ -41,6 +46,7 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
       - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf:ro
+      - ./tls:/etc/kafka/secrets:ro
     healthcheck:
       test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
 

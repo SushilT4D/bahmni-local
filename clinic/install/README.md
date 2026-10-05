@@ -43,6 +43,12 @@ is still missing is asked on the terminal — the certificate hostname always, u
 it fails naming the file to put it in. `--answers <file>` remains the hand-written
 path for a clinic that is not registered (`clinic.env.example`).
 
+The hub link is SASL over TLS when `sync/hub.env` says
+`REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`: task 090 builds MirrorMaker's
+truststore from the hub's certificate in `sync/hub-ca.pem`, and task 020 stops
+if that file is missing. `SASL_PLAINTEXT` is for a hub that has no certificate;
+the password and every record then cross the network unencrypted.
+
 Registered today: manpur, bedawal, ghated, rawach, bagdunda, kojawada (residues
 1–6), azure (7, the test clinic), and morwal, which has no residue and is refused
 until the operator allocates one. Secrets are never in the repo: it is public.
@@ -67,7 +73,7 @@ taken.
 It never touches the hub, the ledgers or GitHub. Task 110 prints the hub join
 for the operator (`skills/install-clinic.sh join <slug>` in the workspace).
 
-Not in this version: upgrades of an existing node, mTLS or per-site ACLs (unmet fleet-wide),
+Not in this version: upgrades of an existing node, per-site certificates (mTLS) or ACLs (unmet fleet-wide),
 a per-node registration `defaultIdentifierPrefix` (task 070 prints the edit).
 
 Tests: `bash clinic/install/tests/run.sh` (no runtime needed). On Darwin this

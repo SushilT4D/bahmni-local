@@ -31,6 +31,23 @@ repository, and attaches to that stack's Docker network through
 - `hub/kafka_server_jaas.conf`, mode 600: a `KafkaServer` section for the
   `PLAIN` mechanism with two users, `admin` (`KAFKA_ADMIN_PASSWORD`) and the
   one clinics log in as (`REMOTE_KAFKA_PASSWORD`).
+- `hub/tls/`, mode 700, when the clinic listener is `SASL_SSL` (the default):
+  the keystore (`kafka.keystore.p12`: the hub's private key and its
+  certificate, whose name must cover `REMOTE_KAFKA_HOST`), `keystore_creds`
+  holding the keystore password, and `key_creds` holding the key password
+  (the same value for a PKCS12 keystore). Every clinic trusts the certificate
+  through `sync/hub-ca.pem`.
+
+Making the keystore from a key and certificate in PEM form:
+
+```
+cd hub && mkdir -p tls && chmod 700 tls && umask 077
+openssl rand -hex 24 > tls/keystore_creds && cp tls/keystore_creds tls/key_creds
+openssl pkcs12 -export -inkey server.key -in server.crt -name kafka -out tls/kafka.keystore.p12 -passout file:tls/keystore_creds
+```
+
+A JKS keystore works too: set `KAFKA_SSL_KEYSTORE_TYPE=JKS` and
+`KAFKA_SSL_KEYSTORE_FILENAME` to its name.
 
 ## Running it
 
@@ -39,9 +56,13 @@ docker compose up -d                 # kafka, kafka-connect
 docker compose --profile ui up -d    # also kafka-ui
 ```
 
-Port 9092 is the SASL_PLAINTEXT listener every clinic dials. It is published
-on `KAFKA_SASL_BIND`, which defaults to `0.0.0.0`; set `127.0.0.1` only when a
-local proxy fronts it. Kafka Connect (8083) and kafka-ui (8080) are published
+Port 9092 is the listener every clinic dials: SASL over TLS (`SASL_SSL`) by
+default, or `SASL_PLAINTEXT` when `KAFKA_CLINIC_PROTOCOL` says so, in which
+case passwords and records cross the network unencrypted. It is published on
+`KAFKA_SASL_BIND`, which defaults to `0.0.0.0`; set `127.0.0.1` only when a
+local proxy fronts it. Tools on this host use the internal plain listener,
+`kafka:29092`; pointed at 9092 without TLS settings they fail with an
+out-of-memory error, because they read the TLS reply as a message length. Kafka Connect (8083) and kafka-ui (8080) are published
 on loopback only; reach them over an SSH tunnel.
 
 ## Connectors
@@ -59,5 +80,5 @@ Rendered connector files hold passwords and are gitignored.
 
 ## Not provided yet
 
-mTLS and per-site broker ACLs. Every clinic authenticates with the same SASL
-user; there is no per-site revocable credential.
+Per-site certificates (mTLS) and broker ACLs. Every clinic authenticates with
+the same SASL user; there is no per-site revocable credential.

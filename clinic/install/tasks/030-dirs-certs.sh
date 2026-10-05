@@ -24,7 +24,7 @@ if [ -f "$C/cert.pem" ] && [ -f "$C/key.pem" ]; then skip "certificate exists"; 
     || fail "openssl could not make the certificate ($(openssl version 2>/dev/null)): $(printf '%s' "$err" | tail -1)"
   chmod 600 "$C/key.pem"
 fi
-[ -s "$C/kafka/kafka.truststore.p12" ] || : > "$C/kafka/kafka.truststore.p12"   # mounted as a file; unused under SASL_PLAINTEXT
+[ -s "$C/kafka/kafka.truststore.p12" ] || : > "$C/kafka/kafka.truststore.p12"   # mounted as a file; task 090 fills it when the hub link is TLS
 # cert-san:begin
 # Read the SAN from the text dump: `x509 -ext` exists only in OpenSSL 1.1.1+,
 # not in LibreSSL (macOS's stock openssl), and a failed read inside a pipeline
