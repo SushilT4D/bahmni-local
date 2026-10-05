@@ -157,6 +157,12 @@ persons="$(printf 'select count(*) from openmrs.person' | mysql_root)"; obs="$(p
 printf 'SET sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog MODIFY ID VARCHAR(255) NOT NULL;\n' | mysql_root
 [ "$(printf 'select character_maximum_length from information_schema.columns where table_schema="openmrs" and table_name="liquibasechangelog" and column_name="ID"' | mysql_root)" = 255 ] \
   && ok "openmrs liquibasechangelog.ID is varchar(255)" || fail "could not widen openmrs.liquibasechangelog.ID"
+# The dump carries the source's search.indexVersion, so OpenMRS would take this
+# node's empty search index as current and no patient could be found. A blank
+# value makes OpenMRS rebuild the index when it next starts (task 080).
+printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' WHERE property='search.indexVersion';\n" | mysql_root
+[ -z "$(printf "select property_value from openmrs.global_property where property='search.indexVersion'" | mysql_root)" ] \
+  && ok "openmrs search index set to rebuild on its next start" || fail "could not clear openmrs search.indexVersion"
 if [ "${PHASE:-install}" = seed ]; then
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
