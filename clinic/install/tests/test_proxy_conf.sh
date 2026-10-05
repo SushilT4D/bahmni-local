@@ -51,4 +51,27 @@ blk="$(awk '/location = \/openmrs\/ws\/rest\/emrapi\/conditionhistory /{p=1} p{p
 [ -n "$blk" ] && ok_ "an exact route for the condition history" || bad "no exact route for /openmrs/ws/rest/emrapi/conditionhistory"
 printf '%s\n' "$blk" | grep -qF "return 200 '[]';" && printf '%s\n' "$blk" | grep -qF 'default_type application/json;' \
   && ok_ "it answers an empty JSON list" || bad "the condition history route does not answer an empty JSON list"
+# form translations: a 500 from the module becomes the empty list the UI renders labels from
+blk="$(awk '/location = \/openmrs\/ws\/rest\/v1\/bahmniie\/form\/translations /{p=1} p{print} p&&/}/{exit}' "$C")"
+[ -n "$blk" ] && ok_ "an exact route for the form translations" || bad "no exact route for /openmrs/ws/rest/v1/bahmniie/form/translations"
+printf '%s\n' "$blk" | grep -qF 'proxy_pass http://openmrs_app;' && ok_ "it asks OpenMRS first, URI unchanged" || bad "the translations route does not proxy_pass to openmrs_app without a URI"
+printf '%s\n' "$blk" | grep -qF 'error_page 500 = @no_form_translations;' && ok_ "a 500 goes to the no-translations answer" || bad "the translations route does not send a 500 to @no_form_translations"
+printf '%s\n' "$blk" | grep -qF 'error_page 501 502 =500 /internalError.html;' && printf '%s\n' "$blk" | grep -qF 'error_page 503 /maintenance.html;' \
+  && ok_ "the server's other error pages are kept" || bad "the translations route drops the server's other error pages"
+blk="$(awk '/location @no_form_translations /{p=1} p{print} p&&/}/{exit}' "$C")"
+printf '%s\n' "$blk" | grep -qF "return 200 '[]';" && printf '%s\n' "$blk" | grep -qF 'default_type application/json;' \
+  && ok_ "the no-translations answer is an empty JSON list" || bad "@no_form_translations does not answer an empty JSON list"
+# form definitions: `<=` in event scripts is written as `&lt;=` for the UI's render read only
+blk="$(awk '/map \$args \$form_script_le /{p=1} p{print} p&&/}/{exit}' "$C")"
+printf '%s\n' "$blk" | grep -qF 'resources' && printf '%s\n' "$blk" | grep -qF '"&lt;=";' && ok_ "the UI's form render read gets &lt;=" || bad "the form_script_le map does not give &lt;= for v=custom:(resources:(value))"
+printf '%s\n' "$blk" | grep -qF 'default "<=";' && ok_ "every other read keeps <=" || bad "the form_script_le map default is not <="
+blk="$(awk '/location ~ \^\/openmrs\/ws\/rest\/v1\/form\/\[0-9a-fA-F-\]\+\$ /{p=1} p{print} p&&/}/{exit}' "$C")"
+[ -n "$blk" ] && ok_ "a route for one form's definition" || bad "no regex route for /openmrs/ws/rest/v1/form/<uuid>"
+printf '%s\n' "$blk" | grep -qF "sub_filter '<=' \$form_script_le;" && printf '%s\n' "$blk" | grep -qF 'sub_filter_once off;' \
+  && printf '%s\n' "$blk" | grep -qF 'sub_filter_types application/json;' && ok_ "it rewrites every <= in the JSON body" || bad "the form route does not sub_filter <= in JSON"
+printf '%s\n' "$blk" | grep -qF 'proxy_set_header Accept-Encoding   "";' && ok_ "it asks for an uncompressed body" || bad "the form route does not clear Accept-Encoding"
+for h in Host X-Real-IP X-Forwarded-For X-Forwarded-Proto; do
+  printf '%s\n' "$blk" | grep -qE "proxy_set_header $h " && ok_ "it keeps the $h header" || bad "the form route drops the $h header"
+done
+printf '%s\n' "$blk" | grep -qF 'proxy_pass http://openmrs_app;' && ok_ "to OpenMRS, URI unchanged" || bad "the form route does not proxy_pass to openmrs_app without a URI"
 exit $((fails > 0))
