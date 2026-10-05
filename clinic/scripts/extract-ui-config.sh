@@ -14,7 +14,8 @@
 # `create` + `cp` + `rm`, the container never starts.
 #
 # The tree is node-local and gitignored, so the node's own registration prefix
-# (MRN_PREFIX) is written into it here -- re-applied on every extraction.
+# (MRN_PREFIX) is written into it here -- re-applied on every extraction. So is
+# the one rewrite of the UI's own code the clinic needs (fix_program_edit).
 #
 # usage: [CT=docker|podman] [MRN_PREFIX=MAN] scripts/extract-ui-config.sh [--force]
 set -euo pipefail
@@ -83,9 +84,37 @@ hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
   for z in "$d"/*.zip; do [ -f "$z" ] || continue; mkdir -p "$1/ocl-held"; mv "$z" "$1/ocl-held/"; done
 }
 
+fix_program_edit(){ # DIR : enrolment edits send states the REST module accepts
+  # Editing an enrolment (a new state, or an outcome) posts every state back as
+  # the full GET returned it: each carries its workflow state's whole concept and
+  # the enrolment itself, nested. The REST module sets every nested property it
+  # is given and refuses the concept's name (an object, where it takes a
+  # string), so every edit is refused with a 400. The server needs only the uuid
+  # of a state it already holds, and the workflow state and start date of a new
+  # one; the UI's mapper is rewritten to send just that. Remove this when the
+  # pinned UI image builds the states that way itself. Until then a clinical
+  # bundle with neither the old mapper nor this fix is refused, so a new image
+  # is never silently left unfixed.
+  local d="$1/htdocs/bahmni" f n
+  local mark='/*clinic: states sent by uuid*/'
+  local from='states: patientProgram.states,'
+  local to="states: _.map(patientProgram.states, function (s) { return s.uuid ? {uuid: s.uuid} : {state: (s.state && s.state.uuid) || s.state, startDate: s.startDate}; }), ${mark}"
+  for f in "$d"/*/*.min.*.js; do
+    [ -f "$f" ] || continue
+    grep -qF "$mark" "$f" && continue                    # already fixed
+    n="$(grep -cF "$from" "$f" || true)"
+    [ "$n" = 0 ] && continue                              # bundle has no program editing
+    [ "$n" = 1 ] || die "$(basename "$f") has ${n} program-state mappers, expected one -- check enrolment edits by hand"
+    FROM="$from" TO="$to" perl -pi -e 's/\Q$ENV{FROM}\E/$ENV{TO}/' "$f" || die "could not rewrite the program-state mapper in ${f}"
+    grep -qF "$mark" "$f" || die "the program-state mapper in ${f} was not rewritten"
+  done
+  grep -qF "$mark" "$d"/clinical/*.js 2>/dev/null \
+    || die "${WEB}: no clinical bundle carries the program-state mapper this fix rewrites -- check that editing an enrolment saves, then remove fix_program_edit"
+}
+
 if [ "$FORCE" = 0 ] && [ -f "$OUT/.source" ] && [ "$(cat "$OUT/.source")" = "$want" ] \
    && [ -f "$OUT/htdocs/bahmni/home/index.html" ] && [ -d "$OUT/bahmni_config/openmrs" ]; then
-  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"
+  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"; fix_program_edit "$OUT"
   say "skip extracted/ already holds ${WEB} and ${CFG}"; exit 0
 fi
 
@@ -101,7 +130,7 @@ pull_tree "$CFG" /etc/bahmni_config "$NEW/bahmni_config"
 # a tree is accepted only if it looks like what the services will ask it for
 [ -f "$NEW/htdocs/bahmni/home/index.html" ] || die "${WEB} carries no bahmni/home/index.html under /usr/local/apache2/htdocs -- not a Bahmni UI image"
 [ -d "$NEW/bahmni_config/openmrs/apps" ] && [ -d "$NEW/bahmni_config/masterdata/configuration" ] || die "${CFG} carries no openmrs/apps + masterdata/configuration under /etc/bahmni_config -- not a Bahmni config image"
-apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"
+apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"; fix_program_edit "$NEW"
 chmod -R u+rwX,go+rX,go-w "$NEW"   # the UI image ships world-writable dirs
 printf '%s\n' "$want" > "$NEW/.source"
 if [ -e "$OUT" ]; then rm -rf "${OUT}.prev"; mv "$OUT" "${OUT}.prev"; fi
