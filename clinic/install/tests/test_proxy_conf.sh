@@ -36,4 +36,10 @@ blk="$(awk '/location = \/openmrs\/ws\/rest\/v1\/bahmnicore\/distro\/patient\/se
 [ -n "$blk" ] && ok_ "an exact route for the patient search" || bad "no exact route for /openmrs/ws/rest/v1/bahmnicore/distro/patient/search"
 printf '%s\n' "$blk" | grep -q 'proxy_method GET;' && ok_ "it forwards the search as GET" || bad "the search route does not set proxy_method GET"
 printf '%s\n' "$blk" | grep -qE 'proxy_pass http://openmrs_app;' && ok_ "to OpenMRS, URI unchanged" || bad "the search route does not proxy_pass to openmrs_app without a URI"
+# encounter lookup: the UI posts to .../find, OpenMRS serves it as .../findWith
+blk="$(awk '/location = \/openmrs\/ws\/rest\/v1\/bahmnicore\/distro\/bahmniencounter\/find /{p=1} p{print} p&&/}/{exit}' "$C")"
+[ -n "$blk" ] && ok_ "an exact route for the encounter lookup" || bad "no exact route for /openmrs/ws/rest/v1/bahmnicore/distro/bahmniencounter/find"
+printf '%s\n' "$blk" | grep -qF 'proxy_pass http://openmrs_app/openmrs/ws/rest/v1/bahmnicore/distro/bahmniencounter/findWith;' \
+  && ok_ "it forwards the lookup to findWith" || bad "the encounter route does not proxy_pass to .../findWith"
+printf '%s\n' "$blk" | grep -q 'proxy_method' && bad "the encounter route changes the method" || ok_ "the lookup stays a POST"
 exit $((fails > 0))
