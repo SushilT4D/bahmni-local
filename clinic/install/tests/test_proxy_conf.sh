@@ -31,4 +31,9 @@ if [ -f "$R" ]; then
   rm -rf "$T"
 else bad "no proxy/05-clinic-resolver.sh"; fi
 grep -q '05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh' "$Y" && ok_ "the resolver script is mounted into the proxy" || bad "resolver script not mounted"
+# patient search: the UI sends POST, OpenMRS serves the search on GET only
+blk="$(awk '/location = \/openmrs\/ws\/rest\/v1\/bahmnicore\/distro\/patient\/search/{p=1} p{print} p&&/}/{exit}' "$C")"
+[ -n "$blk" ] && ok_ "an exact route for the patient search" || bad "no exact route for /openmrs/ws/rest/v1/bahmnicore/distro/patient/search"
+printf '%s\n' "$blk" | grep -q 'proxy_method GET;' && ok_ "it forwards the search as GET" || bad "the search route does not set proxy_method GET"
+printf '%s\n' "$blk" | grep -qE 'proxy_pass http://openmrs_app;' && ok_ "to OpenMRS, URI unchanged" || bad "the search route does not proxy_pass to openmrs_app without a URI"
 exit $((fails > 0))
