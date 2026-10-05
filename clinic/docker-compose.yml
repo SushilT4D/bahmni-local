@@ -109,6 +109,14 @@ services:
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
       # Read-write: the implementer interface saves forms here.
       - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms:/home/bahmni/clinical_forms"
+      # The form module reads and saves each form's translations as <form uuid>.json
+      # in the directory its bahmni.formTranslations.directory global property
+      # names, which is this path; the files are the clinical_forms ones. Without
+      # it every form's translations request answers 500.
+      - "${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms/translations:/var/www/bahmni_config/openmrs/apps/forms/translations"
+      # bahmnicore answers a patient without a photo with this file; the image
+      # does not carry it, so every such request answered 404. The UI ships it.
+      - "${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro"
     logging: *log-config
     restart: ${RESTART_POLICY}
 
