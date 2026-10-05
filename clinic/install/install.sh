@@ -6,11 +6,14 @@
 # for the operator.
 #
 # Usage:
-#   clinic/install/install.sh --clinic <slug> [--secrets <file>] [--baseline <dir>] [--cert-hostname <name>]
-#                             [--runtime docker|podman] [--only NNN] [--from NNN] [--dry-run]
+#   clinic/install/install.sh --clinic <slug> [--secrets <file>] [--versions <file>] [--baseline <dir>]
+#                             [--cert-hostname <name>] [--runtime docker|podman] [--only NNN] [--from NNN] [--dry-run]
 #   clinic/install/install.sh --answers clinic-<slug>.env ...   (hand-written answers)
 #   clinic/install/install.sh --clinics | --list
 # --secrets: the operator's hub secrets file (the four hub credentials).
+# --versions: application image versions to run instead of the defaults in
+#   sync/versions.env, as KEY=value lines (e.g. BAHMNI_WEB_IMAGE=bhs-0.0.34; a bare
+#   tag keeps the image name). Without it, --clinic asks on the terminal.
 # --baseline: three dumps to run on until the seed, instead of the pinned baseline images.
 # --clinic composes the twelve answers from sync/fleet/<slug>.env, the residue
 # ledger, sync/hub.env and --secrets, asking on the terminal for what is still
@@ -23,8 +26,8 @@ export INSTALL_DIR
 TASKS_DIR="${TASKS_DIR:-${INSTALL_DIR}/tasks}"
 
 ORIG_ARGS=("$@")
-usage(){ sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
-ANSWERS=""; CLINIC=""; CERT_HOSTNAME_ARG=""; SECRETS_FILE=""; BASELINE_DIR=""; ONLY=""; FROM=""; LIST=0; CLINICS=0
+usage(){ sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+ANSWERS=""; CLINIC=""; CERT_HOSTNAME_ARG=""; SECRETS_FILE=""; IMAGE_CHOICES_FILE=""; BASELINE_DIR=""; ONLY=""; FROM=""; LIST=0; CLINICS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --answers) ANSWERS="$2"; shift 2 ;;
@@ -32,6 +35,7 @@ while [ $# -gt 0 ]; do
     --clinics) CLINICS=1; shift ;;
     --cert-hostname) CERT_HOSTNAME_ARG="$2"; shift 2 ;;
     --secrets)  SECRETS_FILE="$2"; shift 2 ;;
+    --versions) IMAGE_CHOICES_FILE="$2"; shift 2 ;;
     --baseline) BASELINE_DIR="$2"; shift 2 ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
     --only)    ONLY="$2"; shift 2 ;;
@@ -60,8 +64,9 @@ if [ -z "$ANSWERS" ] && [ -z "$CLINIC" ]; then
 fi
 [ -z "$ANSWERS" ] || [ -f "$ANSWERS" ] || fail "answers file not found: $ANSWERS"
 if [ -n "$SECRETS_FILE" ]; then [ -f "$SECRETS_FILE" ] || fail "secrets file not found: $SECRETS_FILE"; SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"; fi
+if [ -n "$IMAGE_CHOICES_FILE" ]; then [ -f "$IMAGE_CHOICES_FILE" ] || fail "image versions file not found: $IMAGE_CHOICES_FILE"; IMAGE_CHOICES_FILE="$(cd "$(dirname "$IMAGE_CHOICES_FILE")" && pwd)/$(basename "$IMAGE_CHOICES_FILE")"; fi
 if [ -n "$BASELINE_DIR" ]; then [ -d "$BASELINE_DIR" ] || fail "baseline dir not found: $BASELINE_DIR"; BASELINE_DIR="$(cd "$BASELINE_DIR" && pwd)"; fi
-export SECRETS_FILE BASELINE_DIR
+export SECRETS_FILE IMAGE_CHOICES_FILE BASELINE_DIR
 
 # --clinic: the answers come from the repo, --secrets and the terminal, and are
 # kept for resumes. Nothing secret is printed.
@@ -81,18 +86,27 @@ compose_answers(){
   ask CERT_HOSTNAME "certificate hostname (the name staff will open Bahmni at)" "$(hostname -f 2>/dev/null || hostname)" "sync/fleet/${slug}.env or --cert-hostname"
   ask CLINIC_PHONE "clinic phone, E.164" "+910000000000" "sync/fleet/${slug}.env"
   for k in $SECRET_KEYS; do ask_secret "$k" "--secrets"; done
+  [ -n "${IMAGE_CHOICES_FILE}" ] || image_choose
   export RESIDUE SITE_NUMBER
-  answers_write "$out"; ANSWERS="$out"
+  answers_write "$out"; image_choices_write "$out"; ANSWERS="$out"
   info "answers: composed $out (mode 600) from $f, ${LEDGER}, ${HUB_ENV} and the hub secrets"
 }
+# the defaults, and --versions, so the prompt shows what this run would use
+set -a; . "${VERSIONS_FILE}"; set +a
+[ -z "$IMAGE_CHOICES_FILE" ] || image_choices_load "$IMAGE_CHOICES_FILE"
 [ -z "$CLINIC" ] || compose_answers "$(printf '%s' "$CLINIC" | tr 'A-Z' 'a-z')"
 
 # The twelve answers. Sourced (same quoting contract as .env); every key must be
 # present and non-empty. Secrets are never printed.
 REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 set -a; . "$ANSWERS"; set +a
-# The fleet's image pins (sync/versions.env): every task sees the same pins.
+# The fleet's image pins (sync/versions.env) win over anything an answers file
+# carries, except the application images (lib.sh IMAGE_KEYS): those come from
+# the answers file, then --versions. Every task sees the same values.
 set -a; . "${VERSIONS_FILE}"; set +a
+image_keys_from "$ANSWERS"
+[ -z "$IMAGE_CHOICES_FILE" ] || image_choices_load "$IMAGE_CHOICES_FILE"
+for k in $IMAGE_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || image_set "$k" "$v"; done
 LAN_NAME="${LAN_NAME:-bahmni.clinic}"; export LAN_NAME
 missing=""
 for k in $REQUIRED; do eval "v=\${$k:-}"; [ -n "$v" ] || missing="$missing $k"; done
@@ -141,6 +155,7 @@ log "install log: ${INSTALL_LOG}"
 log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} platform=${PLATFORM} runtime=$(detect_runtime) dry=${DRY}"
 log "  clinic dir: ${CLINIC_DIR}"
 log "  baseline:   ${BASELINE_DIR:-the pinned baseline images}"
+image_choices_report
 
 # never over a seeded machine, whatever --from says (a resume skips task 000's
 # fresh-install check and would stamp the machine INSTALLED again)
@@ -148,6 +163,7 @@ log "  baseline:   ${BASELINE_DIR:-the pinned baseline images}"
 v="$(install_gate_verdict "$(stamp_get STATE)" "${ONLY}")" || fail "$v"
 if [ -n "$CLINIC" ]; then how="--clinic $(printf '%q' "$CLINIC")"; else how="--answers $(printf '%q' "$ANSWERS")"; fi
 [ -z "${SECRETS_FILE:-}" ] || how="${how} --secrets $(printf '%q' "$SECRETS_FILE")"
+[ -z "${IMAGE_CHOICES_FILE:-}" ] || how="${how} --versions $(printf '%q' "$IMAGE_CHOICES_FILE")"
 [ -z "${BASELINE_DIR:-}" ] || how="${how} --baseline $(printf '%q' "$BASELINE_DIR")"
 run_tasks install "$(printf '%q' "$0") ${how}"
 . "${INSTALL_DIR}/state.sh"

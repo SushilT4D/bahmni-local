@@ -274,7 +274,7 @@ services:
     restart: ${RESTART_POLICY}
 
   atomfeed-console:
-    image: bahmni/atomfeed-console:latest
+    image: bahmni/atomfeed-console:${ATOMFEED_CONSOLE_IMAGE_TAG:-latest}   # a .env without the key runs latest
     profiles: ["atomfeed-console"]
     restart: ${RESTART_POLICY}
     logging: *log-config

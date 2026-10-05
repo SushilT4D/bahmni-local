@@ -5,7 +5,7 @@ Two sittings, two people, on a fresh macOS (rootless podman) or Linux (Docker) h
     # the operator, before the machine ships (no hub data needed)
     clinic/install/install.sh --clinics                                          # who is registered
     clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> --dry-run
-    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> [--cert-hostname <name>] [--baseline <dir>]
+    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> [--versions <file>] [--cert-hostname <name>] [--baseline <dir>]
 
     # clinic staff, on site, at go-live, with the folder the operator copied
     clinic/install/seed.sh --seed <folder> [--discard-baseline-data] [--dry-run]
@@ -42,6 +42,49 @@ is still missing is asked on the terminal — the certificate hostname always, u
 600) so a resume needs nothing typed again. With no terminal and a value missing
 it fails naming the file to put it in. `--answers <file>` remains the hand-written
 path for a clinic that is not registered (`clinic.env.example`).
+
+## Application image versions
+
+`sync/versions.env` holds the default version of every image. The application
+images — the IPLIT and Bahmni ones, listed in `lib.sh` `IMAGE_KEYS` — can be
+chosen per install; the sync layer (Kafka, MirrorMaker, Debezium) cannot.
+
+| Key | Default image |
+|---|---|
+| `OPENMRS_IMAGE_NAME` | `infoiplitin/openmrs` |
+| `ODOO_IMAGE_NAME` | `bahmni/odoo-16` |
+| `ODOO_CONNECT_IMAGE_TAG` | `bahmni/odoo-connect` |
+| `OPENELIS_IMAGE_TAG` | `bahmni/openelis` |
+| `BAHMNI_WEB_IMAGE` | `infoiplitin/bahmni-iplit-web` (the UI the clinic's nginx serves) |
+| `BAHMNI_CONFIG_IMAGE` | `infoiplitin/clinic-config-indiadistro` (the config tree) |
+| `IMPLEMENTER_INTERFACE_IMAGE_TAG` | `bahmni/implementer-interface` |
+| `PATIENT_DOCUMENTS_TAG` | `bahmni/patient-documents` |
+| `ATOMFEED_CONSOLE_IMAGE_TAG` | `bahmni/atomfeed-console` |
+
+Two ways to choose, like the hub secrets:
+
+- **A file**, `--versions <file>`, one `KEY=value` per line. A `*_TAG` key takes a
+  tag; the others take a full image reference, or a bare tag that keeps the image
+  name:
+
+      BAHMNI_WEB_IMAGE=bhs-0.0.34
+      OPENELIS_IMAGE_TAG=1.1.0-111
+
+- **The terminal.** With `--clinic` and no `--versions`, the installer asks
+  `keep the defaults? [Y/n]`; answering `n` shows each image with its default, and
+  Enter keeps it.
+
+Each image that differs from its default is kept in `~/clinic-<slug>.env`, so a
+resume makes the same choice; it is written into `clinic/.env`, and `seed.sh` reads
+it from there. The run log names every image that differs. To choose again, pass
+`--versions`, or delete the answers file.
+
+OpenMRS, Odoo and OpenELIS change their database schema when they start, and the
+hub holds the same tables. A version of these three that differs from the hub's
+breaks lockstep, and the installer warns: upgrade the hub first, then every clinic.
+The UI and the three tools can differ from the hub safely. The config tree is
+loaded into OpenMRS at start (concepts, forms, address hierarchy), so a config
+version other than the hub's needs its changes read first.
 
 The hub link is SASL over TLS when `sync/hub.env` says
 `REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`: task 090 builds MirrorMaker's

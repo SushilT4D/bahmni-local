@@ -488,6 +488,106 @@ versions_put(){
     k="${line%%=*}"; v="${line#*=}"; v="${v%%#*}"; v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+$//')"
     env_put "$f" "$k" "$v"
   done < "${VERSIONS_FILE}"
+  # the application images this node chose (see IMAGE_KEYS) replace the defaults
+  for k in $IMAGE_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || env_put "$f" "$k" "$v"; done
+}
+
+# --- application image versions ------------------------------------------------
+# IPLIT's and Bahmni's application images. sync/versions.env holds the default
+# for each; the person installing a clinic may choose another version of any of
+# them: install.sh --versions <file> (KEY=value lines), or the prompt. The
+# choice is kept in the answers file for resumes, written into clinic/.env, and
+# read back from there by the seed sitting. The sync layer (Kafka, MirrorMaker,
+# Debezium) is not here: every node runs the same.
+IMAGE_KEYS="OPENMRS_IMAGE_NAME ODOO_IMAGE_NAME ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG BAHMNI_WEB_IMAGE BAHMNI_CONFIG_IMAGE IMPLEMENTER_INTERFACE_IMAGE_TAG PATIENT_DOCUMENTS_TAG ATOMFEED_CONSOLE_IMAGE_TAG"
+# These applications change their database schema when they start, and the hub
+# holds the same tables: a version that differs from the hub's breaks lockstep.
+# Upgrade the hub first, then every clinic.
+SCHEMA_IMAGE_KEYS="OPENMRS_IMAGE_NAME ODOO_IMAGE_NAME OPENELIS_IMAGE_TAG"
+IMAGE_TAG_RE='^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$'
+IMAGE_REF_RE='^[a-z0-9]+([._-][a-z0-9]+)*(/[a-z0-9]+([._-][a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(@sha256:[0-9a-f]{64})?$'
+is_image_key(){ case " ${IMAGE_KEYS} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+is_schema_image_key(){ case " ${SCHEMA_IMAGE_KEYS} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+# pin_get KEY : the default in sync/versions.env, without its inline comment
+pin_get(){
+  local v; v="$({ grep -E "^$1=" "${VERSIONS_FILE}" || true; } | head -1 | cut -d= -f2-)"
+  v="${v%%#*}"; printf '%s\n' "$v" | sed -E 's/[[:space:]]+$//'
+}
+# image_value KEY INPUT : prints the value to store, or fails. A *_TAG key takes a
+# tag. The others take a full image reference (it has a / or a :), or a bare tag,
+# which replaces the default's tag: BAHMNI_WEB_IMAGE=bhs-0.0.34 becomes
+# infoiplitin/bahmni-iplit-web:bhs-0.0.34.
+image_value(){
+  local k="$1" v="$2" base
+  is_image_key "$k" || fail "${k} is not an application image a node can choose; those are: ${IMAGE_KEYS}"
+  [ -n "$v" ] || fail "${k} is empty"
+  case "$k" in
+    *_TAG) printf '%s' "$v" | grep -Eq "${IMAGE_TAG_RE}" || fail "${k}='${v}' is not an image tag"
+           printf '%s\n' "$v"; return 0 ;;
+  esac
+  case "$v" in
+    */*|*:*) printf '%s' "$v" | grep -Eq "${IMAGE_REF_RE}" || fail "${k}='${v}' is not an image reference"
+             printf '%s\n' "$v" ;;
+    *) printf '%s' "$v" | grep -Eq "${IMAGE_TAG_RE}" || fail "${k}='${v}' is neither an image reference nor a tag"
+       base="$(pin_get "$k")"; base="${base%@*}"; base="${base%:*}"
+       [ -n "$base" ] || fail "${k}: no default in ${VERSIONS_FILE} to put the tag '${v}' on"
+       printf '%s:%s\n' "$base" "$v" ;;
+  esac
+}
+# image_set KEY INPUT : validates and exports KEY
+image_set(){ local v; v="$(image_value "$1" "$2")" || exit 1; eval "$1=\$v"; export "$1"; }
+# image_choices_load FILE : KEY=value lines (comments and blanks skipped); every
+# key must be an application image, every value valid
+image_choices_load(){
+  local f="$1" line k v
+  [ -f "$f" ] || fail "image versions file not found: $f"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="$(printf '%s' "$line" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+#.*$//; s/[[:space:]]+$//')"
+    case "$line" in ''|'#'*) continue ;; *=*) ;; *) fail "$f: not KEY=value: ${line}" ;; esac
+    k="${line%%=*}"; v="${line#*=}"; v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
+    image_set "$k" "$v"
+  done < "$f"
+}
+# image_keys_from FILE : exports every application image FILE (a node's .env)
+# sets, so a value this node chose wins over the default loaded before it
+image_keys_from(){
+  local f="$1" k v
+  for k in $IMAGE_KEYS; do v="$(env_get "$f" "$k")"; [ -z "$v" ] || { eval "$k=\$v"; export "$k"; }; done
+}
+# image_choose : on a terminal, offers to keep the defaults; otherwise asks for
+# each image, Enter keeping the value shown
+image_choose(){
+  local a k v cur
+  interactive || return 0
+  printf '  application image versions (sync/versions.env): keep the defaults? [Y/n]: ' >&2
+  IFS= read -r a || a=""
+  case "$a" in n|N|no|NO|No) ;; *) return 0 ;; esac
+  printf '  for each image, Enter keeps the value shown; a bare tag keeps the image name\n' >&2
+  for k in $IMAGE_KEYS; do
+    eval "cur=\${$k:-}"; [ -n "$cur" ] || cur="$(pin_get "$k")"
+    printf '  %s [%s]: ' "$k" "$cur" >&2; IFS= read -r v || v=""
+    image_set "$k" "${v:-$cur}"
+  done
+}
+# image_choices_write FILE : records in FILE each application image that differs
+# from its default (an answers file, so a resume makes the same choice)
+image_choices_write(){
+  local f="$1" k v
+  for k in $IMAGE_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || [ "$v" = "$(pin_get "$k")" ] || env_put "$f" "$k" "$v"; done
+}
+# image_choices_report : names each application image that differs from its
+# default, and warns where that breaks lockstep with the hub
+image_choices_report(){
+  local k v p n=0
+  for k in $IMAGE_KEYS; do
+    eval "v=\${$k:-}"; p="$(pin_get "$k")"
+    [ -n "$v" ] && [ "$v" != "$p" ] || continue
+    n=$((n + 1)); info "image ${k}=${v} (default ${p})"
+    if is_schema_image_key "$k"; then
+      warn "${k}: this application changes its database schema when it starts; the hub must run the same version (upgrade the hub first, then every clinic)"
+    fi
+  done
+  [ "$n" -gt 0 ] || info "application images: the defaults in sync/versions.env"
 }
 
 # --- phases -------------------------------------------------------------------

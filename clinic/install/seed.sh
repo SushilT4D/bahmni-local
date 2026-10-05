@@ -30,6 +30,7 @@ SEED_DIR="$(cd "$SEED_DIR" && pwd)"
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "this machine is not installed yet (no clinic/.env); the operator runs install.sh first. Call the operator."
 set -a; . "$E"; . "${VERSIONS_FILE}"; set +a
+image_keys_from "$E"   # the application images this machine was installed with, not today's defaults
 derive_identity "$CLINIC_SLUG" "$RESIDUE"
 # The machine state decides whether a seed may run at all, and --from/--only
 # (which skip the gate task) may only resume one that already passed it.

@@ -3,6 +3,17 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## Application image versions
+
+- The application images match staging's: UI `bhs-0.0.30`, config `bhs-0.0.20`,
+  implementer-interface `1.1.0-74`, patient-documents `1.1.0-32`,
+  atomfeed-console `1.0.0-23`. The last three were `latest`, which had moved to
+  a different major version than staging runs. OpenELIS stays at `1.1.0-111`.
+- `sync/versions.env` holds the defaults. The person installing a clinic may
+  choose another version of any application image, with `install.sh --versions
+  <file>` or at the prompt. The sync layer is not a per-node choice. See
+  `clinic/install/README.md`.
+
 ## Kafka layout
 
 - Kafka runs as one node holding both the broker and the controller role, on
