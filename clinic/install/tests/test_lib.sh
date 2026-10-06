@@ -69,7 +69,11 @@ i0="$(inode "$g")"; env_put "$g" B 22
 [ "$(inode "$g")" != "$i0" ] && assert_eq "env_put renames a new file over the old one (not rewritten in place)" 1 1 || assert_eq "env_put renames a new file over the old one (not rewritten in place)" "same inode $i0" "a new inode"
 assert_eq "env_put keeps the file's mode" "$(ls -l "$g" | cut -c1-10)" "-rw-r-----"
 assert_eq "env_put keeps every other line" "$(cat "$g")" "$(printf 'A=1\nB=22\n# keep me\nC=3')"
-assert_eq "env_put leaves no temporary file" "$(ls -A "$TMP" | grep -c '^\.atomic\.env\.' || true)" "0"
+assert_eq "env_put leaves no temporary file" "$(ls -A "$TMP" | grep -c '^atomic\.env\.tmp\.' || true)" "0"
+# a write killed midway leaves the temporary copy behind, holding every secret in
+# clinic/.env, so git must ignore its name
+grep -q 'prefix=os.path.basename(f) + ".tmp."' "${HERE}/../lib.sh" && assert_eq "env_put names its temporary copy <file>.tmp.*" 1 1 || assert_eq "env_put names its temporary copy <file>.tmp.*" "other name" "<file>.tmp.*"
+( cd "${HERE}/../../.." && git check-ignore -q clinic/.env.tmp.k3x9 ) && assert_eq "git ignores clinic/.env.tmp.*" 1 1 || assert_eq "git ignores clinic/.env.tmp.*" "tracked" "ignored"
 ln -s "$g" "$TMP/link.env"; env_put "$TMP/link.env" C 33
 [ -L "$TMP/link.env" ] && assert_eq "env_put through a symlink writes the file it names, keeping the link" "$(env_get "$g" C)" "33" || assert_eq "env_put through a symlink keeps the link" "replaced" "a symlink"
 

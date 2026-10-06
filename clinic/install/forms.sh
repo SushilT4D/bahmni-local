@@ -372,7 +372,9 @@ EOF
   fi
   while IFS="$TAB" read -r uuid name ver pub ret ptr || [ -n "${uuid}${ptr}" ]; do
     [ -n "$ptr" ] || continue
-    case "$ptr" in "${FORMS_PREFIX}translations/"*) continue ;; esac
+    # a translation pointer is not required, but one that climbs out of the
+    # folder is judged below like any other pointer
+    case "$ptr" in *..*) ;; "${FORMS_PREFIX}translations/"*) continue ;; esac
     case "$ptr" in
       "${FORMS_PREFIX}"*) file="${ptr#"${FORMS_PREFIX}"}" ;;
       *) if [ "$pub" = 1 ] && [ "$ret" = 0 ]; then

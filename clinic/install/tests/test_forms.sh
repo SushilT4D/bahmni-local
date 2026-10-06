@@ -125,6 +125,9 @@ out="$(report "$TMP/v/f" "$TMP/rows-pend")"; rc=$?
 r f-evil Evil 1 1 0 "${P}../../etc/passwd" > "$TMP/rows-evil"
 out="$(report "$TMP/v/f" "$TMP/rows-evil")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not a plain path under the forms folder' && ok_ "a pointer that climbs out of the forms folder is reported, never followed" || bad "unsafe path: rc=$rc out=$out"
+r f-evil Evil 1 1 0 "${P}translations/../../../openmrs/data/openmrs-runtime.properties" > "$TMP/rows-evil-tr"
+out="$(report "$TMP/v/f" "$TMP/rows-evil-tr")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not a plain path under the forms folder' && ok_ "a translation pointer that climbs out of the forms folder is judged, not skipped" || bad "translation climb: rc=$rc out=$out"
 r f-evil Evil 1 1 0 /openmrs/data/openmrs-runtime.properties > "$TMP/rows-out"
 out="$(report "$TMP/v/f" "$TMP/rows-out")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -qF 'missing /openmrs/data/openmrs-runtime.properties (Evil v1: the pointer is outside the forms folder' \

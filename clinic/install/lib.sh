@@ -153,7 +153,7 @@ if not done:
     if lines and lines[-1] == "": lines.insert(len(lines) - 1, f"{k}={v}")
     else: lines.append(f"{k}={v}")
 mode = os.stat(f).st_mode & 0o7777
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix="." + os.path.basename(f) + ".")
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix=os.path.basename(f) + ".tmp.")
 try:
     os.fchmod(fd, mode)
     with os.fdopen(fd, "w") as out:
