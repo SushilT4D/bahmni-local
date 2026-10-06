@@ -109,4 +109,6 @@ grep -q 'put OPENMRS_INITIALIZER_DOMAINS' "${HERE}/../tasks/020-env.sh" && ok_ "
 a="$TMP/answers.env"
 ( . "${HERE}/../lib.sh"; OPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen answers_write "$a" )
 [ "$( . "${HERE}/../lib.sh"; env_get "$a" OPENMRS_INITIALIZER_DOMAINS )" = globalproperties,idgen ] && ok_ "composed answers keep OPENMRS_INITIALIZER_DOMAINS when set" || bad "answers_write dropped OPENMRS_INITIALIZER_DOMAINS"
+grep -qE '^OPENMRS_INITIALIZER_DOMAINS=' "${HERE}/../clinic.env.example" && ok_ "clinic.env.example documents OPENMRS_INITIALIZER_DOMAINS" || bad "clinic.env.example lacks OPENMRS_INITIALIZER_DOMAINS"
+grep -q '^### Initializer domains' "${HERE}/../README.md" && ok_ "the installer README explains the Initializer domains" || bad "README has no Initializer domains section"
 exit "$fails"

@@ -82,9 +82,11 @@ it from there. The run log names every image that differs. To choose again, pass
 OpenMRS, Odoo and OpenELIS change their database schema when they start, and the
 hub holds the same tables. A version of these three that differs from the hub's
 breaks lockstep, and the installer warns: upgrade the hub first, then every clinic.
-The UI and the three tools can differ from the hub safely. The config tree is
-loaded into OpenMRS at start (concepts, forms, address hierarchy), so a config
-version other than the hub's needs its changes read first.
+The UI and the three tools can differ from the hub safely. At a clinic the
+config tree loads only the Initializer domains the node keeps (see "Initializer
+domains"; the master data itself comes from the hub), so a config version
+other than the hub's needs its changes read first, and a new folder in it is
+refused before the stack starts.
 
 The hub link is SASL over TLS when `sync/hub.env` says
 `REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`: task 090 builds MirrorMaker's
@@ -127,88 +129,164 @@ Shape credit: the `initialize/` tree on `main`.
 
 ## Forms
 
-OpenMRS loads its observation forms from the config tree's
-`masterdata/configuration/bahmniforms` when it starts: the Initializer creates
-each form version whose file changed, with the uuid the file carries. The config
-image does not carry the forms a clinic uses, so the openmrs service mounts
-`clinic/forms/bahmniforms` read-only over that directory. `clinic/forms` is
-node-local and gitignored, and it lives outside `clinic/extracted/`, which is
-replaced whenever the config image changes. Task 075 fills it before task 080
-starts the stack, and task 080 does not start the stack while it is missing or
-holds no form.
+An observation form is two things that travel together:
 
-- **With a forms repo** — the operator's private repo, holding
-  `bahmniforms/*.json` in the Initializer's format, `MANIFEST.tsv` (the name,
-  version and uuid of every form, tab-separated, with a `name` or `form_name`, a
-  `version` and a `uuid` header),
-  `tools/check-concepts.sh` and `README.md` — `clinic/forms` is a clone of it.
-  Two answers name it:
+- **rows** in OpenMRS: `form` (name, version, uuid, published, retired) and
+  `form_resource`, whose pointer row names the form's file,
+  `/home/bahmni/clinical_forms/<uuid>.json`;
+- **files** in the forms folder: `<uuid>.json` and `translations/<uuid>.json`.
 
-  | Key | Value |
-  |---|---|
-  | `FORMS_REPO_URL` | the repo's SSH clone address |
-  | `FORMS_REPO_KEY` | the path on this machine to the repo's read-only deploy key, mode 600 |
+Forms are published only on the hub, in the form builder. A clinic never
+creates or changes one:
 
-  They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
-  file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
-  `clinic/.env`, where the seed sitting and `update-forms.sh` read them. Git gets
-  the key by path; nothing prints its contents.
-- **Without one** (both empty), `clinic/forms/bahmniforms` is a copy of the config
-  image's own forms, refreshed on every run of task 075.
+- **Rows by sync.** `form` and `form_resource` are hub tables
+  (`hub/tables.conf`). A clinic gets the hub's rows with its seed and every
+  later change through the down sync, so a form has the same id, uuid and
+  version on every node. That matters because a saved observation names its
+  form by name and version.
+- **Files by the forms repo.** The operator's private forms repo holds
+  `clinical_forms/<uuid>.json`, `clinical_forms/translations/<uuid>.json`,
+  `MANIFEST.tsv` (one row per form version: `form_name`, `version`, `uuid`,
+  `published`, `retired`, `file`, empty for a version with no file, `source`,
+  `exported_at`) and `tools/check-concepts.sh`, exported from the hub's forms
+  folder. It only ever adds files: an old version's file stays, because
+  observations saved with it still open with it. Task 075 clones it into
+  `clinic/forms` (node-local, gitignored), and the openmrs service mounts
+  `clinic/forms/clinical_forms` at `/home/bahmni/clinical_forms`, and its
+  `translations/` where the form module reads translations, **read-only**: a
+  form builder save at a clinic fails instead of creating a form only that node
+  has.
+- **No forms from the Initializer** (see "Initializer domains" below).
 
-At seed, task 075 checks the incoming forms against the restored database before
-it moves the clone forward. It reads two lists from this node's OpenMRS database
-(SELECT only) and runs the forms repo's
+Two answers name the forms repo:
 
-    tools/check-concepts.sh --known <concepts> --known-forms <forms>
+| Key | Value |
+|---|---|
+| `FORMS_REPO_URL` | the repo's SSH clone address |
+| `FORMS_REPO_KEY` | the path on this machine to the repo's read-only deploy key, mode 600 (one key per clinic, so one clinic can be revoked alone) |
 
-from the root of the incoming tree:
+They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
+file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
+`clinic/.env`, where the seed sitting and `update-forms.sh` read them, together
+with the folder and mode `docker-compose.yml` mounts (`FORMS_DIR`,
+`FORMS_MOUNT_MODE`). Git gets the key by path; nothing prints its contents.
 
-- `<concepts>`: every concept uuid that exists and is not retired, one per line;
-- `<forms>`: every form uuid that is published and not retired, one per line.
-
-A form that references a concept the node lacks opens with a field that saves
-nothing. If the form's uuid is not yet published on this node, that blocks: the
-check exits non-zero, names the missing concepts, and the node must receive them
-first. If the node already publishes a form with that uuid, it runs that form
-today with the same gaps, so the check only warns. Exit 0 means nothing blocks.
-`FORMS_ALLOW_MISSING_CONCEPTS=1` carries on past a block and says so in the log.
-Install does not check: the baseline database is replaced at seed.
-
-A form on the node is identified by its uuid, not its version. The Initializer
-keeps the uuid a file carries but numbers the version itself, one more than the
-highest version of that form name already on the node, so a file that is version
-7 where it was exported can be version 4 here.
+**Without a forms repo** (both empty) the node mounts the frozen copy tracked
+in this repo, `clinic/bahmni_home/clinical_forms`, read-write. That is a
+transition: it goes once every node runs from the forms repo.
 
 `clinic/forms` only moves forward. A checkout with local edits, with commits the
 forms repo lacks, or cloned from another URL is refused: move it aside and run
 again for a fresh clone.
 
+### The checks at seed
+
+After the database is restored, task 075:
+
+1. runs the forms repo's concept check on the incoming tree,
+
+       tools/check-concepts.sh --known <concepts> --known-forms <forms>
+
+   from its root, with two lists read from this node's OpenMRS (SELECT only):
+   every concept uuid that exists and is not retired, and every form uuid that
+   is published and not retired, one per line. The checker exits 0 when nothing
+   is missing, 1 when a form misses concepts, 2 when it cannot run. Every
+   non-zero exit is a **warning** here:
+   a form that uses a concept the node lacks opens with a field that saves
+   nothing, and the fix is to deliver that concept the way the hub got it; the
+   form's rows arrive from the hub either way.
+2. runs the **row/file check**: every published, unretired form row whose
+   `form_resource` points into the forms folder must find its file there.
+   Retired and unpublished versions are not checked (many old ones point at
+   files that exist nowhere), nor are translation pointers. A missing file
+   **stops the seed** with the list (form, version, file). Pull the
+   forms repo's latest, which only ever adds files; if it still lacks the file,
+   the hub's forms have not been exported to it yet. A file with no row is fine
+   (counted as pending). On the frozen copy a missing file is a warning.
+
+Task 080 does not start the stack while the forms folder is missing, holds no
+form or has no `translations/`, or, with a forms repo, while the mount is not
+the clone, read-only; at seed it runs the row/file check again. Install checks
+neither concepts nor rows: the baseline database is replaced at seed.
+
 ### Updating the forms on a running node
 
-    clinic/scripts/update-forms.sh --dry-run    # the incoming commits, MANIFEST.tsv lines and form files
+    clinic/scripts/update-forms.sh --dry-run    # the incoming commits and MANIFEST.tsv changes; changes nothing
     clinic/scripts/update-forms.sh
 
-fetches the forms repo, runs the concept check on the incoming forms (refusing as
-above, before anything is put in place), fast-forwards `clinic/forms`, recreates
-the openmrs service alone with the node's own compose setup, waits for
-`https://localhost/openmrs/ws/rest/v1/session` to answer 200
-(`FORMS_OPENMRS_WAIT_S`, default 1200 s: the Initializer runs before OpenMRS
-answers), and checks that every form in `MANIFEST.tsv` is published and not
-retired under its uuid in the database, printing the file's version beside the
-version this node gave it. A run that finds the checkout already current restarts
-nothing and only checks the published forms; `--restart` recreates OpenMRS
-anyway. With no forms repo configured it refreshes the config image's copy and
-restarts nothing.
+fetches the forms repo, fast-forwards `clinic/forms` (refusing local edits or
+history the repo lacks), runs the concept check (warnings), runs the row/file
+check and prints a summary. It **never restarts OpenMRS**: OpenMRS reads a
+form's file when the form is opened, so users see a new version after reloading
+the page. Exit 0 means `clinic/forms` is current and every published form has
+its file; anything else is non-zero, with a FAIL line saying why. With no forms
+repo configured it reports the frozen copy and exits 0.
 
-A node installed before this mount existed runs `update-forms.sh` once, after
-setting the two keys in `clinic/.env` (or leaving them out), and before anything
-recreates its openmrs container.
+Schedule it every 15 minutes, as the user that owns the checkout:
 
-**The hub first.** The hub's OpenMRS takes the forms repo through the same mount,
-and takes every forms change before any clinic: observations a clinic records on
-a new form version reach the hub, which displays them only with that version.
-Update the hub, confirm its published versions, then the clinics.
+- Linux: a cron line, `*/15 * * * * <checkout>/clinic/scripts/update-forms.sh >> <log file> 2>&1`,
+  or a systemd timer running the same command;
+- macOS: a launchd agent with `StartInterval` 900 running the same command.
+
+The rows and the files travel separately. A form row can arrive before its
+file; that form then fails to open until the next pull, and the row/file check
+names it. The hub's forms are exported to the forms repo right after they are
+published, and clinics pull often, to keep that gap short. A file can also
+arrive before its rows; nothing shows it until they do.
+
+**A node seeded before forms came down by sync** takes them in four steps:
+
+1. `clinic/scripts/grant-down-tables.sh` (the sink user's grants on `form` and
+   `form_resource`), then regenerate and register the down sinks;
+2. set `FORMS_REPO_URL` and `FORMS_REPO_KEY` in `clinic/.env`;
+3. run `update-forms.sh` once: it clones the forms repo and points `FORMS_DIR`
+   and `FORMS_MOUNT_MODE` at the clone, read-only;
+4. recreate the openmrs service once, with the node's own compose setup
+   (`up -d --no-deps --force-recreate openmrs`), so it takes the new mount and
+   the Initializer domain list.
+
+**Retiring a form.** Forms are never deleted. A bad version is retired on the
+hub (or its previous content published again as a new version); the retired
+flag comes down by sync, and the file stays in the forms repo for the
+observations saved with it.
+
+**The hub is the source.** Forms are published on the hub, exported to the
+forms repo, and only then pulled by clinics. The hub keeps its forms folder
+across upgrades, captures `form` and `form_resource`, and is the only node
+where the form builder is used.
+
+### Initializer domains
+
+At every start the Initializer module loads each domain folder of the config
+tree (`masterdata/configuration`). Almost every domain writes master data the
+hub owns and sends down: forms (a form it does not know becomes a new version
+numbered by this node), concepts, drugs, locations, roles, programs, the
+address hierarchy, and config changesets that change concepts. So the openmrs
+service passes
+
+    -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-<the clinic default>}
+
+The clinic default is an exclusion list (a leading `!`) of every domain the
+config tree carries a folder for, except `globalproperties` and `idgen`, which
+write this node's own settings and identifier sources:
+
+    !bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase
+
+`OPENMRS_INITIALIZER_DOMAINS` replaces it, as an optional answer (task 020
+writes it into `clinic/.env`) or in `clinic/.env` directly: comma-separated, no
+spaces, a leading `!` for an exclusion list, otherwise an inclusion list, e.g.
+`globalproperties,idgen`. Before the stack starts, task 080 refuses:
+
+- a name the module does not have (it knows 52; the module itself would only
+  warn and leave that domain loading);
+- a config folder holding a file for any domain that would load, other than
+  `globalproperties` and `idgen`. An exclusion list leaves every unnamed domain
+  on, so a config release that adds a folder (`htmlforms` and `ampathforms`
+  also write forms) is refused here instead of loading silently. The inclusion
+  list `globalproperties,idgen` passes the same check by construction.
+
+Do not put `-Dinitializer.domains` in `OMRS_JAVA_SERVER_OPTS`: task 080 takes it
+out of `clinic/.env` (and says what it carried), so the property is passed once.
 
 ## macOS (Apple Silicon)
 
