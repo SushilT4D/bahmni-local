@@ -3,6 +3,20 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## Forms
+
+- OpenMRS loads its forms from `clinic/forms/bahmniforms`, mounted read-only over
+  the config tree's `bahmniforms`. `clinic/forms` is a clone of the operator's
+  private forms repo (`FORMS_REPO_URL` and `FORMS_REPO_KEY` in the answers) or,
+  with none configured, a copy of the config image's forms. It is node-local and
+  gitignored, and it lives outside `clinic/extracted/`, which a config upgrade
+  replaces. The installer does not start OpenMRS without it.
+- A forms change reaches a node through `clinic/scripts/update-forms.sh`:
+  fast-forward only, a concept check against the node's OpenMRS before the forms
+  are put in place, then a restart of OpenMRS alone (the Initializer loads forms
+  only at start) and a check of the published versions. The hub takes a forms
+  change before the clinics. See `clinic/install/README.md`.
+
 ## Application image versions
 
 - The application images match staging's: UI `bhs-0.0.30`, config `bhs-0.0.20`,

@@ -125,6 +125,74 @@ bash 3.2, not whatever `bash` resolves to on `PATH` -- so a script that
 accidentally needs bash 4+ is caught here, not on a clinic Mac.
 Shape credit: the `initialize/` tree on `main`.
 
+## Forms
+
+OpenMRS loads its observation forms from the config tree's
+`masterdata/configuration/bahmniforms` when it starts: the Initializer creates
+each form version whose file changed, with the uuid the file carries. The config
+image does not carry the forms a clinic uses, so the openmrs service mounts
+`clinic/forms/bahmniforms` read-only over that directory. `clinic/forms` is
+node-local and gitignored, and it lives outside `clinic/extracted/`, which is
+replaced whenever the config image changes. Task 075 fills it before task 080
+starts the stack, and task 080 does not start the stack while it is missing or
+holds no form.
+
+- **With a forms repo** — the operator's private repo, holding
+  `bahmniforms/*.json` in the Initializer's format, `MANIFEST.tsv` (the name and
+  version of every form, tab-separated, with a `name` and a `version` header),
+  `tools/check-concepts.sh` and `README.md` — `clinic/forms` is a clone of it.
+  Two answers name it:
+
+  | Key | Value |
+  |---|---|
+  | `FORMS_REPO_URL` | the repo's SSH clone address |
+  | `FORMS_REPO_KEY` | the path on this machine to the repo's read-only deploy key, mode 600 |
+
+  They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
+  file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
+  `clinic/.env`, where the seed sitting and `update-forms.sh` read them. Git gets
+  the key by path; nothing prints its contents.
+- **Without one** (both empty), `clinic/forms/bahmniforms` is a copy of the config
+  image's own forms, refreshed on every run of task 075.
+
+At seed, task 075 checks the incoming forms against the restored database before
+it moves the clone forward: it runs the forms repo's
+`tools/check-concepts.sh --known <file>` from the root of the incoming tree, where
+`<file>` lists every concept uuid that exists and is not retired on this node. A
+form that references a concept the node lacks opens with a field that saves
+nothing, so the check refuses and the node must receive the concept first.
+`FORMS_ALLOW_MISSING_CONCEPTS=1` carries on regardless and says so in the log.
+Install does not check: the baseline database is replaced at seed.
+
+`clinic/forms` only moves forward. A checkout with local edits, with commits the
+forms repo lacks, or cloned from another URL is refused: move it aside and run
+again for a fresh clone.
+
+### Updating the forms on a running node
+
+    clinic/scripts/update-forms.sh --dry-run    # the incoming commits, MANIFEST.tsv lines and form files
+    clinic/scripts/update-forms.sh
+
+fetches the forms repo, runs the concept check on the incoming forms (refusing as
+above, before anything is put in place), fast-forwards `clinic/forms`, recreates
+the openmrs service alone with the node's own compose setup, waits for
+`https://localhost/openmrs/ws/rest/v1/session` to answer 200
+(`FORMS_OPENMRS_WAIT_S`, default 1200 s: the Initializer runs before OpenMRS
+answers), and checks that every form in `MANIFEST.tsv` is published at its listed
+version in the database. A run that finds the checkout already current restarts
+nothing and only checks the published versions; `--restart` recreates OpenMRS
+anyway. With no forms repo configured it refreshes the config image's copy and
+restarts nothing.
+
+A node installed before this mount existed runs `update-forms.sh` once, after
+setting the two keys in `clinic/.env` (or leaving them out), and before anything
+recreates its openmrs container.
+
+**The hub first.** The hub's OpenMRS takes the forms repo through the same mount,
+and takes every forms change before any clinic: observations a clinic records on
+a new form version reach the hub, which displays them only with that version.
+Update the hub, confirm its published versions, then the clinics.
+
 ## macOS (Apple Silicon)
 
 The runtime is rootless **podman**, driven through `docker-compose` over
