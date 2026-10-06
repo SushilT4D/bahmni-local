@@ -136,8 +136,8 @@ An observation form is two things that travel together:
   `/home/bahmni/clinical_forms/<uuid>.json`;
 - **files** in the forms folder: `<uuid>.json` and `translations/<uuid>.json`.
 
-Forms are published only on the hub, in the form builder. A clinic never
-creates or changes one:
+Forms are published only on the hub, in the form builder. A clinic does not
+author them:
 
 - **Rows by sync.** `form` and `form_resource` are hub tables
   (`hub/tables.conf`). A clinic gets the hub's rows with its seed and every
@@ -153,9 +153,15 @@ creates or changes one:
   observations saved with it still open with it. Task 075 clones it into
   `clinic/forms` (node-local, gitignored), and the openmrs service mounts
   `clinic/forms/clinical_forms` at `/home/bahmni/clinical_forms`, and its
-  `translations/` where the form module reads translations, **read-only**: a
-  form builder save at a clinic fails instead of creating a form only that node
-  has.
+  `translations/` where the form module reads translations, **read-only**. The
+  mounts never create a missing folder: if `clinic/forms` is missing, OpenMRS
+  does not start, rather than starting with no forms.
+- **No form builder.** The `implementer-interface` service is in no profile
+  the clinic starts (only in its own, `implementer-interface`), the proxy
+  starts without it, and `extract-ui-config.sh` removes its home page tile. If
+  someone starts it by hand, the read-only mount stops it writing a form's
+  file; the form builder writes the form's row over REST before the file, so
+  the mount alone does not keep a row from being written.
 - **No forms from the Initializer** (see "Initializer domains" below).
 
 Two answers name the forms repo:
@@ -168,16 +174,31 @@ Two answers name the forms repo:
 They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
 file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
 `clinic/.env`, where the seed sitting and `update-forms.sh` read them, together
-with the folder and mode `docker-compose.yml` mounts (`FORMS_DIR`,
-`FORMS_MOUNT_MODE`). Git gets the key by path; nothing prints its contents.
+with the folder `docker-compose.yml` mounts and whether it is read-only
+(`FORMS_DIR`, `FORMS_READ_ONLY`). Git gets the key by path; nothing prints its
+contents. The key path must be absolute and plain (letters, digits, `. _ / -`);
+a relative path in the answers is kept as an absolute one, from where the
+installer runs. Git trusts the git host's key the first time it sees it; to pin
+it, put the host's key in the installing user's `~/.ssh/known_hosts` first.
+
+The forms repo's `tools/check-concepts.sh` is code, run as the installer user.
+A node runs the copy it already accepted (its current clone's) against
+incoming forms, never the incoming commit's; only the first clone runs the
+incoming one, and says so. Write access to the forms repo is therefore trusted
+at a clinic's first clone.
 
 **Without a forms repo** (both empty) the node mounts the frozen copy tracked
 in this repo, `clinic/bahmni_home/clinical_forms`, read-write. That is a
 transition: it goes once every node runs from the forms repo.
 
 `clinic/forms` only moves forward. A checkout with local edits, with commits the
-forms repo lacks, or cloned from another URL is refused: move it aside and run
-again for a fresh clone.
+forms repo lacks, or cloned from another URL is refused. To start again from
+the forms repo, move it aside and run `update-forms.sh` straight away, which
+takes a fresh clone: until it has, OpenMRS cannot be recreated, because its
+forms mount refuses a missing folder. One run at a time changes
+`clinic/forms` (a lock, `clinic/.forms.lock`, taken over when its run is gone
+or after an hour); a clone an earlier run did not finish
+(`clinic/.forms.new.XXXXXX`) is removed by the next run.
 
 ### The checks at seed
 
@@ -187,22 +208,27 @@ After the database is restored, task 075:
 
        tools/check-concepts.sh --known <concepts> --known-forms <forms>
 
-   from its root, with two lists read from this node's OpenMRS (SELECT only):
-   every concept uuid that exists and is not retired, and every form uuid that
-   is published and not retired, one per line. The checker exits 0 when nothing
-   is missing, 1 when a form misses concepts, 2 when it cannot run. Every
-   non-zero exit is a **warning** here:
-   a form that uses a concept the node lacks opens with a field that saves
-   nothing, and the fix is to deliver that concept the way the hub got it; the
-   form's rows arrive from the hub either way.
-2. runs the **row/file check**: every published, unretired form row whose
-   `form_resource` points into the forms folder must find its file there.
-   Retired and unpublished versions are not checked (many old ones point at
-   files that exist nowhere), nor are translation pointers. A missing file
-   **stops the seed** with the list (form, version, file). Pull the
+   from its root, with the checker the node already runs (see above) and two
+   lists read from this node's OpenMRS (SELECT only): every concept uuid that
+   exists and is not retired, and every form uuid that is published and not
+   retired, one per line. The checker exits 0 when nothing is missing, 1 when
+   a form misses concepts, 2 when it cannot run. Every non-zero exit is a
+   **warning** here, and when the check could not run the output says
+   "concepts NOT checked": a form that uses a concept the node lacks opens
+   with a field that saves nothing, and the fix is to deliver that concept the
+   way the hub got it; the form's rows arrive from the hub either way.
+2. runs the **row/file check** on every form row and its file pointer rows:
+   every published, unretired form must have a pointer row, the pointer must be
+   a plain path inside the forms folder (a pointer anywhere else is a failure,
+   named), and its file must be there. Translation pointers are not required.
+   A failure **stops the seed** with the list (form, version, file). Pull the
    forms repo's latest, which only ever adds files; if it still lacks the file,
    the hub's forms have not been exported to it yet. A file with no row is fine
-   (counted as pending). On the frozen copy a missing file is a warning.
+   (counted as pending). Retired versions whose file is missing (many old ones
+   point at files that exist nowhere) are counted in a warning with their
+   first uuids, since observations saved with them do not open; so are
+   pointers of retired or unpublished forms outside the forms folder. On the
+   frozen copy a missing file is a warning.
 
 Task 080 does not start the stack while the forms folder is missing, holds no
 form or has no `translations/`, or, with a forms repo, while the mount is not
@@ -218,9 +244,13 @@ fetches the forms repo, fast-forwards `clinic/forms` (refusing local edits or
 history the repo lacks), runs the concept check (warnings), runs the row/file
 check and prints a summary. It **never restarts OpenMRS**: OpenMRS reads a
 form's file when the form is opened, so users see a new version after reloading
-the page. Exit 0 means `clinic/forms` is current and every published form has
-its file; anything else is non-zero, with a FAIL line saying why. With no forms
-repo configured it reports the frozen copy and exits 0.
+the page. It only ever adds form files to what the node has; the node's form
+rows come from its seed and the down sync. Exit codes, for a schedule: 0
+`clinic/forms` is current and every published form has its file; 1 a check
+refused (act on the FAIL line); 3 the forms repo could not be reached (the
+forms already here keep working; the next run tries again); 4 another run holds
+`clinic/forms`. With no forms repo configured it reports the frozen copy and
+exits 0.
 
 Schedule it every 15 minutes, as the user that owns the checkout:
 
@@ -234,16 +264,28 @@ names it. The hub's forms are exported to the forms repo right after they are
 published, and clinics pull often, to keep that gap short. A file can also
 arrive before its rows; nothing shows it until they do.
 
-**A node seeded before forms came down by sync** takes them in four steps:
+**A node seeded before forms came down by sync** takes them by a **reseed**.
+The seed is the baseline: it brings the hub's form rows, seed task 050 grants
+the sink user the form tables, and task 075 clones the forms repo. The down
+sinks carry only later changes, so registering them on such a node would keep
+any form row it already has that differs from the hub's, and the row/file
+check reads only the node's own rows, so it could not notice.
+`update-forms.sh` on that node only adds form files; it does not bring its
+rows into line with the hub's.
 
-1. `clinic/scripts/grant-down-tables.sh` (the sink user's grants on `form` and
-   `form_resource`), then regenerate and register the down sinks;
-2. set `FORMS_REPO_URL` and `FORMS_REPO_KEY` in `clinic/.env`;
-3. run `update-forms.sh` once: it clones the forms repo and points `FORMS_DIR`
-   and `FORMS_MOUNT_MODE` at the clone, read-only;
-4. recreate the openmrs service once, with the node's own compose setup
-   (`up -d --no-deps --force-recreate openmrs`), so it takes the new mount and
-   the Initializer domain list.
+**Recreating OpenMRS on a running node** (after `update-forms.sh` points the
+forms mount at the clone, after `extract-ui-config.sh` takes a new config
+image, after an edit of `clinic/.env`):
+
+    clinic/scripts/recreate-openmrs.sh --check    # the checks only; changes nothing
+    clinic/scripts/recreate-openmrs.sh
+
+runs the checks task 080 runs before OpenMRS starts (the JVM options, the
+forms mount, the Initializer domain list against the config tree) and only
+then recreates openmrs alone, with the node's compose setup (`clinic/.env`'s
+`COMPOSE_FILE`, the fleet's profiles, docker compose or docker-compose over the
+podman socket). A refused check recreates nothing. Recreate OpenMRS this way,
+not with a compose command by hand.
 
 **Retiring a form.** Forms are never deleted. A bad version is retired on the
 hub (or its previous content published again as a new version); the retired
@@ -275,7 +317,12 @@ write this node's own settings and identifier sources:
 `OPENMRS_INITIALIZER_DOMAINS` replaces it, as an optional answer (task 020
 writes it into `clinic/.env`) or in `clinic/.env` directly: comma-separated, no
 spaces, a leading `!` for an exclusion list, otherwise an inclusion list, e.g.
-`globalproperties,idgen`. Before the stack starts, task 080 refuses:
+`globalproperties,idgen`. The same check runs on every path that starts
+OpenMRS on a config tree or a domain list it has not run with: task 080
+before the stack starts, `clinic/scripts/extract-ui-config.sh` on a new config
+tree before it replaces the current one (a refused tree leaves `extracted/` as
+it was, and the run exits non-zero), and `clinic/scripts/recreate-openmrs.sh`.
+It refuses:
 
 - a name the module does not have (it knows 52; the module itself would only
   warn and leave that domain loading);
@@ -283,10 +330,13 @@ spaces, a leading `!` for an exclusion list, otherwise an inclusion list, e.g.
   `globalproperties` and `idgen`. An exclusion list leaves every unnamed domain
   on, so a config release that adds a folder (`htmlforms` and `ampathforms`
   also write forms) is refused here instead of loading silently. The inclusion
-  list `globalproperties,idgen` passes the same check by construction.
+  list `globalproperties,idgen` passes the same check by construction;
+- a config folder holding a file whose name is not one of the 52 domains, under
+  either kind of list: a newer module may have that domain and load it.
 
-Do not put `-Dinitializer.domains` in `OMRS_JAVA_SERVER_OPTS`: task 080 takes it
-out of `clinic/.env` (and says what it carried), so the property is passed once.
+Do not put `-Dinitializer.domains` in `OMRS_JAVA_SERVER_OPTS`: task 080 and
+`recreate-openmrs.sh` take it out of `clinic/.env` (and say what it carried),
+so the property is passed once.
 
 ## macOS (Apple Silicon)
 

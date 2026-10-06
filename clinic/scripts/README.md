@@ -71,6 +71,15 @@ database has its file. It never restarts OpenMRS. `--dry-run` shows the
 incoming commits and `MANIFEST.tsv` changes and changes nothing. See
 `../install/README.md` ("Forms"). Its one remote is the forms repo's git host,
 read-only, with the deploy key `clinic/.env` names; it opens no shell anywhere.
+Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
+4 another run holds `clinic/forms`.
+
+**Recreate OpenMRS** — `recreate-openmrs.sh` runs the checks installer task
+080 runs before OpenMRS starts (JVM options, the forms mount, the Initializer
+domain list against the config tree) and then recreates openmrs alone with the
+node's compose setup. The way to make a running node take a new config tree,
+forms mount or `clinic/.env` setting; a refused check recreates nothing.
+`--check` runs the checks only.
 
 **Ad-hoc probes** — `test-kafka-auth.py`.
 

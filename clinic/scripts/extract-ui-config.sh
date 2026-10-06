@@ -8,14 +8,26 @@
 #   extracted/.source        <- what was extracted: image@id, one line each
 #
 # Both tags are pinned in sync/versions.env (the hub moves first, then the
-# clinics). To take an IPLIT fix: change the tag there, run this, restart proxy,
-# openmrs and openelis. An unchanged source is skipped; a changed one replaces
-# extracted/ and keeps the last one at extracted.prev/. Nothing is left running:
-# `create` + `cp` + `rm`, the container never starts.
+# clinics). To take an IPLIT fix: change the tag there, run this, restart proxy
+# and openelis, and recreate openmrs with scripts/recreate-openmrs.sh (which
+# runs the checks the installer runs before OpenMRS starts). An unchanged
+# source is skipped; a changed one replaces extracted/ and keeps the last one
+# at extracted.prev/. Nothing is left running: `create` + `cp` + `rm`, the
+# container never starts.
+#
+# A config tree OpenMRS would load hub-owned rows from is refused: the
+# Initializer domain check (install/initializer.sh) runs on the new tree, with
+# the domain list this node runs (OPENMRS_INITIALIZER_DOMAINS from the
+# environment, else clinic/.env, else the clinic default), before it replaces
+# extracted/. On a refusal extracted/ stays exactly as it was and the run exits
+# non-zero, naming the folder. The skip path runs the same check on the tree in
+# place.
 #
 # The tree is node-local and gitignored, so the node's own registration prefix
 # (MRN_PREFIX) is written into it here -- re-applied on every extraction. So is
-# the one rewrite of the UI's own code the clinic needs (fix_program_edit).
+# the one rewrite of the UI's own code the clinic needs (fix_program_edit), and
+# the home page loses its form builder tile: forms are made on the hub, and the
+# clinic stack does not run the form builder (docker-compose.yml).
 #
 # usage: [CT=docker|podman] [MRN_PREFIX=MAN] scripts/extract-ui-config.sh [--force]
 set -euo pipefail
@@ -32,6 +44,23 @@ pin(){ # KEY : the environment wins, then sync/versions.env
 }
 WEB="$(pin BAHMNI_WEB_IMAGE)"; CFG="$(pin BAHMNI_CONFIG_IMAGE)"
 OUT="${EXTRACT_DIR:-${CLINIC_DIR}/extracted}"
+. "${HERE}/../install/initializer.sh"
+env_file_get(){ # KEY : clinic/.env's value, a matching pair of quotes stripped
+  local v
+  v="$(sed -n "s/^$1=//p" "${CLINIC_DIR}/.env" 2>/dev/null | head -1)"
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s' "$v"
+}
+DOMAINS="${OPENMRS_INITIALIZER_DOMAINS:-$(env_file_get OPENMRS_INITIALIZER_DOMAINS)}"
+DOMAINS="${DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}"
+check_domains(){ # DIR WHAT : DIR's config tree loads nothing the hub owns with this node's domain list
+  local v
+  v="$(initializer_domains_verdict "$DOMAINS" "$1/bahmni_config")" || die "$2: ${v}"
+  say "ok   initializer domains: ${v#ok }"
+}
 
 image_id(){ # IMAGE : present (pulling it if need be) -> its id
   local img="$1" a
@@ -67,6 +96,15 @@ apply_landing(){ # DIR : point the landing page's Odoo tile at odoo.<LAN_NAME>
       ))
   ' "$wl" > "$t" || { rm -f "$t"; die "jq could not edit ${wl}"; }
   chmod 644 "$t"; mv "$t" "$wl"
+}
+
+no_form_builder_tile(){ # DIR : the home page offers no form builder at a clinic
+  local ext="$1/bahmni_config/openmrs/apps/home/extension.json" t
+  [ -f "$ext" ] || return 0
+  t="$(mktemp "${ext}.XXXXXX")"
+  jq 'with_entries(select((.value | type) != "object" or .value.url != "/implementer-interface"))' "$ext" > "$t" \
+    || { rm -f "$t"; die "jq could not edit ${ext}"; }
+  chmod 644 "$t"; mv "$t" "$ext"
 }
 
 hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
@@ -114,7 +152,8 @@ fix_program_edit(){ # DIR : enrolment edits send states the REST module accepts
 
 if [ "$FORCE" = 0 ] && [ -f "$OUT/.source" ] && [ "$(cat "$OUT/.source")" = "$want" ] \
    && [ -f "$OUT/htdocs/bahmni/home/index.html" ] && [ -d "$OUT/bahmni_config/openmrs" ]; then
-  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"; fix_program_edit "$OUT"
+  apply_prefix "$OUT"; apply_landing "$OUT"; no_form_builder_tile "$OUT"; hold_ocl "$OUT"; fix_program_edit "$OUT"
+  check_domains "$OUT" "the config tree in extracted/ (${CFG}) would load rows the hub owns; do not restart OpenMRS on it"
   say "skip extracted/ already holds ${WEB} and ${CFG}"; exit 0
 fi
 
@@ -130,7 +169,8 @@ pull_tree "$CFG" /etc/bahmni_config "$NEW/bahmni_config"
 # a tree is accepted only if it looks like what the services will ask it for
 [ -f "$NEW/htdocs/bahmni/home/index.html" ] || die "${WEB} carries no bahmni/home/index.html under /usr/local/apache2/htdocs -- not a Bahmni UI image"
 [ -d "$NEW/bahmni_config/openmrs/apps" ] && [ -d "$NEW/bahmni_config/masterdata/configuration" ] || die "${CFG} carries no openmrs/apps + masterdata/configuration under /etc/bahmni_config -- not a Bahmni config image"
-apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"; fix_program_edit "$NEW"
+apply_prefix "$NEW"; apply_landing "$NEW"; no_form_builder_tile "$NEW"; hold_ocl "$NEW"; fix_program_edit "$NEW"
+check_domains "$NEW" "refused ${CFG}: extracted/ is left as it was"
 chmod -R u+rwX,go+rX,go-w "$NEW"   # the UI image ships world-writable dirs
 printf '%s\n' "$want" > "$NEW/.source"
 if [ -e "$OUT" ]; then rm -rf "${OUT}.prev"; mv "$OUT" "${OUT}.prev"; fi

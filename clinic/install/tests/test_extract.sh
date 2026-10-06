@@ -57,6 +57,10 @@ cat > "$C/etc/bahmni_config/openmrs/apps/home/whiteLabel.json" <<'JSON'
   {"name":"clinicalService","enabled":true,"link":"/clinical","title":"Clinical","logo":"clinical.png"}
 ]}
 JSON
+cat > "$C/etc/bahmni_config/openmrs/apps/home/extension.json" <<'JSON'
+{"implementerInterface":{"id":"bahmni.implementer.interface","type":"link","url":"/implementer-interface","order":4},
+ "registration":{"id":"bahmni.registration","type":"link","url":"/bahmni/registration/index.html","order":1}}
+JSON
 run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" LAN_NAME="${LAN-bahmni.clinic}" bash "$S" "$@" 2>&1; }
 X="$TMP/clinic/extracted"
 
@@ -130,4 +134,34 @@ grep -q v2 "$X/htdocs/bahmni/home/index.html" && ok_ "the good extraction surviv
 
 out="$(WEB=acme/web:absent run)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'acme/web:absent' && ok_ "a missing image is named" || bad "missing image: rc=$rc out=$out"
+
+# the form builder is not offered at a clinic: its home page tile is removed
+EXT="$X/bahmni_config/openmrs/apps/home/extension.json"
+[ "$(jq -r 'has("implementerInterface")' "$EXT")" = false ] && [ "$(jq -r '.registration.url' "$EXT")" = /bahmni/registration/index.html ] \
+  && ok_ "the form builder's home page tile is removed, the other tiles kept" || bad "extension.json: $(cat "$EXT")"
+
+# the Initializer domain check guards the config-release path: a config image
+# whose tree would load rows the hub owns never replaces the current tree
+H="$(mkimg acme/config:htmlforms fff)"; cp -R "$C/etc" "$H/"
+mkdir -p "$H/etc/bahmni_config/masterdata/configuration/htmlforms"; echo '<htmlform/>' > "$H/etc/bahmni_config/masterdata/configuration/htmlforms/anc.xml"
+src0="$(cat "$X/.source")"; prev0="$(cat "$X.prev/.source" 2>/dev/null)"
+out="$(CFG=acme/config:htmlforms run)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'refused acme/config:htmlforms: extracted/ is left as it was' && printf '%s' "$out" | grep -q 'folder for htmlforms,' \
+  && ok_ "a config image adding an htmlforms folder is refused, naming the folder" || bad "htmlforms image: rc=$rc out=$out"
+[ "$(cat "$X/.source")" = "$src0" ] && [ ! -e "$X/bahmni_config/masterdata/configuration/htmlforms" ] && [ "$(cat "$X.prev/.source" 2>/dev/null)" = "$prev0" ] \
+  && ok_ "the refused tree replaces nothing: extracted/ and extracted.prev/ are as they were" || bad "the refused tree replaced the current one: $(cat "$X/.source")"
+ls -d "$X".new.* >/dev/null 2>&1 && bad "the refused tree was left behind" || ok_ "nothing of the refused tree is left behind"
+out="$(env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE=acme/web:1 BAHMNI_CONFIG_IMAGE=acme/config:htmlforms MRN_PREFIX=MAN LAN_NAME=bahmni.clinic OPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen bash "$S" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -d "$X/bahmni_config/masterdata/configuration/htmlforms" ] && printf '%s' "$out" | grep -q 'initializer domains: inclusion list' \
+  && ok_ "with the inclusion list globalproperties,idgen the same image is taken" || bad "htmlforms with the inclusion list: rc=$rc out=$out"
+# the domain list comes from clinic/.env when the environment does not set it
+printf "OPENMRS_INITIALIZER_DOMAINS='!bahmniforms'\n" > "$TMP/clinic/.env"
+out="$(run --force)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'with -Dinitializer.domains=!bahmniforms the Initializer would load' && ok_ "the domain list is read from clinic/.env" || bad "domain list from clinic/.env: rc=$rc out=$out"
+rm -f "$TMP/clinic/.env"
+# the skip path checks the tree in place: an unchanged image is still refused
+out="$(CFG=acme/config:htmlforms run)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'the config tree in extracted/ (acme/config:htmlforms) would load rows the hub owns' && ok_ "the skip path refuses a tree in place that would load rows the hub owns" || bad "skip path with htmlforms in place: rc=$rc out=$out"
+out="$(run --force)"; rc=$?
+[ "$rc" -eq 0 ] && [ ! -e "$X/bahmni_config/masterdata/configuration/htmlforms" ] && ok_ "a good image replaces it again" || bad "back to the good image: rc=$rc out=$out"
 exit "$fails"
