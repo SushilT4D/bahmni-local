@@ -61,6 +61,17 @@ assert_eq "env_put appends" "$(env_get "$f" D)" "plain"
 assert_eq "env_put single-quotes a space (single, not double -- see below)" "$(grep -E '^E=' "$f")" "E='has space'"
 assert_eq "env_get strips quotes" "$(env_get "$f" E)" "has space"
 assert_eq "env_put keeps other lines" "$(grep -c . "$f")" "6"
+# env_put replaces the file whole (a new file renamed over the old one), so a
+# reader never sees it half-written; the mode and every other key are kept
+inode(){ ls -i "$1" | awk '{print $1}'; }
+g="$TMP/atomic.env"; printf 'A=1\nB=2\n# keep me\nC=3\n' > "$g"; chmod 640 "$g"
+i0="$(inode "$g")"; env_put "$g" B 22
+[ "$(inode "$g")" != "$i0" ] && assert_eq "env_put renames a new file over the old one (not rewritten in place)" 1 1 || assert_eq "env_put renames a new file over the old one (not rewritten in place)" "same inode $i0" "a new inode"
+assert_eq "env_put keeps the file's mode" "$(ls -l "$g" | cut -c1-10)" "-rw-r-----"
+assert_eq "env_put keeps every other line" "$(cat "$g")" "$(printf 'A=1\nB=22\n# keep me\nC=3')"
+assert_eq "env_put leaves no temporary file" "$(ls -A "$TMP" | grep -c '^\.atomic\.env\.' || true)" "0"
+ln -s "$g" "$TMP/link.env"; env_put "$TMP/link.env" C 33
+[ -L "$TMP/link.env" ] && assert_eq "env_put through a symlink writes the file it names, keeping the link" "$(env_get "$g" C)" "33" || assert_eq "env_put through a symlink keeps the link" "replaced" "a symlink"
 
 # env_put's old double-quote-on-trigger
 # scheme never escaped an embedded `"`, so a value like

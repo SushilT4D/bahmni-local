@@ -136,9 +136,13 @@ env_put(){
     *"'"*) fail "env_put: ${k}: a value containing a single quote cannot be stored in .env (bash and docker compose disagree on its meaning); choose another value" ;;
     *[!A-Za-z0-9_./:@+=-]*) v="'$v'" ;;
   esac
+  # The new file is written beside the old one, with its mode, and renamed over
+  # it: a reader (a scheduled script, a compose call) sees the old file or the
+  # new one, never a half-written one, and a crash leaves the old one.
   ENV_PUT_VALUE="$v" python3 - "$f" "$k" <<'PY'
-import os, sys, re
+import os, sys, re, tempfile
 f, k, v = sys.argv[1], sys.argv[2], os.environ["ENV_PUT_VALUE"]
+f = os.path.realpath(f)
 lines = open(f).read().split("\n")
 pat = re.compile(r"^" + re.escape(k) + r"=")
 done = False
@@ -148,7 +152,17 @@ for i, l in enumerate(lines):
 if not done:
     if lines and lines[-1] == "": lines.insert(len(lines) - 1, f"{k}={v}")
     else: lines.append(f"{k}={v}")
-open(f, "w").write("\n".join(lines))
+mode = os.stat(f).st_mode & 0o7777
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(f), prefix="." + os.path.basename(f) + ".")
+try:
+    os.fchmod(fd, mode)
+    with os.fdopen(fd, "w") as out:
+        out.write("\n".join(lines)); out.flush(); os.fsync(out.fileno())
+    os.replace(tmp, f)
+except BaseException:
+    try: os.unlink(tmp)
+    except OSError: pass
+    raise
 PY
 }
 # Under `set -e -o pipefail` (every task), a grep with no match or a tr cut short
