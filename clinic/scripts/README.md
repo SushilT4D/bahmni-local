@@ -57,6 +57,13 @@ table plus publication membership in both Postgres databases).
 > the file. Nothing here SSHes to the hub to dump and download — see the note
 > below.
 
+**Forms** — `update-forms.sh` takes new forms from the operator's private forms
+repo on a running node: fast-forward `clinic/forms`, check the forms' concepts
+against this node's OpenMRS, recreate the openmrs service, verify the published
+versions. `--dry-run` shows what would change. See `../install/README.md`
+("Forms"). Its one remote is the forms repo's git host, read-only, with the
+deploy key `clinic/.env` names; it opens no shell anywhere.
+
 **Ad-hoc probes** — `test-kafka-auth.py`.
 
 ## Conventions
