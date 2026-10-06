@@ -153,9 +153,9 @@ clinic/extracted/
 clinic/extracted.prev/
 clinic/extracted.new.*/
 
-# The forms OpenMRS loads: a clone of the operator's private forms repo, or a
-# copy of the config image's forms (clinic/install/forms.sh). Node-local, and
-# the forms repo is private. .forms.new.* is a clone in progress.
+# The forms' files: a clone of the operator's private forms repo, whose
+# clinical_forms/ OpenMRS mounts read-only (clinic/install/forms.sh).
+# Node-local, and the forms repo is private. .forms.new.* is a clone in progress.
 clinic/forms/
 clinic/.forms.new.*/
 

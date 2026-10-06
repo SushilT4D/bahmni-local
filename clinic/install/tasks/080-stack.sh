@@ -31,12 +31,23 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 # kafka-connect, mirrormaker-connect: no separate call there).
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 # forms-guard:begin
-# OpenMRS mounts clinic/forms/bahmniforms over the config tree's forms. A
-# missing source would be created empty by the runtime and OpenMRS would start
-# with no forms from it, so the stack does not start until task 075 has filled it.
+# OpenMRS mounts the forms folder (FORMS_DIR, FORMS_MOUNT_MODE; forms.sh). A
+# missing source would be created empty by the runtime and every form would
+# fail to open, so the stack does not start until task 075 has set it up, and
+# a node with a forms repo runs only from that repo's clone, read-only. At
+# seed, every published form row in the restored database must find its file.
 . "${INSTALL_DIR}/forms.sh"
-v="$(forms_mount_verdict "${FORMS_DIR}/bahmniforms")" || fail "$v"
-ok "forms: ${v#ok }"
+fdir="${FORMS_DIR:-${FORMS_FROZEN_DIR}}"; fmode="${FORMS_MOUNT_MODE:-rw}"
+case "$fmode" in ro|rw) ;; *) fail "clinic/.env FORMS_MOUNT_MODE is '${fmode}'; it is ro or rw (task 075 sets it)" ;; esac
+if [ -n "${FORMS_REPO_URL:-}" ] && { [ "$fdir" != "$(forms_folder_for "${FORMS_REPO_URL}")" ] || [ "$fmode" != ro ]; }; then
+  fail "clinic/.env names a forms repo, but the forms mount is ${fdir} (${fmode}), not its clone's $(forms_folder_for "${FORMS_REPO_URL}") (ro): task 075 sets both, run it again (resume --from 075)"
+fi
+v="$(forms_folder_verdict "$fdir")" || fail "$v"
+ok "forms: ${v#ok } (mounted ${fmode})"
+if [ "${PHASE:-install}" = seed ]; then
+  strict=0; [ -n "${FORMS_REPO_URL:-}" ] && strict=1
+  forms_rowfile_gate "$fdir" "$strict"
+fi
 # forms-guard:end
 # initializer-guard:begin
 # The Initializer must not write rows the hub owns here: the domain list
