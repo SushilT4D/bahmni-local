@@ -16,11 +16,21 @@
 # changes, so the forms cannot live inside it.
 #
 # The forms repo's concept check is called as
-#   tools/check-concepts.sh --known <file>
-# from the root of the tree being checked. <file> holds one concept uuid per
-# line: every concept that exists and is not retired in this node's OpenMRS.
-# It exits 0 when every concept the forms reference is in the file; otherwise
-# it exits non-zero and names the missing ones.
+#   tools/check-concepts.sh --known <concepts> --known-forms <forms>
+# from the root of the tree being checked. <concepts> holds one concept uuid
+# per line: every concept that exists and is not retired in this node's
+# OpenMRS. <forms> holds one form uuid per line: every form published and not
+# retired there. A form whose uuid is not in <forms> is new to this node and
+# is blocked by a concept missing from <concepts>; a form already published
+# here under the same uuid only warns, since the node runs it today with the
+# same gaps. Exit 0 = nothing blocks (warnings included); non-zero = a form is
+# blocked, and the output names the missing concepts.
+#
+# MANIFEST.tsv names each form with a uuid column. A published form is found
+# by that uuid, never by its version: the Initializer keeps a file's uuid but
+# numbers the version itself (one more than the highest version of that form
+# name already on the node), so the same file can be version 7 at its source
+# and version 4 here.
 
 FORMS_DIR="${FORMS_DIR:-${CLINIC_DIR}/forms}"
 FORMS_MARK=".from-config-image"
@@ -107,36 +117,55 @@ forms_upstream_verdict(){
   return 1
 }
 
+# forms_sql QUERY : runs one SELECT against this node's openmrs database,
+# rows on stdout, tab-separated, no header.
+forms_sql(){
+  [ -n "${CT:-}" ] || setup_compose
+  printf '%s' "$1" | ct exec -i "${COMPOSE_PROJECT_NAME:?}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N openmrs'
+}
+
 # forms_known_concepts OUT : every concept uuid that exists and is not retired
 # in this node's OpenMRS, one per line. FORMS_CONCEPTS_FILE supplies a list
 # taken elsewhere instead.
 forms_known_concepts(){
-  local out="$1" my n
+  local out="$1" n
   if [ -n "${FORMS_CONCEPTS_FILE:-}" ]; then
     [ -s "${FORMS_CONCEPTS_FILE}" ] || fail "FORMS_CONCEPTS_FILE ${FORMS_CONCEPTS_FILE} is missing or empty"
     cp "${FORMS_CONCEPTS_FILE}" "$out"; return 0
   fi
-  [ -n "${CT:-}" ] || setup_compose
-  my="${COMPOSE_PROJECT_NAME:?}-bahmni-mysql-1"
-  printf 'select uuid from concept where retired=0' \
-    | ct exec -i "$my" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N openmrs' > "$out" 2>/dev/null \
-    || fail "could not read the concept list from openmrs in ${my}"
+  forms_sql 'select uuid from concept where retired=0' > "$out" 2>/dev/null \
+    || fail "could not read the concept list from openmrs in ${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
   n="$(wc -l < "$out" | tr -d ' ')"
-  [ "${n:-0}" -gt 0 ] || fail "openmrs in ${my} returned no concepts; the concept check cannot run against an empty dictionary"
+  [ "${n:-0}" -gt 0 ] || fail "openmrs in ${COMPOSE_PROJECT_NAME}-bahmni-mysql-1 returned no concepts; the concept check cannot run against an empty dictionary"
+}
+
+# forms_known_forms OUT : the uuid of every form published and not retired in
+# this node's OpenMRS, one per line (empty on a node with no forms).
+# FORMS_KNOWN_FORMS_FILE supplies a list taken elsewhere instead.
+forms_known_forms(){
+  local out="$1"
+  if [ -n "${FORMS_KNOWN_FORMS_FILE:-}" ]; then
+    [ -f "${FORMS_KNOWN_FORMS_FILE}" ] || fail "FORMS_KNOWN_FORMS_FILE ${FORMS_KNOWN_FORMS_FILE} does not exist"
+    cp "${FORMS_KNOWN_FORMS_FILE}" "$out"; return 0
+  fi
+  forms_sql 'select uuid from form where published=1 and retired=0' > "$out" 2>/dev/null \
+    || fail "could not read the published forms from openmrs in ${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 }
 
 # forms_check TREE : runs TREE's tools/check-concepts.sh against this node's
-# concepts. Refuses on missing concepts unless FORMS_ALLOW_MISSING_CONCEPTS=1,
-# which carries on and says so loudly.
+# concepts and published forms. Refuses when a form new to this node misses a
+# concept, unless FORMS_ALLOW_MISSING_CONCEPTS=1, which carries on and says so
+# loudly.
 forms_check(){
-  local tree="$1" known rc=0 out
+  local tree="$1" known kforms rc=0 out
   [ -f "$tree/tools/check-concepts.sh" ] || fail "the forms repo has no tools/check-concepts.sh; the forms cannot be checked against this node's concepts"
-  known="$(mktemp "${TMPDIR:-/tmp}/forms-concepts.XXXXXX")"
+  known="$(mktemp "${TMPDIR:-/tmp}/forms-concepts.XXXXXX")"; kforms="$(mktemp "${TMPDIR:-/tmp}/forms-published.XXXXXX")"
   forms_known_concepts "$known"
-  out="$( cd "$tree" && bash tools/check-concepts.sh --known "$known" 2>&1 )" || rc=$?
-  rm -f "$known"
+  forms_known_forms "$kforms"
+  out="$( cd "$tree" && bash tools/check-concepts.sh --known "$known" --known-forms "$kforms" 2>&1 )" || rc=$?
+  rm -f "$known" "$kforms"
   [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'
-  if [ "$rc" = 0 ]; then ok "concept check: every concept the forms reference exists in this node's OpenMRS"; return 0; fi
+  if [ "$rc" = 0 ]; then ok "concept check: no form new to this node references a concept it lacks (a WARN above is a form this node already publishes)"; return 0; fi
   if [ "${FORMS_ALLOW_MISSING_CONCEPTS:-0}" = 1 ]; then
     warn "################################################################"
     warn "concept check FAILED (rc=${rc}) and FORMS_ALLOW_MISSING_CONCEPTS=1 carries on:"
@@ -144,7 +173,7 @@ forms_check(){
     warn "################################################################"
     return 0
   fi
-  fail "concept check failed (rc=${rc}): the forms reference concepts this node's OpenMRS lacks (named above). The node must receive those concepts first. FORMS_ALLOW_MISSING_CONCEPTS=1 carries on regardless"
+  fail "concept check failed (rc=${rc}): a form new to this node references concepts its OpenMRS lacks (named above). The node must receive those concepts first. FORMS_ALLOW_MISSING_CONCEPTS=1 carries on regardless"
 }
 
 # forms_sync CHECK DRY : brings clinic/forms to what this node should run.
@@ -216,16 +245,14 @@ forms_sync(){
   esac
 }
 
-# forms_manifest_rows FILE : "name<TAB>version" for every form MANIFEST.tsv
-# lists. The header row names the columns: name (or form) and version.
+# forms_manifest_rows FILE : "name<TAB>version<TAB>uuid" for every form
+# MANIFEST.tsv lists. The header row names the columns: name (or form,
+# form_name), version and uuid. The uuid is what identifies a form on the node.
 forms_manifest_rows(){
   awk -F'\t' '
     /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
-    !h { for (i = 1; i <= NF; i++) { c = tolower($i); gsub(/[[:space:]]/, "", c); if (c == "name" || c == "form") n = i; if (c == "version") v = i }
-         h = 1; if (!n || !v) { print "MANIFEST.tsv: the header names no name/form and version columns" > "/dev/stderr"; exit 2 } next }
-    { print $n "\t" $v }
+    !h { for (i = 1; i <= NF; i++) { c = tolower($i); gsub(/[[:space:]]/, "", c); if (c == "name" || c == "form" || c == "form_name") n = i; if (c == "version") v = i; if (c == "uuid") u = i }
+         h = 1; if (!n || !v || !u) { print "MANIFEST.tsv: the header must name a name (or form_name), a version and a uuid column" > "/dev/stderr"; exit 2 } next }
+    { print $n "\t" $v "\t" $u }
   ' "$1"
 }
-
-# forms_sql_quote TEXT : TEXT as a MySQL string literal
-forms_sql_quote(){ printf "'%s'" "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/''/g")"; }

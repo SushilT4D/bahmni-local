@@ -59,8 +59,8 @@ table plus publication membership in both Postgres databases).
 
 **Forms** — `update-forms.sh` takes new forms from the operator's private forms
 repo on a running node: fast-forward `clinic/forms`, check the forms' concepts
-against this node's OpenMRS, recreate the openmrs service, verify the published
-versions. `--dry-run` shows what would change. See `../install/README.md`
+against this node's OpenMRS, recreate the openmrs service, verify each form is
+published under its uuid. `--dry-run` shows what would change. See `../install/README.md`
 ("Forms"). Its one remote is the forms repo's git host, read-only, with the
 deploy key `clinic/.env` names; it opens no shell anywhere.
 

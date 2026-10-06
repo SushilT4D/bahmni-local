@@ -14,8 +14,12 @@ file gives the date of each.
 - A forms change reaches a node through `clinic/scripts/update-forms.sh`:
   fast-forward only, a concept check against the node's OpenMRS before the forms
   are put in place, then a restart of OpenMRS alone (the Initializer loads forms
-  only at start) and a check of the published versions. The hub takes a forms
-  change before the clinics. See `clinic/install/README.md`.
+  only at start) and a check that every form in `MANIFEST.tsv` is published under
+  its uuid. The hub takes a forms change before the clinics. See
+  `clinic/install/README.md`.
+- A form is identified on a node by its uuid, never its version: the Initializer
+  numbers a loaded form's version itself. The concept check blocks only forms new
+  to the node (by uuid); a form the node already publishes only warns.
 
 ## Application image versions
 

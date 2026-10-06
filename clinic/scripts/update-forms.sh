@@ -3,7 +3,8 @@
 # them first): fast-forward clinic/forms to the forms repo, check the incoming
 # forms' concepts against this node's OpenMRS, recreate the openmrs service
 # only (the Initializer loads forms at start), wait for it, and verify every
-# form MANIFEST.tsv lists is published at the listed version.
+# form MANIFEST.tsv lists is published under its uuid (with the version this
+# node gave it beside the file's).
 #
 #   clinic/scripts/update-forms.sh [--dry-run] [--restart]
 #
@@ -12,7 +13,7 @@
 # nothing restarts.
 # --restart recreates openmrs even when clinic/forms is already current (an
 # earlier run that stopped after the fast-forward). Without it, a current
-# checkout only has its published versions verified.
+# checkout only has its published forms verified.
 #
 # Reads FORMS_REPO_URL and FORMS_REPO_KEY from clinic/.env (install task 075
 # writes them from the answers). With no forms repo configured it refreshes
@@ -21,15 +22,17 @@
 # Settings:
 #   FORMS_OPENMRS_WAIT_S          how long to wait for OpenMRS after the restart
 #                                 (default 1200: the Initializer runs first)
-#   FORMS_ALLOW_MISSING_CONCEPTS  1 = take forms whose concepts this node lacks
+#   FORMS_ALLOW_MISSING_CONCEPTS  1 = take forms new to this node whose
+#                                 concepts it lacks
 #   FORMS_CONCEPTS_FILE           a concept uuid list taken elsewhere, instead
 #                                 of reading this node's database
+#   FORMS_KNOWN_FORMS_FILE        a published form uuid list taken elsewhere
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
 . "${HERE}/../install/lib.sh"
 . "${INSTALL_DIR}/forms.sh"
-usage(){ sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage(){ sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
 DRYRUN=0; RESTART=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -86,16 +89,24 @@ else
   ok "OpenMRS answers 200 after $(( $(date +%s) - t0 ))s"
 fi
 
-# Every form the manifest lists must be published at the listed version.
-MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
-n=0; good=0; bad_list=""
+# Every form the manifest lists must be published, unretired, under its uuid.
+# The version it got here is this node's own number (forms.sh), reported
+# beside the file's.
+n=0; good=0; bad_list=""; found_list=""
 TAB="$(printf '\t')"
-while IFS="$TAB" read -r name ver; do
+while IFS="$TAB" read -r name ver uuid; do
   [ -n "$name" ] || continue
   n=$((n + 1))
-  q="select count(*) from form where name=$(forms_sql_quote "$name") and version=$(forms_sql_quote "$ver") and published=1 and retired=0"
-  c="$(printf '%s' "$q" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N openmrs' 2>/dev/null || true)"
-  if [ "${c:-0}" -ge 1 ] 2>/dev/null; then good=$((good + 1)); else bad_list="${bad_list}${bad_list:+, }${name} v${ver}"; fi
+  case "$uuid" in
+    *[!A-Za-z0-9-]*|"") bad_list="${bad_list}${bad_list:+, }${name} (MANIFEST.tsv uuid '${uuid}' is not a uuid)"; continue ;;
+  esac
+  nv="$(forms_sql "select version from form where uuid='${uuid}' and published=1 and retired=0" 2>/dev/null | head -1 || true)"
+  if [ -n "$nv" ]; then
+    good=$((good + 1)); found_list="${found_list}${name}${TAB}${ver}${TAB}${nv}${TAB}${uuid}
+"
+  else
+    bad_list="${bad_list}${bad_list:+, }${name} (uuid ${uuid}, file v${ver})"
+  fi
 done <<EOF
 $rows
 EOF
@@ -108,6 +119,10 @@ if [ -n "$changes" ]; then
   info "MANIFEST.tsv changes (< before, > now):"
   printf '%s\n' "$changes" | sed 's/^/    /'
 fi
-info "published at the listed version: ${good} of ${n}"
-[ -z "$bad_list" ] || fail "not published at the listed version in this node's OpenMRS: ${bad_list}. The Initializer loads forms only at start: if OpenMRS has not restarted since clinic/forms changed, run this again with --restart; otherwise ${COMPOSE_CMD} logs openmrs | grep -i -e initializer -e form"
-ok "every form in MANIFEST.tsv is published at its listed version"
+if [ -n "$found_list" ]; then
+  info "published here, by uuid (the node numbers versions itself):"
+  printf '%s' "$found_list" | awk -F'\t' '{ printf "    %-40s file v%-4s node v%-4s %s\n", $1, $2, $3, $4 }'
+fi
+info "published by uuid: ${good} of ${n}"
+[ -z "$bad_list" ] || fail "not published, unretired, in this node's OpenMRS: ${bad_list}. The Initializer loads forms only at start: if OpenMRS has not restarted since clinic/forms changed, run this again with --restart; otherwise look for the form in /openmrs/data/initializer.log in the openmrs container and in ${COMPOSE_CMD} logs openmrs"
+ok "every form in MANIFEST.tsv is published under its uuid"

@@ -138,8 +138,9 @@ starts the stack, and task 080 does not start the stack while it is missing or
 holds no form.
 
 - **With a forms repo** — the operator's private repo, holding
-  `bahmniforms/*.json` in the Initializer's format, `MANIFEST.tsv` (the name and
-  version of every form, tab-separated, with a `name` and a `version` header),
+  `bahmniforms/*.json` in the Initializer's format, `MANIFEST.tsv` (the name,
+  version and uuid of every form, tab-separated, with a `name` or `form_name`, a
+  `version` and a `uuid` header),
   `tools/check-concepts.sh` and `README.md` — `clinic/forms` is a clone of it.
   Two answers name it:
 
@@ -156,13 +157,28 @@ holds no form.
   image's own forms, refreshed on every run of task 075.
 
 At seed, task 075 checks the incoming forms against the restored database before
-it moves the clone forward: it runs the forms repo's
-`tools/check-concepts.sh --known <file>` from the root of the incoming tree, where
-`<file>` lists every concept uuid that exists and is not retired on this node. A
-form that references a concept the node lacks opens with a field that saves
-nothing, so the check refuses and the node must receive the concept first.
-`FORMS_ALLOW_MISSING_CONCEPTS=1` carries on regardless and says so in the log.
+it moves the clone forward. It reads two lists from this node's OpenMRS database
+(SELECT only) and runs the forms repo's
+
+    tools/check-concepts.sh --known <concepts> --known-forms <forms>
+
+from the root of the incoming tree:
+
+- `<concepts>`: every concept uuid that exists and is not retired, one per line;
+- `<forms>`: every form uuid that is published and not retired, one per line.
+
+A form that references a concept the node lacks opens with a field that saves
+nothing. If the form's uuid is not yet published on this node, that blocks: the
+check exits non-zero, names the missing concepts, and the node must receive them
+first. If the node already publishes a form with that uuid, it runs that form
+today with the same gaps, so the check only warns. Exit 0 means nothing blocks.
+`FORMS_ALLOW_MISSING_CONCEPTS=1` carries on past a block and says so in the log.
 Install does not check: the baseline database is replaced at seed.
+
+A form on the node is identified by its uuid, not its version. The Initializer
+keeps the uuid a file carries but numbers the version itself, one more than the
+highest version of that form name already on the node, so a file that is version
+7 where it was exported can be version 4 here.
 
 `clinic/forms` only moves forward. A checkout with local edits, with commits the
 forms repo lacks, or cloned from another URL is refused: move it aside and run
@@ -178,9 +194,10 @@ above, before anything is put in place), fast-forwards `clinic/forms`, recreates
 the openmrs service alone with the node's own compose setup, waits for
 `https://localhost/openmrs/ws/rest/v1/session` to answer 200
 (`FORMS_OPENMRS_WAIT_S`, default 1200 s: the Initializer runs before OpenMRS
-answers), and checks that every form in `MANIFEST.tsv` is published at its listed
-version in the database. A run that finds the checkout already current restarts
-nothing and only checks the published versions; `--restart` recreates OpenMRS
+answers), and checks that every form in `MANIFEST.tsv` is published and not
+retired under its uuid in the database, printing the file's version beside the
+version this node gave it. A run that finds the checkout already current restarts
+nothing and only checks the published forms; `--restart` recreates OpenMRS
 anyway. With no forms repo configured it refreshes the config image's copy and
 restarts nothing.
 

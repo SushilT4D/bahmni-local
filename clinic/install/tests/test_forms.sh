@@ -125,14 +125,22 @@ out="$(t075 "$N6" install FORMS_REPO_URL="$B")"; rc=$?
 [ "$rc" -eq 0 ] && [ -d "$N6/forms/.git" ] && [ ! -e "$N6/forms/.from-config-image" ] && ok_ "a forms repo configured later replaces the config image's copy" || bad "fallback -> clone: rc=$rc out=$out"
 out="$(t075 "$N6" install)"; rc=$?
 [ "$rc" -ne 0 ] && [ -d "$N6/forms/.git" ] && printf '%s' "$out" | grep -q 'no forms repo is configured' && ok_ "a clone with no forms repo configured is refused, not overwritten" || bad "clone with empty URL: rc=$rc out=$out"
-# seed: the incoming forms are checked against the node's concepts first
+# seed: the incoming forms are checked against the node's concepts and its
+# published forms first; a checker that only warns lets them through
+printf 'f-on-node\n' > "$TMP/published.txt"
+head0="$(git -C "$N5/forms" rev-parse HEAD)"
+printf '#!/usr/bin/env bash\n[ "$1" = --known ] && [ -s "$2" ] && [ "$3" = --known-forms ] && grep -qx f-on-node "$4" || { echo "checker called as: $*"; exit 2; }\necho "WARN     Old Form: already published on the node"\n' > "$W/tools/check-concepts.sh"
+( cd "$W" && git commit -qam "checker warns" && git push -q origin main ) || bad "fixture push"
+out="$(t075 "$N5" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'WARN     Old Form' && printf '%s' "$out" | grep -q 'no form new to this node' && [ "$(git -C "$N5/forms" rev-parse HEAD)" != "$head0" ] \
+  && ok_ "seed: the checker gets the node's concepts (--known) and published forms (--known-forms); a warning alone lets the forms in" || bad "seed check with warnings: rc=$rc out=$out"
 head0="$(git -C "$N5/forms" rev-parse HEAD)"
 printf '#!/usr/bin/env bash\necho "missing concept 9bb0795c-0000-0000-0000-000000000020"\nexit 1\n' > "$W/tools/check-concepts.sh"
 ( cd "$W" && git commit -qam "checker refuses" && git push -q origin main ) || bad "fixture push"
-out="$(t075 "$N5" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt")"; rc=$?
+out="$(t075 "$N5" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '9bb0795c' && [ "$(git -C "$N5/forms" rev-parse HEAD)" = "$head0" ] \
   && ok_ "seed: a failed concept check refuses, names the concept, and leaves clinic/forms where it was" || bad "seed concept refusal: rc=$rc out=$out"
-out="$(t075 "$N5" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_ALLOW_MISSING_CONCEPTS=1)"; rc=$?
+out="$(t075 "$N5" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" FORMS_ALLOW_MISSING_CONCEPTS=1)"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'FORMS_ALLOW_MISSING_CONCEPTS=1 carries on' && [ "$(git -C "$N5/forms" rev-parse HEAD)" != "$head0" ] \
   && ok_ "FORMS_ALLOW_MISSING_CONCEPTS=1 carries on, and says so" || bad "override: rc=$rc out=$out"
 
