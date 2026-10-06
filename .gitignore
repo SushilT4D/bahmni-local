@@ -153,6 +153,12 @@ clinic/extracted/
 clinic/extracted.prev/
 clinic/extracted.new.*/
 
+# The forms OpenMRS loads: a clone of the operator's private forms repo, or a
+# copy of the config image's forms (clinic/install/forms.sh). Node-local, and
+# the forms repo is private. .forms.new.* is a clone in progress.
+clinic/forms/
+clinic/.forms.new.*/
+
 # openmrs/build-native.sh's build context (create+cp of the source image's
 # trees, plus Dockerfile.native) -- removed by its own EXIT trap on every
 # path; this rule is for the run that is killed outright.

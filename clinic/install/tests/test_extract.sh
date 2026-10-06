@@ -64,6 +64,7 @@ out="$(run)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "first run succeeds" || bad "first run rc=$rc: $out"
 [ -f "$X/htdocs/bahmni/home/index.html" ] && ok_ "UI extracted to extracted/htdocs/bahmni" || bad "no UI under extracted/htdocs/bahmni"
 [ -d "$X/bahmni_config/masterdata/configuration" ] && [ -d "$X/bahmni_config/openelis" ] && ok_ "config extracted to extracted/bahmni_config" || bad "no config tree"
+[ -d "$X/bahmni_config/masterdata/configuration/bahmniforms" ] && ok_ "a config image without forms still gets the bahmniforms mountpoint the forms mount lands on" || bad "no masterdata/configuration/bahmniforms in the extracted tree: the read-only config mount leaves the forms mount nowhere to land"
 grep -q 'acme/web:1@sha256:aaa' "$X/.source" 2>/dev/null && grep -q 'acme/config:1@sha256:bbb' "$X/.source" && ok_ "source recorded with image ids" || bad ".source does not record both images: $(cat "$X/.source" 2>/dev/null)"
 [ "$(jq -r .config.defaultIdentifierPrefix "$X/bahmni_config/openmrs/apps/registration/app.json")" = MAN ] && ok_ "MRN prefix written (GAN -> MAN)" || bad "prefix not written"
 [ ! -e "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && [ -f "$X/ocl-held/CIEL_v1.zip" ] && ok_ "OCL dictionary zip held out of the served tree, kept at extracted/ocl-held" || bad "OCL zip still in the tree OpenMRS reads (a two-day CIEL import on a small node)"
@@ -88,7 +89,9 @@ odoo(){ jq -r ".landingPage[] | select(.name==\"odoo\") | $1" "$WL"; }
 [ "$(jq -r '.landingPage[] | select(.name=="metabase") | .enabled' "$WL")" = false ] && ok_ "metabase tile disabled (no clinic runs one)" || bad "metabase still enabled"
 [ "$(jq -r '.landingPage[] | select(.name=="clinicalService") | .enabled' "$WL")" = true ] && ok_ "clinicalService tile untouched" || bad "clinicalService tile was touched"
 
+rmdir "$X/bahmni_config/masterdata/configuration/bahmniforms"
 : > "$FAKE_LOG"; out="$(run)"; rc=$?
+[ -d "$X/bahmni_config/masterdata/configuration/bahmniforms" ] && ok_ "the skip path puts the forms mountpoint back on a tree extracted without it" || bad "skip path left no bahmniforms mountpoint"
 [ "$rc" -eq 0 ] && ! grep -q '^create' "$FAKE_LOG" && ok_ "unchanged source: skipped, no container created" || bad "second run re-extracted: $(tr '\n' ';' < "$FAKE_LOG")"
 [ "$(odoo .linkHost)" = odoo.bahmni.clinic ] && [ "$(jq -r '.landingPage[] | select(.name=="metabase") | .enabled' "$WL")" = false ] && ok_ "landing-page rules re-applied on the skip path" || bad "landing-page rules lost on the skip path"
 [ "$(marks "$CB")" = 1 ] && ok_ "program edits: the skip path leaves one rewrite, not two" || bad "skip path rewrote the mapper again: $(marks "$CB") marks"

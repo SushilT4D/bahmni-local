@@ -101,6 +101,10 @@ services:
       OPENELIS_ATOMFEED_PASSWORD: ${OPENELIS_ATOMFEED_PASSWORD}
     volumes:
       - "${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config/:ro"
+      # The forms the Initializer loads at start: clinic/forms (the forms repo's
+      # clone, or a copy of the config image's forms; install task 075 fills it)
+      # over the config tree's own, which is replaced on every config upgrade.
+      - "${CONTAINER_DATA_PATH:?}/forms/bahmniforms:/etc/bahmni_config/masterdata/configuration/bahmniforms:ro"
       - "${CONTAINER_DATA_PATH}/data/bahmni-lab-results:/home/bahmni/uploaded_results"
       - "${CONTAINER_DATA_PATH}/data/bahmni-uploaded-files:/home/bahmni/uploaded-files"
       - "${CONTAINER_DATA_PATH}/data/bahmni-patient-images:/home/bahmni/patient_images"

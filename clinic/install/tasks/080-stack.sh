@@ -30,6 +30,14 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 # one call here also covers what 090 starts later (kafka,
 # kafka-connect, mirrormaker-connect: no separate call there).
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
+# forms-guard:begin
+# OpenMRS mounts clinic/forms/bahmniforms over the config tree's forms. A
+# missing source would be created empty by the runtime and OpenMRS would start
+# with no forms from it, so the stack does not start until task 075 has filled it.
+. "${INSTALL_DIR}/forms.sh"
+v="$(forms_mount_verdict "${FORMS_DIR}/bahmniforms")" || fail "$v"
+ok "forms: ${v#ok }"
+# forms-guard:end
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
 url="https://localhost/openmrs/ws/rest/v1/session"

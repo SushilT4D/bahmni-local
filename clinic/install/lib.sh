@@ -352,8 +352,16 @@ fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
 # answers_missing FILE : prints every answer key that is absent or empty.
 answers_missing(){ local k; for k in $ANSWER_KEYS; do [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
-# answers_write FILE : the twelve keys from the current environment, mode 600.
-answers_write(){ local f="$1" k v; ( umask 077; : > "$f" ); chmod 600 "$f"; for k in $ANSWER_KEYS; do eval "v=\${$k:-}"; env_put "$f" "$k" "$v"; done; }
+# Answers a clinic may leave out: the forms repo (task 075). Empty = the node
+# runs the config image's forms. They come from --secrets or the answers file.
+OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY"
+# answers_write FILE : the twelve keys from the current environment, plus each
+# optional one that is set, mode 600.
+answers_write(){
+  local f="$1" k v; ( umask 077; : > "$f" ); chmod 600 "$f"
+  for k in $ANSWER_KEYS; do eval "v=\${$k:-}"; env_put "$f" "$k" "$v"; done
+  for k in $OPTIONAL_ANSWER_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || env_put "$f" "$k" "$v"; done
+}
 # interactive : stdin is a terminal, or INSTALL_INTERACTIVE=1 (tests pipe answers in).
 interactive(){ [ -t 0 ] || [ "${INSTALL_INTERACTIVE:-0}" = 1 ]; }
 # ask VAR PROMPT DEFAULT WHERE : keeps a value already set; otherwise asks (empty

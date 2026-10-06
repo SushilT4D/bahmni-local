@@ -112,9 +112,18 @@ fix_program_edit(){ # DIR : enrolment edits send states the REST module accepts
     || die "${WEB}: no clinical bundle carries the program-state mapper this fix rewrites -- check that editing an enrolment saves, then remove fix_program_edit"
 }
 
+forms_mountpoint(){ # DIR : the directory the forms mount lands on
+  # docker-compose.yml mounts clinic/forms/bahmniforms over
+  # masterdata/configuration/bahmniforms inside this tree, which OpenMRS
+  # mounts read-only; the runtime cannot create a missing mountpoint inside a
+  # read-only mount, and OpenMRS would not start. A config image without
+  # forms ships no such directory.
+  mkdir -p "$1/bahmni_config/masterdata/configuration/bahmniforms"
+}
+
 if [ "$FORCE" = 0 ] && [ -f "$OUT/.source" ] && [ "$(cat "$OUT/.source")" = "$want" ] \
    && [ -f "$OUT/htdocs/bahmni/home/index.html" ] && [ -d "$OUT/bahmni_config/openmrs" ]; then
-  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"; fix_program_edit "$OUT"
+  apply_prefix "$OUT"; apply_landing "$OUT"; hold_ocl "$OUT"; fix_program_edit "$OUT"; forms_mountpoint "$OUT"
   say "skip extracted/ already holds ${WEB} and ${CFG}"; exit 0
 fi
 
@@ -130,7 +139,7 @@ pull_tree "$CFG" /etc/bahmni_config "$NEW/bahmni_config"
 # a tree is accepted only if it looks like what the services will ask it for
 [ -f "$NEW/htdocs/bahmni/home/index.html" ] || die "${WEB} carries no bahmni/home/index.html under /usr/local/apache2/htdocs -- not a Bahmni UI image"
 [ -d "$NEW/bahmni_config/openmrs/apps" ] && [ -d "$NEW/bahmni_config/masterdata/configuration" ] || die "${CFG} carries no openmrs/apps + masterdata/configuration under /etc/bahmni_config -- not a Bahmni config image"
-apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"; fix_program_edit "$NEW"
+apply_prefix "$NEW"; apply_landing "$NEW"; hold_ocl "$NEW"; fix_program_edit "$NEW"; forms_mountpoint "$NEW"
 chmod -R u+rwX,go+rX,go-w "$NEW"   # the UI image ships world-writable dirs
 printf '%s\n' "$want" > "$NEW/.source"
 if [ -e "$OUT" ]; then rm -rf "${OUT}.prev"; mv "$OUT" "${OUT}.prev"; fi
