@@ -21,7 +21,23 @@ grep -E '^BAHMNI_(WEB|CONFIG)_IMAGE=' "$RP/sync/versions.env" | grep -q ':latest
 svc "$Y" proxy   | grep -q 'BAHMNI_UI_DIR'     && ok_ "proxy serves the UI from BAHMNI_UI_DIR" || bad "proxy does not mount BAHMNI_UI_DIR"
 svc "$Y" proxy   | grep -q 'BAHMNI_CONFIG_DIR' && ok_ "proxy serves the config from BAHMNI_CONFIG_DIR" || bad "proxy does not mount BAHMNI_CONFIG_DIR"
 svc "$Y" openmrs | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openmrs reads BAHMNI_CONFIG_DIR" || bad "openmrs does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
-svc "$Y" openmrs | grep -qF '${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations:/var/www/bahmni_config/openmrs/apps/forms/translations:${FORMS_MOUNT_MODE:-rw}"' && ok_ "openmrs reads form translations from the forms folder's translations/, where the form module looks" || bad "openmrs does not mount clinical_forms/translations at the form module's translations directory"
+svc "$Y" openmrs | grep -qF 'source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations"' && svc "$Y" openmrs | grep -qF 'target: /var/www/bahmni_config/openmrs/apps/forms/translations' && ok_ "openmrs reads form translations from the forms folder's translations/, where the form module looks" || bad "openmrs does not mount clinical_forms/translations at the form module's translations directory"
+# the form builder is not offered at a clinic: no profile the clinic starts
+# carries it, and the proxy starts without it (its name resolved per request)
+ii="$(svc "$Y" implementer-interface | grep 'profiles:')"
+[ "$(printf '%s' "$ii" | tr -d ' ')" = 'profiles:["implementer-interface"]' ] && ok_ "implementer-interface is only in its own profile, not local or emr" || bad "implementer-interface profiles: $ii"
+grep -q -- '--profile implementer-interface' "$HERE/../tasks/080-stack.sh" && bad "080 starts the implementer-interface profile" || ok_ "080 does not start the form builder"
+blk="$(awk '/location \/implementer-interface/{p=1} p{print} p&&/}/{exit}' "$CL/proxy/bahmni-nginx.openelis.conf" | grep -vE '^[[:space:]]*#')"
+printf '%s' "$blk" | grep -qF 'proxy_pass http://$implementer_interface_host;' && ! printf '%s' "$blk" | grep -qF 'proxy_pass http://implementer-interface' \
+  && ok_ "the proxy resolves implementer-interface per request, so it starts without it" || bad "the proxy names implementer-interface literally (it would not start without it): $blk"
+if command -v docker >/dev/null 2>&1; then
+  { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
+    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
+  } | sort -u | awk '/PATH$|DIR$|BACKUP$/{print $0"=/p"; next} {print $0"=1"}' > "${TMPDIR:-/tmp}/parity.vars.$$"
+  svcs="$(cd "$CL" && env CONTAINER_DATA_PATH=/n docker compose --env-file "${TMPDIR:-/tmp}/parity.vars.$$" --profile local --profile emr --profile openelis --profile debezium config --services 2>/dev/null)"
+  rm -f "${TMPDIR:-/tmp}/parity.vars.$$"
+  printf '%s\n' "$svcs" | grep -qx openmrs && ! printf '%s\n' "$svcs" | grep -qx implementer-interface && ok_ "rendered: the clinic's profiles start openmrs and not implementer-interface" || bad "rendered services: $(printf '%s' "$svcs" | tr '\n' ' ')"
+fi
 svc "$Y" openmrs | grep -qF '${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro' && ok_ "openmrs has the UI's blank-user.png for patients without a photo" || bad "openmrs does not mount blank-user.png at /etc/bahmni/blank-user.png"
 ls "$CL/bahmni_home/clinical_forms/translations/"*.json >/dev/null 2>&1 && ok_ "clinical_forms/translations exists in the checkout, so the bind source is always there" || bad "clinical_forms/translations is missing from the checkout"
 svc "$Y" openelis | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openelis reads BAHMNI_CONFIG_DIR" || bad "openelis does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"

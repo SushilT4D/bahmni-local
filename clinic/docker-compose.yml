@@ -115,15 +115,27 @@ services:
       # form's form_resource row points at (/home/bahmni/clinical_forms/...).
       # The rows come from the hub by sync; the files from the forms repo, whose
       # clone install task 075 makes and sets FORMS_DIR to (clinic/forms/
-      # clinical_forms), mounted read-only: forms are published on the hub, and
-      # a form builder save here fails instead of forking a form. With no forms
+      # clinical_forms), with FORMS_READ_ONLY true: forms are published on the
+      # hub, and a form file written here would fork a form. With no forms
       # repo configured, FORMS_DIR is the frozen copy below, read-write.
-      - "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}:/home/bahmni/clinical_forms:${FORMS_MOUNT_MODE:-rw}"
+      # create_host_path: false: a missing folder stops OpenMRS from starting,
+      # rather than being created empty, which would start it with no forms.
+      - type: bind
+        source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}"
+        target: /home/bahmni/clinical_forms
+        read_only: ${FORMS_READ_ONLY:-false}
+        bind:
+          create_host_path: false
       # The form module reads each form's translations as <form uuid>.json in
       # the directory its bahmni.formTranslations.directory global property
       # names, which is this path; the files are the forms folder's
       # translations/. Without it every form's translations request answers 500.
-      - "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations:/var/www/bahmni_config/openmrs/apps/forms/translations:${FORMS_MOUNT_MODE:-rw}"
+      - type: bind
+        source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations"
+        target: /var/www/bahmni_config/openmrs/apps/forms/translations
+        read_only: ${FORMS_READ_ONLY:-false}
+        bind:
+          create_host_path: false
       # bahmnicore answers a patient without a photo with this file; the image
       # does not carry it, so every such request answered 404. The UI ships it.
       - "${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro"
@@ -187,9 +199,14 @@ services:
     logging: *log-config
     restart: ${RESTART_POLICY}
 
+  # The form builder. Forms are made and published on the hub only, so a clinic
+  # does not run it: it is in no profile the clinic starts (local, emr), only
+  # in its own, and the home page carries no tile for it
+  # (scripts/extract-ui-config.sh). The read-only forms mount stays the second
+  # line if it is started by hand.
   implementer-interface:
     image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
-    profiles: ["implementer-interface","emr","local"]
+    profiles: ["implementer-interface"]
     logging: *log-config
     restart: ${RESTART_POLICY}
 

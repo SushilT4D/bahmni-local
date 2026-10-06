@@ -31,19 +31,16 @@ bash "${CLINIC_DIR}/scripts/seed-odoo-conf.sh" || fail "seed-odoo-conf.sh report
 # kafka-connect, mirrormaker-connect: no separate call there).
 bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"
 # forms-guard:begin
-# OpenMRS mounts the forms folder (FORMS_DIR, FORMS_MOUNT_MODE; forms.sh). A
-# missing source would be created empty by the runtime and every form would
-# fail to open, so the stack does not start until task 075 has set it up, and
-# a node with a forms repo runs only from that repo's clone, read-only. At
-# seed, every published form row in the restored database must find its file.
+# OpenMRS mounts the forms folder (FORMS_DIR, FORMS_READ_ONLY; forms.sh). The
+# mount refuses a missing source, so the stack does not start until task 075
+# has set it up, and a node with a forms repo runs only from that repo's
+# clone, read-only. At seed, every published form row in the restored
+# database must find its file. scripts/recreate-openmrs.sh runs the same
+# check.
 . "${INSTALL_DIR}/forms.sh"
-fdir="${FORMS_DIR:-${FORMS_FROZEN_DIR}}"; fmode="${FORMS_MOUNT_MODE:-rw}"
-case "$fmode" in ro|rw) ;; *) fail "clinic/.env FORMS_MOUNT_MODE is '${fmode}'; it is ro or rw (task 075 sets it)" ;; esac
-if [ -n "${FORMS_REPO_URL:-}" ] && { [ "$fdir" != "$(forms_folder_for "${FORMS_REPO_URL}")" ] || [ "$fmode" != ro ]; }; then
-  fail "clinic/.env names a forms repo, but the forms mount is ${fdir} (${fmode}), not its clone's $(forms_folder_for "${FORMS_REPO_URL}") (ro): task 075 sets both, run it again (resume --from 075)"
-fi
-v="$(forms_folder_verdict "$fdir")" || fail "$v"
-ok "forms: ${v#ok } (mounted ${fmode})"
+v="$(forms_mount_verdict "${FORMS_DIR:-${FORMS_FROZEN_DIR}}" "${FORMS_READ_ONLY:-false}" "${FORMS_REPO_URL:-}")" || fail "$v"
+ok "forms: ${v#ok }"
+fdir="${FORMS_DIR:-${FORMS_FROZEN_DIR}}"
 if [ "${PHASE:-install}" = seed ]; then
   strict=0; [ -n "${FORMS_REPO_URL:-}" ] && strict=1
   forms_rowfile_gate "$fdir" "$strict"
@@ -52,7 +49,9 @@ fi
 # initializer-guard:begin
 # The Initializer must not write rows the hub owns here: the domain list
 # docker-compose.yml hands OpenMRS is checked against the module's domains and
-# the extracted config tree before anything starts (initializer.sh).
+# the extracted config tree before anything starts (initializer.sh), as
+# scripts/extract-ui-config.sh does for a new tree and
+# scripts/recreate-openmrs.sh does before it recreates OpenMRS.
 . "${INSTALL_DIR}/initializer.sh"
 v="$(initializer_domains_verdict "${OPENMRS_INITIALIZER_DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}" "${BAHMNI_CONFIG_DIR:-${CLINIC_DIR}/extracted/bahmni_config}")" || fail "$v"
 ok "initializer domains: ${v#ok }"

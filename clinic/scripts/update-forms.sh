@@ -7,34 +7,47 @@
 #   1. fetch the forms repo and fast-forward clinic/forms; a checkout with local
 #      edits, or at a commit the forms repo does not contain, is refused and
 #      left exactly as it is;
-#   2. check the incoming forms' concepts against this node's OpenMRS: a form
-#      that uses a concept the node lacks is a WARN, never a refusal;
+#   2. check the incoming forms' concepts against this node's OpenMRS, with
+#      the checker this node already runs: a form that uses a concept the node
+#      lacks is a WARN, never a refusal;
 #   3. row/file check: every published, unretired form row in this node's
 #      database must have its file in the forms folder; a file with no row is
 #      fine (its rows have not synced yet, or it is an old version kept for
 #      saved observations);
-#   4. print a summary.
+#   4. print a summary, which says "concepts NOT checked" when the concept
+#      check could not run.
+#
+# One run at a time: a run that finds another holding clinic/forms changes
+# nothing and exits 4.
 #
 # OpenMRS is never restarted: it reads a form's file when the form is opened,
 # so a user sees a new version after reloading the page. The rows of a new
-# form arrive by sync from the hub, independently of this script.
+# form arrive by sync from the hub, independently of this script. This script
+# only ever adds form files to what the node has; the node's form rows come
+# from its seed and the down sync.
 #
 # --dry-run fetches and shows the incoming commits and MANIFEST.tsv changes,
 # and changes nothing: no fast-forward, no database read, no clinic/.env edit.
 #
-# Exit 0: clinic/forms holds what the forms repo holds and every published form
-# has its file. Non-zero: a FAIL line says why (fetch or clone failed, a
-# refused checkout, a missing file). With no forms repo configured
-# (FORMS_REPO_URL empty in clinic/.env) the node runs the frozen copy; the run
-# reports any form missing its file there as a WARN and exits 0.
+# Exit codes:
+#   0  clinic/forms holds what the forms repo holds and every published form
+#      has its file;
+#   1  a check refused (a refused checkout, a missing file, a bad setting):
+#      act on the FAIL line;
+#   3  the forms repo could not be reached (fetch or clone failed): the forms
+#      already here keep working, and the next run tries again;
+#   4  another run holds clinic/forms.
+# With no forms repo configured (FORMS_REPO_URL empty in clinic/.env) the node
+# runs the frozen copy; the run reports any form missing its file there as a
+# WARN and exits 0.
 #
 # On a node whose clinic/.env names a forms repo but that runs from another
 # folder (no clone yet, or the frozen copy), the first run clones the repo and
-# points FORMS_DIR and FORMS_MOUNT_MODE in clinic/.env at the clone, read-only.
-# The openmrs service takes that mount when it is next recreated; the run says
-# so, and does not recreate it.
+# points FORMS_DIR and FORMS_READ_ONLY in clinic/.env at the clone, read-only.
+# The openmrs service takes that mount when it is next recreated, with
+# scripts/recreate-openmrs.sh; the run says so, and does not recreate it.
 #
-# Reads FORMS_REPO_URL, FORMS_REPO_KEY, FORMS_DIR, FORMS_MOUNT_MODE and
+# Reads FORMS_REPO_URL, FORMS_REPO_KEY, FORMS_DIR, FORMS_READ_ONLY and
 # COMPOSE_PROJECT_NAME from clinic/.env. Settings for tests and for lists
 # taken elsewhere: FORMS_CONCEPTS_FILE, FORMS_KNOWN_FORMS_FILE, FORMS_ROWS_FILE
 # (clinic/install/forms.sh).
@@ -59,7 +72,7 @@ FORMS_REPO_URL="$(env_get "$E" FORMS_REPO_URL)"; FORMS_REPO_KEY="$(env_get "$E" 
 COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
 export FORMS_REPO_URL FORMS_REPO_KEY COMPOSE_PROJECT_NAME
 mounted="$(env_get "$E" FORMS_DIR)"; mounted="${mounted:-${FORMS_FROZEN_DIR}}"
-mode="$(env_get "$E" FORMS_MOUNT_MODE)"; mode="${mode:-rw}"
+ro="$(env_get "$E" FORMS_READ_ONLY)"; ro="${ro:-false}"
 begin_task "update forms$( [ "$DRYRUN" = 1 ] && printf ' (dry run: nothing changes)')"
 
 if [ -z "${FORMS_REPO_URL}" ]; then
@@ -77,9 +90,9 @@ forms_sync 1 "$DRYRUN"
 dir="$(forms_folder_for "${FORMS_REPO_URL}")"
 v="$(forms_folder_verdict "$dir")" || fail "$v"
 ok "forms: ${v#ok }"
-if [ "$mounted" != "$dir" ] || [ "$mode" != ro ]; then
-  env_put "$E" FORMS_DIR "$dir"; env_put "$E" FORMS_MOUNT_MODE ro
-  warn "clinic/.env now mounts ${dir} read-only (it named ${mounted}, ${mode}). The openmrs service reads the old folder until it is recreated; this script does not do that. When convenient, from clinic/: docker compose (or docker-compose) with the node's profiles, up -d --no-deps --force-recreate openmrs"
+if [ "$mounted" != "$dir" ] || [ "$ro" != true ]; then
+  env_put "$E" FORMS_DIR "$dir"; env_put "$E" FORMS_READ_ONLY true
+  warn "clinic/.env now mounts ${dir} read-only (it named ${mounted}, $(forms_mount_word "$ro")). The openmrs service reads the old folder until it is recreated; this script does not do that. When convenient: clinic/scripts/recreate-openmrs.sh, which checks the new mount first"
 fi
 
 log ""
@@ -90,5 +103,6 @@ if [ -n "$changes" ]; then
   info "MANIFEST.tsv changes (< before, > now):"
   printf '%s\n' "$changes" | sed 's/^/    /'
 fi
+[ "${FORMS_CONCEPTS_UNCHECKED:-0}" = 0 ] || warn "concepts NOT checked: the concept check could not run (its WARN is above); a form may use a concept this node lacks"
 info "OpenMRS was not restarted: it reads a form's file when the form is opened"
 forms_rowfile_gate "$dir" 1
