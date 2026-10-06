@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# What the Initializer module may load at a clinic. Sourced after lib.sh by
-# task 080 (before the stack starts) and by tests. bash 3.2 compatible.
+# What the Initializer module may load at a clinic. bash 3.2 compatible, and
+# needs nothing from lib.sh. The verdict runs on every path that starts OpenMRS
+# on a config tree or a domain list it has not run with yet: task 080 (before
+# the stack starts), scripts/extract-ui-config.sh (on a new tree, before it
+# replaces the current one) and scripts/recreate-openmrs.sh.
 #
 # At every start OpenMRS copies the config tree's masterdata/configuration into
 # its configuration directory, and the Initializer loads each domain folder it
@@ -25,8 +28,10 @@
 # config release that adds a folder for one (htmlforms, ampathforms and
 # metadatasharing also write forms) would load it silently: the verdict
 # therefore refuses any folder holding a file for a domain that would load,
-# other than the kept two. The inclusion list globalproperties,idgen closes
-# that by construction and passes the same check.
+# other than the kept two, and any folder holding a file whose name is not a
+# domain known here (a newer module may have it). The inclusion list
+# globalproperties,idgen closes the first by construction and passes the same
+# check.
 
 # The module's 52 domains (its Domain enum, lower case, underscores removed).
 INITIALIZER_DOMAINS_KNOWN="addresshierarchy ampathforms ampathformstranslations appointmentservicedefinitions appointmentservicetypes appointmentspecialities attributetypes autogenerationoptions bahmniforms billableservices cashpoints cohortattributetypes cohorttypes conceptclasses conceptreferencerange concepts conceptsets conceptsources datafiltermappings dispositions drugs encounterroles encountertypes fhirconceptsources fhirpatientidentifiersystems globalproperties htmlforms idgen jsonkeyvalues liquibase locations locationtagmaps locationtags metadatasetmembers metadatasets metadatasharing metadatatermmappings ocl orderfrequencies ordertypes patientidentifiertypes paymentmodes personattributetypes privileges programs programworkflows programworkflowstates providerroles queues relationshiptypes roles visittypes"
@@ -63,11 +68,19 @@ initializer_domains_verdict(){
     else _in_words "$d" "$names" || loaded="${loaded} ${d}"; fi
   done
   [ -d "$base" ] || { printf 'no config tree at %s; task 045 extracts it from BAHMNI_CONFIG_IMAGE\n' "$base"; return 1; }
-  for d in $loaded; do
-    [ -d "${base}/${d}" ] || continue
-    [ -n "$(find "${base}/${d}" -type f 2>/dev/null | head -1)" ] || continue   # an empty folder loads nothing
+  # Every folder the tree carries is judged, not only the names known here: a
+  # newer module can have a domain this list lacks, and an exclusion list would
+  # leave it loading.
+  local strange="" p
+  for p in "${base}"/*; do
+    [ -d "$p" ] || continue
+    d="${p##*/}"
+    [ -n "$(find "$p" -type f 2>/dev/null | head -1)" ] || continue   # an empty folder loads nothing
+    if ! _in_words "$d" "$INITIALIZER_DOMAINS_KNOWN"; then strange="${strange} ${d}"; continue; fi
+    _in_words "$d" "$loaded" || continue
     if _in_words "$d" "$INITIALIZER_DOMAINS_KEPT"; then loads="${loads} ${d}"; else found="${found} ${d}"; fi
   done
+  [ -z "$strange" ] || { printf 'the config tree carries a folder for%s, which is not one of the Initializer domains known here. A newer Initializer may load it at this clinic, writing rows the hub owns. Remove the folder from the tree OpenMRS mounts, or add the domain to this list (and to the exclusion) once it is known\n' "$strange"; return 1; }
   [ -z "$found" ] || { printf 'the config tree carries a folder for%s, and with -Dinitializer.domains=%s the Initializer would load it at this clinic, writing rows the hub owns. Exclude it (add it after the !) or use the inclusion list globalproperties,idgen\n' "$found" "$value"; return 1; }
   printf 'ok %s list; from the config tree it loads:%s\n' "$mode" "${loads:- nothing}"
 }

@@ -67,6 +67,21 @@ out="$(v "$DEF" "$C")"; rc=$?
 out="$(v globalproperties,idgen "$C")"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "the inclusion list is not affected by that folder" || bad "inclusion with a new folder: rc=$rc out=$out"
 rm -rf "$M/encountertypes"
+mkdir -p "$M/htmlforms"; echo x > "$M/htmlforms/f.xml"
+out="$(v "$DEF" "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for htmlforms,' && ok_ "the default refuses a new htmlforms folder (it writes forms)" || bad "htmlforms under the default: rc=$rc out=$out"
+rm -rf "$M/htmlforms"
+# a folder for a domain this list does not know (a newer module's) is refused
+# by name under either kind of list, not left to load
+mkdir -p "$M/newdomain"; echo x > "$M/newdomain/x.csv"
+out="$(v "$DEF" "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for newdomain, which is not one of the Initializer domains known here' && ok_ "an unknown folder is refused under the default, by name" || bad "unknown folder, default: rc=$rc out=$out"
+out="$(v globalproperties,idgen "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'folder for newdomain,' && ok_ "an unknown folder is refused under the inclusion list too" || bad "unknown folder, inclusion: rc=$rc out=$out"
+rm -rf "$M/newdomain"; mkdir -p "$M/newdomain"
+out="$(v "$DEF" "$C")"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "an empty unknown folder loads nothing and is not refused" || bad "empty unknown folder: rc=$rc out=$out"
+rmdir "$M/newdomain"
 out="$(v '!bahmniforms' "$C")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'folder for addresshierarchy appointmentservicedefinitions .*liquibase .*roles visittypes,' && ok_ "excluding only bahmniforms is refused, naming every hub-owned folder it would load" || bad "bahmniforms only: rc=$rc out=$out"
 out="$(v globalproperties,idgen,concepts "$C")"; rc=$?
