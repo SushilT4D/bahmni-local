@@ -142,8 +142,12 @@ forms_concept_warn(){
   out="$( cd "$tree" && bash tools/check-concepts.sh --known "$known" --known-forms "$kforms" 2>&1 )" || rc=$?
   rm -f "$known" "$kforms"
   [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'
-  if [ "$rc" = 0 ]; then ok "concept check: no form misses a concept this node has (any WARN above is the checker's)"
-  else warn "concept check (rc=${rc}): the forms above reference concepts this node's OpenMRS lacks; those fields will not save until the concepts arrive (the way the hub got them). The forms are taken anyway: their rows come from the hub regardless"; fi
+  # the checker's exits: 0 nothing blocked, 1 a form misses concepts, 2 it could not run
+  case "$rc" in
+    0) ok "concept check: no form misses a concept this node has (any WARN above is the checker's)" ;;
+    1) warn "concept check (rc=1): the forms above reference concepts this node's OpenMRS lacks; those fields will not save until the concepts arrive (the way the hub got them). The forms are taken anyway: their rows come from the hub regardless" ;;
+    *) warn "concept check (rc=${rc}): the checker could not run (its output is above); the concepts were not checked. The forms are taken anyway" ;;
+  esac
   return 0
 }
 

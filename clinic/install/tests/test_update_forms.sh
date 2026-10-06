@@ -33,7 +33,10 @@ B="$TMP/forms.git"; W="$TMP/work"
 git -c init.defaultBranch=main init -q --bare "$B"
 git -c init.defaultBranch=main init -q "$W"; mkdir -p "$W/clinical_forms/translations" "$W/tools"
 echo '{"name":"ANC"}' > "$W/clinical_forms/$U1.json"; echo '{}' > "$W/clinical_forms/translations/$U1.json"
-printf 'name\tversion\tuuid\tpublished\tretired\tfile\nANC\t3\t%s\t1\t0\t%s.json\n' "$U1" "$U1" > "$W/MANIFEST.tsv"
+# the forms repo's layout: clinical_forms/<uuid>.json, clinical_forms/translations/,
+# MANIFEST.tsv with one row per form version (file empty when it has none)
+H='form_name\tversion\tuuid\tpublished\tretired\tfile\tsource\texported_at\n'
+printf "${H}"'ANC\t2\t%s\t1\t1\t\thub\t2000-01-01T00:00:00Z\nANC\t3\t%s\t1\t0\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\n' "$U3" "$U1" "$U1" > "$W/MANIFEST.tsv"
 printf '#!/usr/bin/env bash\n[ "$1" = --known ] && [ -s "$2" ] && [ "$3" = --known-forms ] && [ -f "$4" ] || { echo "checker called as: $*"; exit 2; }\n' > "$W/tools/check-concepts.sh"
 ( cd "$W" && git add -A && git commit -qm "ANC v3" && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
 push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin main ) || bad "fixture push: $1"; }
@@ -65,7 +68,7 @@ out="$(run "$N0")"; rc=$?
 N1="$TMP/n1"; node "$N1"
 ( cd "$N1/forms" && echo local > README.md && git add README.md && git commit -qm "local edit" ) || bad "fixture local commit"
 echo '{"name":"ANC","v":4}' > "$W/clinical_forms/$U2.json"
-printf 'name\tversion\tuuid\tpublished\tretired\tfile\nANC\t3\t%s\t0\t1\t%s.json\nANC\t4\t%s\t1\t0\t%s.json\n' "$U1" "$U1" "$U2" "$U2" > "$W/MANIFEST.tsv"; push "ANC v4"
+printf "${H}"'ANC\t2\t%s\t1\t1\t\thub\t2000-01-01T00:00:00Z\nANC\t3\t%s\t1\t1\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\nANC\t4\t%s\t1\t0\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\n' "$U3" "$U1" "$U1" "$U2" "$U2" > "$W/MANIFEST.tsv"; push "ANC v4"
 before="$(state "$N1")"; : > "$FAKE_LOG"
 out="$(run "$N1")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not a fast-forward' && [ "$(state "$N1")" = "$before" ] && ok_ "a clinic/forms with commits the forms repo lacks is refused and left exactly as it was" || bad "non-fast-forward: rc=$rc out=$out"

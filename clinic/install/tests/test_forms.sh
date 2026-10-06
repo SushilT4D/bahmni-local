@@ -151,7 +151,11 @@ B="$TMP/forms.git"; W="$TMP/work"
 git -c init.defaultBranch=main init -q --bare "$B"
 git -c init.defaultBranch=main init -q "$W"; mkdir -p "$W/clinical_forms/translations" "$W/tools"
 echo '{"name":"Vitals"}' > "$W/clinical_forms/$U1.json"; echo '{}' > "$W/clinical_forms/translations/$U1.json"
-printf 'name\tversion\tuuid\tpublished\tretired\tfile\nVitals\t2\t%s\t1\t0\t%s.json\n' "$U1" "$U1" > "$W/MANIFEST.tsv"
+# the forms repo's layout: clinical_forms/<uuid>.json, clinical_forms/translations/,
+# MANIFEST.tsv with one row per form version (file empty when it has none)
+printf 'form_name\tversion\tuuid\tpublished\tretired\tfile\tsource\texported_at\n' > "$W/MANIFEST.tsv"
+printf 'Vitals\t1\t%s\t1\t1\t\thub\t2000-01-01T00:00:00Z\n' "$U3" >> "$W/MANIFEST.tsv"
+printf 'Vitals\t2\t%s\t1\t0\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\n' "$U1" "$U1" >> "$W/MANIFEST.tsv"
 printf '#!/usr/bin/env bash\necho "$*" > "$CHECKER_ARGS"\necho "no missing concepts"\n' > "$W/tools/check-concepts.sh"
 ( cd "$W" && git add -A && git commit -qm one && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
 push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin main ) || bad "fixture push: $1"; }
@@ -181,6 +185,14 @@ out="$(seed75 "$N3" "$TMP/rows-seed")"; rc=$?
   && ok_ "seed: a failing concept check is a warning, named; the forms are taken" || bad "seed concept warning: rc=$rc out=$out"
 grep -qE -- '^--known [^ ]+ --known-forms [^ ]+$' "$CHECKER_ARGS" 2>/dev/null && ok_ "the checker is called as --known <concepts> --known-forms <forms>" || bad "checker args: $(cat "$CHECKER_ARGS" 2>/dev/null)"
 printf '%s' "$out" | grep -q 'ok   row/file check: 2 published forms, 2 with their file, 0 missing' && ok_ "seed: every published row has its file in the clone" || bad "seed row/file pass: $out"
+printf '#!/usr/bin/env bash\necho "usage: check-concepts.sh --known <file> [--known-forms <file>]"\nexit 2\n' > "$W/tools/check-concepts.sh"
+push "the checker cannot run"
+out="$(seed75 "$N3" "$TMP/rows-seed")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'WARN concept check (rc=2): the checker could not run' && ok_ "seed: a checker that cannot run (exit 2) is a warning too, said as such" || bad "seed checker rc=2: rc=$rc out=$out"
+# retired rows pointing at old-style files that exist nowhere are not required
+printf 'Vitals\t1\t1\t1\tVitals_1.json\nVitals\t2\t1\t0\t%s.json\nANC\t5\t1\t0\t%s.json\n' "$U1" "$U2" > "$TMP/rows-old"
+out="$(seed75 "$N3" "$TMP/rows-old")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'row/file check: 2 published forms, 2 with their file, 0 missing' && ok_ "seed: a retired row whose file exists nowhere is not required" || bad "seed retired old-style: rc=$rc out=$out"
 printf 'Vitals\t2\t1\t0\t%s.json\nANC\t5\t1\t0\t%s.json\nPNC\t2\t1\t0\t%s.json\n' "$U1" "$U2" "$U3" > "$TMP/rows-seed2"
 out="$(seed75 "$N3" "$TMP/rows-seed2")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "missing $U3.json (PNC v2)" && printf '%s' "$out" | grep -q 'FAIL row/file check: 3 published forms, 2 with their file, 1 missing' \
