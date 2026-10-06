@@ -66,7 +66,11 @@ services:
       OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
       OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
       OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
-      OMRS_JAVA_SERVER_OPTS: ${OMRS_JAVA_SERVER_OPTS}
+      # The Initializer loads only what a clinic may write: no forms and no
+      # other master data the hub owns (clinic/install/initializer.sh, which
+      # holds the default below and checks the value before the stack starts).
+      # A leading ! = exclusion list; otherwise an inclusion list.
+      OMRS_JAVA_SERVER_OPTS: "${OMRS_JAVA_SERVER_OPTS} -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-!bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase}"
       OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
       SEND_MAIL: ${SEND_MAIL}
       MAIL_TRANSPORT_PROTOCOL: ${MAIL_TRANSPORT_PROTOCOL}

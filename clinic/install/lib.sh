@@ -397,9 +397,11 @@ fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
 # answers_missing FILE : prints every answer key that is absent or empty.
 answers_missing(){ local k; for k in $ANSWER_KEYS; do [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
-# Answers a clinic may leave out: the forms repo (task 075). Empty = the node
-# runs the config image's forms. They come from --secrets or the answers file.
-OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY"
+# Answers a clinic may leave out: the forms repo (task 075; empty = the node
+# runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
+# Initializer domain list (task 020 writes it into clinic/.env; empty = the
+# clinic default, initializer.sh). They come from --secrets or the answers file.
+OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"
 # answers_write FILE : the twelve keys from the current environment, plus each
 # optional one that is set, mode 600.
 answers_write(){
@@ -494,10 +496,28 @@ ensure_stopped(){
 # longer something it considers missing. The heap cap is unrelated to the bug
 # and stays pinned regardless.
 OMRS_HEAP_CAP='-Xms512m -Xmx2048m -XX:NewSize=128m -XX:MaxMetaspaceSize=512m'
+#
+# The Initializer's domain list is docker-compose.yml's to set, from
+# OPENMRS_INITIALIZER_DOMAINS (clinic/install/initializer.sh). A
+# -Dinitializer.domains= left in OMRS_JAVA_SERVER_OPTS (set there by hand)
+# would put the property on the command line twice, so it is taken out here,
+# and the value it carried is reported.
 ensure_openmrs_jvm_opts(){ # ENV_FILE
-  local f="$1" mem changed=''
+  local f="$1" mem srv kept='' w dropped='' changed=''
   mem="$(env_get "$f" OMRS_JAVA_MEMORY_OPTS)"
   case " $mem " in *" -Xmx"*) ;; *) env_put "$f" OMRS_JAVA_MEMORY_OPTS "${OMRS_HEAP_CAP}"; changed="${changed} heap=${OMRS_HEAP_CAP}" ;; esac
+  srv="$(env_get "$f" OMRS_JAVA_SERVER_OPTS)"
+  case " $srv" in
+    *" -Dinitializer.domains="*)
+      set -f
+      for w in $srv; do
+        case "$w" in -Dinitializer.domains=*) dropped="${dropped} ${w}" ;; *) kept="${kept}${kept:+ }${w}" ;; esac
+      done
+      set +f
+      env_put "$f" OMRS_JAVA_SERVER_OPTS "$kept"
+      warn "OMRS_JAVA_SERVER_OPTS carried${dropped}; removed: docker-compose.yml sets -Dinitializer.domains from OPENMRS_INITIALIZER_DOMAINS (unset = the clinic default)"
+      changed="${changed} initializer-domains-moved" ;;
+  esac
   if [ -n "$changed" ]; then ok "openmrs JVM opts pinned in .env:${changed}"; else skip "openmrs JVM opts already pinned"; fi
 }
 # Three repo scripts call `podman` by name; on a Docker host they get a shim

@@ -38,6 +38,14 @@ bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership
 v="$(forms_mount_verdict "${FORMS_DIR}/bahmniforms")" || fail "$v"
 ok "forms: ${v#ok }"
 # forms-guard:end
+# initializer-guard:begin
+# The Initializer must not write rows the hub owns here: the domain list
+# docker-compose.yml hands OpenMRS is checked against the module's domains and
+# the extracted config tree before anything starts (initializer.sh).
+. "${INSTALL_DIR}/initializer.sh"
+v="$(initializer_domains_verdict "${OPENMRS_INITIALIZER_DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}" "${BAHMNI_CONFIG_DIR:-${CLINIC_DIR}/extracted/bahmni_config}")" || fail "$v"
+ok "initializer domains: ${v#ok }"
+# initializer-guard:end
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile local --profile openelis up -d >/dev/null )
 ensure_stopped "$OC" && ok "odoo-connect parked until its markers are set" || fail "odoo-connect will not stay stopped: ${COMPOSE_CMD} ps odoo-connect"
 url="https://localhost/openmrs/ws/rest/v1/session"

@@ -40,6 +40,8 @@ put PHONE_NUMBER "${CLINIC_PHONE}"
 # re-types them and no answers file travels with the machine
 put CLINIC_SLUG "${CLINIC_SLUG}"; put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
 put CERT_HOSTNAME "${CERT_HOSTNAME}"; put LAN_NAME "${LAN_NAME:-bahmni.clinic}"
+# optional: unset leaves docker-compose.yml's clinic default (initializer.sh)
+[ -z "${OPENMRS_INITIALIZER_DOMAINS:-}" ] || put OPENMRS_INITIALIZER_DOMAINS "${OPENMRS_INITIALIZER_DOMAINS}"
 put DEBEZIUM_SNAPSHOT_MODE no_data
 put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
 if [ "${PLATFORM}" = macos ]; then put RESTART_POLICY always; else put RESTART_POLICY unless-stopped; fi
