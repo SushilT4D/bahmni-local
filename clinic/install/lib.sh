@@ -201,6 +201,51 @@ subsystem_tables(){
     printf '%s\n' "$name"
   done < "$conf"
 }
+# down_tables : the table of every hub/tables.conf row, one per line, in file
+# order -- every table the clinic's down sinks write, relayed ones included
+# (clinic/scripts/generate-local-sink-connectors.sh reads the same rows). The
+# sink user's grants come from this list, so a table added there is granted
+# wherever the grants are applied: seed task 050, or
+# clinic/scripts/grant-down-tables.sh on a node seeded before. A name that is
+# not a bare lowercase identifier fails, naming its row.
+down_tables(){
+  local conf="${REPO_DIR}/hub/tables.conf" line name
+  [ -f "$conf" ] || fail "down_tables: no such file: $conf"
+  while IFS= read -r line || [ -n "$line" ]; do
+    name="${line%%#*}"
+    name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -n "$name" ] || continue
+    name="${name%%:*}"
+    printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
+      || fail "hub/tables.conf: bad table name '${name}' (row: ${line})"
+    printf '%s\n' "$name"
+  done < "$conf"
+}
+# sink_grant_sql : one GRANT per down table for the clinic's sink database
+# user: what a JDBC upsert sink with deletes enabled needs, on that table only.
+sink_grant_sql(){
+  local ts t
+  ts="$(down_tables)" || return 1
+  for t in $ts; do printf "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.%s TO 'sink'@'%%';\n" "$t"; done
+}
+# SINK_GRANTS_READ_SQL is the read-back: one "table<TAB>privileges" row per
+# table the sink user holds a table-level grant on.
+SINK_GRANTS_READ_SQL="select Table_name, Table_priv from mysql.tables_priv where User='sink' and Host='%' and Db='openmrs'"
+# sink_grants_missing : stdin is SINK_GRANTS_READ_SQL's output; prints every
+# down table the sink user cannot select, insert, update and delete in.
+sink_grants_missing(){
+  local got ts t p
+  got="$(cat)"
+  ts="$(down_tables)" || return 1
+  for t in $ts; do
+    p="$(printf '%s\n' "$got" | awk -F'\t' -v t="$t" '$1==t {print tolower($2)}')"
+    case ",${p}," in *,select,*) ;; *) printf '%s\n' "$t"; continue ;; esac
+    case ",${p}," in *,insert,*) ;; *) printf '%s\n' "$t"; continue ;; esac
+    case ",${p}," in *,update,*) ;; *) printf '%s\n' "$t"; continue ;; esac
+    case ",${p}," in *,delete,*) ;; *) printf '%s\n' "$t"; continue ;; esac
+  done
+  return 0
+}
 # Kafka cluster id: 22 chars of url-safe base64 over 16 random bytes, what
 # kafka-storage random-uuid produces, without needing the image.
 # Kafka's own Uuid.randomUuid() rejects ids whose base64 form starts with "-":

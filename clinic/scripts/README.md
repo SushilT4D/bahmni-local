@@ -29,6 +29,12 @@ emit connector/topic definitions.
 `register-source-connector.sh`, `register-local-sink-connectors.sh`,
 `unregister-connectors.sh`.
 
+**Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
+database user SELECT, INSERT, UPDATE and DELETE on every table
+`hub/tables.conf` lists, and reads the grants back. Seed task 050 does the same
+when it seeds; run this on a node seeded before a table joined that file, then
+regenerate and register the down sinks. `--dry-run` prints the grants.
+
 **Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
 MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 `check-sink-tasks.sh`, `check-sink-connectors.sh`, `check-source-connectors.sh`,

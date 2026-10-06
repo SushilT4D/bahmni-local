@@ -164,23 +164,25 @@ printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' 
 [ -z "$(printf "select property_value from openmrs.global_property where property='search.indexVersion'" | mysql_root)" ] \
   && ok "openmrs search index set to rebuild on its next start" || fail "could not clear openmrs search.indexVersion"
 if [ "${PHASE:-install}" = seed ]; then
+# sink-grants:begin
+# The sink user writes only the tables the down sinks write: every
+# hub/tables.conf row (lib.sh down_tables), each granted on its own and read
+# back, so a table added to that file is granted here and a sink is never
+# refused its first INSERT.
+grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from hub/tables.conf"
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
 CREATE USER IF NOT EXISTS 'sink'@'%' IDENTIFIED BY '${LOCAL_MYSQL_PASSWORD}';
 GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.users TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.user_property TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.user_role TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.role TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.role_privilege TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.role_role TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.provider TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.person TO 'sink'@'%';
-GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.person_name TO 'sink'@'%';
+${grants}
 FLUSH PRIVILEGES;
 SQL
 [ "$(printf "select count(*) from mysql.user where user in ('debezium','sink')" | mysql_root)" = 2 ] && ok "mysql users debezium, sink" || fail "mysql users not created"
+missing="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | mysql_root | sink_grants_missing)" || fail "could not read back the sink user's grants"
+[ -z "$missing" ] && ok "sink user granted on every down table: $(down_tables | tr '\n' ' ')" \
+  || fail "the sink user lacks SELECT, INSERT, UPDATE or DELETE on: $(printf '%s' "$missing" | tr '\n' ' ')"
+# sink-grants:end
 fi
 
 # --- PostgreSQL: roles, sink roles, databases, restores
