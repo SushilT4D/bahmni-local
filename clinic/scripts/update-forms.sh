@@ -1,43 +1,54 @@
 #!/usr/bin/env bash
-# Take new forms on a running clinic node (or the hub's OpenMRS, which takes
-# them first): fast-forward clinic/forms to the forms repo, check the incoming
-# forms' concepts against this node's OpenMRS, recreate the openmrs service
-# only (the Initializer loads forms at start), wait for it, and verify every
-# form MANIFEST.tsv lists is published under its uuid (with the version this
-# node gave it beside the file's).
+# Take the forms repo's latest form files on a running clinic node. Run it from
+# a schedule (every 15 minutes) and on demand:
 #
-#   clinic/scripts/update-forms.sh [--dry-run] [--restart]
+#   clinic/scripts/update-forms.sh [--dry-run]
 #
-# --dry-run fetches the forms repo and shows what would change (the commits,
-# the MANIFEST.tsv lines, the form files); nothing under clinic/ changes and
-# nothing restarts.
-# --restart recreates openmrs even when clinic/forms is already current (an
-# earlier run that stopped after the fast-forward). Without it, a current
-# checkout only has its published forms verified.
+#   1. fetch the forms repo and fast-forward clinic/forms; a checkout with local
+#      edits, or at a commit the forms repo does not contain, is refused and
+#      left exactly as it is;
+#   2. check the incoming forms' concepts against this node's OpenMRS: a form
+#      that uses a concept the node lacks is a WARN, never a refusal;
+#   3. row/file check: every published, unretired form row in this node's
+#      database must have its file in the forms folder; a file with no row is
+#      fine (its rows have not synced yet, or it is an old version kept for
+#      saved observations);
+#   4. print a summary.
 #
-# Reads FORMS_REPO_URL and FORMS_REPO_KEY from clinic/.env (install task 075
-# writes them from the answers). With no forms repo configured it refreshes
-# clinic/forms/bahmniforms from the config image's forms and restarts nothing.
+# OpenMRS is never restarted: it reads a form's file when the form is opened,
+# so a user sees a new version after reloading the page. The rows of a new
+# form arrive by sync from the hub, independently of this script.
 #
-# Settings:
-#   FORMS_OPENMRS_WAIT_S          how long to wait for OpenMRS after the restart
-#                                 (default 1200: the Initializer runs first)
-#   FORMS_ALLOW_MISSING_CONCEPTS  1 = take forms new to this node whose
-#                                 concepts it lacks
-#   FORMS_CONCEPTS_FILE           a concept uuid list taken elsewhere, instead
-#                                 of reading this node's database
-#   FORMS_KNOWN_FORMS_FILE        a published form uuid list taken elsewhere
+# --dry-run fetches and shows the incoming commits and MANIFEST.tsv changes,
+# and changes nothing: no fast-forward, no database read, no clinic/.env edit.
+#
+# Exit 0: clinic/forms holds what the forms repo holds and every published form
+# has its file. Non-zero: a FAIL line says why (fetch or clone failed, a
+# refused checkout, a missing file). With no forms repo configured
+# (FORMS_REPO_URL empty in clinic/.env) the node runs the frozen copy; the run
+# reports any form missing its file there as a WARN and exits 0.
+#
+# On a node whose clinic/.env names a forms repo but that runs from another
+# folder (no clone yet, or the frozen copy), the first run clones the repo and
+# points FORMS_DIR and FORMS_MOUNT_MODE in clinic/.env at the clone, read-only.
+# The openmrs service takes that mount when it is next recreated; the run says
+# so, and does not recreate it.
+#
+# Reads FORMS_REPO_URL, FORMS_REPO_KEY, FORMS_DIR, FORMS_MOUNT_MODE and
+# COMPOSE_PROJECT_NAME from clinic/.env. Settings for tests and for lists
+# taken elsewhere: FORMS_CONCEPTS_FILE, FORMS_KNOWN_FORMS_FILE, FORMS_ROWS_FILE
+# (clinic/install/forms.sh).
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
+REPO_DIR="${REPO_DIR:-$(cd "${HERE}/../.." && pwd)}"; export REPO_DIR
 . "${HERE}/../install/lib.sh"
 . "${INSTALL_DIR}/forms.sh"
 usage(){ sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
-DRYRUN=0; RESTART=0
+DRYRUN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRYRUN=1; shift ;;
-    --restart) RESTART=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage; fail "unknown argument: $1" ;;
   esac
@@ -47,82 +58,37 @@ E="${CLINIC_DIR}/.env"
 FORMS_REPO_URL="$(env_get "$E" FORMS_REPO_URL)"; FORMS_REPO_KEY="$(env_get "$E" FORMS_REPO_KEY)"
 COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
 export FORMS_REPO_URL FORMS_REPO_KEY COMPOSE_PROJECT_NAME
+mounted="$(env_get "$E" FORMS_DIR)"; mounted="${mounted:-${FORMS_FROZEN_DIR}}"
+mode="$(env_get "$E" FORMS_MOUNT_MODE)"; mode="${mode:-rw}"
 begin_task "update forms$( [ "$DRYRUN" = 1 ] && printf ' (dry run: nothing changes)')"
 
 if [ -z "${FORMS_REPO_URL}" ]; then
-  forms_sync 0 "$DRYRUN"
-  [ "$DRYRUN" = 1 ] && { log "dry run: nothing changed."; exit 0; }
-  v="$(forms_mount_verdict "${FORMS_DIR}/bahmniforms")" || fail "$v"
-  ok "forms: ${v#ok }"
-  log "no forms repo configured (FORMS_REPO_URL in clinic/.env): OpenMRS reads these forms at its next start; nothing was restarted."
+  log "no forms repo configured (FORMS_REPO_URL in clinic/.env): this node runs the frozen copy ${mounted}; nothing to update."
+  [ "$DRYRUN" = 1 ] && exit 0
+  forms_rowfile_gate "$mounted" 0
   exit 0
 fi
 
-before_manifest="$(mktemp "${TMPDIR:-/tmp}/forms-manifest.XXXXXX")"; trap 'rm -f "$before_manifest"' EXIT
-[ ! -f "${FORMS_DIR}/MANIFEST.tsv" ] || cp "${FORMS_DIR}/MANIFEST.tsv" "$before_manifest"
+before="$(mktemp "${TMPDIR:-/tmp}/forms-manifest.XXXXXX")"; trap 'rm -f "$before"' EXIT
+[ ! -f "${FORMS_CLONE_DIR}/MANIFEST.tsv" ] || cp "${FORMS_CLONE_DIR}/MANIFEST.tsv" "$before"
 forms_sync 1 "$DRYRUN"
 [ "$DRYRUN" = 1 ] && { log "dry run: nothing changed."; exit 0; }
-v="$(forms_mount_verdict "${FORMS_DIR}/bahmniforms")" || fail "$v"
+
+dir="$(forms_folder_for "${FORMS_REPO_URL}")"
+v="$(forms_folder_verdict "$dir")" || fail "$v"
 ok "forms: ${v#ok }"
-[ -f "${FORMS_DIR}/MANIFEST.tsv" ] || fail "the forms repo has no MANIFEST.tsv; the published versions cannot be verified"
-rows="$(forms_manifest_rows "${FORMS_DIR}/MANIFEST.tsv")" || fail "MANIFEST.tsv could not be read (above)"
-[ -n "${CT:-}" ] || setup_compose
-
-if [ "${FORMS_CHANGED}" = 0 ] && [ "$RESTART" = 0 ]; then
-  info "clinic/forms already holds what the forms repo holds: OpenMRS is not restarted, the published versions are checked (--restart recreates it)"
-else
-  # The openmrs service alone, recreated so a compose file that gained the
-  # forms mount since the container was made takes effect.
-  compose up -d --no-deps --force-recreate openmrs >/dev/null || fail "could not recreate the openmrs service: ${COMPOSE_CMD} ${PROFILES} up -d openmrs"
-  ok "openmrs recreated; the Initializer loads the changed forms as it starts"
-  url="${OPENMRS_SESSION_URL:-https://localhost/openmrs/ws/rest/v1/session}"
-  budget="${FORMS_OPENMRS_WAIT_S:-1200}"
-  info "waiting up to ${budget}s for ${url} to answer 200 (FORMS_OPENMRS_WAIT_S overrides)"
-  t0="$(date +%s)"; last=none
-  while :; do
-    last="$(curl -sk -o /dev/null -w '%{http_code}' --max-time 10 "$url" 2>/dev/null || true)"; last="${last:-none}"
-    [ "$last" = 200 ] && break
-    el=$(( $(date +%s) - t0 ))
-    [ "$el" -lt "$budget" ] || fail "OpenMRS did not answer 200 at ${url}: budget ${budget}s (FORMS_OPENMRS_WAIT_S), waited ${el}s, last HTTP status ${last} (302 = still starting). Once it answers, run this script again: it verifies the published versions without another restart. ${COMPOSE_CMD} logs openmrs"
-    sleep 10
-  done
-  ok "OpenMRS answers 200 after $(( $(date +%s) - t0 ))s"
+if [ "$mounted" != "$dir" ] || [ "$mode" != ro ]; then
+  env_put "$E" FORMS_DIR "$dir"; env_put "$E" FORMS_MOUNT_MODE ro
+  warn "clinic/.env now mounts ${dir} read-only (it named ${mounted}, ${mode}). The openmrs service reads the old folder until it is recreated; this script does not do that. When convenient, from clinic/: docker compose (or docker-compose) with the node's profiles, up -d --no-deps --force-recreate openmrs"
 fi
-
-# Every form the manifest lists must be published, unretired, under its uuid.
-# The version it got here is this node's own number (forms.sh), reported
-# beside the file's.
-n=0; good=0; bad_list=""; found_list=""
-TAB="$(printf '\t')"
-while IFS="$TAB" read -r name ver uuid; do
-  [ -n "$name" ] || continue
-  n=$((n + 1))
-  case "$uuid" in
-    *[!A-Za-z0-9-]*|"") bad_list="${bad_list}${bad_list:+, }${name} (MANIFEST.tsv uuid '${uuid}' is not a uuid)"; continue ;;
-  esac
-  nv="$(forms_sql "select version from form where uuid='${uuid}' and published=1 and retired=0" 2>/dev/null | head -1 || true)"
-  if [ -n "$nv" ]; then
-    good=$((good + 1)); found_list="${found_list}${name}${TAB}${ver}${TAB}${nv}${TAB}${uuid}
-"
-  else
-    bad_list="${bad_list}${bad_list:+, }${name} (uuid ${uuid}, file v${ver})"
-  fi
-done <<EOF
-$rows
-EOF
 
 log ""
 log "summary"
 info "forms repo: $(printf '%s' "${FORMS_OLD_REV:-none}" | cut -c1-7) -> $(printf '%s' "${FORMS_NEW_REV}" | cut -c1-7)"
-changes="$(diff "$before_manifest" "${FORMS_DIR}/MANIFEST.tsv" 2>/dev/null | grep -E '^[<>]' || true)"
+changes="$(forms_manifest_diff "$before" "${FORMS_CLONE_DIR}/MANIFEST.tsv")"
 if [ -n "$changes" ]; then
   info "MANIFEST.tsv changes (< before, > now):"
   printf '%s\n' "$changes" | sed 's/^/    /'
 fi
-if [ -n "$found_list" ]; then
-  info "published here, by uuid (the node numbers versions itself):"
-  printf '%s' "$found_list" | awk -F'\t' '{ printf "    %-40s file v%-4s node v%-4s %s\n", $1, $2, $3, $4 }'
-fi
-info "published by uuid: ${good} of ${n}"
-[ -z "$bad_list" ] || fail "not published, unretired, in this node's OpenMRS: ${bad_list}. The Initializer loads forms only at start: if OpenMRS has not restarted since clinic/forms changed, run this again with --restart; otherwise look for the form in /openmrs/data/initializer.log in the openmrs container and in ${COMPOSE_CMD} logs openmrs"
-ok "every form in MANIFEST.tsv is published under its uuid"
+info "OpenMRS was not restarted: it reads a form's file when the form is opened"
+forms_rowfile_gate "$dir" 1

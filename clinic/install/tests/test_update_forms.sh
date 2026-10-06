@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# scripts/update-forms.sh against a local git repository as the forms repo and
-# a fake runtime: it refuses a clinic/forms that is not a fast-forward of the
-# forms repo, refuses forms whose concepts the node lacks (before they are put
-# in place), changes nothing on --dry-run, and otherwise recreates the openmrs
-# service alone, waits for OpenMRS within its budget and verifies every form
-# MANIFEST.tsv lists is published under its uuid, whatever version the node
-# gave it.
+# scripts/update-forms.sh against a local git repository as the forms repo,
+# rows files for the database, and a runtime and compose that log every call:
+# it fast-forwards clinic/forms and nothing else (a checkout with local edits
+# or commits the repo lacks is refused and left as it is), a concept finding
+# is a warning, a published form row without its file fails the run with the
+# list, --dry-run changes nothing and reads no database, and OpenMRS is never
+# restarted.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 S="${HERE}/../../scripts/update-forms.sh"
@@ -18,140 +18,119 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 # what the fixture commits do)
 export HOME="$TMP/home" GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 mkdir -p "$HOME"
+U1=11111111-1111-1111-1111-111111111111; U2=22222222-2222-2222-2222-222222222222; U3=33333333-3333-3333-3333-333333333333
 
-# --- fakes: the runtime, compose and curl log their calls -----------------------
+# --- fakes: every runtime and compose entry point logs its call ------------------------
 mkdir -p "$TMP/bin"
-cat > "$TMP/bin/fakect" <<'SH'
-#!/usr/bin/env bash
-echo "ct $*" >> "$FAKE_LOG"
-# exec: the query is logged; the answer is FAKE_VERSION (the version of the
-# published form with that uuid), nothing when it is empty
-case "$1" in exec) q="$(cat)"; echo "sql $q" >> "$FAKE_LOG"; [ -z "${FAKE_VERSION-4}" ] || printf '%s\n' "${FAKE_VERSION-4}" ;; *) exit 2 ;; esac
-SH
-cat > "$TMP/bin/fakecompose" <<'SH'
-#!/usr/bin/env bash
-echo "compose $*" >> "$FAKE_LOG"
-SH
-cat > "$TMP/bin/curl" <<'SH'
-#!/usr/bin/env bash
-echo "curl" >> "$FAKE_LOG"
-printf '%s' "${FAKE_HTTP:-200}"
-SH
+for b in fakect docker podman docker-compose podman-compose; do
+  printf '#!/usr/bin/env bash\necho "%s $*" >> "$FAKE_LOG"\n[ "$1" = exec ] && cat >/dev/null\nexit 0\n' "$b" > "$TMP/bin/$b"
+done
 chmod +x "$TMP/bin/"*
 export FAKE_LOG="$TMP/calls.log"
 
-# --- the forms repo ---------------------------------------------------------------
+# --- the forms repo -----------------------------------------------------------------------
 B="$TMP/forms.git"; W="$TMP/work"
 git -c init.defaultBranch=main init -q --bare "$B"
-git -c init.defaultBranch=main init -q "$W"; mkdir -p "$W/bahmniforms" "$W/tools"
-echo '{"name":"ANC Form","v":3}' > "$W/bahmniforms/ANC Form_3.json"
-printf 'form_name\tversion\tuuid\nANC Form\t3\tu-anc\n' > "$W/MANIFEST.tsv"
-CHECK_OK='#!/usr/bin/env bash\n[ "$1" = --known ] && [ -s "$2" ] && [ "$3" = --known-forms ] && [ -f "$4" ] || { echo "checker called as: $*"; exit 2; }\n'
-printf "$CHECK_OK" > "$W/tools/check-concepts.sh"
-( cd "$W" && git add -A && git commit -qm one && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
+git -c init.defaultBranch=main init -q "$W"; mkdir -p "$W/clinical_forms/translations" "$W/tools"
+echo '{"name":"ANC"}' > "$W/clinical_forms/$U1.json"; echo '{}' > "$W/clinical_forms/translations/$U1.json"
+printf 'name\tversion\tuuid\tpublished\tretired\tfile\nANC\t3\t%s\t1\t0\t%s.json\n' "$U1" "$U1" > "$W/MANIFEST.tsv"
+printf '#!/usr/bin/env bash\n[ "$1" = --known ] && [ -s "$2" ] && [ "$3" = --known-forms ] && [ -f "$4" ] || { echo "checker called as: $*"; exit 2; }\n' > "$W/tools/check-concepts.sh"
+( cd "$W" && git add -A && git commit -qm "ANC v3" && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
 push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin main ) || bad "fixture push: $1"; }
-printf 'c1\nc2\n' > "$TMP/concepts.txt"; printf 'u-anc\n' > "$TMP/published.txt"
+printf 'c1\nc2\n' > "$TMP/concepts.txt"; printf '%s\n' "$U1" > "$TMP/published.txt"
+printf 'ANC\t3\t1\t0\t%s.json\n' "$U1" > "$TMP/rows1"
 
-node(){ # DIR : an installed node whose clinic/forms is a clone of the forms repo
+node(){ # DIR : an installed node whose clinic/forms is a clone of the forms repo, mounted read-only
   mkdir -p "$1"
-  printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\nFORMS_REPO_KEY=\n' "$B" > "$1/.env"
+  printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\nFORMS_REPO_KEY=\nFORMS_DIR=%s\nFORMS_MOUNT_MODE=ro\n' "$B" "$1/forms/clinical_forms" > "$1/.env"
   git clone -q "$B" "$1/forms"
 }
-run(){ # DIR ARGS... (environment: the fakes)
+run(){ # DIR ARGS... (ROWS= the database's form rows)
   local d="$1"; shift
-  env PATH="$TMP/bin:$PATH" CLINIC_DIR="$d" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_OPENMRS_WAIT_S="${WAIT:-30}" \
-    FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" \
-    CT="$TMP/bin/fakect" COMPOSE_CMD="$TMP/bin/fakecompose" FAKE_HTTP="${HTTP:-200}" FAKE_VERSION="${VER-4}" \
-    FORMS_ALLOW_MISSING_CONCEPTS="${ALLOW:-0}" bash "$S" "$@" 2>&1
+  env PATH="$TMP/bin:$PATH" CLINIC_DIR="$d" CT="$TMP/bin/fakect" COMPOSE_CMD="$TMP/bin/docker-compose" \
+    FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" FORMS_ROWS_FILE="${ROWS:-$TMP/rows1}" \
+    bash "$S" "$@" 2>&1
 }
-state(){ ( cd "$1/forms" && git rev-parse HEAD && git status --porcelain && cat bahmniforms/* MANIFEST.tsv ); }
+state(){ ( cd "$1/forms" && git rev-parse HEAD && git status --porcelain && ls -R clinical_forms && cat MANIFEST.tsv ); }
+restarts(){ grep -E ' (up|restart|stop|start|rm|kill|down|create|run)( |$)' "$FAKE_LOG" || true; }
 
-# --- a clinic/forms that is not a fast-forward of the forms repo is refused -------
+# --- up to date ------------------------------------------------------------------------------
+N0="$TMP/n0"; node "$N0"; : > "$FAKE_LOG"
+out="$(run "$N0")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'what the forms repo holds' && printf '%s' "$out" | grep -q 'row/file check: 1 published forms, 1 with their file, 0 missing' \
+  && ok_ "up to date: exit 0, the row/file check passes" || bad "up to date: rc=$rc out=$out"
+[ ! -s "$FAKE_LOG" ] && ok_ "nothing is called on the runtime or compose" || bad "calls: $(tr '\n' ';' < "$FAKE_LOG")"
+
+# --- not a fast-forward / local edits: refused, untouched ----------------------------------------
 N1="$TMP/n1"; node "$N1"
 ( cd "$N1/forms" && echo local > README.md && git add README.md && git commit -qm "local edit" ) || bad "fixture local commit"
-echo '{"name":"ANC Form","v":4}' > "$W/bahmniforms/ANC Form_4.json"; rm "$W/bahmniforms/ANC Form_3.json"
-printf 'form_name\tversion\tuuid\nANC Form\t4\tu-anc\n' > "$W/MANIFEST.tsv"; push "ANC Form v4"
+echo '{"name":"ANC","v":4}' > "$W/clinical_forms/$U2.json"
+printf 'name\tversion\tuuid\tpublished\tretired\tfile\nANC\t3\t%s\t0\t1\t%s.json\nANC\t4\t%s\t1\t0\t%s.json\n' "$U1" "$U1" "$U2" "$U2" > "$W/MANIFEST.tsv"; push "ANC v4"
 before="$(state "$N1")"; : > "$FAKE_LOG"
 out="$(run "$N1")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not a fast-forward' && ok_ "a clinic/forms with commits the forms repo lacks is refused: not a fast-forward" || bad "non-fast-forward not refused: rc=$rc out=$out"
-[ "$(state "$N1")" = "$before" ] && ok_ "the refused checkout is left exactly as it was" || bad "a refused update changed clinic/forms"
-grep -q '^compose' "$FAKE_LOG" && bad "OpenMRS was restarted after a refusal" || ok_ "nothing restarts after a refusal"
-
-# --- local changes are refused too --------------------------------------------------
-N2="$TMP/n2"; node "$N2"; echo edited >> "$N2/forms/MANIFEST.tsv"
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not a fast-forward' && [ "$(state "$N1")" = "$before" ] && ok_ "a clinic/forms with commits the forms repo lacks is refused and left exactly as it was" || bad "non-fast-forward: rc=$rc out=$out"
+N2="$TMP/n2"; node "$N2"; echo edited >> "$N2/forms/MANIFEST.tsv"; before="$(state "$N2")"
 out="$(run "$N2")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'local changes' && ok_ "uncommitted edits in clinic/forms are refused" || bad "dirty checkout not refused: rc=$rc out=$out"
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'local changes' && [ "$(state "$N2")" = "$before" ] && ok_ "uncommitted edits in clinic/forms are refused and kept" || bad "dirty checkout: rc=$rc out=$out"
+[ -z "$(restarts)" ] && ok_ "nothing restarts after a refusal" || bad "a refusal restarted something: $(restarts)"
 
-# --- a failed concept check refuses before the forms are put in place ------------------
-N3="$TMP/n3"; node "$N3"
-printf '#!/usr/bin/env bash\necho "missing concept 9bb0795c-0000-0000-0000-000000000020 (Vitals: Temperature (F))"\nexit 1\n' > "$W/tools/check-concepts.sh"
-echo '{"name":"Vitals","v":2}' > "$W/bahmniforms/Vitals_2.json"; printf 'form_name\tversion\tuuid\nANC Form\t4\tu-anc\nVitals\t2\tu-vitals\n' > "$W/MANIFEST.tsv"
-push "Vitals v2, checker refuses"
-before="$(state "$N3")"; : > "$FAKE_LOG"
-out="$(run "$N3")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'concept check failed' && printf '%s' "$out" | grep -q '9bb0795c' \
-  && ok_ "a failed concept check refuses, naming the missing concept" || bad "concept check failure not refused: rc=$rc out=$out"
-[ "$(state "$N3")" = "$before" ] && ok_ "clinic/forms stays at the forms it had: the incoming ones are checked before they are put in place" || bad "clinic/forms moved despite the failed check"
-grep -q '^compose' "$FAKE_LOG" && bad "OpenMRS was restarted after a failed check" || ok_ "OpenMRS is not restarted after a failed check"
-
-# --- --dry-run shows what would change and changes nothing ------------------------
-N4="$TMP/n4"; node "$N4"
-printf "$CHECK_OK" > "$W/tools/check-concepts.sh"
-printf 'form_name\tversion\tuuid\nANC Form\t4\tu-anc\nVitals\t2\tu-vitals\nPNC Form\t6\tu-pnc\n' > "$W/MANIFEST.tsv"; echo '{"name":"PNC Form"}' > "$W/bahmniforms/PNC Form_6.json"
-push "PNC Form v6"
-( cd "$N4/forms" && git reset -q --hard HEAD~2 ) || bad "fixture: move the node back two commits"
-before="$(state "$N4")"; : > "$FAKE_LOG"
+# --- --dry-run: shows, changes nothing, reads no database ----------------------------------------------
+N3="$TMP/n3"; node "$N3"; ( cd "$N3/forms" && git reset -q --hard HEAD~1 ) || bad "fixture: move the node back one commit"
+before="$(state "$N3")"; envb="$(cat "$N3/.env")"; : > "$FAKE_LOG"
+out="$(env PATH="$TMP/bin:$PATH" CLINIC_DIR="$N3" CT="$TMP/bin/fakect" bash "$S" --dry-run 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "+ANC	4	$U2" && printf '%s' "$out" | grep -q 'ANC v4' && ok_ "--dry-run shows the incoming commits and MANIFEST.tsv lines" || bad "--dry-run output: rc=$rc out=$out"
+[ "$(state "$N3")" = "$before" ] && [ "$(cat "$N3/.env")" = "$envb" ] && [ ! -s "$FAKE_LOG" ] && ok_ "--dry-run changes nothing and calls no runtime (no database read)" || bad "--dry-run changed something or made calls: $(tr '\n' ';' < "$FAKE_LOG")"
+N4="$TMP/n4"; mkdir -p "$N4"; printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\n' "$B" > "$N4/.env"
 out="$(run "$N4" --dry-run)"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF '+PNC Form' && printf '%s' "$out" | grep -qF -- '-ANC Form' && ok_ "--dry-run shows the MANIFEST.tsv lines that would change" || bad "--dry-run output: rc=$rc out=$out"
-printf '%s' "$out" | grep -q 'PNC Form v6' && ok_ "--dry-run lists the incoming commits" || bad "--dry-run does not list the commits: $out"
-[ "$(state "$N4")" = "$before" ] && ok_ "--dry-run changes nothing in clinic/forms" || bad "--dry-run changed clinic/forms"
-[ ! -s "$FAKE_LOG" ] && ok_ "--dry-run calls no runtime, no compose, no OpenMRS" || bad "--dry-run made calls: $(tr '\n' ';' < "$FAKE_LOG")"
-N5="$TMP/n5"; mkdir -p "$N5"; printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\n' "$B" > "$N5/.env"
-out="$(run "$N5" --dry-run)"; rc=$?
-[ "$rc" -eq 0 ] && [ ! -e "$N5/forms" ] && [ -z "$(ls -A "$N5" | grep -v '^\.env$')" ] && printf '%s' "$out" | grep -qF 'PNC Form' \
-  && ok_ "--dry-run on a node with no clone yet shows the forms repo's manifest and leaves nothing behind" || bad "--dry-run, no clone: rc=$rc out=$out; left: $(ls -A "$N5")"
+[ "$rc" -eq 0 ] && [ ! -e "$N4/forms" ] && [ -z "$(ls -A "$N4" | grep -v '^\.env$')" ] && printf '%s' "$out" | grep -qF "ANC	4	$U2" \
+  && ok_ "--dry-run on a node with no clone yet shows the forms repo's manifest and leaves nothing behind" || bad "--dry-run, no clone: rc=$rc out=$out; left: $(ls -A "$N4")"
 
-# --- the whole update: recreate openmrs only, wait, verify ----------------------------
+# --- the update: fast-forward, warn on concepts, rows checked, no restart ---------------------------------
+printf '#!/usr/bin/env bash\necho "missing concept 9bb0795c-0000-0000-0000-000000000020 (ANC: Temperature)"\nexit 1\n' > "$W/tools/check-concepts.sh"; push "checker finds a gap"
+printf 'ANC\t3\t1\t1\t%s.json\nANC\t4\t1\t0\t%s.json\n' "$U1" "$U2" > "$TMP/rows2"
 : > "$FAKE_LOG"
-out="$(run "$N4")"; rc=$?
-[ "$rc" -eq 0 ] && [ "$(git -C "$N4/forms" rev-parse HEAD)" = "$(git -C "$B" rev-parse main)" ] && ok_ "an update fast-forwards clinic/forms to the forms repo" || bad "update: rc=$rc out=$out"
-c="$(grep '^compose' "$FAKE_LOG")"
-[ "$(printf '%s\n' "$c" | wc -l | tr -d ' ')" = 1 ] && printf '%s' "$c" | grep -qE 'up -d --no-deps --force-recreate openmrs$' && ok_ "only the openmrs service is recreated" || bad "compose calls: $c"
-printf '%s' "$c" | grep -q -- '--profile local' && ok_ "compose runs with the node's profiles" || bad "compose ran without the profiles: $c"
-[ "$(grep -c '^ct exec' "$FAKE_LOG")" = 3 ] && printf '%s' "$out" | grep -q 'published by uuid: 3 of 3' && ok_ "each of the three forms in MANIFEST.tsv is checked in the database" || bad "verification: $(grep -c '^ct exec' "$FAKE_LOG") queries; $out"
-[ "$(grep -c "^sql select version from form where uuid='u-[a-z]*' and published=1 and retired=0$" "$FAKE_LOG")" = 3 ] && ! grep -q '^sql .*version=' "$FAKE_LOG" \
-  && ok_ "each form is looked up by its uuid, published and unretired, never by version" || bad "verification queries: $(grep '^sql' "$FAKE_LOG" | tr '\n' ';')"
-printf '%s' "$out" | grep -qE '^    PNC Form +file v6 +node v4 +u-pnc$' && ok_ "the summary shows the file's version beside the version the node gave it" || bad "no file/node version line: $out"
-printf '%s' "$out" | grep -q '^    > PNC Form' && ok_ "the summary names what changed in MANIFEST.tsv" || bad "summary lacks the manifest change: $out"
-# the node numbered the form differently: still published, still a pass
-out="$(VER=9 run "$N4" --restart)"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qE '^    PNC Form +file v6 +node v9 ' && ok_ "a form the node published under another version number passes, both numbers shown" || bad "renumbered form: rc=$rc out=$out"
-# not published under its uuid
-( cd "$N4/forms" && git reset -q --hard HEAD~1 ) || bad "fixture: move the node back one commit"
-out="$(VER= run "$N4")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'not published, unretired.*PNC Form (uuid u-pnc, file v6)' && ok_ "a form the database does not publish under its uuid fails the update, by name and uuid" || bad "unpublished form not reported: rc=$rc out=$out"
-# OpenMRS never answers within the budget
-( cd "$N4/forms" && git reset -q --hard HEAD~1 ) || bad "fixture: move the node back one commit"
-out="$(HTTP=302 WAIT=0 run "$N4")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'budget 0s (FORMS_OPENMRS_WAIT_S), waited [0-9]*s, last HTTP status 302' && ok_ "OpenMRS not answering within the budget: FAIL names the budget, the time waited and the last status" || bad "wait budget: rc=$rc out=$out"
-# nothing new (an earlier run stopped after the fast-forward): nothing
-# restarts, the published versions are still checked; --restart recreates
-: > "$FAKE_LOG"
-out="$(run "$N4")"; rc=$?
-[ "$rc" -eq 0 ] && ! grep -q '^compose' "$FAKE_LOG" && [ "$(grep -c '^ct exec' "$FAKE_LOG")" = 3 ] && printf '%s' "$out" | grep -q 'OpenMRS is not restarted' \
-  && ok_ "already up to date: nothing restarts, the published versions are still checked" || bad "up to date: rc=$rc out=$out"
-out="$(VER= run "$N4")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'run this again with --restart' && ok_ "up to date but not published: the FAIL points at --restart" || bad "up to date, unpublished: rc=$rc out=$out"
-: > "$FAKE_LOG"
-out="$(run "$N4" --restart)"; rc=$?
-[ "$rc" -eq 0 ] && [ "$(grep -c '^compose' "$FAKE_LOG")" = 1 ] && ok_ "--restart recreates openmrs on an up-to-date checkout" || bad "--restart: rc=$rc out=$out"
-# the override takes forms with missing concepts, loudly
-N6="$TMP/n6"; node "$N6"
-printf '#!/usr/bin/env bash\necho "missing concept 1111"\nexit 1\n' > "$W/tools/check-concepts.sh"; push "checker refuses again"
-out="$(ALLOW=1 run "$N6")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'concept check FAILED' && printf '%s' "$out" | grep -q 'FORMS_ALLOW_MISSING_CONCEPTS=1 carries on' && ok_ "FORMS_ALLOW_MISSING_CONCEPTS=1 takes the forms and says so" || bad "override: rc=$rc out=$out"
-# a MANIFEST.tsv with no uuid column cannot be verified, and says so
-printf "$CHECK_OK" > "$W/tools/check-concepts.sh"; printf 'name\tversion\nANC Form\t4\n' > "$W/MANIFEST.tsv"; push "manifest without uuids"
-out="$(run "$N6")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'must name a name (or form_name), a version and a uuid column' && ok_ "a MANIFEST.tsv without a uuid column is refused" || bad "manifest without uuid: rc=$rc out=$out"
+out="$(ROWS="$TMP/rows2" run "$N3")"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(git -C "$N3/forms" rev-parse HEAD)" = "$(git -C "$B" rev-parse main)" ] && ok_ "an update fast-forwards clinic/forms to the forms repo" || bad "update: rc=$rc out=$out"
+printf '%s' "$out" | grep -q '9bb0795c' && printf '%s' "$out" | grep -q 'WARN concept check (rc=1)' && ok_ "a concept the node lacks is a warning, named, and does not stop the update" || bad "concept warning: $out"
+printf '%s' "$out" | grep -q "^    > ANC	4	$U2" && ok_ "the summary names what changed in MANIFEST.tsv" || bad "summary lacks the manifest change: $out"
+printf '%s' "$out" | grep -q 'row/file check: 1 published forms, 1 with their file, 0 missing; 0 files with no form row' && ok_ "the retired old version is not required; its file stays for old observations" || bad "row/file after update: $out"
+[ -z "$(restarts)" ] && ! grep -q '^fakect' "$FAKE_LOG" && ok_ "OpenMRS is not restarted, and nothing else is either" || bad "the update restarted something: $(tr '\n' ';' < "$FAKE_LOG")"
+printf '%s' "$out" | grep -q 'OpenMRS was not restarted' && ok_ "the summary says OpenMRS was not restarted" || bad "no no-restart line: $out"
+
+# --- a published row without its file fails, with the list ------------------------------------------------
+printf 'ANC\t4\t1\t0\t%s.json\nPNC\t2\t1\t0\t%s.json\n' "$U2" "$U3" > "$TMP/rows3"
+out="$(ROWS="$TMP/rows3" run "$N3")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "missing $U3.json (PNC v2)" && printf '%s' "$out" | grep -q 'FAIL row/file check: 2 published forms, 1 with their file, 1 missing' \
+  && ok_ "a published form whose file the forms repo lacks fails the run, by file, name and version" || bad "missing file: rc=$rc out=$out"
+printf 'ANC\t4\t1\t0\t%s.json\n' "$U2" > "$TMP/rows4"
+out="$(ROWS="$TMP/rows4" run "$N3")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '1 files with no form row' && ok_ "a file whose rows have not synced is counted, never refused" || bad "pending file: rc=$rc out=$out"
+
+# --- the forms repo cannot be reached ------------------------------------------------------------------------
+N5="$TMP/n5"; node "$N5"; before="$(state "$N5")"
+mv "$B" "$B.away"
+out="$(run "$N5")"; rc=$?
+mv "$B.away" "$B"
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'could not fetch the forms repo' && [ "$(state "$N5")" = "$before" ] && ok_ "an unreachable forms repo fails the run and leaves the forms in place" || bad "fetch failure: rc=$rc out=$out"
+
+# --- no forms repo configured ---------------------------------------------------------------------------------
+N6="$TMP/n6"; mkdir -p "$N6/bahmni_home/clinical_forms/translations"; echo '{}' > "$N6/bahmni_home/clinical_forms/$U1.json"
+printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=\n' > "$N6/.env"
+out="$(ROWS="$TMP/rows3" run "$N6")"; rc=$?
+[ "$rc" -eq 0 ] && [ ! -e "$N6/forms" ] && printf '%s' "$out" | grep -q 'no forms repo configured' && printf '%s' "$out" | grep -q 'WARN row/file check' \
+  && ok_ "no forms repo: exit 0, nothing cloned, missing files on the frozen copy are a warning" || bad "no repo: rc=$rc out=$out"
+
+# --- a node taking the forms repo for the first time -------------------------------------------------------------
+N7="$TMP/n7"; mkdir -p "$N7/bahmni_home/clinical_forms/translations"; echo '{}' > "$N7/bahmni_home/clinical_forms/$U1.json"
+printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\n' "$B" > "$N7/.env"; : > "$FAKE_LOG"
+out="$(ROWS="$TMP/rows4" run "$N7")"; rc=$?
+envv(){ ( . "${HERE}/../lib.sh"; env_get "$1/.env" "$2" ); }
+[ "$rc" -eq 0 ] && [ -d "$N7/forms/.git" ] && [ "$(envv "$N7" FORMS_DIR)" = "$N7/forms/clinical_forms" ] && [ "$(envv "$N7" FORMS_MOUNT_MODE)" = ro ] \
+  && printf '%s' "$out" | grep -q 'reads the old folder until it is recreated' && [ -z "$(restarts)" ] \
+  && ok_ "first run with a forms repo: clones it, points clinic/.env at it read-only, says the openmrs service must be recreated, recreates nothing" || bad "adoption: rc=$rc out=$out env=$(cat "$N7/.env") calls=$(restarts)"
+
+# --- usage --------------------------------------------------------------------------------------------------------
+out="$(run "$N0" --restart)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'unknown argument: --restart' && ok_ "there is no --restart" || bad "--restart: rc=$rc out=$out"
+grep -vE '^[[:space:]]*#' "$S" | grep -qE 'compose (up|restart)|force-recreate openmrs >|ct restart' && bad "the script carries a restart call" || ok_ "the script carries no restart call"
 exit "$fails"
