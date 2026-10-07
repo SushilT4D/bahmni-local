@@ -27,9 +27,17 @@ inside it, and that has already caused three separate silent bugs. Source code
 that must contain $, backslashes and quotes does not belong in that blast
 radius.
 
+3. The clinical profile (`--profile clinical`), for the sinks of the clinical
+   tables in CLINICAL_KEYS: the upsert is keyed on the table's own strided key,
+   errors stop the task, deletes apply, and the sink never changes the hub's
+   schema (schema.evolution=none, no auto.create/auto.evolve). A sink for one
+   of those tables under the default profile is refused, and so is a clinical
+   profile for any other table.
+
 Usage:
     validate-sink-config.py <config.json> [--known-good <path>]
                                           [--database-name <name>]
+                                          [--profile default|clinical]
                                           [--skip-generator-rules]
 
 `--skip-generator-rules` runs only the known-good shape diff, for pointing at a
@@ -60,6 +68,13 @@ ENVIRONMENT_KEYS = {
 }
 
 _PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
+
+# The clinical tables and the key each sink upserts on: the strided integer PK
+# the clinic's record key carries. drug_order's key is orders.order_id.
+CLINICAL_KEYS = {"obs": "obs_id", "orders": "order_id", "drug_order": "order_id"}
+# known-good.json describes the default profile; under the clinical profile
+# these keys must be absent rather than equal to it.
+CLINICAL_ABSENT = ("auto.create", "auto.evolve")
 
 
 def _config(doc, path):
@@ -125,6 +140,38 @@ def generator_rules(cfg, database_name):
     return errs
 
 
+def _table(cfg):
+    return str(cfg.get("table.name.format.default", "")).split(".")[-1]
+
+
+def profile_rules(cfg, profile):
+    """The clinical tables' sinks, stated setting by setting so a failure names
+    what is wrong rather than reporting a shape mismatch."""
+    errs = []
+    table = _table(cfg)
+    if profile != "clinical":
+        if table in CLINICAL_KEYS:
+            errs.append(f"{table} is a clinical table: its sink must use the clinical profile")
+        return errs
+    if table not in CLINICAL_KEYS:
+        return [f"the clinical profile is for {sorted(CLINICAL_KEYS)}, not {table!r}"]
+    want = {
+        "errors.tolerance": "none",
+        "insert.mode": "upsert",
+        "primary.key.mode": "record_key",
+        "primary.key.fields": CLINICAL_KEYS[table],
+        "delete.enabled": "true",
+        "schema.evolution": "none",
+    }
+    for key, value in want.items():
+        if cfg.get(key) != value:
+            errs.append(f"clinical sink {table}: {key} is {cfg.get(key)!r}, must be {value!r}")
+    for key in CLINICAL_ABSENT:
+        if key in cfg:
+            errs.append(f"clinical sink {table}: {key} must be absent (the sink never changes the hub's schema)")
+    return errs
+
+
 def known_good_diff(cfg, good):
     """Every key known-good declares must be present; every table- and
     environment-independent value must match. Extra keys are allowed."""
@@ -161,6 +208,7 @@ def main():
     p.add_argument("--known-good")
     p.add_argument("--database-name", default="")
     p.add_argument("--skip-generator-rules", action="store_true")
+    p.add_argument("--profile", choices=("default", "clinical"), default="default")
     args = p.parse_args()
 
     cfg = _config(_load(args.config), args.config)
@@ -176,8 +224,13 @@ def main():
     if not args.skip_generator_rules:
         errs += generator_rules(cfg, args.database_name)
 
+    errs += profile_rules(cfg, args.profile)
+
     if known_good:
-        errs += known_good_diff(cfg, _config(_load(known_good), known_good))
+        good = _config(_load(known_good), known_good)
+        if args.profile == "clinical":
+            good = {k: v for k, v in good.items() if k not in CLINICAL_ABSENT}
+        errs += known_good_diff(cfg, good)
     else:
         # Never pass silently just because the reference is missing - that is
         # the same "absent check reads as a passing check" trap this file exists
