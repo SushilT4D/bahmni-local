@@ -18,6 +18,12 @@
 # is a floored table's key is refused for the same reason: without a floor
 # source nothing can tell its legacy rows from the clinic's own.
 #
+# Some tables are never captured at a clinic, whatever the line says: users and
+# user_property are written at the hub and reach a clinic through its down
+# sinks, and global_property is each node's own configuration (it holds, among
+# others, the next order number this node issues). A line for one is refused.
+UP_NEVER_TABLES="users user_property global_property"
+#
 # bash 3.2 compatible (macOS): no associative arrays.
 up_tables_read(){
   local f="$1" line n=0 t pk third kind arg recs="" re
@@ -31,6 +37,9 @@ up_tables_read(){
       printf '%s line %s: not table:pk[:floor] -- %s\n' "${f##*/}" "$n" "$line" >&2; return 1
     fi
     t="${BASH_REMATCH[1]}"; pk="${BASH_REMATCH[2]}"; third="${BASH_REMATCH[4]}"
+    case " ${UP_NEVER_TABLES} " in
+      *" ${t} "*) printf '%s line %s: %s is never captured at a clinic (users and user_property come from the hub; global_property is node-local)\n' "${f##*/}" "$n" "$t" >&2; return 1 ;;
+    esac
     case "$third" in
       '') kind=sync; arg=- ;;
       seed) kind=seed; arg=- ;;

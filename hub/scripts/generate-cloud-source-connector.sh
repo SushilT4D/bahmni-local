@@ -69,6 +69,17 @@ if not inc or '*' in inc:
 # (its header still said "Cloud -> local sync"),
 # so this generator produced a whitelist containing person/patient/visit/encounter.
 # A comment cannot prevent that. A computed intersection can.
+# Clinical rows are written at the clinics, each on its own residue, and the
+# hub's tables receive them from the up sinks. Capturing one of them here would
+# publish every clinic's rows to every other clinic, and back to the clinic
+# that wrote them, through a source with no origin filter. Refused by name, so
+# the refusal holds even before the clinic's own list carries the table.
+never = sorted({'obs', 'orders', 'drug_order'} & {t.split('.')[-1] for t in inc.split(',')})
+if never:
+    sys.exit(
+        f"REFUSING to generate: the hub never publishes {never}: they are written at\n"
+        "  the clinics and reach the hub through its up sinks. Remove them from hub/tables.conf.")
+
 root = os.environ['ROOT']
 up = set()
 with open(os.path.join(root, 'sync', 'local', 'tables.conf')) as fh:
