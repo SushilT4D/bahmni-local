@@ -44,6 +44,13 @@ relayed one, a clinic capture row must be one a clinic writes (UP or relay).
 It names every row that breaks the rule and reads files only; run it after
 editing either list.
 
+**Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
+lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
+the row count and a checksum over every column of every row except those
+`hub/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
+and on a clinic seeded from it and compare the outputs: a row edited in place
+shows even when its id and uuid are unchanged. Read-only.
+
 **Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
 MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 `check-sink-tasks.sh`, `check-sink-connectors.sh`, `check-source-connectors.sh`,
