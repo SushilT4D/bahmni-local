@@ -11,7 +11,7 @@ ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"
-for f in hub/tables.conf sync/local/tables.conf sync/subsystems.conf \
+for f in hub/tables.conf sync/local/tables.conf sync/local/tables-conf.sh sync/subsystems.conf \
          clinic/scripts/generate-table-config.sh clinic/scripts/generate-local-sink-connectors.sh clinic/scripts/setup-mirrormaker.sh \
          clinic/config/mirrormaker/mm2.properties.template \
          sync/local/connectors/mysql-local-sink-connector.json.template \

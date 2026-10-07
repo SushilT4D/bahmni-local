@@ -7,6 +7,12 @@
 #   ALTER TABLE <t> AUTO_INCREMENT = 500004
 # Next ids on those tables: 500004, 500014, 500024, ...
 #
+# A table whose floor comes from the seed (tables.conf `table:pk:seed`) takes
+# it from SEED_MANIFEST's FLOOR_<TABLE>; with no such value the script stops
+# rather than stride the table from a guess. A table that reads another
+# table's floor (`table:pk:floor=<other>`) has no counter of its own and is
+# never altered.
+#
 # Usage:
 #   ./scripts/configure-pk-offsets.sh
 #   ./scripts/configure-pk-offsets.sh --dry-run
@@ -20,6 +26,9 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
 CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
 TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
+SEED_MANIFEST="${SEED_MANIFEST:-}"
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
 MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
 # MYSQL_CONTAINER: the exact container name, skipping the lookup below. Compose
 # names containers <project>-<service>-1 (podman-compose: <project>_<service>_1);
@@ -30,7 +39,7 @@ DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
-      sed -n '2,16p' "$0" | tr -d '#'
+      sed -n '2,22p' "$0" | tr -d '#'
       exit 0
       ;;
     --dry-run) DRY_RUN=true ;;
@@ -105,6 +114,7 @@ next_in_series() {
 [[ -f "${ENV_FILE}" ]] || fail "Missing ${ENV_FILE}"
 [[ -f "${CLINICS_FILE}" ]] || fail "Missing ${CLINICS_FILE}"
 [[ -f "${TABLES_FILE}" ]] || fail "Missing ${TABLES_FILE}"
+TABLE_RECS="$(up_tables_read "${TABLES_FILE}")" || fail "${TABLES_FILE} cannot be read as the clinic's table list (reason above)"
 command -v podman >/dev/null 2>&1 || fail "podman not found"
 
 BHS_LOCATION="$(env_value BHS_LOCATION)"
@@ -170,24 +180,25 @@ info "Updating AUTO_INCREMENT on tables from ${TABLES_FILE}"
 
 updated=0
 skipped=0
-while IFS= read -r line || [[ -n "$line" ]]; do
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${line// }" ]] && continue
+while read -r table pk kind floor_arg; do
+  [[ -n "${table}" ]] || continue
 
-  # Sync-only lines (table:pk) — no AUTO_INCREMENT base_id
-  if [[ "$line" =~ ^([^:]+):([^:]+)$ ]]; then
-    dim "Sync-only (no PK offset): ${BASH_REMATCH[1]}"
-    continue
-  fi
-
-  if [[ ! "$line" =~ ^([^:]+):([^:]+):([0-9]+)$ ]]; then
-    warn "Skipping malformed tables line: ${line}"
-    continue
-  fi
-
-  table="${BASH_REMATCH[1]}"
-  pk="${BASH_REMATCH[2]}"
-  base_id="${BASH_REMATCH[3]}"
+  case "${kind}" in
+    sync)
+      dim "Sync-only (no PK offset): ${table}"
+      continue ;;
+    floor)
+      # Its key is the other table's key (drug_order.order_id is an
+      # orders.order_id): there is no counter here to move.
+      dim "Shares ${floor_arg}'s key (no PK offset of its own): ${table}"
+      continue ;;
+    seed)
+      base_id="$(up_floor_of "${TABLES_FILE}" "${table}" "${SEED_MANIFEST}")" \
+        || fail "${table}: its floor comes from the seed, and SEED_MANIFEST (${SEED_MANIFEST:-unset}) does not carry it"
+      (( base_id % INCREMENT == 0 )) || fail "${table}: the seed floor ${base_id} is not a multiple of ${INCREMENT}, so floor + offset would not be on this clinic's residue"
+      ;;
+    *) base_id="${floor_arg}" ;;
+  esac
   target=$(( base_id + OFFSET ))
 
   exists="$(mysql_exec -e "SELECT COUNT(*) FROM information_schema.tables
@@ -208,7 +219,9 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   mysql_exec_sql "ALTER TABLE \`${table}\` AUTO_INCREMENT = ${start_id};"
   ok "${table}: AUTO_INCREMENT → ${start_id}  (base ${base_id} + offset ${OFFSET}; next ids ${start_id}, $((start_id + INCREMENT)), …)"
   updated=$((updated + 1))
-done < "${TABLES_FILE}"
+done <<EOF
+${TABLE_RECS}
+EOF
 
 echo ""
 ok "Done — ${updated} table(s) updated, ${skipped} skipped"

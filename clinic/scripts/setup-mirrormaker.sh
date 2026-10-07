@@ -86,12 +86,16 @@ SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
 
-# build_topic_pattern <server-name> <openmrs-tables.conf>
+# build_topic_pattern <server-name> <openmrs-tables.conf> [up]
 # Emits a MirrorMaker topics regex.  Dots are escaped for the regex, so a topic
-# name is matched literally rather than "." matching any character.
+# name is matched literally rather than "." matching any character.  `up` reads
+# the clinic's own list through sync/local/tables-conf.sh, the reader the
+# source connector uses too, so MirrorMaker forwards exactly the topics the
+# source writes; a list it refuses returns 2, which stops this script rather
+# than rendering a config that mirrors none of the clinic's tables.
 build_topic_pattern() {
-  local sn="$1" tconf="$2"
-  local aggs=() omrs=() subs=() line schema topic table
+  local sn="$1" tconf="$2" grammar="${3:-}"
+  local aggs=() omrs=() subs=() line schema topic table recs
 
   if [[ -f "${SUBSYSTEMS_CONF}" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -107,7 +111,17 @@ build_topic_pattern() {
     done < "${SUBSYSTEMS_CONF}"
   fi
 
-  if [[ -f "${tconf}" ]]; then
+  if [[ -f "${tconf}" && "${grammar}" == up ]]; then
+    # shellcheck source=../../sync/local/tables-conf.sh
+    . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+    recs="$(up_tables_read "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
+    while read -r table _rest; do
+      [[ -n "${table}" ]] || continue
+      omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")
+    done <<EOF
+${recs}
+EOF
+  elif [[ -f "${tconf}" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$line" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
@@ -123,7 +137,9 @@ build_topic_pattern() {
 }
 
 if [[ -z "${KAFKA_TOPIC_PATTERNS:-}" ]]; then
-  if KAFKA_TOPIC_PATTERNS="$(build_topic_pattern "${SERVER_NAME}" "${TABLES_CONF}")"; then
+  up_rc=0; KAFKA_TOPIC_PATTERNS="$(build_topic_pattern "${SERVER_NAME}" "${TABLES_CONF}" up)" || up_rc=$?
+  [[ "${up_rc}" -ne 2 ]] || exit 1
+  if [[ "${up_rc}" -eq 0 ]]; then
     export KAFKA_TOPIC_PATTERNS
     echo "✓ UP   topics ($(grep -o '|' <<<"${KAFKA_TOPIC_PATTERNS}" | wc -l | tr -d ' ') separators): ${SERVER_NAME}.*"
   fi

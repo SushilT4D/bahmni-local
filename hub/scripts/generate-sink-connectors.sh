@@ -37,6 +37,13 @@ CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 [ -f "${CLINICS_CONF}" ] || { echo "Error: ${CLINICS_CONF} not found"; exit 1; }
 [ -f "${ENV_FILE}" ]     || { echo "Error: .env not found"; exit 1; }
 
+# The clinic's list is read by the reader every script of it shares, so a line
+# the clinic captures is never one this generator skips: a skipped line is a
+# topic with no sink. A list it refuses stops the run before anything is written.
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+TABLE_RECS="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)"; exit 1; }
+
 set -a
 source "${ENV_FILE}"
 set +a
@@ -67,12 +74,8 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     echo "== ${clinic} (${mm_prefix}.${server_name}.${DATABASE_NAME}.*) =="
     count=0
 
-    while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// }" ]] && continue
-        [[ "$line" =~ ^([^:]+):([^:]+)(:([0-9]+))?$ ]] || continue
-        table="${BASH_REMATCH[1]}"
-        pk="${BASH_REMATCH[2]}"
+    while read -r table pk _kind _arg; do
+        [ -n "$table" ] || continue
 
         # A table appearing in BOTH directions is legitimate: ownership is per
         # ROW, and more than one node may write a table provided no two nodes
@@ -200,7 +203,9 @@ EOF
         echo "  ${connector_name}  <- ${topic}  (pk ${pk})"
         count=$((count + 1))
         total=$((total + 1))
-    done < "${TABLES_CONF}"
+    done <<TABLES
+${TABLE_RECS}
+TABLES
     echo "  ${count} sink(s) for ${clinic}"
 done < "${CLINICS_CONF}"
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Generate local Debezium source connector config from debezium/local/tables.conf.
+# Generate local Debezium source connector config from sync/local/tables.conf.
 #
-# tables.conf lines:
-#   table:pk:base_id   — included in CDC (base_id used only by configure-pk-offsets.sh)
-#   table:pk           — included in CDC only
+# Every table line is included in CDC; the third field (a floor, see the
+# format comment in tables.conf) is used by configure-pk-offsets.sh and the
+# capture filter, not here. The lines are read by sync/local/tables-conf.sh,
+# the reader every script of that file shares.
 #
 # Usage: ./scripts/generate-connectors.sh
 set -euo pipefail
@@ -46,19 +47,16 @@ export DATABASE_INCLUDE_LIST
 table_include_list=()
 kafka_topics=()
 
-while IFS= read -r line || [[ -n "$line" ]]; do
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${line// }" ]] && continue
-
-  # table:pk or table:pk:base_id
-  if [[ "$line" =~ ^([^:]+):([^:]+)(:([0-9]+))?$ ]]; then
-    table="${BASH_REMATCH[1]}"
-    table_include_list+=("${DATABASE_NAME}.${table}")
-    kafka_topics+=("${MYSQL_SERVER_NAME}.${DATABASE_NAME}.${table}")
-  else
-    echo "Warning: skipping malformed line: ${line}" >&2
-  fi
-done < "${TABLES_CONF}"
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
+while read -r table _pk _kind _arg; do
+  [[ -n "${table}" ]] || continue
+  table_include_list+=("${DATABASE_NAME}.${table}")
+  kafka_topics+=("${MYSQL_SERVER_NAME}.${DATABASE_NAME}.${table}")
+done <<EOF
+${recs}
+EOF
 
 [[ ${#table_include_list[@]} -gt 0 ]] || { echo "Error: no tables parsed from ${TABLES_CONF}"; exit 1; }
 
