@@ -38,4 +38,53 @@ DDL
 else
   ok_ "live PostgreSQL proof skipped (no psql / no ${db})"
 fi
+
+# --- MySQL: obs and orders start at the seed's floor plus the residue ----------
+# configure-pk-offsets.sh --dry-run against a stand-in for podman that answers
+# "the table exists" and MAX(pk) from MAX_<table>; residue 3, the seed's floors
+# 7,963,440 and 441,560.
+R="$(cd "${HERE}/../../.." && pwd)"
+T="$(mktemp -d)"
+mkdir -p "$T/bin"
+cat > "$T/bin/podman" <<'SH'
+#!/bin/sh
+for a; do sql="$a"; done
+case "$sql" in
+  *information_schema.tables*) echo 1 ;;
+  *MAX*) t=$(printf '%s' "$sql" | sed -n 's/.*FROM `\([a-z_]*\)`.*/\1/p'); eval "echo \${MAX_$t:-0}" ;;
+esac
+SH
+chmod +x "$T/bin/podman"
+printf 'BHS_LOCATION=alpha\nMYSQL_ROOT_PASSWORD=x\n' > "$T/env"; printf 'alpha:3\n' > "$T/ledger"
+printf 'FLOOR_OBS=7963440\nFLOOR_ORDERS=441560\n' > "$T/manifest.env"
+printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$T/tables.conf"
+stride(){ PATH="$T/bin:$PATH" ENV_FILE="$T/env" CLINICS_FILE="$T/ledger" TABLES_FILE="$T/tables.conf" MYSQL_CONTAINER=fake SEED_MANIFEST="$T/manifest.env" "$@" bash "$R/clinic/scripts/configure-pk-offsets.sh" --dry-run 2>&1; }
+out="$(stride env MAX_obs=7963430 MAX_orders=441550 MAX_drug_order=441550)"
+printf '%s' "$out" | grep -qF 'ALTER TABLE `obs` AUTO_INCREMENT = 7963443;' && ok_ "obs: seed max 7,963,430, floor 7,963,440, residue 3 -> 7,963,443" || bad "obs: $out"
+printf '%s' "$out" | grep -qF 'ALTER TABLE `orders` AUTO_INCREMENT = 441563;' && ok_ "orders: seed max 441,550, floor 441,560, residue 3 -> 441,563" || bad "orders: $out"
+printf '%s' "$out" | grep -q 'ALTER TABLE `drug_order`' && bad "drug_order is altered: $out" || ok_ "drug_order is never altered (it has no counter; its key is orders.order_id)"
+out="$(stride env MAX_obs=7963501 MAX_orders=441550)"
+printf '%s' "$out" | grep -qF 'ALTER TABLE `obs` AUTO_INCREMENT = 7963503;' && ok_ "obs above the floor in the seed: next in this residue's series above the max (7,963,503)" || bad "obs above floor: $out"
+out="$(stride env SEED_MANIFEST="$T/none.env")"
+printf '%s' "$out" | grep -q 'ALTER TABLE `obs`' && bad "obs strided with no manifest floor" || ok_ "no manifest floor: obs is not strided from a guess"
+printf 'FLOOR_OBS=7963445\nFLOOR_ORDERS=441560\n' > "$T/odd.env"
+out="$(stride env SEED_MANIFEST="$T/odd.env")"; 
+printf '%s' "$out" | grep -q 'not a multiple of 10' && ! printf '%s' "$out" | grep -q 'ALTER TABLE `obs`' && ok_ "a floor off the multiple of 10 stops striding" || bad "odd floor: $out"
+grep -q 'SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh' "${HERE}/../tasks/060-striding.sh" && ok_ "060 strides from the seed's manifest" || bad "060 does not pass the manifest"
+grep -q 'counter_floor_verdict' "${HERE}/../tasks/060-striding.sh" && grep -q 'counter_floor_verdict' "${HERE}/../tasks/100-exit-checks.sh" \
+  && ok_ "060 and the exit checks read the counters back against the floors" || bad "counters are not read back in 060 and 100"
+rm -rf "$T"
+
+# --- the counter check: next id at or above floor + residue -------------------
+CLINIC_DIR="$(mktemp -d)"; . "${HERE}/../lib.sh"; . "${HERE}/../state.sh"
+cv(){ counter_floor_verdict "$@" 2>&1; }
+out="$(cv obs 7963443 7963440 3)"; [ $? = 0 ] && [ "$out" = "ok obs next id 7963443, at or above floor 7963440 + residue 3" ] && ok_ "counter at floor + residue passes" || bad "at floor: $out"
+out="$(cv obs 7963451 7963440 3)"; [ $? = 0 ] && case "$out" in *"next id 7963453"*) true ;; *) false ;; esac && ok_ "a counter between two ids of the series: the next id is the series value above it" || bad "between: $out"
+out="$(cv obs 7963431 7963440 3)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in "the obs id counter is below this clinic's floor: the next obs id would be 7963433, and clinic-written obs ids start at 7963443"*) true ;; *) false ;; esac \
+  && ok_ "a counter below the floor is refused, the check named in words" || bad "below: rc=$rc $out"
+out="$(cv orders 1 441560 3)"; [ $? = 1 ] && ok_ "a seed-restored counter (max + 1) below the floor is refused" || bad "orders: $out"
+out="$(cv obs '' 7963440 3)"; [ $? = 1 ] && case "$out" in "could not read the obs id counter"*) true ;; *) false ;; esac && ok_ "a counter that could not be read is refused, not taken as zero" || bad "empty: $out"
+out="$(cv obs 7963443 '' 3)"; [ $? = 1 ] && case "$out" in "no obs floor is recorded"*) true ;; *) false ;; esac && ok_ "no recorded floor is refused" || bad "no floor: $out"
+rm -rf "$CLINIC_DIR"
 exit "$fails"
