@@ -3,7 +3,8 @@
 # rows files for the database, and a runtime and compose that log every call:
 # it fast-forwards clinic/forms and nothing else (a checkout with local edits
 # or commits the repo lacks is refused and left as it is), a concept finding
-# is a warning, found by the checker the node already runs, a published form
+# is a warning, found by the installer's checker (nothing from the forms repo
+# is executed), a published form
 # row without its file fails the run with the list, --dry-run changes nothing
 # and reads no database, one run at a time changes clinic/forms, the exit
 # code tells a schedule what happened, and OpenMRS is never restarted.
@@ -40,8 +41,12 @@ echo '{"name":"ANC"}' > "$W/clinical_forms/$U1.json"; echo '{}' > "$W/clinical_f
 # MANIFEST.tsv with one row per form version (file empty when it has none)
 H='form_name\tversion\tuuid\tpublished\tretired\tfile\tsource\texported_at\n'
 printf "${H}"'ANC\t2\t%s\t1\t1\t\thub\t2000-01-01T00:00:00Z\nANC\t3\t%s\t1\t0\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\n' "$U3" "$U1" "$U1" > "$W/MANIFEST.tsv"
-# a stand-in checker: refuses a wrong call, else says and exits what the test asks
-printf '#!/usr/bin/env bash\n[ "$1" = --known ] && [ -s "$2" ] && [ "$3" = --known-forms ] && [ -f "$4" ] || { echo "checker called as: $*"; exit 2; }\n[ -z "${CHECKER_SAY:-}" ] || echo "$CHECKER_SAY"\nexit "${CHECKER_RC:-0}"\n' > "$W/tools/check-concepts.sh"
+# a stand-in for the installer's checker: refuses a wrong call, else says and
+# exits what the test asks. The forms repo's own tools/check-concepts.sh must
+# never run: it leaves a mark if it does
+printf '#!/usr/bin/env bash\n[ "$1" = --repo ] && [ -f "$2/MANIFEST.tsv" ] && [ "$3" = --known ] && [ -s "$4" ] && [ "$5" = --known-forms ] && [ -f "$6" ] || { echo "checker called as: $*"; exit 2; }\n[ -z "${CHECKER_SAY:-}" ] || echo "$CHECKER_SAY"\nexit "${CHECKER_RC:-0}"\n' > "$TMP/checker"; chmod +x "$TMP/checker"
+export FORMS_CONCEPT_CHECKER="$TMP/checker" REPO_TOOL_RAN="$TMP/repo-tool-ran"
+printf '#!/usr/bin/env bash\ntouch "$REPO_TOOL_RAN"\necho "the forms repo checker ran"\n' > "$W/tools/check-concepts.sh"
 ( cd "$W" && git add -A && git commit -qm "ANC v3" && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
 push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin main ) || bad "fixture push: $1"; }
 printf 'c1\nc2\n' > "$TMP/concepts.txt"; printf '%s\n' "$U1" > "$TMP/published.txt"
@@ -77,8 +82,15 @@ out="$(run "$N0")"; rc=$?
   && ok_ "a lock held by a live run: exit 4, nothing changed, the other run's lock kept" || bad "held lock: rc=$rc out=$out"
 touch -t 202001010000 "$N0/.forms.lock"
 out="$(run "$N0")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'taking over .*older than 60 min' && [ ! -e "$N0/.forms.lock" ] && ok_ "a lock older than the stale limit is taken over" || bad "old lock: rc=$rc out=$out"
+[ "$rc" -eq 4 ] && [ "$(cat "$N0/.forms.lock/pid")" = "$live" ] && ok_ "a lock whose run is alive is never taken over, however old" || bad "old live lock: rc=$rc out=$out"
 kill "$live" 2>/dev/null; wait "$live" 2>/dev/null
+rm -f "$N0/.forms.lock/pid"; touch -t 202001010000 "$N0/.forms.lock"
+out="$(run "$N0")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'taking over .*names no run and is older than 60 min' && [ ! -e "$N0/.forms.lock" ] && ! ls -d "$N0"/.forms.lock.stale.* >/dev/null 2>&1 \
+  && ok_ "a lock naming no run, older than the stale limit, is taken over and nothing of it is left" || bad "old pidless lock: rc=$rc out=$out"
+rmdir "$N0/.forms.lock" 2>/dev/null; mkdir "$N0/.forms.lock"
+out="$(run "$N0")"; rc=$?
+[ "$rc" -eq 4 ] && rmdir "$N0/.forms.lock" && ok_ "a fresh lock naming no run yet (its run is starting) is left alone" || bad "fresh pidless lock: rc=$rc out=$out"
 mkdir "$N0/.forms.lock"; echo "$live" > "$N0/.forms.lock/pid"
 out="$(run "$N0")"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "the run that took it (pid $live) is gone" && [ ! -e "$N0/.forms.lock" ] && ok_ "a lock whose run is gone is taken over" || bad "dead lock: rc=$rc out=$out"
@@ -121,16 +133,15 @@ out="$(run "$N4" --dry-run)"; rc=$?
   && ok_ "--dry-run on a node with no clone yet shows the forms repo's manifest and leaves nothing behind" || bad "--dry-run, no clone: rc=$rc out=$out; left: $(ls -A "$N4")"
 
 # --- the update: fast-forward, warn on concepts, rows checked, no restart ---------------------------------
-# the incoming commit carries a checker of its own; the node runs the one it
-# already accepted, never code it has not taken yet
-printf '#!/usr/bin/env bash\necho "the incoming checker ran"\nexit 2\n' > "$W/tools/check-concepts.sh"; push "a checker this node has not accepted"
+# the incoming commit changes the forms repo's own tool; it is still never run
+printf '#!/usr/bin/env bash\ntouch "$REPO_TOOL_RAN"\necho "the incoming checker ran"\nexit 2\n' > "$W/tools/check-concepts.sh"; push "a changed tool in the forms repo"
 { r "$U1" ANC 3 1 1 "${P}$U1.json"; r "$U2" ANC 4 1 0 "${P}$U2.json"; } > "$TMP/rows2"
 : > "$FAKE_LOG"
 out="$(ROWS="$TMP/rows2" CHECKER_SAY="missing concept 9bb0795c-0000-0000-0000-000000000020 (ANC: Temperature)" CHECKER_RC=1 run "$N3")"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(git -C "$N3/forms" rev-parse HEAD)" = "$(git -C "$B" rev-parse main)" ] && ok_ "an update fast-forwards clinic/forms to the forms repo" || bad "update: rc=$rc out=$out"
 printf '%s' "$out" | grep -q '9bb0795c' && printf '%s' "$out" | grep -q 'WARN concept check (rc=1)' && ok_ "a concept the node lacks is a warning, named, and does not stop the update" || bad "concept warning: $out"
-! printf '%s' "$out" | grep -q 'the incoming checker ran' && printf '%s' "$out" | grep -q 'concept check, with the checker this node already runs' \
-  && ok_ "the concept check runs the checker this node already accepted, not the incoming commit's" || bad "which checker ran: $out"
+! printf '%s' "$out" | grep -q 'checker ran' && [ ! -e "$REPO_TOOL_RAN" ] \
+  && ok_ "the concept check runs the installer's checker; nothing from the forms repo is executed" || bad "which checker ran: $out"
 printf '%s' "$out" | grep -q "^    > ANC	4	$U2" && ok_ "the summary names what changed in MANIFEST.tsv" || bad "summary lacks the manifest change: $out"
 printf '%s' "$out" | grep -q 'row/file check: 1 published forms, 1 with their file, 0 missing; 0 files with no form row' && ok_ "the retired old version is not required; its file stays for old observations" || bad "row/file after update: $out"
 printf '%s' "$out" | grep -q 'concepts NOT checked' && bad "a check that ran is reported as not checked: $out" || ok_ "no 'concepts NOT checked' when the check ran"
@@ -163,14 +174,32 @@ out="$(ROWS="$TMP/rows3" run "$N6")"; rc=$?
 # --- a node taking the forms repo for the first time -------------------------------------------------------------
 N7="$TMP/n7"; mkdir -p "$N7/bahmni_home/clinical_forms/translations"; echo '{}' > "$N7/bahmni_home/clinical_forms/$U1.json"
 printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\n' "$B" > "$N7/.env"; : > "$FAKE_LOG"
-out="$(ROWS="$TMP/rows4" run "$N7")"; rc=$?
+out="$(ROWS="$TMP/rows4" CHECKER_RC=2 run "$N7")"; rc=$?
 envv(){ ( . "${HERE}/../lib.sh"; env_get "$1/.env" "$2" ); }
 [ "$rc" -eq 0 ] && [ -d "$N7/forms/.git" ] && [ "$(envv "$N7" FORMS_DIR)" = "$N7/forms/clinical_forms" ] && [ "$(envv "$N7" FORMS_READ_ONLY)" = true ] \
   && printf '%s' "$out" | grep -q 'reads the old folder until it is recreated' && printf '%s' "$out" | grep -q 'clinic/scripts/recreate-openmrs.sh' && [ -z "$(restarts)" ] \
   && ok_ "first run with a forms repo: clones it, points clinic/.env at it read-only, names recreate-openmrs.sh, recreates nothing" || bad "adoption: rc=$rc out=$out env=$(cat "$N7/.env") calls=$(restarts)"
-printf '%s' "$out" | grep -q "with the incoming commit's own checker: this is the first clone" && ok_ "the first clone runs the incoming checker, and says so" || bad "first-clone checker: $out"
-# the incoming checker above exits 2: the summary says so, for a log grep
+[ ! -e "$REPO_TOOL_RAN" ] && ok_ "the first clone executes nothing from the forms repo either" || bad "the forms repo's tool ran on the first clone: $out"
+# the checker above exits 2: the summary says so, for a log grep
 printf '%s' "$out" | sed -n '/^summary$/,$p' | grep -q 'WARN concepts NOT checked' && ok_ "a checker that cannot run puts 'concepts NOT checked' in the summary" || bad "summary lacks 'concepts NOT checked': $out"
+
+# --- a commit carrying a symlink is refused: OpenMRS would follow it -------------------------------------------
+NS="$TMP/ns"; node "$NS"; before="$(state "$NS")"
+ln -s /proc/self/environ "$W/clinical_forms/44444444-4444-4444-4444-444444444444.json"; push "a symlinked form"
+out="$(run "$NS")"; rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'carries symlinks (clinical_forms/44444444' && [ "$(state "$NS")" = "$before" ] \
+  && ok_ "an update whose commit carries a symlink is refused (exit 1), clinic/forms left as it was" || bad "symlink update: rc=$rc out=$out"
+NT="$TMP/nt"; mkdir -p "$NT"; printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=%s\n' "$B" > "$NT/.env"
+out="$(run "$NT")"; rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -q 'carries symlinks' && [ ! -e "$NT/forms" ] && ! ls -d "$NT"/.forms.new.* >/dev/null 2>&1 \
+  && ok_ "a first clone of a repo carrying a symlink is refused, nothing left behind" || bad "symlink clone: rc=$rc out=$out; left: $(ls -A "$NT")"
+git -C "$W" rm -q "clinical_forms/44444444-4444-4444-4444-444444444444.json"; ( cd "$W" && git commit -qm "symlink removed" && git push -q origin main ) || bad "fixture: remove the symlink"
+
+# --- the old mount setting is removed -------------------------------------------------------------------------------
+printf 'FORMS_MOUNT_MODE=ro\n' >> "$N0/.env"
+out="$(run "$N0")"; rc=$?
+[ "$rc" -eq 0 ] && ! grep -q '^FORMS_MOUNT_MODE=' "$N0/.env" && grep -q '^FORMS_READ_ONLY=true' "$N0/.env" && printf '%s' "$out" | grep -q 'removed FORMS_MOUNT_MODE' \
+  && ok_ "the old FORMS_MOUNT_MODE key is removed from clinic/.env, FORMS_READ_ONLY kept" || bad "FORMS_MOUNT_MODE: rc=$rc out=$out env=$(cat "$N0/.env")"
 
 # --- usage --------------------------------------------------------------------------------------------------------
 out="$(run "$N0" --restart)"; rc=$?

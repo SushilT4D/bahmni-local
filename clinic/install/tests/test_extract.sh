@@ -26,6 +26,9 @@ case "$1" in
   create) img="${@: -1}"; echo "cid-$(san "$img")" ;;
   cp) src="$2"; dst="$3"; cid="${src%%:*}"; p="${src#*:}"; p="${p%/.}"; [ -d "$FAKE_ROOT/${cid#cid-}$p" ] || exit 1; mkdir -p "$dst"; cp -R "$FAKE_ROOT/${cid#cid-}$p/." "$dst/" ;;
   rm) : ;;
+  # an openmrs container of this node exists when FAKE_OPENMRS=1, created with FAKE_OPENMRS_OPTS
+  ps) [ "${FAKE_OPENMRS:-}" = 1 ] && echo cid-openmrs; exit 0 ;;
+  inspect) [ "${FAKE_OPENMRS:-}" = 1 ] || exit 1; printf 'PATH=/usr/bin\nOMRS_JAVA_SERVER_OPTS=%s\n' "${FAKE_OPENMRS_OPTS:-}" ;;
   *) exit 2 ;;
 esac
 SH
@@ -61,7 +64,7 @@ cat > "$C/etc/bahmni_config/openmrs/apps/home/extension.json" <<'JSON'
 {"implementerInterface":{"id":"bahmni.implementer.interface","type":"link","url":"/implementer-interface","order":4},
  "registration":{"id":"bahmni.registration","type":"link","url":"/bahmni/registration/index.html","order":1}}
 JSON
-run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" LAN_NAME="${LAN-bahmni.clinic}" bash "$S" "$@" 2>&1; }
+run(){ env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" FAKE_OPENMRS="${FAKE_OPENMRS-}" FAKE_OPENMRS_OPTS="${FAKE_OPENMRS_OPTS-}" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE="${WEB:-acme/web:1}" BAHMNI_CONFIG_IMAGE="${CFG:-acme/config:1}" MRN_PREFIX="${PFX-MAN}" LAN_NAME="${LAN-bahmni.clinic}" bash "$S" "$@" 2>&1; }
 X="$TMP/clinic/extracted"
 
 out="$(run)"; rc=$?
@@ -164,4 +167,26 @@ out="$(CFG=acme/config:htmlforms run)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'the config tree in extracted/ (acme/config:htmlforms) would load rows the hub owns' && ok_ "the skip path refuses a tree in place that would load rows the hub owns" || bad "skip path with htmlforms in place: rc=$rc out=$out"
 out="$(run --force)"; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$X/bahmni_config/masterdata/configuration/htmlforms" ] && ok_ "a good image replaces it again" || bad "back to the good image: rc=$rc out=$out"
+
+# the openmrs container's own list: clinic/.env already holds the inclusion
+# list, but the container was created with an exclusion list, which a plain
+# restart would start it with on the new tree
+printf 'OPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen\n' > "$TMP/clinic/.env"
+src0="$(cat "$X/.source")"
+out="$(FAKE_OPENMRS=1 FAKE_OPENMRS_OPTS='-Xmx2g -Dinitializer.domains=!bahmniforms' CFG=acme/config:htmlforms run)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'the openmrs container was created with a different Initializer domain list' && printf '%s' "$out" | grep -q 'Run scripts/recreate-openmrs.sh first' \
+  && [ "$(cat "$X/.source")" = "$src0" ] && ok_ "a tree the running openmrs container's own list would load from is refused, naming recreate-openmrs.sh; extracted/ unchanged" || bad "container list: rc=$rc out=$out"
+out="$(FAKE_OPENMRS=1 FAKE_OPENMRS_OPTS='-Dinitializer.domains=!bahmniforms -Dinitializer.domains=globalproperties,idgen' CFG=acme/config:htmlforms run)"; rc=$?
+[ "$rc" -eq 0 ] && [ -d "$X/bahmni_config/masterdata/configuration/htmlforms" ] && ! printf '%s' "$out" | grep -q 'running openmrs container' \
+  && ok_ "a container created with the same list (the last -D, as Java reads it) adds no second check" || bad "same list: rc=$rc out=$out"
+out="$(FAKE_OPENMRS=1 FAKE_OPENMRS_OPTS='-Xmx2g' run --force)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'the openmrs container was created with a different Initializer domain list' \
+  && ok_ "a container created with no domain list loads every domain, and is judged so" || bad "no -D in the container: rc=$rc out=$out"
+out="$(FAKE_OPENMRS=1 FAKE_OPENMRS_OPTS='-Dinitializer.domains=globalproperties,idgen' run --force)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "with the container on the same list as clinic/.env, the good image is taken" || bad "container agrees: rc=$rc out=$out"
+# a duplicated key in clinic/.env: the last line wins, as compose and the shell read it
+printf "OPENMRS_INITIALIZER_DOMAINS='!bahmniforms'\nOPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen\n" > "$TMP/clinic/.env"
+out="$(CFG=acme/config:htmlforms run --force)"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'initializer domains: inclusion list' && ok_ "a duplicated OPENMRS_INITIALIZER_DOMAINS in clinic/.env is read as its last line" || bad "duplicate key: rc=$rc out=$out"
+rm -f "$TMP/clinic/.env"
 exit "$fails"

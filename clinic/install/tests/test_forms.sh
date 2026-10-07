@@ -212,8 +212,9 @@ N2="$TMP/n2"; mkdir -p "$N2"; printf 'COMPOSE_PROJECT_NAME=bahmni-t\n' > "$N2/.e
 out="$(t075 "$N2" install)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'bahmni_home/clinical_forms does not exist' && ok_ "no forms repo and no frozen copy: 075 refuses" || bad "no frozen copy: rc=$rc out=$out"
 
-# a forms repo. Its checker is a stand-in that records its arguments and says
-# and exits what the test asks (CHECKER_SAY, CHECKER_RC)
+# a forms repo. The concept checker is a stand-in that records its arguments
+# and says and exits what the test asks (CHECKER_SAY, CHECKER_RC). The forms
+# repo carries a tools/check-concepts.sh of its own, which must never run
 B="$TMP/forms.git"; W="$TMP/work"
 git -c init.defaultBranch=main init -q --bare "$B"
 git -c init.defaultBranch=main init -q "$W"; mkdir -p "$W/clinical_forms/translations" "$W/tools"
@@ -223,7 +224,9 @@ echo '{"name":"Vitals"}' > "$W/clinical_forms/$U1.json"; echo '{}' > "$W/clinica
 printf 'form_name\tversion\tuuid\tpublished\tretired\tfile\tsource\texported_at\n' > "$W/MANIFEST.tsv"
 printf 'Vitals\t1\t%s\t1\t1\t\thub\t2000-01-01T00:00:00Z\n' "$U3" >> "$W/MANIFEST.tsv"
 printf 'Vitals\t2\t%s\t1\t0\tclinical_forms/%s.json\thub\t2000-01-01T00:00:00Z\n' "$U1" "$U1" >> "$W/MANIFEST.tsv"
-printf '#!/usr/bin/env bash\necho "$*" > "$CHECKER_ARGS"\n[ -z "${CHECKER_SAY:-}" ] || echo "$CHECKER_SAY"\nexit "${CHECKER_RC:-0}"\n' > "$W/tools/check-concepts.sh"
+printf '#!/usr/bin/env bash\necho "$*" > "$CHECKER_ARGS"\n[ -z "${CHECKER_SAY:-}" ] || echo "$CHECKER_SAY"\nexit "${CHECKER_RC:-0}"\n' > "$TMP/checker"; chmod +x "$TMP/checker"
+export FORMS_CONCEPT_CHECKER="$TMP/checker" REPO_TOOL_RAN="$TMP/repo-tool-ran"
+printf '#!/usr/bin/env bash\ntouch "$REPO_TOOL_RAN"\n' > "$W/tools/check-concepts.sh"
 ( cd "$W" && git add -A && git commit -qm one && git remote add origin "$B" && git push -q origin main ) || bad "fixture repo"
 push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin main ) || bad "fixture push: $1"; }
 printf 'c1\nc2\n' > "$TMP/concepts.txt"; printf '%s\n' "$U1" > "$TMP/published.txt"
@@ -248,6 +251,11 @@ N8="$TMP/n8"; node "$N8"; mkdir -p "$TMP/run/keys"; echo k > "$TMP/run/keys/k"; 
 out="$(cd "$TMP/run" && t075 "$N8" install FORMS_REPO_URL="$B" FORMS_REPO_KEY=keys/k)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(envv "$N8" FORMS_REPO_KEY)" = "$(cd "$TMP/run" && pwd -P)/keys/k" ] && ok_ "a relative FORMS_REPO_KEY is kept in clinic/.env as an absolute path" || bad "relative key: rc=$rc out=$out env=$(cat "$N8/.env")"
 
+# a symlink in the forms folder is refused before OpenMRS starts on it
+FS="$TMP/fs"; mkdir -p "$FS/translations"; echo '{}' > "$FS/$U1.json"; ln -s /proc/self/environ "$FS/$U2.json"
+v="$( . "${HERE}/../lib.sh" >/dev/null 2>&1; . "${HERE}/../forms.sh"; forms_folder_verdict "$FS")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$v" | grep -q 'holds a symlink' && ok_ "a forms folder holding a symlink is refused" || bad "symlink folder: rc=$rc v=$v"
+
 # seed: concepts warn, rows gate
 seed75(){ local d="$1" rows="$2"; shift 2; t075 "$d" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" FORMS_ROWS_FILE="$rows" "$@"; }
 echo '{"name":"ANC"}' > "$W/clinical_forms/$U2.json"
@@ -256,7 +264,8 @@ push "ANC v5"
 out="$(seed75 "$N3" "$TMP/rows-seed" CHECKER_SAY="missing concept 9bb0795c-0000-0000-0000-000000000020 (ANC: Temperature)" CHECKER_RC=1)"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '9bb0795c' && printf '%s' "$out" | grep -q 'WARN concept check (rc=1)' && [ "$(git -C "$N3/forms" rev-parse HEAD)" = "$(git -C "$B" rev-parse main)" ] \
   && ok_ "seed: a failing concept check is a warning, named; the forms are taken" || bad "seed concept warning: rc=$rc out=$out"
-grep -qE -- '^--known [^ ]+ --known-forms [^ ]+$' "$CHECKER_ARGS" 2>/dev/null && ok_ "the checker is called as --known <concepts> --known-forms <forms>" || bad "checker args: $(cat "$CHECKER_ARGS" 2>/dev/null)"
+grep -qE -- '^--repo [^ ]+ --known [^ ]+ --known-forms [^ ]+$' "$CHECKER_ARGS" 2>/dev/null && ok_ "the checker is called as --repo <tree> --known <concepts> --known-forms <forms>" || bad "checker args: $(cat "$CHECKER_ARGS" 2>/dev/null)"
+[ ! -e "$REPO_TOOL_RAN" ] && ok_ "nothing from the forms repo is executed (its own tools/check-concepts.sh never runs)" || bad "the forms repo's tool ran"
 printf '%s' "$out" | grep -q 'ok   row/file check: 2 published forms, 2 with their file, 0 missing' && ok_ "seed: every published row has its file in the clone" || bad "seed row/file pass: $out"
 echo '{"name":"ANC","v":6}' > "$W/clinical_forms/$U3.json"; push "ANC v6"
 out="$(seed75 "$N3" "$TMP/rows-seed" CHECKER_SAY="usage: check-concepts.sh --known <file> [--known-forms <file>]" CHECKER_RC=2)"; rc=$?

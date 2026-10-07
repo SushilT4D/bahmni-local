@@ -21,9 +21,8 @@
 # With a forms repo configured (FORMS_REPO_URL, FORMS_REPO_KEY), clinic/forms
 # is a clone of it, made and fast-forwarded with git using the deploy key by
 # path, and the forms folder is clinic/forms/clinical_forms, read-only. The
-# repo holds clinical_forms/<uuid>.json, clinical_forms/translations/,
-# MANIFEST.tsv and tools/check-concepts.sh, and only ever adds files: an old
-# version's file stays, because saved observations still open with it. So a
+# repo holds clinical_forms/<uuid>.json, clinical_forms/translations/ and
+# MANIFEST.tsv, and only ever adds files: an old version's file stays, because saved observations still open with it. So a
 # clone newer than the database is always safe, and an older one is caught by
 # the row/file check. One run at a time changes clinic/forms: a lock
 # (clinic/.forms.lock) is taken around the clone or fast-forward.
@@ -31,20 +30,16 @@
 # With none configured, the forms folder is the frozen copy tracked in this
 # repo, clinic/bahmni_home/clinical_forms, read-write. clinic/forms is unused.
 #
-# The forms repo's concept check is called as
-#   tools/check-concepts.sh --known <concepts> --known-forms <forms>
-# from the root of a copy of the incoming tree: <concepts> holds every concept
-# uuid that exists and is not retired in this node's OpenMRS, <forms> every
-# form uuid published and not retired there, one per line. The checker is
-# code from the forms repo and runs as the installer user, so the copy's
-# tools/ is the one this node already accepted (the current clone's), never
-# the incoming commit's; only the first clone, with nothing accepted yet, runs
-# the incoming commit's own, and says so. Write access to the forms repo is
-# therefore still trusted once, at the first clone. Its findings are
-# warnings: a form missing a concept opens with a field that saves nothing,
-# and the fix is to deliver the concept the way the hub got it, not to hold
-# the form back, whose rows arrive by sync either way. When the check cannot
-# run, the run says "concepts NOT checked".
+# The concept check is this repo's check-form-concepts.py, run on a copy of
+# the incoming tree with <concepts> (every concept uuid that exists and is not
+# retired in this node's OpenMRS) and <forms> (every form uuid published and
+# not retired there). The forms repo is data to a clinic: its files are read
+# and mounted read-only, and nothing in it is executed, so write access to it
+# cannot run code on a clinic. The check's findings are warnings: a form
+# missing a concept opens with a field that saves nothing, and the fix is to
+# deliver the concept the way the hub got it, not to hold the form back, whose
+# rows arrive by sync either way. When the check cannot run, the run says
+# "concepts NOT checked".
 #
 # The row/file check is the gate: every published, unretired form must have a
 # pointer row, its pointer must be a plain path inside the forms folder, and
@@ -77,13 +72,22 @@ forms_mount_word(){ if [ "$1" = true ]; then echo read-only; else echo read-writ
 # the translations/ folder the second mount takes. The mounts refuse a missing
 # source, so OpenMRS would not start.
 forms_folder_verdict(){
-  local d="$1" n
+  local d="$1" n l
   [ -d "$d" ] || { printf '%s does not exist, so OpenMRS would not start (its forms mount refuses a missing folder). Installer task 075 sets it up (a clone of the forms repo, or the frozen copy); on a running node, clinic/scripts/update-forms.sh does.\n' "$d"; return 1; }
+  # a symlink in the forms folder is followed inside the container, read-only
+  # mount or not: a form "file" pointing at /proc/self/environ would serve
+  # OpenMRS's environment, passwords included, to anyone opening the form
+  l="$(find "$d" -type l 2>/dev/null | head -1)"
+  [ -z "$l" ] || { printf '%s holds a symlink (%s); a form file must be a plain file, so OpenMRS does not start on it\n' "$d" "$l"; return 1; }
   [ -d "$d/translations" ] || { printf '%s has no translations/ folder, which OpenMRS mounts for the form translations. The forms repo must carry clinical_forms/translations/.\n' "$d"; return 1; }
   n="$(find "$d" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')"
   [ "${n:-0}" -gt 0 ] || { printf '%s holds no form file (*.json), so every form would fail to open.\n' "$d"; return 1; }
   printf 'ok %s form files in %s\n' "$n" "$d"
 }
+
+# forms_tree_symlinks GITDIR REV : prints the paths REV of the clone at GITDIR
+# carries as symlinks (none for a forms repo; see forms_folder_verdict)
+forms_tree_symlinks(){ git -C "$1" ls-tree -r "$2" | awk -F'\t' '$1 ~ /^120000 / {print $2}'; }
 
 # forms_mount_verdict DIR READ_ONLY URL : the forms mount docker-compose.yml
 # will make from clinic/.env (FORMS_DIR, FORMS_READ_ONLY, FORMS_REPO_URL) is
@@ -134,7 +138,7 @@ forms_key_verdict(){
 # host's key in this user's ~/.ssh/known_hosts before the first run to pin it.
 forms_git(){
   if [ -n "${FORMS_REPO_KEY:-}" ]; then
-    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -i ${FORMS_REPO_KEY} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new" git "$@"
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -i ${FORMS_REPO_KEY} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4" git "$@"
   else
     GIT_TERMINAL_PROMPT=0 git "$@"
   fi
@@ -173,33 +177,21 @@ forms_known_forms(){
   forms_sql 'select uuid from form where published=1 and retired=0' > "$1" 2>/dev/null
 }
 
-# forms_concept_warn TREE [ACCEPTED] : runs the concept check on TREE, a copy
-# of the incoming forms, against this node's concepts and published forms,
-# and shows what it finds. The checker is ACCEPTED's tools/ (the clone this
-# node already runs), copied over TREE's; with no ACCEPTED (the first clone)
-# it is TREE's own. Never stops anything: every finding is a WARN. Sets
-# FORMS_CONCEPTS_UNCHECKED=1 when the concepts could not be checked.
+# forms_concept_warn TREE : runs the concept check on TREE, a copy of the
+# incoming forms, against this node's concepts and published forms, and shows
+# what it finds. The checker is this repo's check-form-concepts.py, which
+# reads TREE as data; nothing in the forms repo is executed. Never stops
+# anything: every finding is a WARN. Sets FORMS_CONCEPTS_UNCHECKED=1 when the
+# concepts could not be checked.
 forms_concept_warn(){
-  local tree="$1" accepted="${2:-}" known kforms rc=0 out how
-  if [ -n "$accepted" ]; then
-    if [ ! -f "$accepted/tools/check-concepts.sh" ]; then
-      FORMS_CONCEPTS_UNCHECKED=1
-      warn "concept check: the forms this node runs carry no tools/check-concepts.sh, and an incoming checker is not run before it is accepted; concepts NOT checked"
-      return 0
-    fi
-    rm -rf "$tree/tools"; cp -R "$accepted/tools" "$tree/tools"
-    how="with the checker this node already runs ($(git -C "$accepted" rev-parse --short HEAD 2>/dev/null || echo 'clinic/forms'))"
-  else
-    how="with the incoming commit's own checker: this is the first clone, so this node has accepted none yet"
-  fi
-  [ -f "$tree/tools/check-concepts.sh" ] || { FORMS_CONCEPTS_UNCHECKED=1; warn "concept check: the forms repo has no tools/check-concepts.sh; concepts NOT checked"; return 0; }
-  info "concept check, ${how}:"
+  local tree="$1" known kforms rc=0 out
+  info "concept check:"
   known="$(mktemp "${TMPDIR:-/tmp}/forms-concepts.XXXXXX")"; kforms="$(mktemp "${TMPDIR:-/tmp}/forms-published.XXXXXX")"
   if ! forms_known_concepts "$known" || [ ! -s "$known" ]; then
     rm -f "$known" "$kforms"; FORMS_CONCEPTS_UNCHECKED=1; warn "concept check: could not read this node's concepts; concepts NOT checked"; return 0
   fi
   forms_known_forms "$kforms" || : > "$kforms"
-  out="$( cd "$tree" && bash tools/check-concepts.sh --known "$known" --known-forms "$kforms" 2>&1 )" || rc=$?
+  out="$( "${FORMS_CONCEPT_CHECKER:-${INSTALL_DIR}/check-form-concepts.py}" --repo "$tree" --known "$known" --known-forms "$kforms" 2>&1 )" || rc=$?
   rm -f "$known" "$kforms"
   [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'
   # the checker's exits: 0 nothing blocked, 1 a form misses concepts, 2 it could not run
@@ -213,10 +205,15 @@ forms_concept_warn(){
 }
 
 # forms_lock / forms_unlock : one run at a time changes clinic/forms. The lock
-# is a directory beside it holding the owner's pid. A lock whose pid is gone,
-# or older than FORMS_LOCK_STALE_MIN minutes (default 60), is taken over.
-# forms_lock returns FORMS_RC_BUSY, with the FAIL line, when another run
-# holds it.
+# is a directory beside it holding the owner's pid. A lock whose pid is gone is
+# taken over; one whose run is alive is never taken, however old (git's ssh
+# gives up on a stalled connection, so a live run ends). A lock with no pid
+# (its run died before writing one) is taken over once older than
+# FORMS_LOCK_STALE_MIN minutes (default 60). Taking over renames the old lock
+# aside first, which only one run can do, and checks that what it renamed is
+# the lock it judged, so two runs that both judge it stale never both hold it.
+# A run that hangs keeps its lock until it is ended. forms_lock returns
+# FORMS_RC_BUSY, with the FAIL line, when another run holds it.
 forms_lock_dir(){ printf '%s\n' "${FORMS_LOCK:-$(dirname "${FORMS_CLONE_DIR}")/.forms.lock}"; }
 forms_lock(){
   local l pid i
@@ -224,15 +221,25 @@ forms_lock(){
   for i in 1 2 3; do
     if mkdir "$l" 2>/dev/null; then printf '%s\n' "$$" > "$l/pid"; return 0; fi
     pid="$(cat "$l/pid" 2>/dev/null || true)"
-    if [ -n "$(find "$l" -maxdepth 0 -mmin "+${FORMS_LOCK_STALE_MIN:-60}" 2>/dev/null)" ]; then
-      warn "taking over ${l}: older than ${FORMS_LOCK_STALE_MIN:-60} min (pid ${pid:-unknown})"
-    elif [ -n "$pid" ] && ! ps -p "$pid" >/dev/null 2>&1; then
+    if [ -n "$pid" ] && ! ps -p "$pid" >/dev/null 2>&1; then
       warn "taking over ${l}: the run that took it (pid ${pid}) is gone"
+    elif [ -z "$pid" ] && [ -n "$(find "$l" -maxdepth 0 -mmin "+${FORMS_LOCK_STALE_MIN:-60}" 2>/dev/null)" ]; then
+      warn "taking over ${l}: it names no run and is older than ${FORMS_LOCK_STALE_MIN:-60} min"
     else
       printf '  FAIL another run is changing clinic/forms (pid %s holds %s); this run changed nothing. It runs again on the next schedule, or by hand once that run ends\n' "${pid:-starting}" "$l" >&2
       return "$FORMS_RC_BUSY"
     fi
-    rm -rf "$l"
+    # Only one run can rename it; a run that loses the rename tries mkdir again.
+    # What was renamed must be the lock judged above: if another run took over
+    # first and made a fresh lock in between, it is put back and this run backs off.
+    if mv "$l" "${l}.stale.$$" 2>/dev/null; then
+      if [ "$(cat "${l}.stale.$$/pid" 2>/dev/null || true)" != "$pid" ]; then
+        { [ ! -e "$l" ] && mv "${l}.stale.$$" "$l"; } 2>/dev/null || rm -rf "${l}.stale.$$"
+        printf '  FAIL another run took over %s first; this run changed nothing\n' "$l" >&2
+        return "$FORMS_RC_BUSY"
+      fi
+      rm -rf "${l}.stale.$$"
+    fi
   done
   printf '  FAIL could not take %s\n' "$l" >&2
   return "$FORMS_RC_BUSY"
@@ -292,6 +299,8 @@ _forms_sync(){
       v="$(forms_upstream_verdict "${FORMS_CLONE_DIR}")" || fail "$v"
       FORMS_NEW_REV="$(git -C "${FORMS_CLONE_DIR}" rev-parse '@{u}')"
       if [ "$v" = uptodate ]; then ok "forms repo: clinic/forms is at $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD), what the forms repo holds"; return 0; fi
+      v="$(forms_tree_symlinks "${FORMS_CLONE_DIR}" '@{u}' | head -3 | tr '\n' ' ')"
+      [ -z "$v" ] || fail "the forms repo's latest commit carries symlinks (${v}); a form file must be a plain file (a symlink would be followed inside OpenMRS). clinic/forms is left as it was; fix the forms repo"
       if [ "$dry" = 1 ]; then
         info "would: fast-forward clinic/forms $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD) -> $(git -C "${FORMS_CLONE_DIR}" rev-parse --short '@{u}'):"
         git -C "${FORMS_CLONE_DIR}" log --oneline 'HEAD..@{u}' | sed 's/^/    /'
@@ -304,7 +313,7 @@ _forms_sync(){
       if [ "$check" = 1 ]; then
         tmp="$(mktemp -d "${TMPDIR:-/tmp}/forms-incoming.XXXXXX")"
         git -C "${FORMS_CLONE_DIR}" archive '@{u}' | tar -x -C "$tmp"
-        forms_concept_warn "$tmp" "${FORMS_CLONE_DIR}"
+        forms_concept_warn "$tmp"
         rm -rf "$tmp"
       fi
       git -C "${FORMS_CLONE_DIR}" merge --quiet --ff-only '@{u}' || fail "could not fast-forward clinic/forms"
@@ -315,6 +324,8 @@ _forms_sync(){
       tmp="$(mktemp -d "${parent}/.forms.new.XXXXXX")"
       if ! forms_git clone --quiet "$url" "$tmp/forms"; then rm -rf "$tmp"; forms_fail "$FORMS_RC_OFFLINE" "could not clone the forms repo (${url}); check the network and the deploy key"; fi
       FORMS_NEW_REV="$(git -C "$tmp/forms" rev-parse HEAD)"
+      v="$(forms_tree_symlinks "$tmp/forms" HEAD | head -3 | tr '\n' ' ')"
+      [ -z "$v" ] || { rm -rf "$tmp"; fail "the forms repo carries symlinks (${v}); a form file must be a plain file (a symlink would be followed inside OpenMRS). Nothing was cloned; fix the forms repo"; }
       if [ "$dry" = 1 ]; then
         info "would: clone the forms repo into clinic/forms at $(git -C "$tmp/forms" rev-parse --short HEAD); its MANIFEST.tsv:"
         sed 's/^/    /' "$tmp/forms/MANIFEST.tsv" 2>/dev/null || info "  (no MANIFEST.tsv)"

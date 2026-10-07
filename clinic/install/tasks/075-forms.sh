@@ -40,6 +40,8 @@ forms_sync "$check" 0
 dir="$(forms_folder_for "${FORMS_REPO_URL}")"; ro="$(forms_read_only_for "${FORMS_REPO_URL}")"
 v="$(forms_folder_verdict "$dir")" || fail "$v"
 env_put "$E" FORMS_DIR "$dir"; env_put "$E" FORMS_READ_ONLY "$ro"
+# FORMS_MOUNT_MODE was the mount setting before FORMS_READ_ONLY; compose no longer reads it
+grep -q '^FORMS_MOUNT_MODE=' "$E" && { env_del "$E" FORMS_MOUNT_MODE; info "removed FORMS_MOUNT_MODE from clinic/.env: FORMS_READ_ONLY replaces it"; }
 if [ -n "${FORMS_REPO_URL}" ]; then ok "forms: ${v#ok }, mounted read-only (the forms repo's clone)"
 else ok "forms: ${v#ok }, mounted read-write (no forms repo configured: the frozen copy)"; fi
 if [ "$check" = 1 ]; then

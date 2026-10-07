@@ -148,8 +148,7 @@ author them:
   `clinical_forms/<uuid>.json`, `clinical_forms/translations/<uuid>.json`,
   `MANIFEST.tsv` (one row per form version: `form_name`, `version`, `uuid`,
   `published`, `retired`, `file`, empty for a version with no file, `source`,
-  `exported_at`) and `tools/check-concepts.sh`, exported from the hub's forms
-  folder. It only ever adds files: an old version's file stays, because
+  `exported_at`), exported from the hub's forms folder. It only ever adds files: an old version's file stays, because
   observations saved with it still open with it. Task 075 clones it into
   `clinic/forms` (node-local, gitignored), and the openmrs service mounts
   `clinic/forms/clinical_forms` at `/home/bahmni/clinical_forms`, and its
@@ -181,11 +180,12 @@ a relative path in the answers is kept as an absolute one, from where the
 installer runs. Git trusts the git host's key the first time it sees it; to pin
 it, put the host's key in the installing user's `~/.ssh/known_hosts` first.
 
-The forms repo's `tools/check-concepts.sh` is code, run as the installer user.
-A node runs the copy it already accepted (its current clone's) against
-incoming forms, never the incoming commit's; only the first clone runs the
-incoming one, and says so. Write access to the forms repo is therefore trusted
-at a clinic's first clone.
+The forms repo is data to a clinic: its files are read and mounted
+read-only (a commit carrying a symlink is refused, since OpenMRS would
+follow it), and nothing in it is executed (anything else the repo carries,
+such as its own tools, is never run here). The concept check below is this
+repo's `check-form-concepts.py`. Write access to the forms repo therefore
+decides which forms a clinic shows, but cannot run code on a clinic.
 
 **Without a forms repo** (both empty) the node mounts the frozen copy tracked
 in this repo, `clinic/bahmni_home/clinical_forms`, read-write. That is a
@@ -204,12 +204,11 @@ or after an hour); a clone an earlier run did not finish
 
 After the database is restored, task 075:
 
-1. runs the forms repo's concept check on the incoming tree,
+1. runs the concept check on a copy of the incoming tree,
 
-       tools/check-concepts.sh --known <concepts> --known-forms <forms>
+       check-form-concepts.py --repo <tree> --known <concepts> --known-forms <forms>
 
-   from its root, with the checker the node already runs (see above) and two
-   lists read from this node's OpenMRS (SELECT only): every concept uuid that
+   with two lists read from this node's OpenMRS (SELECT only): every concept uuid that
    exists and is not retired, and every form uuid that is published and not
    retired, one per line. The checker exits 0 when nothing is missing, 1 when
    a form misses concepts, 2 when it cannot run. Every non-zero exit is a
@@ -381,5 +380,12 @@ stack back when the machine boots. Two settings are manual, once per machine:
   power failure itself and warns about the other two.
 
 A node installed before the restart policies were added picks them up when
-its containers are recreated: `docker compose up -d` in `clinic/`, once.
+its containers are recreated, once, in `clinic/`:
+`docker compose --profile local --profile debezium --profile openelis up -d`
+(on macOS: `docker-compose` with the same arguments and `DOCKER_HOST` set to
+the podman machine's socket; `clinic/.env`'s `COMPOSE_FILE` names the compose
+files on both). Without the profiles the
+command recreates nothing, since every service is in one. Run
+`clinic/scripts/recreate-openmrs.sh --check` first: it runs the checks the
+installer runs before OpenMRS starts.
 

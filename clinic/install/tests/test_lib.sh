@@ -122,6 +122,17 @@ case "$out" in *"QUOTED"*"single quote"*) named=yes ;; *) named=no ;; esac
 assert_eq "the refusal names the key and the reason" "$named" "yes"
 assert_eq "nothing was written for the refused key" "$(grep -c '^QUOTED=' "$f4")" "0"
 
+# env_del removes every line for the key, keeps the rest and the file's mode,
+# writes the way env_put does, and leaves a file without the key untouched
+f5="$TMP/e5.env"; printf 'A=1\nFORMS_MOUNT_MODE=ro\nB=2\nFORMS_MOUNT_MODE=rw\nFORMS_MOUNT_MODE_X=keep\n' > "$f5"; chmod 640 "$f5"
+env_del "$f5" FORMS_MOUNT_MODE; rc=$?
+assert_rc "env_del succeeds" "$rc" 0
+assert_eq "env_del removes every line for the key and nothing else" "$(cat "$f5")" "$(printf 'A=1\nB=2\nFORMS_MOUNT_MODE_X=keep')"
+assert_eq "env_del keeps the file's mode" "$(stat -c %a "$f5" 2>/dev/null || stat -f %Lp "$f5")" "640"
+assert_eq "env_del leaves no temporary file" "$(ls -A "$TMP" | grep -c '^e5\.env\.tmp\.')" "0"
+i0="$(ls -i "$f5" | awk '{print $1}')"; env_del "$f5" NOT_THERE
+assert_eq "env_del on a missing key does not rewrite the file" "$(ls -i "$f5" | awk '{print $1}')" "$i0"
+
 # gen_secret must never itself produce a value env_put would have to refuse.
 bad_secret=""
 for i in 1 2 3 4 5 6 7 8 9 10; do

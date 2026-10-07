@@ -90,6 +90,8 @@ forms_sync 1 "$DRYRUN"
 dir="$(forms_folder_for "${FORMS_REPO_URL}")"
 v="$(forms_folder_verdict "$dir")" || fail "$v"
 ok "forms: ${v#ok }"
+# FORMS_MOUNT_MODE was the mount setting before FORMS_READ_ONLY; compose no longer reads it
+grep -q '^FORMS_MOUNT_MODE=' "$E" && { env_del "$E" FORMS_MOUNT_MODE; info "removed FORMS_MOUNT_MODE from clinic/.env: FORMS_READ_ONLY replaces it"; }
 if [ "$mounted" != "$dir" ] || [ "$ro" != true ]; then
   env_put "$E" FORMS_DIR "$dir"; env_put "$E" FORMS_READ_ONLY true
   warn "clinic/.env now mounts ${dir} read-only (it named ${mounted}, $(forms_mount_word "$ro")). The openmrs service reads the old folder until it is recreated; this script does not do that. When convenient: clinic/scripts/recreate-openmrs.sh, which checks the new mount first"

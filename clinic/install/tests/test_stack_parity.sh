@@ -27,9 +27,12 @@ svc "$Y" openmrs | grep -qF 'source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahm
 ii="$(svc "$Y" implementer-interface | grep 'profiles:')"
 [ "$(printf '%s' "$ii" | tr -d ' ')" = 'profiles:["implementer-interface"]' ] && ok_ "implementer-interface is only in its own profile, not local or emr" || bad "implementer-interface profiles: $ii"
 grep -q -- '--profile implementer-interface' "$HERE/../tasks/080-stack.sh" && bad "080 starts the implementer-interface profile" || ok_ "080 does not start the form builder"
-blk="$(awk '/location \/implementer-interface/{p=1} p{print} p&&/}/{exit}' "$CL/proxy/bahmni-nginx.openelis.conf" | grep -vE '^[[:space:]]*#')"
-printf '%s' "$blk" | grep -qF 'proxy_pass http://$implementer_interface_host;' && ! printf '%s' "$blk" | grep -qF 'proxy_pass http://implementer-interface' \
-  && ok_ "the proxy resolves implementer-interface per request, so it starts without it" || bad "the proxy names implementer-interface literally (it would not start without it): $blk"
+# both the conf compose mounts and the one the proxy image bakes in
+for conf in bahmni-nginx.openelis.conf bahmni-nginx.conf; do
+  blk="$(awk '/location \/implementer-interface/{p=1} p{print} p&&/}/{exit}' "$CL/proxy/$conf" | grep -vE '^[[:space:]]*#')"
+  printf '%s' "$blk" | grep -qF 'proxy_pass http://$implementer_interface_host;' && ! printf '%s' "$blk" | grep -qF 'proxy_pass http://implementer-interface' \
+    && ok_ "proxy/$conf resolves implementer-interface per request, so the proxy starts without it" || bad "proxy/$conf names implementer-interface literally (the proxy would not start without it): $blk"
+done
 if command -v docker >/dev/null 2>&1; then
   { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
     grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'

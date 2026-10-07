@@ -18,8 +18,9 @@
 # A config tree OpenMRS would load hub-owned rows from is refused: the
 # Initializer domain check (install/initializer.sh) runs on the new tree, with
 # the domain list this node runs (OPENMRS_INITIALIZER_DOMAINS from the
-# environment, else clinic/.env, else the clinic default), before it replaces
-# extracted/. On a refusal extracted/ stays exactly as it was and the run exits
+# environment, else clinic/.env, else the clinic default) and, while an openmrs
+# container exists, with the list that container was created with (a plain
+# restart starts it with that one), before it replaces extracted/. On a refusal extracted/ stays exactly as it was and the run exits
 # non-zero, naming the folder. The skip path runs the same check on the tree in
 # place.
 #
@@ -45,9 +46,9 @@ pin(){ # KEY : the environment wins, then sync/versions.env
 WEB="$(pin BAHMNI_WEB_IMAGE)"; CFG="$(pin BAHMNI_CONFIG_IMAGE)"
 OUT="${EXTRACT_DIR:-${CLINIC_DIR}/extracted}"
 . "${HERE}/../install/initializer.sh"
-env_file_get(){ # KEY : clinic/.env's value, a matching pair of quotes stripped
+env_file_get(){ # KEY : clinic/.env's value (the last line for KEY, as compose and the shell read it), a matching pair of quotes stripped
   local v
-  v="$(sed -n "s/^$1=//p" "${CLINIC_DIR}/.env" 2>/dev/null | head -1)"
+  v="$(sed -n "s/^$1=//p" "${CLINIC_DIR}/.env" 2>/dev/null | tail -1)"
   case "$v" in
     \"*\") v="${v#\"}"; v="${v%\"}" ;;
     \'*\') v="${v#\'}"; v="${v%\'}" ;;
@@ -56,10 +57,32 @@ env_file_get(){ # KEY : clinic/.env's value, a matching pair of quotes stripped
 }
 DOMAINS="${OPENMRS_INITIALIZER_DOMAINS:-$(env_file_get OPENMRS_INITIALIZER_DOMAINS)}"
 DOMAINS="${DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}"
-check_domains(){ # DIR WHAT : DIR's config tree loads nothing the hub owns with this node's domain list
-  local v
+# container_domains : one line per openmrs container of this node, the domain
+# list it was created with -- what a plain restart (a reboot, the restart
+# policy) starts it with, whatever clinic/.env says now. A container created
+# with no -Dinitializer.domains loads every domain, written as all of them.
+container_domains(){
+  local project id opts d
+  project="${COMPOSE_PROJECT_NAME:-$(env_file_get COMPOSE_PROJECT_NAME)}"
+  for id in $("$CT" ps -a -q --filter label=com.docker.compose.service=openmrs ${project:+--filter "label=com.docker.compose.project=${project}"} 2>/dev/null); do
+    opts="$("$CT" inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null | sed -n 's/^OMRS_JAVA_SERVER_OPTS=//p')"
+    # Java keeps the last of a repeated -D
+    d="$(printf '%s' "$opts" | tr ' ' '\n' | sed -n 's/^-Dinitializer\.domains=//p' | tail -1)"
+    printf '%s\n' "${d:-$(printf '%s' "${INITIALIZER_DOMAINS_KNOWN}" | tr ' ' ',')}"
+  done
+}
+check_domains(){ # DIR WHAT : DIR's config tree loads nothing the hub owns, with this node's domain list and with the list its openmrs container runs
+  local v c
   v="$(initializer_domains_verdict "$DOMAINS" "$1/bahmni_config")" || die "$2: ${v}"
   say "ok   initializer domains: ${v#ok }"
+  while IFS= read -r c; do
+    [ -n "$c" ] && [ "$c" != "$DOMAINS" ] || continue
+    v="$(initializer_domains_verdict "$c" "$1/bahmni_config")" \
+      || die "$2: the openmrs container was created with a different Initializer domain list than clinic/.env holds, and would start with it on its next restart: ${v} Run scripts/recreate-openmrs.sh first, then this again"
+    say "ok   initializer domains of the running openmrs container: ${v#ok }"
+  done <<EOF_DOMAINS
+$(container_domains)
+EOF_DOMAINS
 }
 
 image_id(){ # IMAGE : present (pulling it if need be) -> its id
