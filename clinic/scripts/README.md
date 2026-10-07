@@ -27,7 +27,9 @@ emit connector/topic definitions.
 
 **Register / unregister** — talk to the local Kafka Connect REST API.
 `register-source-connector.sh`, `register-local-sink-connectors.sh`,
-`unregister-connectors.sh`.
+`unregister-connectors.sh`. `register-local-sink-connectors.sh` first reads the
+`sink` user's grants and refuses, naming the tables and registering nothing,
+when any down sink's table lacks SELECT, INSERT, UPDATE or DELETE.
 
 **Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
 database user SELECT, INSERT, UPDATE and DELETE on every table

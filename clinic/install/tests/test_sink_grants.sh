@@ -82,4 +82,44 @@ printf '%s\n' "$short" > "$TMP/granted"; : > "$TMP/log"; out="$(gs)"; rc=$?
 : > "$TMP/log"; out="$(env PATH="$PATH" CLINIC_DIR="$TMP/nowhere" bash "$S" --dry-run 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.form_resource TO 'sink'@'%';" && [ ! -s "$TMP/log" ] \
   && ok_ "--dry-run prints the grants and touches nothing" || bad "--dry-run: rc=$rc out=$out"
+
+# --- registration refuses a sink whose table the sink user cannot write ------------------------
+REG="${HERE}/../../scripts/register-local-sink-connectors.sh"
+mkdir -p "$TMP/gen" "$TMP/cbin"
+for t in users form form_resource; do
+  printf '{"name": "mysql-local-sink-%s", "config": {"table.name.format": "%s", "topics": "remote.bahmni-cloud.openmrs.%s"}}\n' "$t" "$t" "$t" > "$TMP/gen/mysql-local-sink-${t}.json"
+done
+# a fake curl: logs every call; no connector exists yet, so each one is created
+cat > "$TMP/cbin/curl" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "curl $*" >> "$CURL_LOG"
+case "$*" in
+  *http_code*) printf 201 ;;
+  *-sf*/connectors/mysql-local-sink-*) exit 22 ;;
+  *-sf*/connectors) printf '[]' ;;
+esac
+exit 0
+SH
+chmod +x "$TMP/cbin/curl"
+reg(){ env PATH="$TMP/cbin:$PATH" CLINIC_DIR="$TMP/node" CT="$TMP/bin/fakect" COMPOSE_CMD=true FAKE_LOG="$TMP/log" FAKE_GRANTED="$TMP/granted" \
+         CURL_LOG="$TMP/curl" SINK_SETTLE_S=0 LOCAL_CONNECT_URL=http://connect.invalid:8083 bash "$REG" "$TMP/gen" 2>&1; }
+printf '%s\n' "$short" > "$TMP/granted"; : > "$TMP/log"; : > "$TMP/curl"
+out="$(reg)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'REFUSING to register the down sinks: the sink user lacks SELECT, INSERT, UPDATE or DELETE on: form form_resource' \
+  && ok_ "registration refuses when the sink user lacks a grant, naming the tables" || bad "short grants at registration: rc=$rc out=$out"
+[ ! -s "$TMP/curl" ] && ok_ "and makes no Kafka Connect call" || bad "Connect was called despite the refusal: $(tr '\n' ' ' < "$TMP/curl")"
+grep -q '^ct exec -i bahmni-t-bahmni-mysql-1 ' "$TMP/log" && grep -q 'tables_priv' "$TMP/log" && ! grep -q '^GRANT' "$TMP/log" \
+  && ok_ "the grants are read in the node's MySQL container, and nothing is granted" || bad "grant read at registration: $(tr '\n' ' ' < "$TMP/log")"
+printf 'users\tSelect,Insert,Update,Delete\nform\tSelect,Insert,Update,Delete\nform_resource\tSelect,Insert,Update,Delete\n' > "$TMP/granted"; : > "$TMP/curl"
+out="$(reg)"; rc=$?
+[ "$(grep -c -- '-X POST .*--data @.*mysql-local-sink-' "$TMP/curl")" = 3 ] && printf '%s' "$out" | grep -q 'sink user holds SELECT, INSERT, UPDATE, DELETE on all 3 down sink table(s)' \
+  && ok_ "with every grant held, all three sinks are registered" || bad "full grants at registration: rc=$rc out=$out curl=$(tr '\n' ' ' < "$TMP/curl")"
+printf 'users\tSelect,Insert,Update,Delete\nform\tSelect,Insert,Update,Delete\nform_resource\tSelect,Insert,Update\n' > "$TMP/granted"; : > "$TMP/curl"
+out="$(reg)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'lacks .*on: form_resource' && [ ! -s "$TMP/curl" ] \
+  && ok_ "one missing privilege on one table is enough to refuse" || bad "missing DELETE at registration: rc=$rc out=$out"
+printf '%s\n' "$full" > "$TMP/granted"; : > "$TMP/curl"
+out="$(env PATH="$TMP/cbin:$PATH" CLINIC_DIR="$TMP/nowhere" CT="$TMP/bin/fakect" CURL_LOG="$TMP/curl" SINK_SETTLE_S=0 bash "$REG" "$TMP/gen" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "grants cannot be read, so nothing was registered" && [ ! -s "$TMP/curl" ] \
+  && ok_ "a node whose grants cannot be read registers nothing" || bad "no .env at registration: rc=$rc out=$out"
 exit "$fails"
