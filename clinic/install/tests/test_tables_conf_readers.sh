@@ -17,7 +17,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/hub"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$RP/sync" "$C/"
 cp -R "$RP/hub/scripts" "$RP/hub/connectors" "$C/hub/"; cp "$RP/hub/tables.conf" "$C/hub/"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
 printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
 printf 'alpha:3\n' > "$TMP/ledger"
@@ -56,7 +56,7 @@ render(){
   printf '%s\n' "$1" > "$C/sync/local/tables.conf"
   rm -rf "$C/clinic/connectors" "$C/hub/connectors"/mysql-sink-alpha-* "$C/clinic/config/mirrormaker/mm2.properties"
   bash "$C/clinic/scripts/generate-table-config.sh" local > "$TMP/out.tc" 2>&1; echo $? > "$TMP/rc.tc"
-  bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out.gc" 2>&1; echo $? > "$TMP/rc.gc"
+  SEED_MANIFEST="${MANIFEST-$TMP/manifest.env}" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out.gc" 2>&1; echo $? > "$TMP/rc.gc"
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$C/clinic/connectors/mysql-local-source-connector.json" > "$TMP/inc.gc" 2>/dev/null
   if command -v envsubst >/dev/null 2>&1; then
     bash "$C/clinic/scripts/setup-mirrormaker.sh" > "$TMP/out.mm" 2>&1; echo $? > "$TMP/rc.mm"
