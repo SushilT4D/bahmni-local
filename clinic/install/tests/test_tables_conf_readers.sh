@@ -147,4 +147,30 @@ for line in 'drug_order:order_id:floor=obs' 'x:y:sometext' 'x:y:12ab' 'visit:vis
   printf 'obs:obs_id:seed\norders:order_id:seed\n%s\n' "$line" > "$TMP/bad.conf"
   up_tables_read "$TMP/bad.conf" >/dev/null 2>&1 && bad "accepted: '${line}'" || ok_ "refused: '${line}'"
 done
+
+# --- up_floor_of in a strict caller: a floor it cannot give is reported, never a silent stop ---
+printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$TMP/f.conf"
+printf 'FLOOR_OBS=5000000\n' > "$TMP/obs-only.env"
+printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=abc\n' > "$TMP/nan.env"
+strict(){ # CONF TABLE MANIFEST : up_floor_of called bare under set -euo pipefail
+  bash -c 'set -euo pipefail; . "$1"; up_floor_of "$2" "$3" "$4"; echo "carried on"' _ "$RP/sync/local/tables-conf.sh" "$@" 2>&1
+}
+strict_assigned(){ # the same, its output assigned to a variable
+  bash -c 'set -euo pipefail; . "$1"; v="$(up_floor_of "$2" "$3" "$4")"; echo "carried on with $v"' _ "$RP/sync/local/tables-conf.sh" "$@" 2>&1
+}
+out="$(strict "$TMP/f.conf" orders "$TMP/obs-only.env")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in "the orders floor comes from the seed manifest, and $TMP/obs-only.env carries no FLOOR_ORDERS") true ;; *) false ;; esac \
+  && ok_ "up_floor_of, bare under set -e: a manifest without the key says so" || bad "bare, missing key: rc=$rc '$out'"
+out="$(strict_assigned "$TMP/f.conf" drug_order "$TMP/obs-only.env")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"carries no FLOOR_ORDERS"*) true ;; *) false ;; esac \
+  && ok_ "up_floor_of, assigned under set -e: drug_order's missing orders floor says so" || bad "assigned, missing key: rc=$rc '$out'"
+out="$(strict "$TMP/f.conf" obs "$TMP/nowhere.env")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"there is no manifest at $TMP/nowhere.env"*) true ;; *) false ;; esac && ok_ "up_floor_of: a missing manifest says so" || bad "no manifest: rc=$rc '$out'"
+out="$(strict "$TMP/f.conf" orders "$TMP/nan.env")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"FLOOR_ORDERS in $TMP/nan.env is not a number: abc"*) true ;; *) false ;; esac && ok_ "up_floor_of: a floor that is not a number says so" || bad "nan floor: rc=$rc '$out'"
+out="$(strict "$TMP/f.conf" visit "$TMP/obs-only.env")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"f.conf does not list visit"*) true ;; *) false ;; esac && ok_ "up_floor_of: a table the list does not carry says so" || bad "unlisted table: rc=$rc '$out'"
+out="$(strict "$TMP/f.conf" obs "$TMP/obs-only.env")"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "5000000
+carried on" ] && ok_ "up_floor_of: a floor the manifest carries is printed and the caller carries on" || bad "present key: rc=$rc '$out'"
 exit $((fails > 0))

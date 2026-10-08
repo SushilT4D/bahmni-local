@@ -82,23 +82,34 @@ EOF
 
 # up_floor_of FILE TABLE MANIFEST prints the floor that applies to TABLE's keys:
 # its base_id, its seed manifest floor, or the floor of the table it reads; and
-# nothing for a sync-only table. Returns 1 when the floor should come from the
-# manifest and the manifest does not carry it.
+# nothing for a sync-only table. Returns 1, with the reason on stderr, when
+# TABLE is not in FILE, or its floor should come from the manifest and the
+# manifest is missing or does not carry it as a number. It never stops the
+# calling shell itself, under set -e -o pipefail or not: a caller that does not
+# test the status still sees why.
 up_floor_of(){
-  local f="$1" want="$2" m="${3:-}" recs t pk kind arg key v
+  local f="$1" want="$2" m="${3:-}" recs t="" pk="" kind="" arg="" key v
   recs="$(up_tables_read "$f")" || return 1
   read -r t pk kind arg <<EOF
 $(printf '%s\n' "$recs" | awk -v t="$want" '$1==t')
 EOF
-  [ "$kind" = floor ] && read -r t pk kind arg <<EOF
+  if [ -z "$t" ]; then printf '%s does not list %s, so it has no floor to give\n' "${f##*/}" "$want" >&2; return 1; fi
+  if [ "$kind" = floor ]; then read -r t pk kind arg <<EOF
 $(printf '%s\n' "$recs" | awk -v t="$arg" '$1==t')
 EOF
+  fi
   case "$kind" in
     base) printf '%s\n' "$arg" ;;
     seed)
       key="FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
-      v=""; [ -n "$m" ] && [ -f "$m" ] && v="$(grep -E "^${key}=" "$m" | tail -1 | cut -d= -f2- | tr -d "\"' ")"
-      case "$v" in ''|*[!0-9]*) printf 'the %s floor comes from the seed manifest, and %s carries no %s\n' "$t" "${m:-no manifest}" "$key" >&2; return 1 ;; esac
+      if [ -z "$m" ] || [ ! -f "$m" ]; then
+        printf 'the %s floor comes from the seed manifest (%s), and there is no manifest at %s\n' "$t" "$key" "${m:-an unset path}" >&2; return 1
+      fi
+      v="$({ grep -E "^${key}=" "$m" || true; } | tail -1 | cut -d= -f2- | tr -d "\"' ")"
+      case "$v" in
+        '') printf 'the %s floor comes from the seed manifest, and %s carries no %s\n' "$t" "$m" "$key" >&2; return 1 ;;
+        *[!0-9]*) printf 'the %s floor comes from the seed manifest, and %s in %s is not a number: %s\n' "$t" "$key" "$m" "$v" >&2; return 1 ;;
+      esac
       printf '%s\n' "$v" ;;
     *) return 0 ;;
   esac
