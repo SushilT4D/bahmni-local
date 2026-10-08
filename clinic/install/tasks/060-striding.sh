@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # phase: seed
 # Per-row ownership before the first application write: MySQL striding (server flags are
-# set; this moves the captured tables' AUTO_INCREMENT above their floors), the
-# order-number counter in this clinic's own range,
+# set; this moves the captured tables' AUTO_INCREMENT above their floors, and the
+# obs and orders counters above the seed's floors whether or not they are
+# captured yet), the order-number counter in this clinic's own range,
 # Postgres sequences at the residue (mandatory even though the dumps carry
 # INCREMENT BY 10 -- the restored last_value sits in Rawach's residue), and the
 # replication origins the customizer jar needs.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · striding + replication origins (residue ${RESIDUE})"
-[ "${DRY}" = 1 ] && { info "would: configure-pk-offsets.sh; set order.nextOrderNumberSeed in this clinic's range; stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
@@ -18,6 +19,24 @@ mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N';
 CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh >/dev/null
 inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' | mysql_root | tr '\t' ' ')"
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
+# seed-counters:begin
+# obs and orders: a clinic writes both from its first consultation, whether or
+# not sync/local/tables.conf lists them yet, and an id below the seed's floor
+# is one the hub's own rows use. Each counter moves to the first id on this
+# clinic's residue at or above the floor the seed gate recorded from the
+# manifest, and is read back. A manifest without the floor leaves the counter
+# as the seed restored it, and says so.
+. "${INSTALL_DIR}/state.sh"
+sc_ai(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | mysql_root 2>/dev/null | tail -1 || true; }
+for t in ${SEED_COUNTER_TABLES}; do
+  fl="$(stamp_get "$(floor_key "$t")")"
+  if [ -z "$fl" ]; then ok "${t} id counter left as the seed restored it: the seed gave no ${t} floor ($(floor_key "$t") is not in its manifest.env)"; continue; fi
+  plan="$(seed_counter_plan "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$plan"
+  if [ "$plan" != keep ]; then printf 'ALTER TABLE openmrs.`%s` AUTO_INCREMENT = %s;\n' "$t" "${plan#set }" | mysql_root >/dev/null || fail "could not set the ${t} id counter to ${plan#set }: the database did not take the change. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator."; fi
+  v="$(counter_floor_verdict "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$v"
+  if [ "$plan" = keep ]; then ok "${v#ok } (counter already there, unchanged)"; else ok "${v#ok } (counter set to ${plan#set })"; fi
+done
+# seed-counters:end
 # counter-check:begin
 # Read each seed-floored table's counter back rather than trusting the ALTER:
 # the next id it issues must be at or above floor + residue. A table list that

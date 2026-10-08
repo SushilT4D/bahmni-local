@@ -13,10 +13,11 @@ ok "machine state ${st}"
 v="$(seed_manifest_verdict "${SEED_DIR}" "$(date +%s)" "${SEED_MAX_AGE_DAYS:-6}")" || refuse "$v"
 taken="${v#ok }"
 ok "seed taken ${taken} (limit ${SEED_MAX_AGE_DAYS:-6} days); three dumps match their checksums"
-# the id floors the seed was cut with, for every table whose floor comes from the seed
+# the id floors the seed was cut with, for every table whose floor comes from
+# the seed, and for obs and orders whenever the manifest carries theirs
 v="$(seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/local/tables.conf")" || refuse "$v"
 floors="${v#ok}"
-ok "id floors from the seed:${floors:- none (no table in sync/local/tables.conf takes its floor from the seed)}"
+ok "id floors from the seed:${floors:- none (no table in sync/local/tables.conf takes its floor from the seed, and manifest.env gives no obs or orders floor)}"
 v="$(seed_shape_verdict "${SEED_DIR}")" || refuse "$v"
 ok "${v#ok }"
 name="${LAN_NAME:-bahmni.clinic}"; ip="$(lan_ip)"
@@ -40,4 +41,6 @@ fi
 stamp_put STATE SEEDING; stamp_put SEEDING_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; stamp_put SEED_TAKEN_AT "$taken"
 # later checks (striding, exit checks) compare the id counters with these
 for tf in $floors; do stamp_put "FLOOR_$(printf '%s' "${tf%%=*}" | tr '[:lower:]' '[:upper:]')" "${tf#*=}"; done
+# a floor an earlier seed recorded and this manifest does not give is not kept
+for t in ${SEED_COUNTER_TABLES}; do case " ${floors} " in *" ${t}="*) ;; *) stamp_del "$(floor_key "$t")" ;; esac; done
 ok "machine state SEEDING"

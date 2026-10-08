@@ -50,6 +50,20 @@ mv "$TMP/sync/local/tables.conf.aside" "$TMP/sync/local/tables.conf"
 printf 'STATE=SEEDING\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=1 orders=1' PREFLIGHT_STRIDE='1 1' bash "$T" 2>&1)"; rc=$?
 assert_rc "part-way through its data load: counters skipped" "$rc" 0; assert_contains "says the striding step checks them" "$out" "id counters not checked: this machine is part-way through"
+# obs and orders not in the list: their recorded floors are checked all the same
+printf 'person:person_id:230000\n' > "$TMP/sync/local/tables.conf"
+printf 'STATE=SEEDED\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
+out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
+assert_rc "seeded, unlisted obs and orders at or above their floors: passes" "$rc" 0
+assert_contains "names the unlisted obs counter it read" "$out" "obs next id 5000007, at or above floor 5000000 + residue 7"
+out="$(base PREFLIGHT_AUTO_INCREMENT='obs=4999991 orders=300007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
+assert_rc "seeded, unlisted obs counter below its floor: refused" "$rc" 1
+assert_contains "the refusal names the unlisted counter" "$out" "the obs id counter is below this clinic's floor: the next obs id would be 4999997"
+printf 'STATE=SEEDED\n' > "$TMP/clinic/.install-state"
+out="$(base PREFLIGHT_AUTO_INCREMENT='obs=1 orders=1' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
+assert_rc "seeded with no floors recorded and none listed: passes" "$rc" 0
+assert_contains "says no counter was checked" "$out" "no obs or orders floor is recorded"
+printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$TMP/sync/local/tables.conf"
 rm -f "$TMP/clinic/.install-state"
 grep -q '^# counters:begin' "$T" && [ "$(grep -n '^# counters:begin' "$T" | cut -d: -f1)" -lt "$(grep -n '^# fresh-only:begin' "$T" | cut -d: -f1)" ] \
   && printf '  ok   the counters are checked before the fresh-install check refuses a live node\n' || { printf '  FAIL the counter check is missing or comes after the fresh-install check\n'; fails=$((fails+1)); }

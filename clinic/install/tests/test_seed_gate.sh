@@ -46,6 +46,20 @@ out="$(fv 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n')"; rc=$?
 printf 'encounter:encounter_id:528000\nidgen_seq_id_gen:id\n' > "$TMP/plain.conf"
 out="$(fv 'SEED_TAKEN_AT=x\n' "$TMP/plain.conf")"; rc=$?
 [ "$rc" = 0 ] && [ "$out" = ok ] && ok_ "no table takes its floor from the seed: nothing is required" || bad "plain list: rc=$rc $out"
+# obs and orders not in the list: a floor the manifest carries is taken and
+# checked the same way; a manifest without them is not refused
+out="$(fv 'SEED_TAKEN_AT=x\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' "$TMP/plain.conf")"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "ok obs=5000000 orders=300000" ] && ok_ "obs and orders floors are taken from the manifest though the list does not carry the tables" || bad "unlisted floors: rc=$rc $out"
+out="$(fv 'FLOOR_OBS=5000001\n' "$TMP/plain.conf")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"FLOOR_OBS=5000001 is not a positive multiple of 10"*) true ;; *) false ;; esac && ok_ "an unlisted floor that is not a multiple of 10 is refused" || bad "unlisted odd floor: rc=$rc $out"
+out="$(fv 'FLOOR_ORDERS=300000\n' "$TMP/plain.conf")"; rc=$?
+[ "$rc" = 0 ] && [ "$out" = "ok orders=300000" ] && ok_ "one unlisted floor alone is taken" || bad "orders alone: rc=$rc $out"
+# 005 records the floors, and drops one an earlier seed recorded that this
+# manifest does not give
+blk="$(grep -E 'stamp_put "FLOOR_|stamp_del "\$\(floor_key' "$G")"
+[ "$(printf '%s\n' "$blk" | grep -c .)" = 2 ] || bad "005 floor recording lines: $blk"
+( floors=" orders=300000"; stamp_put FLOOR_OBS 1000; eval "$blk"; [ -z "$(stamp_get FLOOR_OBS)" ] && [ "$(stamp_get FLOOR_ORDERS)" = 300000 ] ) \
+  && ok_ "005 records each floor given and drops an obs floor this manifest does not give" || bad "005 recording: $(cat "$STATE_FILE" 2>/dev/null)"
 grep -q 'seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/local/tables.conf")" || refuse' "$G" && ok_ "005 refuses a seed without its floors" || bad "005 does not check the floors"
 grep -q 'stamp_put "FLOOR_' "$G" && ok_ "005 records the floors for the later counter checks" || bad "005 does not record the floors"
 exit $((fails > 0))
