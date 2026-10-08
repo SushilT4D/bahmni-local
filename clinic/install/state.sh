@@ -9,7 +9,6 @@ stamp_put(){ # KEY VALUE
   [ -f "${STATE_FILE}" ] || { : > "${STATE_FILE}"; chmod 644 "${STATE_FILE}"; }
   env_put "${STATE_FILE}" "$1" "$2"
 }
-stamp_del(){ if [ -f "${STATE_FILE}" ]; then env_del "${STATE_FILE}" "$1"; fi; }
 
 # install_gate_verdict STATE ONLY : install never runs over a seeded machine.
 # A resume (--from) skips the fresh-install check in task 000 and would stamp
@@ -120,9 +119,10 @@ floor_key(){ printf 'FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')
 # manifest: the id below which every row is the hub's, measured on the hub when
 # the dump was cut. A clinic strides the table to start above it, and the sync
 # layer tells this clinic's rows from the hub's by it, so a seed without it
-# cannot be used. A SEED_COUNTER_TABLES table the list does not take from the
-# seed may carry one too, and is then checked the same way. Every floor is a
-# multiple of 10, so floor + residue is on the residue.
+# cannot be used. The SEED_COUNTER_TABLES floors are required whether or not
+# the list takes those tables from the seed: the striding step lifts their
+# counters by them, and a seed cut without them (an older seed) is refused.
+# Every floor is a multiple of 10, so floor + residue is on the residue.
 # Prints "ok" and the floors (TABLE=FLOOR ...), or the refusal.
 seed_floors_verdict(){
   local m="$1" conf="$2" ts t key v got=""
@@ -131,10 +131,6 @@ seed_floors_verdict(){
     case " ${got} " in *" ${t}="*) continue ;; esac
     key="$(floor_key "$t")"
     v="$(env_get "$m" "$key")"
-    case " $(printf '%s' "$ts" | tr '\n' ' ') " in
-      *" ${t} "*) ;;
-      *) [ -n "$v" ] || continue ;;   # optional for a table the list does not take from the seed
-    esac
     case "$v" in
       ''|*[!0-9]*) printf 'manifest.env carries no %s floor (%s): this seed was cut without measuring where the hub'"'"'s %s ids end, so this clinic cannot start its own above them. Ask the operator for a fresh seed folder.\n' "$t" "$key" "$t"; return 1 ;;
     esac
@@ -150,21 +146,21 @@ seed_floors_verdict(){
 # does with a SEED_COUNTER_TABLES counter. The first id this clinic may write is
 # the first id on its residue at or above the floor (floor 5000000, residue 3:
 # 5000003). "set FIRST" when the counter is below it (the dump restored the
-# hub's max + 1); "keep" when it is FIRST or above it on this residue (a rerun
-# after this clinic wrote rows must not move it back). A counter above FIRST on
-# another residue is refused: the table holds rows above the floor that this
-# clinic did not write, so either the floor was measured wrong or the database
-# is not the seed's.
+# hub's max + 1 from below the floor); "keep" when it is at or above FIRST,
+# whatever its last digit: MySQL, striding 10 apart on this residue, issues the
+# next id on this residue at or above the counter (the counter_floor_verdict
+# arithmetic). Such a counter is normal: the hub measures the floor before it
+# dumps and keeps writing its own rows, on its own residue, above the floor
+# during the dump; and after a restart MySQL derives the counter from the
+# largest id, so it need not be on this residue. Moving it back would never be
+# right: a rerun after this clinic wrote rows must not reissue their ids.
 seed_counter_plan(){
   local t="$1" ai="$2" fl="$3" r="$4" first
   case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
   case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
   case "$r" in [1-9]) ;; *) printf 'residue %s is not a clinic residue (1 to 9)\n' "${r:-none}"; return 1 ;; esac
   first=$(( fl + (r - fl % 10 + 10) % 10 ))
-  if [ "$ai" -lt "$first" ]; then printf 'set %s\n' "$first"; return 0; fi
-  if [ "$ai" -eq "$first" ] || [ $(( ai % 10 )) -eq "$r" ]; then printf 'keep\n'; return 0; fi
-  printf 'the %s id counter is %s, above the first %s id this clinic may write (%s, on residue %s at or above the seed'"'"'s floor %s) and not on residue %s: the table holds rows above the floor that this clinic did not write. The seed'"'"'s floor is wrong or this database is not the seed'"'"'s. Call the operator.\n' "$t" "$ai" "$t" "$first" "$r" "$fl" "$r"
-  return 1
+  if [ "$ai" -lt "$first" ]; then printf 'set %s\n' "$first"; else printf 'keep\n'; fi
 }
 
 # counter_floor_verdict TABLE AUTO_INCREMENT FLOOR RESIDUE

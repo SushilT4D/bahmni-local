@@ -56,6 +56,13 @@ printf 'STATE=SEEDED\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, unlisted obs and orders at or above their floors: passes" "$rc" 0
 assert_contains "names the unlisted obs counter it read" "$out" "obs next id 5000007, at or above floor 5000000 + residue 7"
+# above the first id on another residue: the hub's rows above the floor
+# (5000011), or a counter MySQL derived from the largest id after a restart
+# (5000008 once this clinic wrote 5000007); MySQL issues 5000017 next either way
+out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000011 orders=300008' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
+assert_rc "seeded, counters above the first id on another residue: passes" "$rc" 0
+assert_contains "reads the next id MySQL issues on this residue" "$out" "obs next id 5000017, at or above floor 5000000 + residue 7"
+assert_contains "and for orders" "$out" "orders next id 300017"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=4999991 orders=300007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, unlisted obs counter below its floor: refused" "$rc" 1
 assert_contains "the refusal names the unlisted counter" "$out" "the obs id counter is below this clinic's floor: the next obs id would be 4999997"

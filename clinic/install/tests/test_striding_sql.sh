@@ -116,7 +116,7 @@ out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?
 AI_OBS=4999993; out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?; AI_OBS=5000003
 [ "$rc" = 1 ] && case "$out" in "the obs id counter is below this clinic's floor"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: an unlisted obs counter below its recorded floor refuses" || bad "unlisted below: rc=$rc $out"
-stamp_del FLOOR_OBS; stamp_del FLOOR_ORDERS
+env_del "$STATE_FILE" FLOOR_OBS; env_del "$STATE_FILE" FLOOR_ORDERS
 out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?
 [ "$rc" = 0 ] && case "$out" in "ok no table in sync/local/tables.conf takes its floor from the seed, and no obs or orders floor is recorded"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: a list with no floored table and no recorded floor says so" || bad "plain list: rc=$rc $out"
@@ -154,9 +154,16 @@ sp(){ seed_counter_plan "$@" 2>&1; }
 [ "$(sp orders 300000 300000 7)" = "set 300007" ] && ok_ "seed_counter_plan: a counter at the floor itself is below the first id (300000, residue 7 -> 300007)" || bad "plan at floor: $(sp orders 300000 300000 7)"
 [ "$(sp obs 5000003 5000000 3)" = keep ] && ok_ "seed_counter_plan: a counter at the first id is unchanged" || bad "plan at first: $(sp obs 5000003 5000000 3)"
 [ "$(sp obs 5000093 5000000 3)" = keep ] && ok_ "seed_counter_plan: a counter above it on this residue (rows this clinic wrote) is unchanged" || bad "plan above: $(sp obs 5000093 5000000 3)"
-out="$(sp obs 5000007 5000000 3)"; rc=$?
-[ "$rc" = 1 ] && case "$out" in "the obs id counter is 5000007, above the first obs id this clinic may write (5000003, on residue 3 at or above the seed's floor 5000000) and not on residue 3"*) true ;; *) false ;; esac \
-  && ok_ "seed_counter_plan: a counter above the floor on another residue is refused, the check named in words" || bad "plan off residue: rc=$rc $out"
+# a counter above the first id on another residue is normal and kept: the hub
+# writes its own rows above the floor while it dumps (5000010, its residue 0,
+# gives a restored counter of 5000011), and after a restart MySQL derives the
+# counter from the largest id (5000004 once this clinic wrote 5000003)
+for c in 5000011 5000010 5000004; do
+  [ "$(sp obs "$c" 5000000 3)" = keep ] || bad "plan for counter $c: $(sp obs "$c" 5000000 3)"
+  out="$(cv obs "$c" 5000000 3)"; [ $? = 0 ] || bad "counter_floor_verdict for counter $c: $out"
+done
+ok_ "seed_counter_plan: counters above the first id on any residue (5000011, 5000010, 5000004) are kept, and counter_floor_verdict passes them"
+[ "$(sp obs 5000001 5000000 3)" = "set 5000003" ] && ok_ "seed_counter_plan: a counter above the floor but below the first id (5000001) is set to it" || bad "plan 5000001: $(sp obs 5000001 5000000 3)"
 out="$(sp obs '' 5000000 3)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in "could not read the obs id counter"*) true ;; *) false ;; esac && ok_ "seed_counter_plan: a counter that could not be read is refused, not taken as zero" || bad "plan empty: rc=$rc $out"
 out="$(sp obs 1 x 3)"; [ $? = 1 ] && ok_ "seed_counter_plan: a floor that is not a number is refused" || bad "plan bad floor: $out"
@@ -193,17 +200,20 @@ printf '%s\n' "$out" | grep -q '^OK obs next id 5000003, at or above floor 50000
 out="$(sb_run 5000093 300003)"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$MYF/alters" ] && [ "$(cat "$MYF/obs")" = 5000093 ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000093.*(counter already there, unchanged)$' \
   && ok_ "060: counters already above the floor on this residue are left unchanged, and say so" || bad "060 keep: rc=$rc $out alters=$(cat "$MYF/alters")"
-out="$(sb_run 5000007 299991)"; rc=$?
-[ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && case "$out" in "FAIL the obs id counter is 5000007, above the first obs id"*) true ;; *) false ;; esac \
-  && ok_ "060: an obs counter on another residue above the floor fails the task, and nothing is altered" || bad "060 off residue: rc=$rc $out alters=$(cat "$MYF/alters")"
+out="$(sb_run 5000011 299991)"; rc=$?
+[ "$rc" = 0 ] && ! grep -q '`obs`' "$MYF/alters" && [ "$(cat "$MYF/obs")" = 5000011 ] && grep -qxF 'ALTER TABLE openmrs.`orders` AUTO_INCREMENT = 300003;' "$MYF/alters" \
+  && printf '%s\n' "$out" | grep -q '^OK obs next id 5000013, at or above floor 5000000 + residue 3 (counter already there, unchanged)$' \
+  && ok_ "060: a restored obs counter above the floor on the hub's residue (5000011) is kept; the next id is 5000013" || bad "060 hub rows above the floor: rc=$rc $out alters=$(cat "$MYF/alters")"
+out="$(sb_run 5000004 300003)"; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$MYF/alters" ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000013' \
+  && ok_ "060: a counter MySQL derived after a restart (5000004) is kept, nothing altered" || bad "060 after restart: rc=$rc $out alters=$(cat "$MYF/alters")"
 out="$(sb_run '' 299991)"; rc=$?
 [ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && case "$out" in "FAIL could not read the obs id counter"*) true ;; *) false ;; esac \
   && ok_ "060: a counter that cannot be read fails the task" || bad "060 unreadable: rc=$rc $out"
-stamp_del FLOOR_OBS; stamp_del FLOOR_ORDERS
+env_del "$STATE_FILE" FLOOR_OBS
 out="$(sb_run 4999993 299991)"; rc=$?
-[ "$rc" = 0 ] && [ ! -s "$MYF/alters" ] && printf '%s\n' "$out" | grep -q '^OK obs id counter left as the seed restored it: the seed gave no obs floor (FLOOR_OBS is not in its manifest.env)$' \
-  && printf '%s\n' "$out" | grep -q '^OK orders id counter left as the seed restored it' \
-  && ok_ "060: a manifest without floors leaves both counters as restored, with a line saying no floor was given" || bad "060 no floors: rc=$rc $out"
+[ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && case "$out" in "FAIL no obs floor is recorded on this machine"*) true ;; *) false ;; esac \
+  && ok_ "060: no recorded obs floor fails the task, and nothing is altered" || bad "060 no floor: rc=$rc $out"
 
 # the exit checks read the unlisted counters again against the recorded floors
 stamp_put FLOOR_OBS 5000000; stamp_put FLOOR_ORDERS 300000
@@ -211,5 +221,10 @@ cp "$CLINIC_DIR/plain.conf" "$CLINIC_DIR/repo/sync/local/tables.conf"
 out="$(blk_run "${HERE}/../tasks/100-exit-checks.sh" "$CLINIC_DIR/repo" 4999993)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in "FAIL the obs id counter is below this clinic's floor: the next obs id would be 4999993"*) true ;; *) false ;; esac \
   && ok_ "100: an unlisted obs counter below the seed's floor fails the exit checks" || bad "100 unlisted below: rc=$rc $out"
+for c in 5000011 5000004; do
+  out="$(blk_run "${HERE}/../tasks/100-exit-checks.sh" "$CLINIC_DIR/repo" "$c")"; rc=$?
+  [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000013' || bad "100 counter $c: rc=$rc $out"
+done
+ok_ "100: counters above the first id on another residue (5000011, 5000004) pass the exit checks"
 rm -rf "$CLINIC_DIR"
 exit "$fails"
