@@ -21,7 +21,7 @@ printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nREMOTE_KAFKA_BOOTSTRAP_S
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
 printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
 printf 'alpha:3\n' > "$TMP/ledger"
-printf 'FLOOR_OBS=7963440\nFLOOR_ORDERS=441560\n' > "$TMP/manifest.env"
+printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
 # a stand-in for podman: the striding script only asks whether a table exists
 # and its MAX(pk); MAX_<table> in the environment answers the second
 mkdir -p "$TMP/bin"
@@ -114,14 +114,14 @@ fi
 for s in "obs obs_id" "orders order_id" "drug_order order_id"; do
   grep -qxF "$s" "$TMP/sinks.hs" && ok_ "hub up sink: ${s% *} on ${s#* }" || bad "no hub sink '${s}': $(tr '\n' ';' < "$TMP/sinks.hs")"
 done
-grep -qxF 'ALTER TABLE `obs` AUTO_INCREMENT = 7963443;' "$TMP/alter.pk" && grep -qxF 'ALTER TABLE `orders` AUTO_INCREMENT = 441563;' "$TMP/alter.pk" \
+grep -qxF 'ALTER TABLE `obs` AUTO_INCREMENT = 5000003;' "$TMP/alter.pk" && grep -qxF 'ALTER TABLE `orders` AUTO_INCREMENT = 300003;' "$TMP/alter.pk" \
   && ok_ "striding: obs and orders start at the manifest floor plus the residue" || bad "striding clinical: $(cat "$TMP/alter.pk")"
 grep -q 'drug_order' "$TMP/alter.pk" && bad "striding alters drug_order: $(grep drug_order "$TMP/alter.pk")" || ok_ "striding never alters drug_order"
 . "$RP/sync/local/tables-conf.sh"
 recs="$(up_tables_read "$C/sync/local/tables.conf")"
 printf '%s\n' "$recs" | grep -qxF 'obs obs_id seed -' && printf '%s\n' "$recs" | grep -qxF 'drug_order order_id floor orders' \
   && ok_ "the reader: obs floor from the seed, drug_order's from orders" || bad "records: $recs"
-[ "$(up_floor_of "$C/sync/local/tables.conf" drug_order "$TMP/manifest.env")" = 441560 ] && ok_ "drug_order's floor is the orders floor from the manifest" || bad "drug_order floor: $(up_floor_of "$C/sync/local/tables.conf" drug_order "$TMP/manifest.env" 2>&1)"
+[ "$(up_floor_of "$C/sync/local/tables.conf" drug_order "$TMP/manifest.env")" = 300000 ] && ok_ "drug_order's floor is the orders floor from the manifest" || bad "drug_order floor: $(up_floor_of "$C/sync/local/tables.conf" drug_order "$TMP/manifest.env" 2>&1)"
 [ -z "$(up_floor_of "$C/sync/local/tables.conf" idgen_seq_id_gen "$TMP/manifest.env")" ] && ok_ "a sync-only table has no floor" || bad "idgen has a floor"
 
 # a seed floor the manifest does not carry stops striding, with nothing altered

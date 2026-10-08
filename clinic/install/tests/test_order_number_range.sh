@@ -25,7 +25,7 @@ out="$(order_seed_range '')"; [ $? = 1 ] && ok_ "no residue has no range" || bad
 
 # --- what 060 does with the seed's value ----------------------------------------
 pl(){ order_seed_plan "$@" 2>&1; }
-[ "$(pl 404583 3)" = "set 30000001" ] && ok_ "the hub's value from the seed (404,583), residue 3 -> set 30,000,001" || bad "hub value: $(pl 404583 3)"
+[ "$(pl 250000 3)" = "set 30000001" ] && ok_ "the hub's value from the seed (250,000), residue 3 -> set 30,000,001" || bad "hub value: $(pl 250000 3)"
 [ "$(pl '' 3)" = "set 30000001" ] && ok_ "no value in the seed -> set 30,000,001 (OpenMRS would start at 1)" || bad "absent: $(pl '' 3)"
 [ "$(pl 30000150 3)" = keep ] && ok_ "a value already in range is kept (a rerun does not move it back)" || bad "in range: $(pl 30000150 3)"
 out="$(pl 10000005 3)"; rc=$?
@@ -40,7 +40,7 @@ out="$(vd 30000001 3)"; [ $? = 0 ] && [ "$out" = "ok order.nextOrderNumberSeed 3
 out="$(vd 10000005 3)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in "order.nextOrderNumberSeed is 10000005, in the range of the clinic with residue 1"*) true ;; *) false ;; esac \
   && ok_ "a value from another clinic's range read back is refused" || bad "other clinic: rc=$rc $out"
-out="$(vd 404583 3)"; [ $? = 1 ] && case "$out" in *"the hub's range"*) true ;; *) false ;; esac && ok_ "the hub's value read back (never set, or reset by a start) is refused" || bad "hub: $out"
+out="$(vd 250000 3)"; [ $? = 1 ] && case "$out" in *"the hub's range"*) true ;; *) false ;; esac && ok_ "the hub's value read back (never set, or reset by a start) is refused" || bad "hub: $out"
 out="$(vd 40000000 3)"; [ $? = 1 ] && ok_ "one past the top of the range is refused" || bad "past top: $out"
 out="$(vd '' 3)"; [ $? = 1 ] && case "$out" in "could not read order.nextOrderNumberSeed"*) true ;; *) false ;; esac && ok_ "a value that could not be read is refused" || bad "empty: $out"
 err="$(order_seed_verdict 39000001 3 2>&1 >/dev/null)"; out="$(order_seed_verdict 39000001 3 2>/dev/null)"; rc=$?
@@ -68,7 +68,7 @@ run060(){ # STORED-VALUE|ABSENT|DOWN -> output; the stored value after, in $DB/v
       esac; }
     eval "$TF" ) 2>&1
 }
-out="$(run060 404583)"; [ "$(cat "$DB/value")" = 30000001 ] && case "$out" in *"ok order.nextOrderNumberSeed 30000001"*) true ;; *) false ;; esac \
+out="$(run060 250000)"; [ "$(cat "$DB/value")" = 30000001 ] && case "$out" in *"ok order.nextOrderNumberSeed 30000001"*) true ;; *) false ;; esac \
   && ok_ "060 on the seed's value: writes 30,000,001 and reads it back" || bad "060 seed value: $out / $(cat "$DB/value")"
 out="$(run060 ABSENT)"; [ "$(cat "$DB/value" 2>/dev/null)" = 30000001 ] && ok_ "060 with no row: creates it at 30,000,001" || bad "060 absent: $out"
 out="$(run060 30000420)"; [ "$(cat "$DB/value")" = 30000420 ] && case "$out" in *"ok order.nextOrderNumberSeed 30000420"*) true ;; *) false ;; esac \
