@@ -113,6 +113,28 @@ seed_floor_tables(){
 SEED_COUNTER_TABLES="obs orders"
 
 floor_key(){ printf 'FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
+seed_counter_pk(){ case "$1" in obs) printf 'obs_id' ;; orders) printf 'order_id' ;; *) return 1 ;; esac; }
+
+# seed_floor_residue_sql TABLE FLOOR : counts the seeded rows at or above the
+# floor that are not on the hub's residue 0.
+seed_floor_residue_sql(){
+  local pk; pk="$(seed_counter_pk "$1")" || return 1
+  printf 'select count(*) from openmrs.`%s` where `%s` >= %s and `%s` %% 10 <> 0;\n' "$1" "$pk" "$2" "$pk"
+}
+# seed_floor_residue_verdict TABLE FLOOR COUNT : at or above the floor, a
+# residue names the node that wrote the row, and every row the seed carries
+# there must be the hub's (residue 0). A row on a clinic's residue would pass
+# that clinic's capture filter, so its edits would be published as the
+# clinic's own and overwrite the hub's row; the hub writes above the floor
+# while the dump runs, so this is read, not assumed.
+seed_floor_residue_verdict(){
+  local t="$1" fl="$2" n="$3"
+  case "$n" in ''|*[!0-9]*) printf 'could not count the %s rows at or above the floor %s (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$fl" "$n"; return 1 ;; esac
+  if [ "$n" -gt 0 ]; then
+    printf 'the seed holds %s %s row(s) at or above the floor %s that are not on the hub'"'"'s residue 0: a clinic on that residue would publish its edits to them as its own. This seed cannot be used; ask the operator for a fresh seed folder.\n' "$n" "$t" "$fl"; return 1
+  fi
+  printf 'ok %s: every seeded row at or above the floor %s is the hub'"'"'s (residue 0)\n' "$t" "$fl"
+}
 
 # seed_floors_verdict MANIFEST TABLES_CONF
 # Each table whose floor comes from the seed needs FLOOR_<TABLE> in the

@@ -31,6 +31,10 @@ sc_ai(){ printf "set session information_schema_stats_expiry=0; select auto_incr
 for t in ${SEED_COUNTER_TABLES}; do
   fl="$(stamp_get "$(floor_key "$t")")"
   [ -n "$fl" ] || fail "no ${t} floor is recorded on this machine, so its id counter cannot be set above the hub's rows. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator."
+  # floor-residue:begin
+  v="$(seed_floor_residue_verdict "$t" "$fl" "$(seed_floor_residue_sql "$t" "$fl" | mysql_root 2>/dev/null | tail -1 || true)")" || fail "$v"
+  ok "${v#ok }"
+  # floor-residue:end
   plan="$(seed_counter_plan "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$plan"
   if [ "$plan" != keep ]; then printf 'ALTER TABLE openmrs.`%s` AUTO_INCREMENT = %s;\n' "$t" "${plan#set }" | mysql_root >/dev/null || fail "could not set the ${t} id counter to ${plan#set }: the database did not take the change. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator."; fi
   v="$(counter_floor_verdict "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$v"
