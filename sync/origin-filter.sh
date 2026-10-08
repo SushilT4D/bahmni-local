@@ -97,3 +97,77 @@ with open(path, "w") as f:
     f.write("\n")
 PY
 }
+
+# origin_filter_read CONFIG_JSON TABLE : from a connector config (the object
+# Connect's GET /connectors/<name>/config returns, or a file holding
+# {"name", "config"}), prints "<pk> <floor> <residue>" read back out of TABLE's
+# filter step, or returns 1 with what is missing or not as rendered here.
+origin_filter_read(){
+  python3 - "$1" "$2" "$ORIGIN_FILTER_TYPE" "$ORIGIN_FILTER_LANGUAGE" "$ORIGIN_FILTER_PREDICATE_TYPE" <<'PY'
+import json, re, sys
+src, table, ftype, lang, ptype = sys.argv[1:6]
+try:
+    doc = json.load(open(src))
+except Exception as e:
+    print("the connector configuration cannot be read as JSON (%s)" % e); sys.exit(1)
+cfg = doc.get("config", doc)
+a, p = "origin_" + table, "topic_" + table
+def fail(msg):
+    print(msg); sys.exit(1)
+if a not in [x.strip() for x in cfg.get("transforms", "").split(",")]:
+    fail("the source connector has no filter step for %s: every change to %s would be published, including edits to rows this clinic does not own" % (table, table))
+t = "transforms." + a + "."
+if cfg.get(t + "type") != ftype or cfg.get(t + "language") != lang:
+    fail("the %s filter step is not %s in %s (type %s, language %s)" % (table, ftype, lang, cfg.get(t + "type"), cfg.get(t + "language")))
+if cfg.get(t + "null.handling.mode") != "evaluate":
+    fail("the %s filter step does not judge deletes' tombstones (null.handling.mode is %s, not evaluate)" % (table, cfg.get(t + "null.handling.mode")))
+if cfg.get(t + "predicate") != p or p not in [x.strip() for x in cfg.get("predicates", "").split(",")]:
+    fail("the %s filter step is not limited to the %s topic (predicate %s)" % (table, table, cfg.get(t + "predicate")))
+if cfg.get("predicates." + p + ".type") != ptype or not re.search(r"\\\.%s$" % re.escape(table), cfg.get("predicates." + p + ".pattern", "")):
+    fail("the %s filter step's topic test does not name the %s topic (pattern %s)" % (table, table, cfg.get("predicates." + p + ".pattern")))
+m = re.fullmatch(r"key != null && key\.get\('([a-z_][a-z0-9_]*)'\) instanceof Number && key\.get\('\1'\)\.longValue\(\) >= ([0-9]+)L && key\.get\('\1'\)\.longValue\(\) % 10 == ([0-9])", cfg.get(t + "condition", ""))
+if not m:
+    fail("the %s filter condition is not the floor-and-residue test this installer writes: %s" % (table, cfg.get(t + "condition")))
+print(m.group(1), m.group(2), m.group(3))
+PY
+}
+
+# origin_filter_verdict CONFIG_JSON TABLES_CONF FLOORS OFFSET : the registered
+# source's filter, read back, against what this node is. For every table the
+# list takes its floor from the seed or from another table: the step exists,
+# its residue is OFFSET mod 10 (MySQL's @@auto_increment_offset, read from the
+# server), and its floor is the one FLOORS (a manifest.env, or the floors the
+# seed gate recorded from it) gives for that table. Prints one "ok ..." line
+# per table, or the first refusal and returns 1. A list that cannot be read is
+# a refusal, never a pass.
+origin_filter_verdict(){
+  local cfg="$1" conf="$2" floors="$3" off="$4" recs t pk kind arg got rpk rfl rr want r out="" n=0
+  case "$off" in ''|*[!0-9]*) printf 'could not read MySQL'"'"'s auto_increment_offset (got '"'"'%s'"'"'), so the capture filter'"'"'s residue cannot be checked. Wait a minute and run the same command again; if it persists, call the operator.\n' "$off"; return 1 ;; esac
+  r=$(( off % 10 ))
+  type up_tables_read >/dev/null 2>&1 || { printf 'origin_filter_verdict needs sync/local/tables-conf.sh sourced first\n'; return 1; }
+  recs="$(up_tables_read "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so the capture filter was not checked: %s\n' "$recs"; return 1; }
+  while read -r t pk kind arg; do
+    case "$kind" in seed|floor) ;; *) continue ;; esac
+    n=$((n+1))
+    got="$(origin_filter_read "$cfg" "$t")" || { printf '%s\n' "$got"; return 1; }
+    read -r rpk rfl rr <<EOF
+$got
+EOF
+    [ "$rpk" = "$pk" ] || { printf 'the %s capture filter tests column %s, but the table'"'"'s key is %s\n' "$t" "$rpk" "$pk"; return 1; }
+    if [ "$rr" != "$r" ]; then
+      printf 'the %s capture filter keeps residue %s, but this MySQL issues ids on residue %s (auto_increment_offset %s): every change this clinic makes to %s would be dropped. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rr" "$r" "$off" "$t"
+      return 1
+    fi
+    want="$(up_floor_of "$conf" "$t" "$floors" 2>&1)" || { printf 'the %s floor this clinic was seeded with cannot be read, so its capture filter was not checked: %s\n' "$t" "$want"; return 1; }
+    if [ "$rfl" != "$want" ]; then
+      printf 'the %s capture filter starts at %s, but the floor this clinic was seeded with is %s. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rfl" "$want"
+      return 1
+    fi
+    out="${out}ok ${t} capture filter: key ${pk} at or above ${rfl}, residue ${rr}
+"
+  done <<EOF
+$recs
+EOF
+  [ "$n" -gt 0 ] || { printf 'ok no table in the clinic table list needs a capture filter\n'; return 0; }
+  printf '%s' "$out"
+}

@@ -65,6 +65,12 @@ while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
 # counter-check:end
+# The capture filter, read back from the connector Connect is running now (the
+# same check as the sync step; a re-registration since then shows here).
+v="$(capture_filter_check)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
 # the order-number counter, read now that OpenMRS has started (a start that
 # loads global properties over it shows here)
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"

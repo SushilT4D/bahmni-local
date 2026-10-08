@@ -769,3 +769,29 @@ elis_page_ok(){
   case "$2" in *'HTTP Status'*) return 1 ;; esac
   return 0
 }
+
+# capture_filter_check : the source connector's capture filter as Kafka
+# Connect holds it (GET .../config of the registered connector, never the
+# generated file), against this node: its residue must be the
+# auto_increment_offset the running MySQL issues ids on, and its floors the
+# ones the seed's manifest gives (the seed folder's, or else the copy the seed
+# gate recorded on this machine). sync/origin-filter.sh holds the rules.
+# Prints "ok ..." lines, or the refusal and returns 1. CONNECT_URL overrides
+# the Connect address.
+capture_filter_check(){
+  local reg off floors v rc
+  type up_tables_read >/dev/null 2>&1 || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  type origin_filter_verdict >/dev/null 2>&1 || . "${REPO_DIR}/sync/origin-filter.sh"
+  reg="$(mktemp)"
+  if ! curl -sf --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/mysql-source-connector/config" > "$reg" 2>/dev/null; then
+    rm -f "$reg"
+    printf 'could not read the registered mysql-source-connector configuration from Kafka Connect, so its capture filter was not checked: %s logs kafka-connect\n' "${COMPOSE_CMD:-docker compose}"
+    return 1
+  fi
+  off="$(printf 'select @@global.auto_increment_offset' | ct exec -i "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
+  floors="${SEED_DIR:-}/manifest.env"; [ -f "$floors" ] || floors="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
+  v="$(origin_filter_verdict "$reg" "${REPO_DIR}/sync/local/tables.conf" "$floors" "$off")"; rc=$?
+  rm -f "$reg"
+  printf '%s\n' "$v"
+  return "$rc"
+}

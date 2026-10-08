@@ -32,6 +32,13 @@ til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIS
 [ -n "$til" ] && env_put "$E" TABLE_INCLUDE_LIST "$til"
 bash scripts/generate-connectors.sh >/dev/null
 bash scripts/register-source-connector.sh >/dev/null
+# The capture filter as Connect holds it, not as the file says (lib.sh
+# capture_filter_check): a wrong residue drops every change this clinic makes,
+# silently.
+v="$(capture_filter_check)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all clinlims-clinic-sink-all >/dev/null
 # after register-odoo.sh, not before: the heartbeat script patches the two PG

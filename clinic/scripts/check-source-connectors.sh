@@ -72,3 +72,31 @@ else
 fi
 
 
+
+# Capture filter: the steps that keep the clinic's own rows of obs, orders and
+# drug_order, read back from the registered connector (sync/origin-filter.sh).
+# Its residue is checked against the running MySQL's auto_increment_offset
+# (MYSQL_OFFSET overrides the read) and its floors against SEED_MANIFEST, or
+# else the floors the seed recorded on this machine (.install-state).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+CLINIC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+. "${REPO_ROOT}/sync/local/tables-conf.sh"
+. "${REPO_ROOT}/sync/origin-filter.sh"
+echo ""
+echo "Capture filter:"
+cfg_file="$(mktemp)"
+curl -s "${CONNECT_URL}/connectors/${CONNECTOR_NAME}/config" > "${cfg_file}" 2>/dev/null
+offset="${MYSQL_OFFSET:-}"
+if [ -z "${offset}" ]; then
+  project="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${CLINIC_ROOT}/.env" 2>/dev/null | tail -1 | tr -d "\"' ")"
+  for ct in docker podman; do
+    command -v "$ct" >/dev/null 2>&1 || continue
+    offset="$("$ct" exec "${MYSQL_CONTAINER:-${project:-bahmni}-bahmni-mysql-1}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "select @@global.auto_increment_offset"' 2>/dev/null | tail -1)"
+    [ -n "${offset}" ] && break
+  done
+fi
+verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/local/tables.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
+rm -f "${cfg_file}"
+printf '%s\n' "${verdict}" | sed 's/^/  /'
+exit "${vrc}"
