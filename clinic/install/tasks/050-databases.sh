@@ -184,11 +184,11 @@ missing="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | mysql_root | sink_grants_mi
   || fail "the sink user lacks SELECT, INSERT, UPDATE or DELETE on: $(printf '%s' "$missing" | tr '\n' ' ')"
 # sink-grants:end
 # signal-table:begin
-# The source connector's signal table (lib.sh SIGNAL_TABLE_DDL), created here
+# The source connector's signal table (lib.sh signal_table_ddl), created here
 # rather than carried by the dump, and read back: without it no catch-up of
 # rows written before a table was captured can be asked for.
-printf '%s;\n%s;\nFLUSH PRIVILEGES;\n' "${SIGNAL_TABLE_DDL}" "${SIGNAL_TABLE_GRANT}" | mysql_root >/dev/null || fail "could not create openmrs.debezium_signal or grant the debezium user on it"
-v="$(printf '%s\n' "${SIGNAL_TABLE_READ_SQL}" | mysql_root | signal_table_verdict)" || fail "$v"
+printf '%s;\n%s;\nFLUSH PRIVILEGES;\n' "$(signal_table_ddl)" "$(signal_table_grant)" | mysql_root >/dev/null || fail "could not create $(signal_table_db).debezium_signal or grant the debezium user on it"
+v="$(signal_table_read_sql | mysql_root | signal_table_verdict)" || fail "$v"
 ok "${v#ok }"
 # signal-table:end
 fi

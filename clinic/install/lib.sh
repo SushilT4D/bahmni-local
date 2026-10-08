@@ -804,32 +804,39 @@ capture_filter_check(){
 # snapshot, the connector writes its own window markers into the table, so its
 # database user may insert, update and delete there. Created at seed; the
 # seed's dump does not carry it, because the hub has none.
-SIGNAL_TABLE_DDL='CREATE TABLE IF NOT EXISTS openmrs.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)'
-SIGNAL_TABLE_GRANT="GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.debezium_signal TO 'debezium'@'%'"
+# Each takes the OpenMRS database (DATABASE_NAME, default openmrs), the one the
+# source connector's include list and signal collection name.
+signal_table_db(){ printf '%s' "${1:-${DATABASE_NAME:-openmrs}}"; }
+signal_table_ddl(){ printf 'CREATE TABLE IF NOT EXISTS %s.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)' "$(signal_table_db "${1:-}")"; }
+signal_table_grant(){ printf "GRANT SELECT, INSERT, UPDATE, DELETE ON %s.debezium_signal TO 'debezium'@'%%'" "$(signal_table_db "${1:-}")"; }
 # what information_schema says of it: column, type, nullable, key; then the
 # privileges the debezium user holds on it
-SIGNAL_TABLE_READ_SQL="select 'col', column_name, column_type, is_nullable, column_key from information_schema.columns where table_schema='openmrs' and table_name='debezium_signal' order by ordinal_position; select 'priv', privilege_type from information_schema.table_privileges where grantee=\"'debezium'@'%'\" and table_schema='openmrs' and table_name='debezium_signal' order by privilege_type;"
+signal_table_read_sql(){
+  local db; db="$(signal_table_db "${1:-}")"
+  printf "select 'col', column_name, column_type, is_nullable, column_key from information_schema.columns where table_schema='%s' and table_name='debezium_signal' order by ordinal_position; select 'priv', privilege_type from information_schema.table_privileges where grantee=\"'debezium'@'%%'\" and table_schema='%s' and table_name='debezium_signal' order by privilege_type;" "$db" "$db"
+}
 SIGNAL_TABLE_WANT='col id varchar(42) NO PRI
 col type varchar(32) NO
 col data varchar(2048) YES'
 
-# signal_table_verdict : stdin is SIGNAL_TABLE_READ_SQL's output (tab-
+# signal_table_verdict [DB] : stdin is signal_table_read_sql's output (tab-
 # separated). Prints "ok ..." or what is wrong and returns 1.
 signal_table_verdict(){
-  local rows cols privs p
+  local rows cols privs p t
+  t="$(signal_table_db "${1:-}").debezium_signal"
   rows="$(cat)"
   cols="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="col" {s=$1" "$2" "$3" "$4; if ($5 != "") s=s" "$5; print s}')"
   if [ -z "$cols" ]; then
-    printf 'the signal table openmrs.debezium_signal does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n'; return 1
+    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$t"; return 1
   fi
   if [ "$cols" != "$SIGNAL_TABLE_WANT" ]; then
-    printf 'openmrs.debezium_signal is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
+    printf '%s is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$t" "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
   fi
   privs="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="priv" {print $2}' | tr '\n' ' ')"
   for p in SELECT INSERT UPDATE DELETE; do
-    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on openmrs.debezium_signal, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$p"; return 1 ;; esac
+    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
   done
-  printf 'ok signal table openmrs.debezium_signal (id, type, data), writable by the debezium user\n'
+  printf 'ok signal table %s (id, type, data), writable by the debezium user\n' "$t"
 }
 
 # signal_capture_verdict CONFIG_JSON : a registered source configuration must

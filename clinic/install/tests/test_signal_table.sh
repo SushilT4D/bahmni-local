@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The source connector's signal table (lib.sh SIGNAL_TABLE_DDL, created by seed
+# The source connector's signal table (lib.sh signal_table_ddl, created by seed
 # task 050):
 #   - its structure is the one Debezium documents for the source signal channel
 #     (id varchar(42) primary key, type varchar(32) not null, data
@@ -23,12 +23,18 @@ trap cleanup EXIT
 . "${HERE}/../lib.sh"
 
 # --- the structure ---------------------------------------------------------------
-[ "$SIGNAL_TABLE_DDL" = 'CREATE TABLE IF NOT EXISTS openmrs.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)' ] \
-  && ok_ "DDL: id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL" || bad "DDL: $SIGNAL_TABLE_DDL"
-case "$SIGNAL_TABLE_GRANT" in *SELECT*INSERT*UPDATE*DELETE*"openmrs.debezium_signal TO 'debezium'@'%'") ok_ "the debezium user may read and write it (the connector writes its snapshot window markers there)" ;; *) bad "grant: $SIGNAL_TABLE_GRANT" ;; esac
+[ "$(signal_table_ddl)" = 'CREATE TABLE IF NOT EXISTS openmrs.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)' ] \
+  && ok_ "DDL: id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL" || bad "DDL: $(signal_table_ddl)"
+# the database the source connector names (DATABASE_NAME), not a fixed one
+case "$(DATABASE_NAME=clinicdb signal_table_ddl)|$(DATABASE_NAME=clinicdb signal_table_grant)|$(DATABASE_NAME=clinicdb signal_table_read_sql)" in
+  "CREATE TABLE IF NOT EXISTS clinicdb.debezium_signal "*"|GRANT "*" ON clinicdb.debezium_signal TO "*"|"*"table_schema='clinicdb' and table_name='debezium_signal'"*"table_schema='clinicdb'"*) ok_ "DDL, grant and read-back follow DATABASE_NAME" ;;
+  *) bad "the signal table SQL ignores DATABASE_NAME: $(DATABASE_NAME=clinicdb signal_table_ddl)" ;;
+esac
+grep -q 'openmrs\.debezium_signal' "${HERE}/../tasks/050-databases.sh" && bad "task 50 names openmrs.debezium_signal outright" || ok_ "task 50 names no database outright"
+case "$(signal_table_grant)" in *SELECT*INSERT*UPDATE*DELETE*"openmrs.debezium_signal TO 'debezium'@'%'") ok_ "the debezium user may read and write it (the connector writes its snapshot window markers there)" ;; *) bad "grant: $(signal_table_grant)" ;; esac
 S50="${HERE}/../tasks/050-databases.sh"
 blk="$(sed -n '/^# signal-table:begin/,/^# signal-table:end/p' "$S50")"
-printf '%s' "$blk" | grep -q 'SIGNAL_TABLE_DDL' && printf '%s' "$blk" | grep -q 'signal_table_verdict' && ok_ "task 50 creates it and reads it back" || bad "task 50 has no signal-table block"
+printf '%s' "$blk" | grep -q 'signal_table_ddl' && printf '%s' "$blk" | grep -q 'signal_table_verdict' && ok_ "task 50 creates it and reads it back" || bad "task 50 has no signal-table block"
 awk '/PHASE:-install}" = seed \]; then/ && !s {s=NR} /^# signal-table:begin/ {b=NR} /^fi$/ && b && !f {f=NR} END {exit !(s && b > s && f > b)}' "$S50" && ok_ "it is created at seed, where the debezium user is" || bad "the signal table is not created inside task 50's seed block"
 
 # --- the read-back verdict on fixture rows ----------------------------------------
@@ -109,10 +115,10 @@ if docker_answers && docker image inspect "${MYSQL_IMAGE}" >/dev/null 2>&1; then
   # busy machine that takes minutes (MYSQL_BOOT_S, default 300)
   up=0; for i in $(seq 1 $(( ${MYSQL_BOOT_S:-300} / 2 ))); do [ "$(echo 'select 1' | my)" = 1 ] && { up=1; break; }; sleep 2; done
   if [ "$up" = 1 ]; then
-    out="$(printf '%s\n' "${SIGNAL_TABLE_READ_SQL}" | my | signal_table_verdict)"; [ $? = 1 ] && ok_ "${MYSQL_IMAGE}: the read-back refuses a server without the table" || bad "${MYSQL_IMAGE}, no table: $out"
-    printf "CREATE USER 'debezium'@'%%' IDENTIFIED BY 'x';\n%s;\n%s;\nFLUSH PRIVILEGES;\n" "${SIGNAL_TABLE_DDL}" "${SIGNAL_TABLE_GRANT}" | my >/dev/null || bad "${MYSQL_IMAGE}: the DDL or grant failed"
-    out="$(printf '%s\n' "${SIGNAL_TABLE_READ_SQL}" | my | signal_table_verdict)" && ok_ "${MYSQL_IMAGE}: created and granted, the read-back passes" || bad "${MYSQL_IMAGE}, created: $out"
-    printf "%s;\n%s;\n" "${SIGNAL_TABLE_DDL}" "${SIGNAL_TABLE_GRANT}" | my >/dev/null && ok_ "${MYSQL_IMAGE}: running it twice is harmless" || bad "${MYSQL_IMAGE}: a second run failed"
+    out="$(printf '%s\n' "$(signal_table_read_sql)" | my | signal_table_verdict)"; [ $? = 1 ] && ok_ "${MYSQL_IMAGE}: the read-back refuses a server without the table" || bad "${MYSQL_IMAGE}, no table: $out"
+    printf "CREATE USER 'debezium'@'%%' IDENTIFIED BY 'x';\n%s;\n%s;\nFLUSH PRIVILEGES;\n" "$(signal_table_ddl)" "$(signal_table_grant)" | my >/dev/null || bad "${MYSQL_IMAGE}: the DDL or grant failed"
+    out="$(printf '%s\n' "$(signal_table_read_sql)" | my | signal_table_verdict)" && ok_ "${MYSQL_IMAGE}: created and granted, the read-back passes" || bad "${MYSQL_IMAGE}, created: $out"
+    printf "%s;\n%s;\n" "$(signal_table_ddl)" "$(signal_table_grant)" | my >/dev/null && ok_ "${MYSQL_IMAGE}: running it twice is harmless" || bad "${MYSQL_IMAGE}: a second run failed"
     printf "INSERT INTO openmrs.debezium_signal VALUES ('probe-1', 'execute-snapshot', '{\"data-collections\": [\"openmrs.obs\"], \"type\": \"incremental\"}');\n" | docker exec -i "$MYC" sh -c 'MYSQL_PWD=x mysql -h127.0.0.1 -udebezium' >/dev/null 2>&1 \
       && ok_ "${MYSQL_IMAGE}: the debezium user can insert a signal row" || bad "${MYSQL_IMAGE}: the debezium user cannot insert into the signal table"
   else
