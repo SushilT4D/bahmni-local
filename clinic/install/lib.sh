@@ -256,17 +256,21 @@ sink_grant_sql(){
   for t in $ts; do printf "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.%s TO 'sink'@'%%';\n" "$t"; done
 }
 # SINK_GRANTS_READ_SQL is the read-back: one "table<TAB>privileges" row per
-# table the sink user holds a table-level grant on.
-SINK_GRANTS_READ_SQL="select Table_name, Table_priv from mysql.tables_priv where User='sink' and Host='%' and Db='openmrs'"
+# table the sink user holds a table-level grant on, and one "*<TAB>privileges"
+# row each for a grant on the whole openmrs database and a global one. A
+# privilege held at any of the three levels lets the sink write the table.
+SINK_GRANTS_PRIVS="concat_ws(',', if(Select_priv='Y','Select',null), if(Insert_priv='Y','Insert',null), if(Update_priv='Y','Update',null), if(Delete_priv='Y','Delete',null))"
+SINK_GRANTS_READ_SQL="select Table_name, Table_priv from mysql.tables_priv where User='sink' and Host='%' and Db='openmrs' union all select '*', ${SINK_GRANTS_PRIVS} from mysql.db where User='sink' and Host='%' and Db='openmrs' union all select '*', ${SINK_GRANTS_PRIVS} from mysql.user where User='sink' and Host='%'"
 # sink_grants_missing [TABLE...] : stdin is SINK_GRANTS_READ_SQL's output;
 # prints every named table (every down table when none is named) the sink user
-# cannot select, insert, update and delete in.
+# cannot select, insert, update and delete in, counting the table's own row
+# and every "*" row together.
 sink_grants_missing(){
   local got ts t p
   got="$(cat)"
   if [ $# -gt 0 ]; then ts="$*"; else ts="$(down_tables)" || return 1; fi
   for t in $ts; do
-    p="$(printf '%s\n' "$got" | awk -F'\t' -v t="$t" '$1==t {print tolower($2)}')"
+    p="$(printf '%s\n' "$got" | awk -F'\t' -v t="$t" '$1==t || $1=="*" {printf "%s,", tolower($2)}')"
     case ",${p}," in *,select,*) ;; *) printf '%s\n' "$t"; continue ;; esac
     case ",${p}," in *,insert,*) ;; *) printf '%s\n' "$t"; continue ;; esac
     case ",${p}," in *,update,*) ;; *) printf '%s\n' "$t"; continue ;; esac

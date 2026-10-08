@@ -9,8 +9,10 @@
 # Refuses before it contacts Connect when the clinic's sink database user lacks
 # SELECT, INSERT, UPDATE or DELETE on any table a generated sink writes, and
 # names the tables: such a sink would register, start, and fail on its first
-# write. Grants are read as root inside <COMPOSE_PROJECT_NAME>-bahmni-mysql-1
-# (COMPOSE_PROJECT_NAME from clinic/.env); scripts/grant-down-tables.sh is the fix.
+# write. A privilege counts whether it is granted on the table, on the whole
+# openmrs database or globally. Grants are read as root inside
+# <COMPOSE_PROJECT_NAME>-bahmni-mysql-1 (COMPOSE_PROJECT_NAME from clinic/.env);
+# scripts/grant-down-tables.sh is the fix.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

@@ -34,6 +34,16 @@ full="$(printf '%s\n' "$want" | awk '{printf "%s\tSelect,Insert,Update,Delete\n"
 short="$(printf '%s\n' "$full" | grep -v '^form_resource	' | sed 's/^form	.*/form	Select,Insert,Update/')"
 m="$(printf '%s\n' "$short" | lib sink_grants_missing | tr '\n' ' ')"
 [ "$m" = "form form_resource " ] && ok_ "read-back names a table missing DELETE and a table with no grant" || bad "read-back on partial grants: '$m'"
+# a grant on the whole openmrs database or a global one also lets the sink write
+# every table; the read-back reports each as a "*" row
+rb="$(lib eval 'printf "%s\n" "$SINK_GRANTS_READ_SQL"')"
+printf '%s' "$rb" | grep -q 'from mysql.tables_priv' && printf '%s' "$rb" | grep -q "from mysql.db where User='sink' and Host='%' and Db='openmrs'" && printf '%s' "$rb" | grep -q "from mysql.user where User='sink' and Host='%'" \
+  && ok_ "the read-back reads table, database and global grants" || bad "read-back SQL: $rb"
+[ -z "$(printf '*\tSelect,Insert,Update,Delete\n' | lib sink_grants_missing)" ] && ok_ "a grant on the whole database (or a global one) covers every down table" || bad "database-level grant: $(printf '*\tSelect,Insert,Update,Delete\n' | lib sink_grants_missing | tr '\n' ' ')"
+m="$(printf '*\tSelect,Insert,Update\nform\tDelete\n' | lib sink_grants_missing form form_resource | tr '\n' ' ')"
+[ "$m" = "form_resource " ] && ok_ "levels add up: SELECT, INSERT, UPDATE on the database and DELETE on form cover form only" || bad "levels combined: '$m'"
+m="$(printf '%s\n*\t\n*\t\n' "$full" | lib sink_grants_missing | tr '\n' ' ')"
+[ "$m" = " " ] || [ -z "$m" ] && ok_ "an empty database or global row takes nothing away from table grants" || bad "empty level rows: '$m'"
 
 # --- task 050 at seed --------------------------------------------------------------------
 code="$(grep -vE '^[[:space:]]*#' "$T50")"
@@ -44,7 +54,7 @@ run50(){ # GRANTED-ROWS : runs 050's block with a fake mysql_root
   printf '%s\n' "$1" > "$TMP/granted"; : > "$TMP/sql50"
   env -i PATH="$PATH" REPO_DIR="$RP" G="$TMP/granted" L="$TMP/sql50" DEBEZIUM_DB_PASSWORD=d LOCAL_MYSQL_PASSWORD=s bash -c ". '${HERE}/../lib.sh'
 fail(){ printf 'FAIL %s\n' \"\$*\"; exit 1; }; ok(){ printf 'OK %s\n' \"\$*\"; }
-mysql_root(){ q=\"\$(cat)\"; printf '%s\n' \"\$q\" >> \"\$L\"; case \"\$q\" in *'from mysql.user'*) echo 2 ;; *tables_priv*) cat \"\$G\" ;; esac; }
+mysql_root(){ q=\"\$(cat)\"; printf '%s\n' \"\$q\" >> \"\$L\"; case \"\$q\" in *tables_priv*) cat \"\$G\" ;; *'from mysql.user'*) echo 2 ;; esac; }
 ${blk}" 2>&1
 }
 out="$(run50 "$full")"; rc=$?
@@ -60,9 +70,9 @@ cat > "$TMP/bin/fakect" <<'SH'
 #!/usr/bin/env bash
 q="$(cat)"; printf '%s\n' "ct $*" "$q" >> "$FAKE_LOG"
 case "$q" in
+  *tables_priv*) cat "$FAKE_GRANTED" ;;
   *"from mysql.user"*) echo "${FAKE_USERS:-1}" ;;
   *information_schema.tables*) printf '%s\n' $FAKE_TABLES ;;
-  *tables_priv*) cat "$FAKE_GRANTED" ;;
 esac
 SH
 chmod +x "$TMP/bin/fakect"
@@ -122,4 +132,33 @@ printf '%s\n' "$full" > "$TMP/granted"; : > "$TMP/curl"
 out="$(env PATH="$TMP/cbin:$PATH" CLINIC_DIR="$TMP/nowhere" CT="$TMP/bin/fakect" CURL_LOG="$TMP/curl" SINK_SETTLE_S=0 bash "$REG" "$TMP/gen" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "grants cannot be read, so nothing was registered" && [ ! -s "$TMP/curl" ] \
   && ok_ "a node whose grants cannot be read registers nothing" || bad "no .env at registration: rc=$rc out=$out"
+printf '*\tSelect,Insert,Update,Delete\n' > "$TMP/granted"; : > "$TMP/curl"
+out="$(reg)"; rc=$?
+[ "$(grep -c -- '-X POST .*--data @.*mysql-local-sink-' "$TMP/curl")" = 3 ] && ok_ "a grant on the whole openmrs database is enough to register" || bad "database-level grant at registration: rc=$rc out=$out"
+printf '*\tSelect,Insert,Update\n' > "$TMP/granted"; : > "$TMP/curl"
+out="$(reg)"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'lacks .*on: .*users' && printf '%s' "$out" | grep -q 'lacks .*on: .*form ' && printf '%s' "$out" | grep -q 'lacks .*on: .*form_resource' && [ ! -s "$TMP/curl" ] \
+  && ok_ "a database-level grant without DELETE refuses every sink" || bad "short database-level grant at registration: rc=$rc out=$out"
+
+# --- the read-back against a real MySQL, when one can be started without a download ----------
+IMG="$(sed -n 's/^MYSQL_IMAGE=\([^[:space:]#]*\).*/\1/p' "$RP/sync/versions.env")"
+if [ "${TEST_NO_CONTAINERS:-0}" = 1 ] || ! command -v docker >/dev/null 2>&1 || ! docker image inspect "$IMG" >/dev/null 2>&1; then
+  ok_ "no container runtime or no local ${IMG:-MySQL image}: the real-MySQL grant checks are skipped"
+  exit "$fails"
+fi
+CNAME="sg-test-$$"; trap 'docker rm -f "$CNAME" >/dev/null 2>&1; rm -rf "$TMP"' EXIT
+docker run -d --name "$CNAME" --tmpfs /var/lib/mysql -e MYSQL_ROOT_PASSWORD=t -e MYSQL_DATABASE=openmrs "$IMG" \
+  --skip-log-bin --innodb-buffer-pool-size=16M --performance-schema=OFF >/dev/null 2>&1 || { bad "could not start ${IMG}"; exit "$fails"; }
+up=0; for i in $(seq 1 120); do docker logs "$CNAME" 2>&1 | grep -q 'ready for connections.*port: 3306' && { up=1; break; }; sleep 1; done
+[ "$up" = 1 ] || { bad "${IMG} was not ready within 120 s"; exit "$fails"; }
+rq(){ docker exec -i "$CNAME" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N'; }
+printf "CREATE TABLE openmrs.users (user_id int PRIMARY KEY); CREATE TABLE openmrs.form (form_id int PRIMARY KEY); CREATE USER 'sink'@'%%' IDENTIFIED BY 's';\n" | rq
+live(){ printf '%s\n' "$(lib eval 'printf "%s\n" "$SINK_GRANTS_READ_SQL"')" | rq | lib sink_grants_missing users form | tr '\n' ' '; }
+[ "$(live)" = "users form " ] && ok_ "real MySQL: a user with no grant lacks both tables" || bad "real MySQL, no grant: '$(live)'"
+printf "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.* TO 'sink'@'%%';\n" | rq
+[ -z "$(live)" ] && ok_ "real MySQL: a grant on openmrs.* covers both tables" || bad "real MySQL, database grant: '$(live)'"
+printf "REVOKE ALL ON openmrs.* FROM 'sink'@'%%'; GRANT SELECT, INSERT, UPDATE, DELETE ON *.* TO 'sink'@'%%';\n" | rq
+[ -z "$(live)" ] && ok_ "real MySQL: a global grant covers both tables" || bad "real MySQL, global grant: '$(live)'"
+printf "REVOKE SELECT, INSERT, UPDATE, DELETE ON *.* FROM 'sink'@'%%'; GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.form TO 'sink'@'%%';\n" | rq
+[ "$(live)" = "users " ] && ok_ "real MySQL: a table grant on form covers form only" || bad "real MySQL, table grant: '$(live)'"
 exit "$fails"
