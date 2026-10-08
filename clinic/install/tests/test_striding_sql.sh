@@ -86,5 +86,55 @@ out="$(cv obs 7963431 7963440 3)"; rc=$?
 out="$(cv orders 1 441560 3)"; [ $? = 1 ] && ok_ "a seed-restored counter (max + 1) below the floor is refused" || bad "orders: $out"
 out="$(cv obs '' 7963440 3)"; [ $? = 1 ] && case "$out" in "could not read the obs id counter"*) true ;; *) false ;; esac && ok_ "a counter that could not be read is refused, not taken as zero" || bad "empty: $out"
 out="$(cv obs 7963443 '' 3)"; [ $? = 1 ] && case "$out" in "no obs floor is recorded"*) true ;; *) false ;; esac && ok_ "no recorded floor is refused" || bad "no floor: $out"
+
+# --- every floored counter at once, and a table list that cannot be read ------
+# A broken list must refuse: a loop over an empty list would check no counter
+# and pass.
+stamp_put FLOOR_OBS 5000000; stamp_put FLOOR_ORDERS 300000
+printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$CLINIC_DIR/tables.conf"
+AI_OBS=5000003; AI_ORDERS=300003
+ai_fake(){ case "$1" in obs) echo "$AI_OBS" ;; orders) echo "$AI_ORDERS" ;; esac; }
+cvs(){ counter_floor_verdicts "$1" 3 ai_fake 2>&1; }
+out="$(cvs "$CLINIC_DIR/tables.conf")"; rc=$?
+[ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^ok ')" = 2 ] && printf '%s' "$out" | grep -q '^ok orders next id 300003' \
+  && ok_ "counter_floor_verdicts: one ok line per floored table (drug_order has no counter)" || bad "all counters: rc=$rc $out"
+AI_ORDERS=299991; out="$(cvs "$CLINIC_DIR/tables.conf")"; rc=$?; AI_ORDERS=300003
+[ "$rc" = 1 ] && case "$out" in "the orders id counter is below this clinic's floor"*) true ;; *) false ;; esac && ! printf '%s' "$out" | grep -q '^ok ' \
+  && ok_ "counter_floor_verdicts: one counter below its floor refuses, with only the refusal" || bad "one below: rc=$rc $out"
+out="$(cvs "$CLINIC_DIR/no-such.conf")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read, so no id counter was checked: tables.conf not found"*) true ;; *) false ;; esac \
+  && ok_ "counter_floor_verdicts: a missing table list refuses, not zero tables checked" || bad "missing list: rc=$rc $out"
+printf 'obs:obs_id:seed   # a trailing note\n' > "$CLINIC_DIR/bad.conf"
+out="$(cvs "$CLINIC_DIR/bad.conf")"; rc=$?
+[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read"*"not table:pk[:floor]"*) true ;; *) false ;; esac \
+  && ok_ "counter_floor_verdicts: a list its reader refuses refuses, with the reader's reason" || bad "refused list: rc=$rc $out"
+printf 'encounter:encounter_id:528000\nidgen_seq_id_gen:id\n' > "$CLINIC_DIR/plain.conf"
+out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?
+[ "$rc" = 0 ] && case "$out" in "ok no table in sync/local/tables.conf takes its floor from the seed"*) true ;; *) false ;; esac \
+  && ok_ "counter_floor_verdicts: a list with no floored table says so" || bad "plain list: rc=$rc $out"
+
+# tasks 060 and 100 run their counter-check block; a table list that cannot be
+# read fails the task
+mkdir -p "$CLINIC_DIR/repo/sync/local" "$CLINIC_DIR/norepo"; cp "$CLINIC_DIR/tables.conf" "$CLINIC_DIR/repo/sync/local/"
+blk_run(){ # TASK-FILE REPO-DIR AUTO_INCREMENT -> the block's output with stand-ins for the database
+  local B; B="$(sed -n '/^# counter-check:begin/,/^# counter-check:end/p' "$1")"
+  [ -n "$B" ] || { printf 'NO BLOCK\n'; return 2; }
+  ( INSTALL_DIR="${HERE}/.."; REPO_DIR="$2"; RESIDUE=3; MY=fake; AI="$3"
+    fail(){ printf 'FAIL %s\n' "$*"; exit 1; }; ok(){ printf 'OK %s\n' "$*"; }
+    ct(){ cat >/dev/null; echo "$AI"; }; mysql_root(){ cat >/dev/null; echo "$AI"; }
+    eval "$B" ) 2>&1
+}
+for task in 060-striding 100-exit-checks; do
+  TF="${HERE}/../tasks/${task}.sh"
+  out="$(blk_run "$TF" "$CLINIC_DIR/norepo" 5000003)"; rc=$?
+  [ "$rc" = 1 ] && case "$out" in "FAIL the clinic table list cannot be read"*) true ;; *) false ;; esac \
+    && ok_ "${task}: a table list that cannot be read fails the task" || bad "${task} unreadable list: rc=$rc $out"
+  out="$(blk_run "$TF" "$CLINIC_DIR/repo" 5000003)"; rc=$?
+  [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000003' && printf '%s\n' "$out" | grep -q '^OK orders next id 5000003' \
+    && ok_ "${task}: each floored counter read back, one ok line each" || bad "${task} counters: rc=$rc $out"
+  out="$(blk_run "$TF" "$CLINIC_DIR/repo" 13)"; rc=$?
+  [ "$rc" = 1 ] && case "$out" in "FAIL the obs id counter is below this clinic's floor"*) true ;; *) false ;; esac \
+    && ok_ "${task}: a counter below its floor fails the task" || bad "${task} below floor: rc=$rc $out"
+done
 rm -rf "$CLINIC_DIR"
 exit "$fails"

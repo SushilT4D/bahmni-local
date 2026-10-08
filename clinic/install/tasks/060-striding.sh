@@ -18,14 +18,17 @@ mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N';
 CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh >/dev/null
 inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' | mysql_root | tr '\t' ' ')"
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
+# counter-check:begin
 # Read each seed-floored table's counter back rather than trusting the ALTER:
-# the next id it issues must be at or above floor + residue.
+# the next id it issues must be at or above floor + residue. A table list that
+# cannot be read fails here rather than checking no table.
 . "${INSTALL_DIR}/state.sh"
-for t in $(seed_floor_tables "${REPO_DIR}/sync/local/tables.conf"); do
-  ai="$(printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$t" | mysql_root 2>/dev/null | tail -1 || true)"
-  v="$(counter_floor_verdict "$t" "$ai" "$(stamp_get "FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')")" "${RESIDUE}")" || fail "$v"
-  ok "${v#ok }"
-done
+ai_of(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | mysql_root 2>/dev/null | tail -1 || true; }
+v="$(counter_floor_verdicts "${REPO_DIR}/sync/local/tables.conf" "${RESIDUE}" ai_of)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
+# counter-check:end
 # order-seed:begin
 # order numbers: this clinic's own range, set before OpenMRS first starts and
 # read back rather than trusting the write

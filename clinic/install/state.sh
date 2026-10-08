@@ -143,6 +143,24 @@ counter_floor_verdict(){
   printf 'ok %s next id %s, at or above floor %s + residue %s\n' "$t" "$next" "$fl" "$r"
 }
 
+# counter_floor_verdicts TABLES_CONF RESIDUE READER : counter_floor_verdict for
+# every table whose floor comes from the seed, against the floor this machine
+# recorded at the seed gate. READER TABLE prints that table's AUTO_INCREMENT.
+# Prints one "ok ..." line per table, or the first refusal and returns 1. A
+# table list that cannot be read is a refusal: checking no table is never a
+# pass, because a broken list would otherwise skip every counter.
+counter_floor_verdicts(){
+  local conf="$1" r="$2" reader="$3" ts t v out=""
+  ts="$(seed_floor_tables "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so no id counter was checked: %s\n' "${ts:-no reason given}"; return 1; }
+  [ -n "$ts" ] || { printf 'ok no table in sync/local/tables.conf takes its floor from the seed: no id counter to check\n'; return 0; }
+  for t in $ts; do
+    v="$(counter_floor_verdict "$t" "$("$reader" "$t")" "$(stamp_get "FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')")" "$r")" || { printf '%s\n' "$v"; return 1; }
+    out="${out}${v}
+"
+  done
+  printf '%s' "$out"
+}
+
 # Order numbers. OpenMRS issues ORD-<k> from the global property
 # order.nextOrderNumberSeed, which is node-local and not synced, and every
 # seeded node starts with the value the seed carries. Two nodes issuing from
