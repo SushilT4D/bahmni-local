@@ -13,6 +13,10 @@ c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
 [ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.txt"
 ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
+# clinical data to the hub: off (the default) or test, nothing else
+. "${INSTALL_DIR}/../../sync/local/tables-conf.sh"
+v="$(up_clinical_mode_verdict "${CLINICAL_UP_SYNC:-off}")" || fail "$v"
+case "${v#ok }" in test) ok "CLINICAL_UP_SYNC=test: obs, orders and drug_order go to the hub (test data only)" ;; *) ok "CLINICAL_UP_SYNC=off: obs, orders and drug_order stay at this clinic" ;; esac
 
 # 1b. a machine already in service: MySQL strides on this residue and each
 # floored id counter is still at or above its floor (a restored database or a

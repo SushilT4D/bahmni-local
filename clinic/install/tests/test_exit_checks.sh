@@ -44,7 +44,8 @@ RP="$(cd "${HERE}/../../.." && pwd)"
 CF="$(mktemp -d)"; trap 'rm -rf "$CF"' EXIT
 mkdir -p "$CF/repo/clinic"; cp -R "$RP/clinic/scripts" "$CF/repo/clinic/"; cp -R "$RP/sync" "$CF/repo/"
 printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\nvisit:visit_id:625000\n' > "$CF/repo/sync/local/tables.conf"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\n' > "$CF/repo/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\nCLINICAL_UP_SYNC=test\n' > "$CF/repo/clinic/.env"
+export CLINICAL_UP_SYNC=test   # this clinic sends the clinical tables
 mkdir -p "$CF/seed"; printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$CF/seed/manifest.env"
 SEED_MANIFEST="$CF/seed/manifest.env" bash "$CF/repo/clinic/scripts/generate-connectors.sh" >/dev/null 2>&1 || bad "fixture: the generator did not render the clinical list"
 # what GET /connectors/<name>/config answers: the config map, flat, with its name

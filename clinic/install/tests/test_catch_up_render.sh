@@ -18,7 +18,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/clinic" "$TMP/bin"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/sync" "$C/"
 S="$C/clinic/scripts/catch-up-clinical.sh"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\nCOMPOSE_PROJECT_NAME=t\n' > "$C/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\nCOMPOSE_PROJECT_NAME=t\nCLINICAL_UP_SYNC=test\n' > "$C/clinic/.env"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
 LIST='visit:visit_id:625000
 obs:obs_id:seed
@@ -60,9 +60,9 @@ run --dry-run visit
 printf 'FLOOR_OBS=5000000\n' > "$TMP/obs-only.env"
 MF="$TMP/obs-only.env" run --dry-run
 [ "$(cat "$TMP/rc")" = 1 ] && grep -q 'FLOOR_ORDERS' "$TMP/out" && ! grep -q '^INSERT' "$TMP/out" && ok_ "a missing orders floor is refused, nothing printed to insert" || bad "no orders floor: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
-printf 'MYSQL_SERVER_NAME=bahmni-t\n' > "$C/clinic/.env"; run --dry-run
+printf 'MYSQL_SERVER_NAME=bahmni-t\nCLINICAL_UP_SYNC=test\n' > "$C/clinic/.env"; run --dry-run
 [ "$(cat "$TMP/rc")" = 1 ] && grep -q 'RESIDUE' "$TMP/out" && ok_ "no residue: refused" || bad "no residue: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\nCOMPOSE_PROJECT_NAME=t\n' > "$C/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nRESIDUE=3\nCOMPOSE_PROJECT_NAME=t\nCLINICAL_UP_SYNC=test\n' > "$C/clinic/.env"
 grep -v ':seed\|floor=' <<EOF > "$C/sync/local/tables.conf"
 $LIST
 EOF

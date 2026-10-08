@@ -357,7 +357,12 @@ refuse_inherited_alias(){ # ALIAS [SLUG]
 FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
-ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD CLINICAL_UP_SYNC"
+# Answers with a default: an answers file without one takes the default, and is
+# not short of an answer for lacking it. CLINICAL_UP_SYNC=off keeps the
+# clinical tables at the clinic (sync/local/tables-conf.sh).
+ANSWER_DEFAULTS="CLINICAL_UP_SYNC=off"
+answer_defaults_apply(){ local kv k; for kv in $ANSWER_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 # --- the hub link --------------------------------------------------------------
 # hub_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
@@ -450,7 +455,7 @@ fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [
 # fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
 # answers_missing FILE : prints every answer key that is absent or empty.
-answers_missing(){ local k; for k in $ANSWER_KEYS; do [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
+answers_missing(){ local k; for k in $ANSWER_KEYS; do case " $ANSWER_DEFAULTS" in *" $k="*) continue ;; esac; [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
 # Answers a clinic may leave out: the forms repo (task 075; empty = the node
 # runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
 # Initializer domain list (task 020 writes it into clinic/.env; empty = the

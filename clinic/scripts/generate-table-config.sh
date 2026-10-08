@@ -68,7 +68,7 @@ primary_keys=()
 if [[ "${SIDE}" == "local" ]]; then
   # shellcheck source=../../sync/local/tables-conf.sh
   . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
-  recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
+  recs="$(up_tables_for_clinic "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
   while read -r table pk _kind _arg; do
     [[ -n "${table}" ]] || continue
     table_include_list+=("${DATABASE_NAME}.${table}")

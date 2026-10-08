@@ -53,7 +53,7 @@ filter_recs=""
 . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
 # shellcheck source=../../sync/origin-filter.sh
 . "${PROJECT_DIR}/../sync/origin-filter.sh"
-recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
+recs="$(up_tables_for_clinic "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
 while read -r table _pk _kind _arg; do
   [[ -n "${table}" ]] || continue
   table_include_list+=("${DATABASE_NAME}.${table}")

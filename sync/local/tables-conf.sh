@@ -137,3 +137,28 @@ EOF
     *) return 0 ;;
   esac
 }
+
+# Whether this clinic sends the clinical tables up at all: CLINICAL_UP_SYNC in
+# clinic/.env, written at install from the answers. "off" (the default) keeps
+# obs, orders and drug_order at the clinic whatever this file lists; "test"
+# sends them, for a clinic that carries test data only. Real patients'
+# clinical data does not travel until the hub link has per-site credentials
+# and access control, so a clinic is never switched on by default, and a
+# production clinic installed from this tree keeps them local.
+up_clinical_mode_verdict(){ # VALUE -> "ok off|test", or the refusal
+  case "${1:-off}" in
+    off|test) printf 'ok %s\n' "${1:-off}" ;;
+    *) printf 'CLINICAL_UP_SYNC is '"'"'%s'"'"', not off or test: off keeps obs, orders and drug_order at this clinic, test sends them to the hub (test data only). Fix the answers file.\n' "$1"; return 1 ;;
+  esac
+}
+# up_tables_for_clinic FILE [MODE] : up_tables_read, as a clinic reads it: the
+# clinical tables (UP_CLINICAL_TABLES) are left out unless MODE (default
+# CLINICAL_UP_SYNC, default off) is test. Every clinic-side reader uses it;
+# the hub reads the whole list and decides per clinic (hub/clinics.conf).
+up_tables_for_clinic(){
+  local f="$1" mode="${2:-${CLINICAL_UP_SYNC:-off}}" recs v
+  v="$(up_clinical_mode_verdict "$mode")" || { printf '%s\n' "$v" >&2; return 1; }
+  recs="$(up_tables_read "$f")" || return 1
+  if [ "$mode" = test ]; then printf '%s' "$recs"; return 0; fi
+  printf '%s' "$recs" | awk -v c=" ${UP_CLINICAL_TABLES} " 'index(c, " " $1 " ") == 0 { print }'
+}

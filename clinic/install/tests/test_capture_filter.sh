@@ -34,7 +34,7 @@ OUT="$C/clinic/connectors/mysql-local-source-connector.json"
 # render LIST ENV_LINES [MANIFEST] : runs the generator; its status in $TMP/rc, its output in $TMP/out
 render(){
   printf '%s\n' "$1" > "$C/sync/local/tables.conf"
-  printf 'MYSQL_SERVER_NAME=bahmni-t\n%s\n' "$2" > "$C/clinic/.env"
+  printf 'MYSQL_SERVER_NAME=bahmni-t\nCLINICAL_UP_SYNC=test\n%s\n' "$2" > "$C/clinic/.env"
   SEED_MANIFEST="${3-$TMP/manifest.env}" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out" 2>&1; echo $? > "$TMP/rc"
 }
 cfg(){ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; print(c.get(sys.argv[2], ""))' "$OUT" "$1" 2>/dev/null; }

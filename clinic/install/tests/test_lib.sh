@@ -172,7 +172,8 @@ assert_eq "fleet_table" "$(fleet_table | tr '\n' '|')" "  azure      residue 7  
 a="$TMP/a.env"; printf 'CLINIC_SLUG=azure\nRESIDUE=7\nMRN_PREFIX=\n' > "$a"
 assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" | head -3 | tr '\n' ' ')" "MRN_PREFIX SITE_NUMBER CLINIC_PHONE "
 ( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
-assert_eq "answers_write writes twelve keys" "$(grep -c '^[A-Z_]*=' "$a")" "12"
+# the twelve answers, and CLINICAL_UP_SYNC (off unless set), the one with a default
+assert_eq "answers_write writes thirteen keys" "$(grep -c '^[A-Z_]*=' "$a")" "13"
 assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
 assert_eq "answers_write quotes a space (single-quoted)" "$(grep -E '^REMOTE_KAFKA_PASSWORD=' "$a")" "REMOTE_KAFKA_PASSWORD='p w'"
 assert_eq "answers_write mode 600" "$(stat -f %Lp "$a" 2>/dev/null || stat -c %a "$a")" "600"

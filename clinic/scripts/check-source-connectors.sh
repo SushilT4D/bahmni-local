@@ -96,6 +96,9 @@ if [ -z "${offset}" ]; then
     [ -n "${offset}" ] && break
   done
 fi
+# whether this clinic sends the clinical tables at all, as its .env says
+CLINICAL_UP_SYNC="${CLINICAL_UP_SYNC:-$(sed -n 's/^CLINICAL_UP_SYNC=//p' "${CLINIC_ROOT}/.env" 2>/dev/null | tail -1 | tr -d "\"' ")}"
+export CLINICAL_UP_SYNC
 verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/local/tables.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
 rm -f "${cfg_file}"
 printf '%s\n' "${verdict}" | sed 's/^/  /'

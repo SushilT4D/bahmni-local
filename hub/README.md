@@ -71,7 +71,9 @@ on loopback only; reach them over an SSH tunnel.
   renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
   registers the two Postgres sources (`odoo-cloud-source`,
   `clinlims-cloud-source`).
-- Up direction, one set per clinic listed in `clinics.conf`:
+- Up direction, one set per clinic listed in `clinics.conf` (the sinks for
+  `obs`, `orders` and `drug_order` only for a row ending in `:clinical`, a
+  clinic installed with `CLINICAL_UP_SYNC=test`):
   `scripts/generate-sink-connectors.sh <slug>` then
   `scripts/register-all-sink-connectors.sh` for the MySQL sinks, and
   `connectors/register-odoo.sh` for that clinic's Odoo and OpenELIS sinks.

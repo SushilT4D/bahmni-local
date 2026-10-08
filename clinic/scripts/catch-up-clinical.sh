@@ -80,7 +80,12 @@ DB="${DATABASE_NAME:-openmrs}"
 case "${RESIDUE:-}" in [1-9]) ;; *) die "RESIDUE in ${ENV_FILE} is '${RESIDUE:-}', not a clinic residue (1 to 9)" ;; esac
 FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
 . "${REPO_ROOT}/sync/local/tables-conf.sh"
-recs="$(up_tables_read "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"
+v="$(up_clinical_mode_verdict "${CLINICAL_UP_SYNC:-off}")" || die "$v"
+if [ "${v#ok }" != test ]; then
+  echo "catch-up: CLINICAL_UP_SYNC is off at this clinic: obs, orders and drug_order stay here, so there is nothing to send up."
+  exit 0
+fi
+recs="$(up_tables_for_clinic "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"
 SIGNAL="$(up_signal_collection "${DB}")"
 
 # the tables this run covers: "table pk floor" lines
