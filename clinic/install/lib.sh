@@ -892,3 +892,43 @@ clinic_fk_rows(){
   [ -n "$rows" ] || return 1
   printf '%s\n' "$rows"
 }
+
+# The package manager on Ubuntu: unattended upgrades start on their own
+# (often minutes after a machine first boots) and hold dpkg's lock while they
+# run, and an apt-get that meets the lock fails at once. apt_get waits for the
+# lock on a named budget, APT_LOCK_TIMEOUT_S (default 600 s), first by itself,
+# so the wait is said, then through apt's own DPkg::Lock::Timeout for a lock
+# taken between the two. A lock still held when the budget runs out fails,
+# naming the process that holds it.
+APT_LOCKS="/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock"
+# apt_lock_holder : "<pid> <name>" of a process holding a package lock, or nothing
+apt_lock_holder(){
+  local f p
+  if command -v fuser >/dev/null 2>&1; then
+    for f in ${APT_LOCKS}; do
+      p="$(sudo fuser "$f" 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$' | head -1 || true)"
+      if [ -n "$p" ]; then printf '%s %s\n' "$p" "$(ps -o comm= -p "$p" 2>/dev/null || echo unknown)"; return 0; fi
+    done
+    return 0
+  fi
+  ps -eo pid=,comm= 2>/dev/null | awk '$2 ~ /^(apt|apt-get|aptitude|dpkg|unattended-upgr|packagekitd)$/ {print $1, $2; exit}'
+}
+# apt_wait_lock : returns once no process holds a package lock; fails after
+# APT_LOCK_TIMEOUT_S, naming the holder
+apt_wait_lock(){
+  local max="${APT_LOCK_TIMEOUT_S:-600}" step="${APT_LOCK_POLL_S:-5}" w=0 h
+  while h="$(apt_lock_holder)"; [ -n "$h" ]; do
+    if [ "$w" -ge "$max" ]; then
+      fail "the package manager is still locked after ${max}s, held by process ${h} -- usually Ubuntu's automatic updates. Let it finish (sudo tail -f /var/log/unattended-upgrades/unattended-upgrades.log), then resume with --from 010; APT_LOCK_TIMEOUT_S sets the wait."
+    fi
+    [ "$w" = 0 ] && info "the package manager is busy (process ${h}); waiting up to ${max}s for it to finish"
+    sleep "$step"; w=$((w + step)); [ "$step" -gt 0 ] || w=$((w + 1))
+  done
+}
+# apt_get ARGS... : sudo apt-get ARGS, after the lock is free, itself waiting
+# for a lock taken in between
+apt_get(){
+  if [ "${DRY}" = 1 ]; then printf '  would: sudo apt-get %s\n' "$*"; return 0; fi
+  apt_wait_lock
+  sudo apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT_S:-600}" "$@"
+}

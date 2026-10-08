@@ -71,7 +71,7 @@ dns_install_linux(){ # NAME
   # interface and 127.0.0.1.
   sudo mkdir -p /etc/dnsmasq.d
   dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" | sudo tee /etc/dnsmasq.d/bahmni-clinic.conf >/dev/null
-  command -v dnsmasq >/dev/null 2>&1 || sudo apt-get install -y -qq dnsmasq
+  command -v dnsmasq >/dev/null 2>&1 || apt_get install -y -qq dnsmasq
   sudo systemctl enable dnsmasq >/dev/null 2>&1
   sudo systemctl restart dnsmasq
   if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
