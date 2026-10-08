@@ -465,6 +465,13 @@ EOF
 # lists them: table, column, referenced table, referenced column, constraint.
 CLINIC_FK_READ_SQL="select table_name, column_name, referenced_table_name, referenced_column_name, constraint_name from information_schema.key_column_usage where table_schema='openmrs' and referenced_table_name is not null order by 1, 2;"
 
+# lines_not_in A B : the lines of B that are not lines of A, in B's order. A
+# pipe, not process substitution: a /dev/fd that closes before the reader
+# opens it reads as empty, and the difference would be lost now and then.
+lines_not_in(){
+  { printf '%s\n' "$1"; printf '\001\n'; printf '%s\n' "$2"; } | awk '$0 == "\001" { s = 1; next } !s { a[$0] = 1; next } $0 != "" && !($0 in a) { print }'
+}
+
 # provenance_fk_verdict RECORD CLINIC_FK_ROWS : this clinic's foreign keys
 # against the hub's, as the seed's provenance record holds them; the hub is the
 # reference. A key out of obs, orders or drug_order is refused whatever the
@@ -486,9 +493,9 @@ provenance_fk_verdict(){
   hub="$(awk -F'\t' '$1=="fk" && $2!="set" && NF >= 5 {print $2 "\t" $3 "\t" $4 "\t" $5}' "$rec" | LC_ALL=C sort -u)"
   mine="$(printf '%s\n' "$rows" | awk -F'\t' 'NF >= 4 {print $1 "\t" $2 "\t" $3 "\t" $4}' | LC_ALL=C sort -u)"
   if [ "$hub" != "$mine" ]; then
-    t="$( { LC_ALL=C comm -13 <(printf '%s\n' "$hub") <(printf '%s\n' "$mine"); LC_ALL=C comm -23 <(printf '%s\n' "$hub") <(printf '%s\n' "$mine"); } | cut -f1 | grep . | LC_ALL=C sort | head -1)"
-    plus="$(LC_ALL=C comm -13 <(printf '%s\n' "$hub") <(printf '%s\n' "$mine") | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
-    minus="$(LC_ALL=C comm -23 <(printf '%s\n' "$hub") <(printf '%s\n' "$mine") | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+    t="$( { lines_not_in "$hub" "$mine"; lines_not_in "$mine" "$hub"; } | cut -f1 | grep . | LC_ALL=C sort | head -1)"
+    plus="$(lines_not_in "$hub" "$mine" | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+    minus="$(lines_not_in "$mine" "$hub" | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
     printf 'this clinic'"'"'s foreign keys on %s differ from the hub'"'"'s (%s%s%s). The hub is the reference: a clinic with a key the hub lacks ran a schema change ahead of it, one without a hub key is behind it. Call the operator.\n' "$t" "${plus:+only at this clinic: ${plus}}" "${plus:+${minus:+; }}" "${minus:+only at the hub: ${minus}}"
     return 1
   fi

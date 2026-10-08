@@ -78,8 +78,11 @@ for t in $CLINICAL; do
 done
 want="$(awk '{ sub(/#.*/, "") } NF == 4 { print $1, $2, $3, $4 }' "$BASELINE" | LC_ALL=C sort)"
 got="$(printf '%s\n' "$rows" | awk -F'\t' '$3=="obs" || $3=="orders" || $3=="drug_order" {print $1, $2, $3, $4}' | LC_ALL=C sort)"
-added="$(LC_ALL=C comm -13 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | grep . || true)"
-gone="$(LC_ALL=C comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$got") | grep . || true)"
+# set differences through a pipe, not process substitution (a /dev/fd closed
+# before the reader opens it reads as empty, and a difference would be lost)
+lines_not_in(){ { printf '%s\n' "$1"; printf '\001\n'; printf '%s\n' "$2"; } | awk '$0 == "\001" { s = 1; next } !s { a[$0] = 1; next } $0 != "" && !($0 in a) { print }'; }
+added="$(lines_not_in "$want" "$got")"
+gone="$(lines_not_in "$got" "$want")"
 if [ -z "$added" ] && [ -z "$gone" ]; then
   printf 'ok   %s foreign key(s) into obs, orders and drug_order, as recorded in %s\n' "$(printf '%s\n' "$got" | grep -c . || true)" "${BASELINE##*/}"
 else
