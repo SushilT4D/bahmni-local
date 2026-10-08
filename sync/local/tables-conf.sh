@@ -31,6 +31,13 @@ UP_NEVER_TABLES="users user_property global_property"
 # (up_signal_collection) and refuses a line that names it, so it can never
 # acquire a topic in MirrorMaker's list or a sink on the hub.
 UP_SIGNAL_TABLE=debezium_signal
+#
+# The clinical tables. Their rows below the floor are the hub's, copied to
+# every clinic by the seed, so a line for one must say where its floor comes
+# from (seed, or floor=<table>): read as sync-only or with a fixed base_id, it
+# would carry no capture filter and every clinic would publish its edits to
+# the hub's rows. Such a line is refused.
+UP_CLINICAL_TABLES="obs orders drug_order"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
 # bash 3.2 compatible (macOS): no associative arrays.
@@ -83,6 +90,12 @@ EOF
         other="$(printf '%s\n' "$recs" | awk -v k="$pk" -v t="$t" '$1!=t && $2==k && ($3=="base" || $3=="seed") {print $1; exit}')"
         [ -z "$other" ] || { printf '%s: %s:%s has no floor source, but %s is the key of %s, which has a floor; write %s:%s:floor=%s\n' "${f##*/}" "$t" "$pk" "$pk" "$other" "$t" "$pk" "$other" >&2; return 1; }
         ;;
+    esac
+    case "$kind" in
+      sync|base)
+        case " ${UP_CLINICAL_TABLES} " in
+          *" ${t} "*) printf '%s: %s is clinical data and needs its floor from the seed (%s:%s:seed) or from another table (floor=<table>): without one it has no capture filter, and every clinic would publish its edits to the hub'"'"'s rows\n' "${f##*/}" "$t" "$t" "$pk" >&2; return 1 ;;
+        esac ;;
     esac
   done <<EOF
 $recs
