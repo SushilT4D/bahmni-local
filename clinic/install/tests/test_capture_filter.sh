@@ -12,7 +12,10 @@
 #     the step at configuration instead of passing records through.
 # The records run through Kafka Connect's own Filter step and topic test in the
 # pinned Debezium Connect image when docker has it, otherwise through a JSR-223
-# Groovy engine on this machine's Java; with neither, that half is skipped.
+# Groovy engine on this machine's Java; with neither, that half is skipped --
+# unless REQUIRE_FILTER_RUN=1 (a machine that must prove the filter, such as
+# CI), where a skipped half fails the test. SCRIPTING_JARS_DIR names another
+# folder holding the three scripting jars.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
 fails=0
@@ -111,7 +114,11 @@ judge(){ # LABEL GOT-FILE
   cat "$TMP/judged"; fails=$((fails + $(grep -c '^  FAIL' "$TMP/judged")))
 }
 . "$RP/sync/versions.env"
-EXT="$RP/clinic/config/kafka-connect/ext"
+EXT="${SCRIPTING_JARS_DIR:-$RP/clinic/config/kafka-connect/ext}"
+skipped(){ # REASON : a skip, or a failure under REQUIRE_FILTER_RUN=1
+  if [ "${REQUIRE_FILTER_RUN:-0}" = 1 ]; then bad "the records were not run, and REQUIRE_FILTER_RUN=1: $1"
+  else printf '  skip %s\n' "$1"; fi
+}
 JARS="groovy-${GROOVY_VERSION}.jar groovy-jsr223-${GROOVY_VERSION}.jar debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION}.jar"
 have_jars=1; for j in $JARS; do [ -f "$EXT/$j" ] || have_jars=0; done
 docker_answers(){
@@ -147,7 +154,7 @@ if docker_answers && docker image inspect "$IMG" >/dev/null 2>&1; then
     chain $JARS > "$TMP/got.chain"
     judge "Connect chain in ${IMG##*/}" "$TMP/got.chain"
   else
-    printf '  skip the scripting jars are not in %s (config/kafka-connect/ext/fetch-scripting-jars.sh fetches them); the records were not run\n' "${EXT#$RP/}"
+    skipped "the scripting jars are not in ${EXT#$RP/} (config/kafka-connect/ext/fetch-scripting-jars.sh fetches them); the records were not run"
   fi
   out="$(chain)"
   case "$out" in configure-failed*) ok_ "a worker with none of the scripting jars: the step fails at configuration ($(printf '%s' "$out" | head -1 | cut -c1-110))" ;; *) bad "a worker without the scripting jars: $(printf '%s' "$out" | head -3 | tr '\n' ' ')" ;; esac
@@ -167,6 +174,6 @@ elif J="$(host_java)" && [ "$have_jars" = 1 ]; then
   out="$("$J" "$TMP/Jsr223Probe.java" groovy "$(cond obs)" "$TMP/records.tsv" 2>&1)"
   case "$out" in configure-failed*) ok_ "without the Groovy jars there is no engine to run the condition: $(printf '%s' "$out" | head -1)" ;; *) bad "no Groovy jars, yet: $(printf '%s' "$out" | head -2 | tr '\n' ' ')" ;; esac
 else
-  printf '  skip neither docker with %s nor a Java 11+ with the scripting jars is here; the condition was not run on records\n' "$IMG"
+  skipped "neither docker with $IMG nor a Java 11+ with the scripting jars is here; the condition was not run on records"
 fi
 exit $((fails > 0))
