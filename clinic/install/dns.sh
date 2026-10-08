@@ -40,10 +40,18 @@ lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
   { dig +short +time=2 +tries=1 "$1" A "@${2:-127.0.0.1}" 2>/dev/null || true; } | grep -E '^[0-9.]+$' | head -1 || true
 }
 
+# Root steps run only when something changed, so a re-run over ssh, where sudo
+# has no terminal to ask on, goes through without a person. DNS_ETC moves /etc
+# for the tests.
+DNS_ETC="${DNS_ETC:-/etc}"
+dns_wrong_answer(){ # NAME -> why NAME at 127.0.0.1 is not this machine's LAN address; nothing when it is
+  local ip got; ip="$(lan_ip)"; got="$(lan_resolve "$1")"
+  [ -n "$ip" ] && [ "$got" = "$ip" ] || printf "%s answers '%s', this machine is '%s'" "$1" "${got:-nothing}" "${ip:-unknown}"
+}
 dns_install_macos(){ # NAME
-  local name="$1" ifc prefix d
+  local name="$1" ifc prefix d conf new res why=''
   if [ "${DRY}" = 1 ]; then
-    info "would: brew install dnsmasq; write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq; /etc/resolver/${name##*.} -> 127.0.0.1"
+    info "would: brew install dnsmasq; write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq unless the config is unchanged and ${name} already answers with this machine's address; /etc/resolver/${name##*.} -> 127.0.0.1 unless it already says so"
     return 0
   fi
   ifc="$(lan_iface)"; [ -n "$ifc" ] || fail "no default network interface: connect this Mac to the clinic network (Ethernet) and re-run --from 010"
@@ -51,17 +59,34 @@ dns_install_macos(){ # NAME
   prefix="$(brew --prefix)"; d="${prefix}/etc/dnsmasq.d"
   mkdir -p "$d"
   grep -qxF "conf-dir=${d}/,*.conf" "${prefix}/etc/dnsmasq.conf" 2>/dev/null || printf 'conf-dir=%s/,*.conf\n' "$d" >> "${prefix}/etc/dnsmasq.conf"
-  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" macos > "${d}/bahmni-clinic.conf"
-  info "dnsmasq listens on port 53, which needs root: macOS asks for your password once"
-  sudo brew services restart dnsmasq >/dev/null
-  sudo mkdir -p /etc/resolver
-  printf 'nameserver 127.0.0.1\n' | sudo tee "/etc/resolver/${name##*.}" >/dev/null
+  conf="${d}/bahmni-clinic.conf"; new="$(mktemp "${TMPDIR:-/tmp}/bahmni-clinic.XXXXXX")"
+  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" macos > "$new"
+  if cmp -s "$new" "$conf"; then :; else cat "$new" > "$conf"; why="config changed"; fi
+  rm -f "$new"
+  # A running dnsmasq with an unchanged config can still be wrong: it listens
+  # only on the addresses it found at start, so after a new LAN address the
+  # answer check fails and it restarts.
+  [ -n "$why" ] || pgrep -x dnsmasq >/dev/null 2>&1 || why="dnsmasq not running"
+  [ -n "$why" ] || why="$(dns_wrong_answer "$name")"
+  if [ -z "$why" ]; then
+    skip "dnsmasq restart: config unchanged, dnsmasq running, ${name} already answers with this machine's address"
+  else
+    info "dnsmasq restarts (${why}); it listens on port 53, which needs root: macOS asks for your password"
+    sudo brew services restart dnsmasq >/dev/null
+  fi
+  res="${DNS_ETC}/resolver/${name##*.}"
+  if grep -qxF 'nameserver 127.0.0.1' "$res" 2>/dev/null; then
+    skip "${res} already sends .${name##*.} to 127.0.0.1"
+  else
+    sudo mkdir -p "${DNS_ETC}/resolver"
+    printf 'nameserver 127.0.0.1\n' | sudo tee "$res" >/dev/null
+  fi
   ok "dnsmasq answers for ${name} and odoo.${name} on ${ifc}"
 }
 dns_install_linux(){ # NAME
-  local name="$1" ifc
+  local name="$1" ifc conf new rconf why=''
   if [ "${DRY}" = 1 ]; then
-    info "would: write /etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; apt-get install dnsmasq; send ~${name##*.} lookups on this machine to it through systemd-resolved"
+    info "would: write /etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; apt-get install dnsmasq; send ~${name##*.} lookups on this machine to it through systemd-resolved; restart only what changed"
     return 0
   fi
   ifc="$(lan_iface)"; [ -n "$ifc" ] || fail "no default network interface"
@@ -69,16 +94,33 @@ dns_install_linux(){ # NAME
   # install, and its stock wildcard bind collides with systemd-resolved's
   # 127.0.0.53:53, so the install itself would fail. Ours binds only the LAN
   # interface and 127.0.0.1.
-  sudo mkdir -p /etc/dnsmasq.d
-  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" | sudo tee /etc/dnsmasq.d/bahmni-clinic.conf >/dev/null
+  conf="${DNS_ETC}/dnsmasq.d/bahmni-clinic.conf"; new="$(mktemp "${TMPDIR:-/tmp}/bahmni-clinic.XXXXXX")"
+  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" > "$new"
+  if cmp -s "$new" "$conf"; then :; else
+    sudo mkdir -p "${DNS_ETC}/dnsmasq.d"
+    sudo tee "$conf" < "$new" >/dev/null; why="config changed"
+  fi
+  rm -f "$new"
   command -v dnsmasq >/dev/null 2>&1 || apt_get install -y -qq dnsmasq
-  sudo systemctl enable dnsmasq >/dev/null 2>&1
-  sudo systemctl restart dnsmasq
+  systemctl is-enabled --quiet dnsmasq 2>/dev/null || sudo systemctl enable dnsmasq >/dev/null 2>&1
+  [ -n "$why" ] || systemctl is-active --quiet dnsmasq 2>/dev/null || why="dnsmasq not active"
+  [ -n "$why" ] || why="$(dns_wrong_answer "$name")"
+  if [ -z "$why" ]; then
+    skip "dnsmasq restart: config unchanged, dnsmasq active, ${name} already answers with this machine's address"
+  else
+    info "dnsmasq restarts (${why})"
+    sudo systemctl restart dnsmasq
+  fi
   if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
     # this machine resolves its own LAN name through dnsmasq; everything else as before
-    sudo mkdir -p /etc/systemd/resolved.conf.d
-    printf '[Resolve]\nDNS=127.0.0.1\nDomains=~%s\n' "${name##*.}" | sudo tee /etc/systemd/resolved.conf.d/bahmni-clinic.conf >/dev/null
-    sudo systemctl restart systemd-resolved
+    rconf="${DNS_ETC}/systemd/resolved.conf.d/bahmni-clinic.conf"
+    if printf '[Resolve]\nDNS=127.0.0.1\nDomains=~%s\n' "${name##*.}" | cmp -s - "$rconf"; then
+      skip "${rconf} unchanged"
+    else
+      sudo mkdir -p "${DNS_ETC}/systemd/resolved.conf.d"
+      printf '[Resolve]\nDNS=127.0.0.1\nDomains=~%s\n' "${name##*.}" | sudo tee "$rconf" >/dev/null
+      sudo systemctl restart systemd-resolved
+    fi
   fi
   ok "dnsmasq answers for ${name} and odoo.${name} on ${ifc}"
 }
