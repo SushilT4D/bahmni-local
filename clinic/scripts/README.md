@@ -47,6 +47,32 @@ refuse fails here too; and the tables that reader never lets a clinic capture
 must be DOWN or OUT in the verdicts. It names every row that breaks a rule and
 reads files only; run it after editing either list or either file.
 
+**Capture filter** — `generate-connectors.sh` gives the source connector a
+filter step for every table whose floor comes from the seed or from another
+table (`obs`, `orders`, `drug_order`): a change is published only when its key
+is at or above the table's floor and on this clinic's residue, so an edit to a
+row the hub or another clinic wrote stays here. It takes the residue from
+`RESIDUE` in `.env` and the floors from `SEED_MANIFEST` (or, without it, from
+the floors the seed recorded in `.install-state`), and writes nothing when
+either is missing. `check-source-connectors.sh` reads the filter back from the
+registered connector and fails when its residue is not the running MySQL's
+`auto_increment_offset` (`MYSQL_OFFSET` overrides the read) or its floors are
+not the seed's; a wrong residue drops every change this clinic makes, silently.
+
+**Catch-up** — `catch-up-clinical.sh` sends up the rows of `obs`, `orders` and
+`drug_order` this clinic wrote before the source captured those tables, or
+that the hub lost after an outage longer than it keeps changes. For each table
+it counts the rows this clinic owns (key at or above the floor, on its
+residue), then inserts one `execute-snapshot` signal into
+`openmrs.debezium_signal` asking the running source connector for an
+incremental snapshot of exactly those rows; `drug_order` uses the orders floor.
+It refuses when the connector does not capture the table or the signal table.
+`--dry-run` prints the count queries and signal rows and touches nothing;
+`--status` reads the connector's offsets and names any table still being read.
+The hub's sinks upsert on the key, so a second run changes nothing. When it is
+done, the hub holds, for this clinic's residue at or above the floor, the
+count the run logged for each table.
+
 **Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
 lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
 the row count and a checksum over every column of every row except those

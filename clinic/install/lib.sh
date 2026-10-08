@@ -357,7 +357,12 @@ refuse_inherited_alias(){ # ALIAS [SLUG]
 FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
-ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD CLINICAL_UP_SYNC"
+# Answers with a default: an answers file without one takes the default, and is
+# not short of an answer for lacking it. CLINICAL_UP_SYNC=off keeps the
+# clinical tables at the clinic (sync/local/tables-conf.sh).
+ANSWER_DEFAULTS="CLINICAL_UP_SYNC=off"
+answer_defaults_apply(){ local kv k; for kv in $ANSWER_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 # --- the hub link --------------------------------------------------------------
 # hub_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
@@ -450,7 +455,7 @@ fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [
 # fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
 fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
 # answers_missing FILE : prints every answer key that is absent or empty.
-answers_missing(){ local k; for k in $ANSWER_KEYS; do [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
+answers_missing(){ local k; for k in $ANSWER_KEYS; do case " $ANSWER_DEFAULTS" in *" $k="*) continue ;; esac; [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
 # Answers a clinic may leave out: the forms repo (task 075; empty = the node
 # runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
 # Initializer domain list (task 020 writes it into clinic/.env; empty = the
@@ -768,4 +773,174 @@ elis_page_ok(){
   case "$lc" in *openelis*) ;; *) return 1 ;; esac
   case "$2" in *'HTTP Status'*) return 1 ;; esac
   return 0
+}
+
+# capture_filter_check : the source connector's capture filter as Kafka
+# Connect holds it (GET .../config of the registered connector, never the
+# generated file), against this node: its residue must be the
+# auto_increment_offset the running MySQL issues ids on, and its floors the
+# ones the seed's manifest gives (the seed folder's, or else the copy the seed
+# gate recorded on this machine). sync/origin-filter.sh holds the rules.
+# Prints "ok ..." lines, or the refusal and returns 1. CONNECT_URL overrides
+# the Connect address.
+capture_filter_check(){
+  local reg off floors v rc
+  type up_tables_read >/dev/null 2>&1 || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  type origin_filter_verdict >/dev/null 2>&1 || . "${REPO_DIR}/sync/origin-filter.sh"
+  reg="$(mktemp)"
+  if ! curl -sf --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/mysql-source-connector/config" > "$reg" 2>/dev/null; then
+    rm -f "$reg"
+    printf 'could not read the registered mysql-source-connector configuration from Kafka Connect, so its capture filter was not checked: %s logs kafka-connect\n' "${COMPOSE_CMD:-docker compose}"
+    return 1
+  fi
+  off="$(printf 'select @@global.auto_increment_offset' | ct exec -i "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
+  floors="${SEED_DIR:-}/manifest.env"; [ -f "$floors" ] || floors="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
+  v="$(origin_filter_verdict "$reg" "${REPO_DIR}/sync/local/tables.conf" "$floors" "$off")"; rc=$?
+  rm -f "$reg"
+  printf '%s\n' "$v"
+  return "$rc"
+}
+
+# The source connector's signal table, in the structure Debezium documents for
+# its source signal channel: three columns in this order, the first the key. A
+# row inserted there (type execute-snapshot) asks the connector for an
+# incremental snapshot, the way a clinic sends rows it wrote before a table
+# was captured. With the connector's default (not read-only) incremental
+# snapshot, the connector writes its own window markers into the table, so its
+# database user may insert, update and delete there. Created at seed; the
+# seed's dump does not carry it, because the hub has none.
+# Each takes the OpenMRS database (DATABASE_NAME, default openmrs), the one the
+# source connector's include list and signal collection name.
+signal_table_db(){ printf '%s' "${1:-${DATABASE_NAME:-openmrs}}"; }
+signal_table_ddl(){ printf 'CREATE TABLE IF NOT EXISTS %s.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)' "$(signal_table_db "${1:-}")"; }
+signal_table_grant(){ printf "GRANT SELECT, INSERT, UPDATE, DELETE ON %s.debezium_signal TO 'debezium'@'%%'" "$(signal_table_db "${1:-}")"; }
+# what information_schema says of it: column, type, nullable, key; then the
+# privileges the debezium user holds on it
+signal_table_read_sql(){
+  local db; db="$(signal_table_db "${1:-}")"
+  printf "select 'col', column_name, column_type, is_nullable, column_key from information_schema.columns where table_schema='%s' and table_name='debezium_signal' order by ordinal_position; select 'priv', privilege_type from information_schema.table_privileges where grantee=\"'debezium'@'%%'\" and table_schema='%s' and table_name='debezium_signal' order by privilege_type;" "$db" "$db"
+}
+SIGNAL_TABLE_WANT='col id varchar(42) NO PRI
+col type varchar(32) NO
+col data varchar(2048) YES'
+
+# signal_table_verdict [DB] : stdin is signal_table_read_sql's output (tab-
+# separated). Prints "ok ..." or what is wrong and returns 1.
+signal_table_verdict(){
+  local rows cols privs p t
+  t="$(signal_table_db "${1:-}").debezium_signal"
+  rows="$(cat)"
+  cols="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="col" {s=$1" "$2" "$3" "$4; if ($5 != "") s=s" "$5; print s}')"
+  if [ -z "$cols" ]; then
+    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$t"; return 1
+  fi
+  if [ "$cols" != "$SIGNAL_TABLE_WANT" ]; then
+    printf '%s is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$t" "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
+  fi
+  privs="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="priv" {print $2}' | tr '\n' ' ')"
+  for p in SELECT INSERT UPDATE DELETE; do
+    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
+  done
+  printf 'ok signal table %s (id, type, data), writable by the debezium user\n' "$t"
+}
+
+# signal_capture_verdict CONFIG_JSON : a registered source configuration must
+# read signals from the source channel and capture the table it names, or a
+# signal inserted there is never seen. Prints "ok ..." or the refusal.
+signal_capture_verdict(){
+  python3 - "$1" <<'PY'
+import json, sys
+try:
+    c = json.load(open(sys.argv[1]))
+except Exception as e:
+    print("the registered source configuration cannot be read as JSON (%s)" % e); sys.exit(1)
+c = c.get("config", c)
+coll = c.get("signal.data.collection", "")
+chans = [x.strip() for x in c.get("signal.enabled.channels", "").split(",")]
+inc = [x.strip() for x in c.get("table.include.list", "").split(",")]
+if not coll:
+    print("the registered source connector names no signal table (signal.data.collection)"); sys.exit(1)
+if "source" not in chans:
+    print("the registered source connector does not read signals from its signal table (signal.enabled.channels is %r)" % c.get("signal.enabled.channels", "")); sys.exit(1)
+if coll not in inc:
+    print("the registered source connector does not capture its signal table %s (not in table.include.list), so a signal inserted there is never read. Regenerate and register it (scripts/generate-connectors.sh, then scripts/register-source-connector.sh)." % coll); sys.exit(1)
+print("ok source connector captures its signal table %s" % coll)
+PY
+}
+
+# signal_capture_check : signal_capture_verdict on the configuration Kafka
+# Connect holds for mysql-source-connector.
+signal_capture_check(){
+  local reg rc
+  reg="$(mktemp)"
+  if ! curl -sf --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/mysql-source-connector/config" > "$reg" 2>/dev/null; then
+    rm -f "$reg"; printf 'could not read the registered mysql-source-connector configuration from Kafka Connect, so its signal table was not checked: %s logs kafka-connect\n' "${COMPOSE_CMD:-docker compose}"; return 1
+  fi
+  signal_capture_verdict "$reg"; rc=$?
+  rm -f "$reg"; return "$rc"
+}
+
+# provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
+# run on this clinic's MySQL over exactly the tables the seed's provenance
+# record holds content lines for (the tool checksums the tables a hub/tables.conf
+# lists, so it runs from a scratch copy whose list is the record's).
+provenance_content_lines(){
+  local rec="$1" my="$2" d rc=0
+  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/hub"
+  cp "${REPO_DIR}/clinic/scripts/master-checksum.sh" "$d/clinic/scripts/"
+  cp "${REPO_DIR}/clinic/install/lib.sh" "$d/clinic/install/"
+  cp "${REPO_DIR}/hub/table-verdicts.conf" "${REPO_DIR}/hub/checksum-exclusions.conf" "$d/hub/"
+  awk -F'\t' '$1=="content" {print $2}' "$rec" > "$d/hub/tables.conf"
+  REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
+  rm -rf "$d"; return "$rc"
+}
+
+# clinic_fk_rows CONTAINER : CLINIC_FK_READ_SQL (state.sh) on this clinic's
+# MySQL. Returns 1 when nothing comes back: a schema with no foreign key at
+# all is not an OpenMRS schema, and an empty read is never compared.
+clinic_fk_rows(){
+  local rows
+  rows="$(printf '%s\n' "${CLINIC_FK_READ_SQL}" | ct exec -i "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B' 2>/dev/null || true)"
+  [ -n "$rows" ] || return 1
+  printf '%s\n' "$rows"
+}
+
+# The package manager on Ubuntu: unattended upgrades start on their own
+# (often minutes after a machine first boots) and hold dpkg's lock while they
+# run, and an apt-get that meets the lock fails at once. apt_get waits for the
+# lock on a named budget, APT_LOCK_TIMEOUT_S (default 600 s), first by itself,
+# so the wait is said, then through apt's own DPkg::Lock::Timeout for a lock
+# taken between the two. A lock still held when the budget runs out fails,
+# naming the process that holds it.
+APT_LOCKS="/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock"
+# apt_lock_holder : "<pid> <name>" of a process holding a package lock, or nothing
+apt_lock_holder(){
+  local f p
+  if command -v fuser >/dev/null 2>&1; then
+    for f in ${APT_LOCKS}; do
+      p="$(sudo fuser "$f" 2>/dev/null | tr -s ' \t' '\n' | grep -E '^[0-9]+$' | head -1 || true)"
+      if [ -n "$p" ]; then printf '%s %s\n' "$p" "$(ps -o comm= -p "$p" 2>/dev/null || echo unknown)"; return 0; fi
+    done
+    return 0
+  fi
+  ps -eo pid=,comm= 2>/dev/null | awk '$2 ~ /^(apt|apt-get|aptitude|dpkg|unattended-upgr|packagekitd)$/ {print $1, $2; exit}'
+}
+# apt_wait_lock : returns once no process holds a package lock; fails after
+# APT_LOCK_TIMEOUT_S, naming the holder
+apt_wait_lock(){
+  local max="${APT_LOCK_TIMEOUT_S:-600}" step="${APT_LOCK_POLL_S:-5}" w=0 h
+  while h="$(apt_lock_holder)"; [ -n "$h" ]; do
+    if [ "$w" -ge "$max" ]; then
+      fail "the package manager is still locked after ${max}s, held by process ${h} -- usually Ubuntu's automatic updates. Let it finish (sudo tail -f /var/log/unattended-upgrades/unattended-upgrades.log), then resume with --from 010; APT_LOCK_TIMEOUT_S sets the wait."
+    fi
+    [ "$w" = 0 ] && info "the package manager is busy (process ${h}); waiting up to ${max}s for it to finish"
+    sleep "$step"; w=$((w + step)); [ "$step" -gt 0 ] || w=$((w + 1))
+  done
+}
+# apt_get ARGS... : sudo apt-get ARGS, after the lock is free, itself waiting
+# for a lock taken in between
+apt_get(){
+  if [ "${DRY}" = 1 ]; then printf '  would: sudo apt-get %s\n' "$*"; return 0; fi
+  apt_wait_lock
+  sudo apt-get -o DPkg::Lock::Timeout="${APT_LOCK_TIMEOUT_S:-600}" "$@"
 }

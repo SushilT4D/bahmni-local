@@ -114,7 +114,7 @@ build_topic_pattern() {
   if [[ -f "${tconf}" && "${grammar}" == up ]]; then
     # shellcheck source=../../sync/local/tables-conf.sh
     . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
-    recs="$(up_tables_read "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
+    recs="$(up_tables_for_clinic "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
     while read -r table _rest; do
       [[ -n "${table}" ]] || continue
       omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")

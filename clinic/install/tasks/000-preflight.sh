@@ -13,6 +13,10 @@ c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
 [ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.txt"
 ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
+# clinical data to the hub: off (the default) or test, nothing else
+. "${INSTALL_DIR}/../../sync/local/tables-conf.sh"
+v="$(up_clinical_mode_verdict "${CLINICAL_UP_SYNC:-off}")" || fail "$v"
+case "${v#ok }" in test) ok "CLINICAL_UP_SYNC=test: obs, orders and drug_order go to the hub (test data only)" ;; *) ok "CLINICAL_UP_SYNC=off: obs, orders and drug_order stay at this clinic" ;; esac
 
 # 1b. a machine already in service: MySQL strides on this residue and each
 # floored id counter is still at or above its floor (a restored database or a
@@ -41,6 +45,19 @@ done <<EOF
 $v
 EOF
 # counters:end
+# 1c. a machine in service: its foreign keys are the hub's, as recorded when
+# its data came from the hub (the hub is the reference), and none points out
+# of obs, orders or drug_order. PREFLIGHT_FK_ROWS (a file of the read's rows)
+# stands in for MySQL.
+# fk-set:begin
+preflight_fk_read(){
+  if [ -n "${PREFLIGHT_FK_ROWS:-}" ]; then cat "${PREFLIGHT_FK_ROWS}"; return 0; fi
+  [ -n "${CT:-}" ] || setup_compose
+  clinic_fk_rows "$(env_get "${CLINIC_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null || true)-bahmni-mysql-1"
+}
+v="$(node_fk_verdict "$(stamp_get STATE)" "${PROVENANCE_COPY}" preflight_fk_read)" || fail "$v"
+case "$v" in skip\ *) ok "${v#skip }" ;; *) ok "${v#ok }" ;; esac
+# fk-set:end
 
 # 2. fresh install only
 # fresh-only:begin

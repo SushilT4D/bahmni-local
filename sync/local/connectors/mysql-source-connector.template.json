@@ -24,7 +24,7 @@
     "key.converter.schemas.enable": "true",
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "true",
-    "signal.data.collection": "openmrs.debezium_signal",
+    "signal.data.collection": "${SIGNAL_DATA_COLLECTION}",
     "signal.enabled.channels": "source",
     "incremental.snapshot.allow.schema.changes": "true",
     "schema.history.internal.store.only.captured.tables.ddl": "false"

@@ -87,7 +87,7 @@ compose_answers(){
   ask CLINIC_PHONE "clinic phone, E.164" "+910000000000" "sync/fleet/${slug}.env"
   for k in $SECRET_KEYS; do ask_secret "$k" "--secrets"; done
   [ -n "${IMAGE_CHOICES_FILE}" ] || image_choose
-  export RESIDUE SITE_NUMBER
+  export RESIDUE SITE_NUMBER; answer_defaults_apply
   answers_write "$out"; image_choices_write "$out"; ANSWERS="$out"
   info "answers: composed $out (mode 600) from $f, ${LEDGER}, ${HUB_ENV} and the hub secrets"
 }
@@ -100,6 +100,7 @@ set -a; . "${VERSIONS_FILE}"; set +a
 # present and non-empty. Secrets are never printed.
 REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 set -a; . "$ANSWERS"; set +a
+answer_defaults_apply
 # The fleet's image pins (sync/versions.env) win over anything an answers file
 # carries, except the application images (lib.sh IMAGE_KEYS): those come from
 # the answers file, then --versions. Every task sees the same values.
@@ -171,5 +172,6 @@ if [ "${DRY}" != 1 ] && [ -z "${ONLY}" ]; then
   stamp_put STATE INSTALLED; stamp_put INSTALLED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 log ""
-log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"
+if [ "${DRY}" = 1 ]; then log "dry run: nothing was installed or changed. Each 'would:' line above is a step a real install takes; it was not taken."
+else log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"; fi
 log "install log: ${INSTALL_LOG}"

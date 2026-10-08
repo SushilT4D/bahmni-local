@@ -24,6 +24,22 @@
 # others, the next order number this node issues). A line for one is refused.
 UP_NEVER_TABLES="users user_property global_property"
 #
+# The source connector's signal table (Debezium's source signal channel: a row
+# inserted there asks the connector for an incremental snapshot) is captured
+# on every clinic, outside this file: it is not clinical data, is never sent to
+# the hub and has no sink. Every reader puts it in the connector's include list
+# (up_signal_collection) and refuses a line that names it, so it can never
+# acquire a topic in MirrorMaker's list or a sink on the hub.
+UP_SIGNAL_TABLE=debezium_signal
+#
+# The clinical tables. Their rows below the floor are the hub's, copied to
+# every clinic by the seed, so a line for one must say where its floor comes
+# from (seed, or floor=<table>): read as sync-only or with a fixed base_id, it
+# would carry no capture filter and every clinic would publish its edits to
+# the hub's rows. Such a line is refused.
+UP_CLINICAL_TABLES="obs orders drug_order"
+up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
+#
 # bash 3.2 compatible (macOS): no associative arrays.
 up_tables_read(){
   local f="$1" line n=0 t pk third kind arg recs="" re
@@ -40,6 +56,7 @@ up_tables_read(){
     case " ${UP_NEVER_TABLES} " in
       *" ${t} "*) printf '%s line %s: %s is never captured at a clinic (users and user_property come from the hub; global_property is node-local)\n' "${f##*/}" "$n" "$t" >&2; return 1 ;;
     esac
+    [ "$t" = "${UP_SIGNAL_TABLE}" ] && { printf '%s line %s: %s is the source connector'"'"'s signal table; it is captured without a line here and never sent to the hub\n' "${f##*/}" "$n" "$t" >&2; return 1; }
     case "$third" in
       '') kind=sync; arg=- ;;
       seed) kind=seed; arg=- ;;
@@ -73,6 +90,12 @@ EOF
         other="$(printf '%s\n' "$recs" | awk -v k="$pk" -v t="$t" '$1!=t && $2==k && ($3=="base" || $3=="seed") {print $1; exit}')"
         [ -z "$other" ] || { printf '%s: %s:%s has no floor source, but %s is the key of %s, which has a floor; write %s:%s:floor=%s\n' "${f##*/}" "$t" "$pk" "$pk" "$other" "$t" "$pk" "$other" >&2; return 1; }
         ;;
+    esac
+    case "$kind" in
+      sync|base)
+        case " ${UP_CLINICAL_TABLES} " in
+          *" ${t} "*) printf '%s: %s is clinical data and needs its floor from the seed (%s:%s:seed) or from another table (floor=<table>): without one it has no capture filter, and every clinic would publish its edits to the hub'"'"'s rows\n' "${f##*/}" "$t" "$t" "$pk" >&2; return 1 ;;
+        esac ;;
     esac
   done <<EOF
 $recs
@@ -113,4 +136,29 @@ EOF
       printf '%s\n' "$v" ;;
     *) return 0 ;;
   esac
+}
+
+# Whether this clinic sends the clinical tables up at all: CLINICAL_UP_SYNC in
+# clinic/.env, written at install from the answers. "off" (the default) keeps
+# obs, orders and drug_order at the clinic whatever this file lists; "test"
+# sends them, for a clinic that carries test data only. Real patients'
+# clinical data does not travel until the hub link has per-site credentials
+# and access control, so a clinic is never switched on by default, and a
+# production clinic installed from this tree keeps them local.
+up_clinical_mode_verdict(){ # VALUE -> "ok off|test", or the refusal
+  case "${1:-off}" in
+    off|test) printf 'ok %s\n' "${1:-off}" ;;
+    *) printf 'CLINICAL_UP_SYNC is '"'"'%s'"'"', not off or test: off keeps obs, orders and drug_order at this clinic, test sends them to the hub (test data only). Fix the answers file.\n' "$1"; return 1 ;;
+  esac
+}
+# up_tables_for_clinic FILE [MODE] : up_tables_read, as a clinic reads it: the
+# clinical tables (UP_CLINICAL_TABLES) are left out unless MODE (default
+# CLINICAL_UP_SYNC, default off) is test. Every clinic-side reader uses it;
+# the hub reads the whole list and decides per clinic (hub/clinics.conf).
+up_tables_for_clinic(){
+  local f="$1" mode="${2:-${CLINICAL_UP_SYNC:-off}}" recs v
+  v="$(up_clinical_mode_verdict "$mode")" || { printf '%s\n' "$v" >&2; return 1; }
+  recs="$(up_tables_read "$f")" || return 1
+  if [ "$mode" = test ]; then printf '%s' "$recs"; return 0; fi
+  printf '%s' "$recs" | awk -v c=" ${UP_CLINICAL_TABLES} " 'index(c, " " $1 " ") == 0 { print }'
 }

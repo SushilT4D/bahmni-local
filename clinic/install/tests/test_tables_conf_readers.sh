@@ -17,9 +17,9 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/hub"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$RP/sync" "$C/"
 cp -R "$RP/hub/scripts" "$RP/hub/connectors" "$C/hub/"; cp "$RP/hub/tables.conf" "$C/hub/"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nCLINICAL_UP_SYNC=test\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
-printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
+printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha:clinical\n' > "$TMP/clinics.conf"
 printf 'alpha:3\n' > "$TMP/ledger"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
 # a stand-in for podman: the striding script only asks whether a table exists
@@ -56,7 +56,7 @@ render(){
   printf '%s\n' "$1" > "$C/sync/local/tables.conf"
   rm -rf "$C/clinic/connectors" "$C/hub/connectors"/mysql-sink-alpha-* "$C/clinic/config/mirrormaker/mm2.properties"
   bash "$C/clinic/scripts/generate-table-config.sh" local > "$TMP/out.tc" 2>&1; echo $? > "$TMP/rc.tc"
-  bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out.gc" 2>&1; echo $? > "$TMP/rc.gc"
+  SEED_MANIFEST="${MANIFEST-$TMP/manifest.env}" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out.gc" 2>&1; echo $? > "$TMP/rc.gc"
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$C/clinic/connectors/mysql-local-source-connector.json" > "$TMP/inc.gc" 2>/dev/null
   if command -v envsubst >/dev/null 2>&1; then
     bash "$C/clinic/scripts/setup-mirrormaker.sh" > "$TMP/out.mm" 2>&1; echo $? > "$TMP/rc.mm"
@@ -75,7 +75,8 @@ rc(){ cat "$TMP/rc.$1"; }
 
 # --- the list as it is today: unchanged output ----------------------------------
 render "$TODAY"
-inc='openmrs.encounter,openmrs.encounter_provider,openmrs.encounter_type,openmrs.patient,openmrs.patient_identifier,openmrs.person,openmrs.person_address,openmrs.person_attribute,openmrs.person_name,openmrs.visit,openmrs.visit_attribute,openmrs.idgen_seq_id_gen'
+inc='openmrs.encounter,openmrs.encounter_provider,openmrs.encounter_type,openmrs.patient,openmrs.patient_identifier,openmrs.person,openmrs.person_address,openmrs.person_attribute,openmrs.person_name,openmrs.visit,openmrs.visit_attribute,openmrs.idgen_seq_id_gen,openmrs.debezium_signal'
+# (the source connector's signal table closes every include list; it has no topic, key or sink)
 [ "$(rc tc)" = 0 ] && grep -qxF "TABLE_INCLUDE_LIST=${inc}" "$TMP/out.tc" \
   && grep -qxF '# PRIMARY_KEYS=encounter_id|encounter_provider_id|encounter_type_id|patient_id|patient_identifier_id|person_id|person_address_id|person_attribute_id|person_name_id|visit_id|visit_attribute_id|id' "$TMP/out.tc" \
   && ok_ "generate-table-config: today's include list and keys unchanged" || bad "generate-table-config today: $(cat "$TMP/out.tc")"
@@ -105,7 +106,7 @@ fi
 render "$TODAY
 $CLINICAL"
 for r in tc gc pk hs cs; do [ "$(rc $r)" = 0 ] || bad "reader $r refused the clinical lines: $(cat "$TMP/out.$r" | tail -3)"; done
-case "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" in *,openmrs.obs,openmrs.orders,openmrs.drug_order) ok_ "generate-table-config includes obs, orders, drug_order" ;; *) bad "include list: $(cat "$TMP/out.tc")" ;; esac
+case "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" in *,openmrs.obs,openmrs.orders,openmrs.drug_order,openmrs.debezium_signal) ok_ "generate-table-config includes obs, orders, drug_order" ;; *) bad "include list: $(cat "$TMP/out.tc")" ;; esac
 grep -qE '^# PRIMARY_KEYS=.*\|obs_id\|order_id\|order_id$' "$TMP/out.tc" && ok_ "generate-table-config keys: obs_id, order_id, order_id" || bad "keys: $(grep PRIMARY "$TMP/out.tc")"
 [ "$(cat "$TMP/inc.gc")" = "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" ] && ok_ "the source connector includes exactly what generate-table-config lists" || bad "source include: $(cat "$TMP/inc.gc")"
 if [ -f "$TMP/rc.mm" ]; then

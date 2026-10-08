@@ -10,7 +10,9 @@ ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/hub" "$C/sync/local"
-cp -R "$R/hub/scripts" "$R/hub/connectors" "$C/hub/"; cp "$R/hub/tables.conf" "$R/hub/clinics.conf" "$C/hub/"
+cp -R "$R/hub/scripts" "$R/hub/connectors" "$C/hub/"; cp "$R/hub/tables.conf" "$C/hub/"
+# every clinic of hub/clinics.conf, each marked as sending the clinical tables
+grep -vE '^[[:space:]]*(#|$)' "$R/hub/clinics.conf" | sed -E 's/^([^:]+:[^:]+:[^:]+:[^:]+).*/\1:clinical/' > "$C/hub/clinics.conf"
 cp "$R/sync/local/tables-conf.sh" "$C/sync/local/"
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\n' > "$C/hub/.env"
 { grep -vE '^[[:space:]]*(#|$)' "$R/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order):'
@@ -51,7 +53,7 @@ EOF
   f="$C/hub/connectors/${prefix}encounter.json"
   python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(not (c.get("auto.create")=="true" and c.get("auto.evolve")=="true" and "schema.evolution" not in c))' "$f" 2>/dev/null \
     && ok_ "${clinic}: the encounter sink keeps auto.create/auto.evolve and no schema.evolution" || bad "${clinic}: the encounter sink changed"
-done < "$R/hub/clinics.conf"
+done < "$C/hub/clinics.conf"
 [ "$nclin" -ge 1 ] && ok_ "${nclin} clinic(s) in hub/clinics.conf checked" || bad "no clinic in hub/clinics.conf"
 
 # the validator refuses each way a clinical sink can be wrong

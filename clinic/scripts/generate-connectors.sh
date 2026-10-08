@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Generate local Debezium source connector config from sync/local/tables.conf.
 #
-# Every table line is included in CDC; the third field (a floor, see the
-# format comment in tables.conf) is used by configure-pk-offsets.sh and the
-# capture filter, not here. The lines are read by sync/local/tables-conf.sh,
-# the reader every script of that file shares.
+# Every table line is included in CDC. The third field (a floor, see the
+# format comment in tables.conf) sets the id counters in configure-pk-offsets.sh;
+# here, a floor taken from the seed or from another table adds that table's
+# capture filter (sync/origin-filter.sh). The lines are read by
+# sync/local/tables-conf.sh, the reader every script of that file shares.
 #
 # Usage: ./scripts/generate-connectors.sh
 set -euo pipefail
@@ -46,32 +47,87 @@ export DATABASE_INCLUDE_LIST
 
 table_include_list=()
 kafka_topics=()
+filter_recs=""
 
 # shellcheck source=../../sync/local/tables-conf.sh
 . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
-recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
+# shellcheck source=../../sync/origin-filter.sh
+. "${PROJECT_DIR}/../sync/origin-filter.sh"
+recs="$(up_tables_for_clinic "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
 while read -r table _pk _kind _arg; do
   [[ -n "${table}" ]] || continue
   table_include_list+=("${DATABASE_NAME}.${table}")
   kafka_topics+=("${MYSQL_SERVER_NAME}.${DATABASE_NAME}.${table}")
+  case "${_kind}" in seed|floor) filter_recs="${filter_recs}${table} ${_pk}
+" ;; esac
 done <<EOF
 ${recs}
 EOF
 
+# The capture filter (sync/origin-filter.sh): a table whose floor comes from
+# the seed, or from another table's floor, is published only for rows this
+# clinic wrote -- key at or above the floor, on this clinic's residue. Its
+# floors come from SEED_MANIFEST (the seed's manifest.env), or else from the
+# floors the seed gate recorded on this machine from it; its residue is
+# RESIDUE from .env, which must agree with the offset MySQL is started with.
+# A floor or residue that cannot be read stops here: the configuration is
+# never written without the filter.
+filter_lines=""
+if [[ -n "${filter_recs}" ]]; then
+  FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
+  case "${RESIDUE:-}" in
+    [1-9]) ;;
+    *) echo "Error: RESIDUE in ${ENV_FILE} is '${RESIDUE:-}', not a clinic residue (1 to 9); the capture filter of $(printf '%s' "${filter_recs}" | awk '{print $1}' | tr '\n' ' ')needs it. Nothing was written." >&2; exit 1 ;;
+  esac
+  if [[ -n "${MYSQL_AUTO_INCREMENT_OFFSET:-}" ]] && { [[ "${MYSQL_AUTO_INCREMENT_OFFSET}" == *[!0-9]* ]] || [[ "$(( 10#${MYSQL_AUTO_INCREMENT_OFFSET} % 10 ))" != "${RESIDUE}" ]]; }; then
+    echo "Error: RESIDUE=${RESIDUE} but MYSQL_AUTO_INCREMENT_OFFSET=${MYSQL_AUTO_INCREMENT_OFFSET} in ${ENV_FILE}: MySQL would issue ids on another residue than the capture filter keeps. Nothing was written." >&2
+    exit 1
+  fi
+  floor_recs=""
+  while read -r table pk; do
+    [[ -n "${table}" ]] || continue
+    fl="$(up_floor_of "${TABLES_CONF}" "${table}" "${FLOORS_FILE}")" || { echo "Error: the ${table} capture filter needs its floor (reason above). Nothing was written." >&2; exit 1; }
+    floor_recs="${floor_recs}${table} ${pk} ${fl}
+"
+  done <<EOF
+${filter_recs}
+EOF
+  filter_lines="$(printf '%s' "${floor_recs}" | origin_filter_lines "${MYSQL_SERVER_NAME}" "${DATABASE_NAME}" "${RESIDUE}")" \
+    || { echo "Error: the capture filter cannot be rendered (reason above). Nothing was written." >&2; exit 1; }
+  [[ -n "${filter_lines}" ]] || { echo "Error: the capture filter rendered empty for $(printf '%s' "${filter_recs}" | awk '{print $1}' | tr '\n' ' '); nothing was written." >&2; exit 1; }
+fi
+
 [[ ${#table_include_list[@]} -gt 0 ]] || { echo "Error: no tables parsed from ${TABLES_CONF}"; exit 1; }
+# the signal table: in the include list (Debezium's source signal channel reads
+# it from the binlog), never in the topics MirrorMaker sends to the hub
+SIGNAL_DATA_COLLECTION="$(up_signal_collection "${DATABASE_NAME}")"
+table_include_list+=("${SIGNAL_DATA_COLLECTION}")
+export SIGNAL_DATA_COLLECTION
 
 export TABLE_INCLUDE_LIST
 TABLE_INCLUDE_LIST="$(IFS=','; echo "${table_include_list[*]}")"
 KAFKA_TOPICS="$(IFS=','; echo "${kafka_topics[*]}")"
 
 mkdir -p "${CONNECTORS_DIR}"
-SUBST_VARS='${LOCAL_MYSQL_HOST} ${LOCAL_MYSQL_PORT} ${LOCAL_DEBEZIUM_USER} ${LOCAL_DEBEZIUM_PASSWORD} ${MYSQL_SERVER_NAME} ${DATABASE_INCLUDE_LIST} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE}'
-envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${OUT_PRIMARY}"
+SUBST_VARS='${LOCAL_MYSQL_HOST} ${LOCAL_MYSQL_PORT} ${LOCAL_DEBEZIUM_USER} ${LOCAL_DEBEZIUM_PASSWORD} ${MYSQL_SERVER_NAME} ${DATABASE_INCLUDE_LIST} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE} ${SIGNAL_DATA_COLLECTION}'
+rendered="${OUT_PRIMARY}.new"
+envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${rendered}"
+if [[ -n "${filter_lines}" ]]; then
+  printf '%s\n' "${filter_lines}" > "${rendered}.filter"
+  origin_filter_merge "${rendered}" "${rendered}.filter" \
+    || { rm -f "${rendered}" "${rendered}.filter"; echo "Error: could not add the capture filter to the source configuration; nothing was written." >&2; exit 1; }
+  rm -f "${rendered}.filter"
+fi
+mv "${rendered}" "${OUT_PRIMARY}"
 cp "${OUT_PRIMARY}" "${OUT_ALIAS}"
 
 echo "Generated: ${OUT_PRIMARY}"
 echo "Generated: ${OUT_ALIAS}"
-echo "  Tables: ${#table_include_list[@]}"
+echo "  Tables: $(( ${#table_include_list[@]} - 1 )), and the signal table ${SIGNAL_DATA_COLLECTION}"
+if [[ -n "${filter_lines}" ]]; then
+  echo "  Capture filter (residue ${RESIDUE}):"
+  printf '%s' "${floor_recs}" | while read -r table pk fl; do [[ -n "${table}" ]] && echo "    ${table}: ${pk} at or above ${fl}"; done
+fi
 echo "  TABLE_INCLUDE_LIST=${TABLE_INCLUDE_LIST}"
 echo "  KAFKA_TOPICS=${KAFKA_TOPICS}"
 echo ""

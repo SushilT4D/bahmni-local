@@ -40,6 +40,9 @@ put PHONE_NUMBER "${CLINIC_PHONE}"
 # re-types them and no answers file travels with the machine
 put CLINIC_SLUG "${CLINIC_SLUG}"; put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
 put CERT_HOSTNAME "${CERT_HOSTNAME}"; put LAN_NAME "${LAN_NAME:-bahmni.clinic}"
+# whether this clinic sends obs, orders and drug_order to the hub (off unless
+# the answers say test); every clinic-side sync script reads it from here
+put CLINICAL_UP_SYNC "${CLINICAL_UP_SYNC:-off}"
 # optional: unset leaves docker-compose.yml's clinic default (initializer.sh)
 [ -z "${OPENMRS_INITIALIZER_DOMAINS:-}" ] || put OPENMRS_INITIALIZER_DOMAINS "${OPENMRS_INITIALIZER_DOMAINS}"
 put DEBEZIUM_SNAPSHOT_MODE no_data

@@ -74,9 +74,18 @@ total=0
 while IFS= read -r cline || [ -n "$cline" ]; do
     [[ "$cline" =~ ^[[:space:]]*# ]] && continue
     [[ -z "${cline// }" ]] && continue
-    IFS=':' read -r clinic name_prefix mm_prefix server_name <<< "$cline"
+    IFS=':' read -r clinic name_prefix mm_prefix server_name clinical_flag <<< "$cline"
     [ -n "$clinic" ] && [ -n "$name_prefix" ] && [ -n "$mm_prefix" ] && [ -n "$server_name" ] || {
         echo "Skipping malformed clinics.conf line: $cline" >&2; continue; }
+    # A clinic's clinical sinks exist only when its row says clinical: only a
+    # clinic installed with CLINICAL_UP_SYNC=test sends obs, orders and
+    # drug_order, and a sink for a clinic that does not would sit on a topic
+    # nothing writes.
+    case "${clinical_flag}" in
+        '') clinical_on=0 ;;
+        clinical) clinical_on=1 ;;
+        *) echo "Error: ${CLINICS_CONF##*/}: ${clinic}: the fifth field is '${clinical_flag}'; it is empty, or clinical for a clinic that sends obs, orders and drug_order. Nothing was written for ${clinic}." >&2; exit 1 ;;
+    esac
     if [ -n "$WANTED" ]; then
         case " $WANTED " in *" $clinic "*) ;; *) continue ;; esac
     fi
@@ -100,6 +109,10 @@ while IFS= read -r cline || [ -n "$cline" ]; do
 
         profile=default
         case " ${CLINICAL_SINK_TABLES} " in *" ${table} "*) profile=clinical ;; esac
+        if [ "$profile" = clinical ] && [ "${clinical_on}" != 1 ]; then
+            echo "  ${table}: no sink (${clinic} is not marked clinical in ${CLINICS_CONF##*/})"
+            continue
+        fi
         if [ "$profile" = clinical ]; then
             schema_keys='"//schema": "Never alter the hub table to fit a record: a schema mismatch stops this sink.",
     "schema.evolution": "none",'

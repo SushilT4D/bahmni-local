@@ -71,12 +71,26 @@ on loopback only; reach them over an SSH tunnel.
   renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
   registers the two Postgres sources (`odoo-cloud-source`,
   `clinlims-cloud-source`).
-- Up direction, one set per clinic listed in `clinics.conf`:
+- Up direction, one set per clinic listed in `clinics.conf` (the sinks for
+  `obs`, `orders` and `drug_order` only for a row ending in `:clinical`, a
+  clinic installed with `CLINICAL_UP_SYNC=test`):
   `scripts/generate-sink-connectors.sh <slug>` then
   `scripts/register-all-sink-connectors.sh` for the MySQL sinks, and
   `connectors/register-odoo.sh` for that clinic's Odoo and OpenELIS sinks.
 
 Rendered connector files hold passwords and are gitignored.
+
+## Checks
+
+- `scripts/check-clinical-fks.sh --container <hub mysql>` reads the foreign
+  keys on `obs`, `orders` and `drug_order` (read-only). Any FK out of those
+  tables fails it: the up sinks write each table in arrival order, and an FK
+  out would stop a sink whenever a clinic's row arrives before its parent.
+  The FKs into them are compared with `clinical-fks-in.conf`, and a difference
+  is reported (exit 2). Run it before and after every hub upgrade;
+  `scripts/register-all-sink-connectors.sh` runs it itself before it registers
+  any sink for these tables (set `HUB_MYSQL_CONTAINER`) and registers nothing
+  when a key points out of one.
 
 ## Not provided yet
 

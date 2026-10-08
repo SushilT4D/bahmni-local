@@ -20,6 +20,33 @@ if [ ${#connector_files[@]} -eq 0 ] || [ ! -f "${connector_files[0]}" ]; then
     exit 1
 fi
 
+# Up sinks for obs, orders or drug_order write each table in arrival order, so a
+# clinic's row can land before its parent. That is safe only while no foreign
+# key points out of those tables on the hub: one would stop the sink at every
+# early arrival. Before any of them is registered, check-clinical-fks.sh reads
+# the hub's keys (HUB_MYSQL_CONTAINER names the hub's OpenMRS MySQL container)
+# and a key out of a clinical table stops the registration. A change in the
+# keys pointing into them is shown and does not stop it.
+clinical_sinks=""
+for config_file in "${connector_files[@]}"; do
+    t="$(jq -r '.config.topics // empty' "${config_file}" 2>/dev/null)"
+    case "${t##*.}" in obs|orders|drug_order) clinical_sinks="${clinical_sinks} $(basename "${config_file}" .json)" ;; esac
+done
+if [ -n "${clinical_sinks}" ]; then
+    echo "Clinical sinks to register:${clinical_sinks}"
+    if [ -z "${HUB_MYSQL_CONTAINER:-}" ]; then
+        echo "Error: set HUB_MYSQL_CONTAINER to the hub's OpenMRS MySQL container, so the foreign keys on obs, orders and drug_order are checked before their sinks are registered. Nothing was registered."
+        exit 1
+    fi
+    fk_rc=0
+    bash "${SCRIPT_DIR}/check-clinical-fks.sh" --container "${HUB_MYSQL_CONTAINER}" || fk_rc=$?
+    case "${fk_rc}" in
+        0) ;;
+        2) echo "Note: the foreign keys into the clinical tables differ from hub/clinical-fks-in.conf (listed above); a clinic's delete of a row they reference will stop that sink." ;;
+        *) echo "Error: check-clinical-fks.sh failed (exit ${fk_rc}, reason above): the clinical sinks would stop on a row that arrives before its parent. Nothing was registered."; exit 1 ;;
+    esac
+fi
+
 success_count=0
 fail_count=0
 

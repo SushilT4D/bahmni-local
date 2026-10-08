@@ -5,6 +5,31 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "110 · hub join (operator, from the workspace)"
+# provenance:begin
+# Before the hub is asked to take this clinic: its master tables are still the
+# ones of the seed it was built from (same rows, same content, read with the
+# same tool the hub's record was computed with), and its foreign keys are the
+# hub's. A clinic seeded from another dump, one whose masters changed after the
+# seed, or one whose schema moved ahead of or behind the hub's is refused here,
+# naming the first table that differs.
+. "${INSTALL_DIR}/state.sh"
+if [ "${DRY}" = 1 ]; then
+  info "would: compare this clinic's master tables and foreign keys with the seed's provenance record (${PROVENANCE_COPY})"
+  # nothing is installed or syncing in a dry run, so the join steps are not printed as if it were
+  info "would: print the steps the operator runs to join this clinic to the hub"
+  exit 0
+else
+  [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator."
+  [ "$(sha256_of "${PROVENANCE_COPY}")" = "$(stamp_get PROVENANCE_SHA)" ] || fail "the seed provenance record on this machine (${PROVENANCE_COPY}) is not the one the seed gate kept; call the operator."
+  setup_compose; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
+  lines="$(provenance_content_lines "${PROVENANCE_COPY}" "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not checksum this clinic's master tables (clinic/scripts/master-checksum.sh failed above)"
+  v="$(provenance_content_verdict "${PROVENANCE_COPY}" "$lines" "$(sha256_of "${REPO_DIR}/clinic/scripts/master-checksum.sh")" "${REPO_DIR}/hub/checksum-exclusions.conf")" || fail "$v"
+  ok "${v#ok }"
+  fk_rows="$(clinic_fk_rows "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
+  v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
+  ok "${v#ok }"
+fi
+# provenance:end
 cat <<EOF
 
   This node is installed and syncing locally. To join the hub, the OPERATOR runs,
@@ -13,7 +38,7 @@ cat <<EOF
     skills/install-clinic.sh join ${CLINIC_SLUG}
 
   which does, in order:
-    1. appends to hub/clinics.conf:   ${CLINIC_SLUG}:mysql-sink-${CLINIC_SLUG}-:${LOCAL_CLUSTER_ALIAS}:${MYSQL_SERVER_NAME}
+    1. appends to hub/clinics.conf:   ${CLINIC_SLUG}:mysql-sink-${CLINIC_SLUG}-:${LOCAL_CLUSTER_ALIAS}:${MYSQL_SERVER_NAME}$( [ "${CLINICAL_UP_SYNC:-off}" = test ] && printf ':clinical' )
        commits and pushes the install branch, pushes the tracking ref into the hub, fast-forwards the hub
     2. on the hub:  cd hub && scripts/generate-sink-connectors.sh ${CLINIC_SLUG} && scripts/register-all-sink-connectors.sh
     3. on the hub:  the Odoo and clinlims up-sinks for ${CLINIC_SLUG} (copies of Ghated's, topics ${LOCAL_CLUSTER_ALIAS}.${MYSQL_SERVER_NAME}.odoo.all / .clinlims.all)

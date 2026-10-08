@@ -38,7 +38,7 @@ printf '%s' "$D" | grep -q 'within' && ok_ "its FAIL names the budget" || bad "i
 # collides with systemd-resolved: our config must be in place first
 L="$(sed -n '/^dns_install_linux()/,/^}/p' "${HERE}/../dns.sh" | grep -v "would:")"
 w="$(printf '%s\n' "$L" | grep -n 'bahmni-clinic.conf' | head -1 | cut -d: -f1)"
-i="$(printf '%s\n' "$L" | grep -n 'apt-get install' | head -1 | cut -d: -f1)"
+i="$(printf '%s\n' "$L" | grep -nE 'apt[-_]get install' | head -1 | cut -d: -f1)"
 [ -n "$w" ] && [ -n "$i" ] && [ "$w" -lt "$i" ] && ok_ "linux: config written before the package is installed" || bad "linux: config not written before apt-get install (w=$w i=$i)"
 M="${HERE}/../host-macos.sh"
 grep -q 'ip_unprivileged_port_start=80' "$M" && ok_ "macOS: podman machine may bind ports from 80" || bad "macOS: no low-port sysctl"

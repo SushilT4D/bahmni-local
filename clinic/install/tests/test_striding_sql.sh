@@ -186,6 +186,7 @@ sb_run(){ # obs-AUTO_INCREMENT orders-AUTO_INCREMENT
       case "$q" in
         ALTER*) t="$(printf '%s' "$q" | sed -n 's/.*`\([a-z_]*\)`.*/\1/p')"; n="$(printf '%s' "$q" | sed -n 's/.*AUTO_INCREMENT = \([0-9]*\);.*/\1/p')"
                 printf '%s\n' "$q" >> "$MYF/alters"; printf '%s\n' "$n" > "$MYF/$t" ;;
+        "select count(*)"*) cat "$MYF/offresidue" 2>/dev/null || echo 0 ;;   # seeded rows at or above the floor off residue 0
         *) t="$(printf '%s' "$q" | sed -n "s/.*table_name='\([a-z_]*\)'.*/\1/p")"; cat "$MYF/$t" ;;
       esac; }
     eval "$SB" ) 2>&1
@@ -197,6 +198,9 @@ out="$(sb_run 4999993 299991)"; rc=$?
   && ok_ "060: floors 5000000 and 300000, residue 3: obs AUTO_INCREMENT 5000003, orders 300003, though the list does not carry them" || bad "060 set: rc=$rc $out alters=$(cat "$MYF/alters")"
 printf '%s\n' "$out" | grep -q '^OK obs next id 5000003, at or above floor 5000000 + residue 3 (counter set to 5000003)$' && printf '%s\n' "$out" | grep -q '^OK orders next id 300003' \
   && ok_ "060: each counter is read back after it is set, one line each" || bad "060 readback lines: $out"
+echo 2 > "$MYF/offresidue"; out="$(sb_run 4999993 299991)"; rc=$?; rm -f "$MYF/offresidue"
+[ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && printf '%s' "$out" | grep -q "the seed holds 2 obs row(s) at or above the floor 5000000 that are not on the hub's residue 0" \
+  && ok_ "060: seeded rows above the floor off residue 0 refuse the seed before any counter moves" || bad "060 off-residue rows: rc=$rc $out alters=$(cat "$MYF/alters")"
 out="$(sb_run 5000093 300003)"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$MYF/alters" ] && [ "$(cat "$MYF/obs")" = 5000093 ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000093.*(counter already there, unchanged)$' \
   && ok_ "060: counters already above the floor on this residue are left unchanged, and say so" || bad "060 keep: rc=$rc $out alters=$(cat "$MYF/alters")"
@@ -208,7 +212,7 @@ out="$(sb_run 5000004 300003)"; rc=$?
 [ "$rc" = 0 ] && [ ! -s "$MYF/alters" ] && printf '%s\n' "$out" | grep -q '^OK obs next id 5000013' \
   && ok_ "060: a counter MySQL derived after a restart (5000004) is kept, nothing altered" || bad "060 after restart: rc=$rc $out alters=$(cat "$MYF/alters")"
 out="$(sb_run '' 299991)"; rc=$?
-[ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && case "$out" in "FAIL could not read the obs id counter"*) true ;; *) false ;; esac \
+[ "$rc" = 1 ] && [ ! -s "$MYF/alters" ] && case "$(printf '%s\n' "$out" | tail -1)" in "FAIL could not read the obs id counter"*) true ;; *) false ;; esac \
   && ok_ "060: a counter that cannot be read fails the task" || bad "060 unreadable: rc=$rc $out"
 env_del "$STATE_FILE" FLOOR_OBS
 out="$(sb_run 4999993 299991)"; rc=$?
