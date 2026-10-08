@@ -3,7 +3,11 @@
 #
 #   hub/tables.conf          an unmarked row must have verdict DOWN, a row
 #                            marked `relay` must have verdict relay;
-#   sync/local/tables.conf   every row must have verdict UP or relay.
+#   sync/local/tables.conf   every row must have verdict UP or relay, and
+#                            the file must pass sync/local/tables-conf.sh's
+#                            reader, which every script that reads it uses;
+#   UP_NEVER_TABLES          the tables that reader never lets a clinic
+#                            capture must have verdict DOWN or OUT.
 #
 # So a table the hub does not solely write (UP), one delivered only by the
 # seed (RESEED), a node-local one (OUT) or one whose verdict is not final
@@ -14,7 +18,8 @@
 #
 # repo-dir defaults to the checkout this script is in. Reads files only.
 # Exit 0 when both lists agree with the verdicts, 1 naming every row that
-# does not, 2 when a file is missing or the verdict file is malformed.
+# does not, 2 when a file is missing, the verdict file is malformed or
+# sync/local/tables.conf has a line its reader refuses.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="${1:-$(cd "${HERE}/../.." && pwd)}"
@@ -56,18 +61,36 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < "$DOWN"
 
-# sync/local/tables.conf: table:pk[:base_id]
+# sync/local/tables.conf, through the reader every script that captures,
+# mirrors, strides or sinks it uses: a line that reader refuses is refused here
+# too, so this check never passes a list the sync layer cannot run
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${HERE}/../../sync/local/tables-conf.sh"
+recs="$(up_tables_read "$UP" 2>&1)" || { printf '  FAIL sync/local/tables.conf is refused by its reader (sync/local/tables-conf.sh): %s\n' "$recs" >&2; exit 2; }
 m=0
-while IFS= read -r line || [ -n "$line" ]; do
-  line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-  [ -n "$line" ] || continue
-  t="${line%%:*}"; v="$(verdict_of "$t")"; m=$((m+1))
+while read -r t _; do
+  [ -n "$t" ] || continue
+  v="$(verdict_of "$t")"; m=$((m+1))
   case "$v" in
     UP|relay) ;;
     '') bad "sync/local/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf" ;;
     *) bad "sync/local/tables.conf captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP or relay)" ;;
   esac
-done < "$UP"
+done <<EOF
+$recs
+EOF
+
+# The tables that reader never lets a clinic capture (UP_NEVER_TABLES) must be
+# the hub's (DOWN) or node-local (OUT) here: the two files make the same claim,
+# and a verdict changed in one without the other fails until both agree.
+for t in ${UP_NEVER_TABLES}; do
+  v="$(verdict_of "$t")"
+  case "$v" in
+    DOWN|OUT) ;;
+    '') bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, which has no verdict in hub/table-verdicts.conf (it must be DOWN or OUT)" ;;
+    *) bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, but its verdict is ${v}: a table no clinic captures is DOWN or OUT" ;;
+  esac
+done
 
 [ "$fails" -eq 0 ] || exit 1
-printf '  ok   %s hub/tables.conf row(s) and %s sync/local/tables.conf row(s) agree with hub/table-verdicts.conf\n' "$n" "$m"
+printf '  ok   %s hub/tables.conf row(s), %s sync/local/tables.conf row(s) and the %s never-captured table(s) agree with hub/table-verdicts.conf\n' "$n" "$m" "$(printf '%s\n' ${UP_NEVER_TABLES} | grep -c .)"

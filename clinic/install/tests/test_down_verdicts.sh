@@ -68,6 +68,38 @@ copy; printf 'care_setting:care_setting_id\n' >> "$TMP/r/sync/local/tables.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'captures care_setting at the clinic, but its verdict is RESEED' && ok_ "a RESEED table in the clinic's capture list fails" || bad "care_setting captured up: rc=$rc out=$out"
 
+# --- the capture list is read by the reader the sync scripts use -----------------------------
+# A line that reader refuses (a trailing note, a third field it cannot place) must
+# fail here too: a looser parse would pass a list the source connector refuses.
+for line in 'obs:obs_id:seed   # a trailing note' 'obs:obs_id:sometext' 'users:user_id'; do
+  copy; printf '%s\n' "$line" >> "$TMP/r/sync/local/tables.conf"
+  out="$(check)"; rc=$?
+  [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'sync/local/tables.conf is refused by its reader' && ok_ "a capture line the shared reader refuses is refused: '${line}'" || bad "reader-refused line '${line}': rc=$rc out=$out"
+done
+copy; printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' >> "$TMP/r/sync/local/tables.conf"
+out="$(check)"; rc=$?
+[ "$rc" -eq 0 ] && ok_ "the clinical lines (floors from the seed, drug_order reading the orders floor) pass" || bad "clinical lines: rc=$rc out=$out"
+
+# --- the tables no clinic captures agree with their verdicts -----------------------------
+# sync/local/tables-conf.sh refuses UP_NEVER_TABLES at a clinic; each must be DOWN or OUT here.
+. "$RP/sync/local/tables-conf.sh"
+[ -n "${UP_NEVER_TABLES}" ] || bad "UP_NEVER_TABLES is empty"
+for t in ${UP_NEVER_TABLES}; do
+  case "$(vof "$t")" in DOWN|OUT) ok_ "${t}: never captured at a clinic, and its verdict is $(vof "$t")" ;; *) bad "${t} is never captured at a clinic but its verdict is '$(vof "$t")'" ;; esac
+done
+nv(){ # TABLE NEW-VERDICT-LINE|DELETE : the verdict file with TABLE's line replaced or removed
+  copy; awk -v t="$1" -v n="$2" '{ c = $0; sub(/#.*/, "", c); split(c, f, " ") } f[1] == t { if (n != "DELETE") print n; next } { print }' "$V" > "$TMP/r/hub/table-verdicts.conf"
+}
+nv global_property 'global_property UP'
+out="$(check)"; rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'never lets a clinic capture global_property, but its verdict is UP' && ok_ "a never-captured table given verdict UP fails, by name" || bad "global_property UP: rc=$rc out=$out"
+nv user_property 'user_property relay'
+out="$(check)"; rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'never lets a clinic capture user_property, but its verdict is relay' && ok_ "a never-captured table given verdict relay fails" || bad "user_property relay: rc=$rc out=$out"
+nv users DELETE
+out="$(check)"; rc=$?
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'never lets a clinic capture users, which has no verdict' && ok_ "a never-captured table with no verdict fails" || bad "users without a verdict: rc=$rc out=$out"
+
 # --- the verdict file itself ---------------------------------------------------------------------
 copy; printf 'concept DOWN\n' >> "$TMP/r/hub/table-verdicts.conf"
 out="$(check)"; rc=$?

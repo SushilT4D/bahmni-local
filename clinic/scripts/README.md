@@ -41,8 +41,11 @@ regenerate and register the down sinks. `--dry-run` prints the grants.
 `sync/local/tables.conf` to `hub/table-verdicts.conf`, the one record of which
 node writes each table: a down row must be a hub-written table (DOWN) or a
 relayed one, a clinic capture row must be one a clinic writes (UP or relay).
-It names every row that breaks the rule and reads files only; run it after
-editing either list.
+It reads `sync/local/tables.conf` with `sync/local/tables-conf.sh`, the reader
+every capture, mirror, striding and sink script uses, so a line those scripts
+refuse fails here too; and the tables that reader never lets a clinic capture
+must be DOWN or OUT in the verdicts. It names every row that breaks a rule and
+reads files only; run it after editing either list or either file.
 
 **Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
 lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
