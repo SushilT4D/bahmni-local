@@ -308,16 +308,22 @@ service passes
 
     -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-<the clinic default>}
 
-The clinic default is an exclusion list (a leading `!`) of every domain the
-config tree carries a folder for, except `globalproperties` and `idgen`, which
-write this node's own settings and identifier sources:
+The clinic default is the inclusion list `globalproperties,idgen`: those two
+write this node's own settings and identifier sources, and no other domain
+loads, whatever folders a config release adds. On a seeded node the first
+start then writes only `global_property`, `liquibasechangeloglock` and
+`scheduler_task_config`; no master table changes.
+
+An exclusion list (a leading `!`) is still accepted as an override. The one
+that keeps the same two domains for today's config tree names every other
+domain the tree carries a folder for:
 
     !bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase
 
-`OPENMRS_INITIALIZER_DOMAINS` replaces it, as an optional answer (task 020
-writes it into `clinic/.env`) or in `clinic/.env` directly: comma-separated, no
-spaces, a leading `!` for an exclusion list, otherwise an inclusion list, e.g.
-`globalproperties,idgen`. The same check runs on every path that starts
+`OPENMRS_INITIALIZER_DOMAINS` replaces the default, as an optional answer
+(task 020 writes it into `clinic/.env`) or in `clinic/.env` directly:
+comma-separated, no spaces, a leading `!` for an exclusion list, otherwise an
+inclusion list. The same check runs on every path that starts
 OpenMRS on a config tree or a domain list it has not run with: task 080
 before the stack starts, `clinic/scripts/extract-ui-config.sh` on a new config
 tree before it replaces the current one (a refused tree leaves `extracted/` as
@@ -329,8 +335,8 @@ It refuses:
 - a config folder holding a file for any domain that would load, other than
   `globalproperties` and `idgen`. An exclusion list leaves every unnamed domain
   on, so a config release that adds a folder (`htmlforms` and `ampathforms`
-  also write forms) is refused here instead of loading silently. The inclusion
-  list `globalproperties,idgen` passes the same check by construction;
+  also write forms) is refused here instead of loading silently. The default
+  inclusion list passes the same check by construction;
 - a config folder holding a file whose name is not one of the 52 domains, under
   either kind of list: a newer module may have that domain and load it.
 

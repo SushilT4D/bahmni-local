@@ -42,7 +42,8 @@ file gives the date of each.
   OpenMRS.
 - At a clinic the Initializer loads no forms and no other master data the hub
   owns: `-Dinitializer.domains` from `OPENMRS_INITIALIZER_DOMAINS`, by default
-  an exclusion list keeping only `globalproperties` and `idgen`. An unknown
+  the inclusion list `globalproperties,idgen`; an exclusion list is accepted as
+  an override. An unknown
   domain name, a config folder for any other domain that would load, and a
   folder whose name is not a known domain are refused before OpenMRS starts:
   by the installer, by `clinic/scripts/extract-ui-config.sh` before a new

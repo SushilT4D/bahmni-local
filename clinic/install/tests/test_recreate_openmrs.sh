@@ -48,12 +48,13 @@ up_line='--profile local --profile debezium --profile openelis up -d --no-deps -
 N="$TMP/n"; node "$N"; : > "$FAKE_LOG"
 out="$(run "$N")"; rc=$?
 [ "$rc" -eq 0 ] && calls | grep -qF "docker compose ${up_line} | cwd=$N" && ok_ "checks pass: openmrs alone is recreated, from clinic/, with the fleet's profiles" || bad "good node: rc=$rc out=$out calls=$(calls)"
-printf '%s' "$out" | grep -q 'ok   forms: 1 form files .*(mounted read-write)' && printf '%s' "$out" | grep -q 'ok   initializer domains: exclusion list' \
+printf '%s' "$out" | grep -q 'ok   forms: 1 form files .*(mounted read-write)' && printf '%s' "$out" | grep -q 'ok   initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' \
   && ok_ "it says what it checked: the forms mount and the domain list" || bad "check lines: $out"
 [ "$(envv "$N" OMRS_JAVA_SERVER_OPTS)" = "-server -Dfile.encoding=UTF-8" ] && ok_ "a -Dinitializer.domains left in OMRS_JAVA_SERVER_OPTS is taken out first, so the property is passed once" || bad "jvm opts: $(envv "$N" OMRS_JAVA_SERVER_OPTS)"
 
-# --- a config release that would load forms ------------------------------------------------------
-N2="$TMP/n2"; node "$N2"; mkdir -p "$N2/extracted/bahmni_config/masterdata/configuration/htmlforms"; echo '<htmlform/>' > "$N2/extracted/bahmni_config/masterdata/configuration/htmlforms/anc.xml"
+# --- a config release that would load forms, under an exclusion list set as an override ----------------
+EXCL='!bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase'
+N2="$TMP/n2"; node "$N2"; printf "OPENMRS_INITIALIZER_DOMAINS='%s'\n" "$EXCL" >> "$N2/.env"; mkdir -p "$N2/extracted/bahmni_config/masterdata/configuration/htmlforms"; echo '<htmlform/>' > "$N2/extracted/bahmni_config/masterdata/configuration/htmlforms/anc.xml"
 : > "$FAKE_LOG"
 out="$(run "$N2")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'FAIL the config tree carries a folder for htmlforms,' && ! calls | grep -q ' up ' \
@@ -63,6 +64,10 @@ out="$(run "$N2" --check)"; rc=$?
 printf 'OPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen\n' >> "$N2/.env"; : > "$FAKE_LOG"
 out="$(run "$N2")"; rc=$?
 [ "$rc" -eq 0 ] && calls | grep -qF -- "$up_line" && printf '%s' "$out" | grep -q 'initializer domains: inclusion list' && ok_ "with the inclusion list globalproperties,idgen the same tree is recreated on" || bad "inclusion: rc=$rc out=$out"
+N2b="$TMP/n2b"; node "$N2b"; mkdir -p "$N2b/extracted/bahmni_config/masterdata/configuration/htmlforms"; echo '<htmlform/>' > "$N2b/extracted/bahmni_config/masterdata/configuration/htmlforms/anc.xml"
+: > "$FAKE_LOG"
+out="$(run "$N2b")"; rc=$?
+[ "$rc" -eq 0 ] && calls | grep -qF -- "$up_line" && printf '%s' "$out" | grep -q 'initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' && ok_ "with no list set, the default inclusion list loads no htmlforms folder, and the tree is recreated on" || bad "default with htmlforms: rc=$rc out=$out"
 
 # --- the forms mount ---------------------------------------------------------------------------------
 N3="$TMP/n3"; node "$N3"; rm -rf "$N3/bahmni_home/clinical_forms"; : > "$FAKE_LOG"

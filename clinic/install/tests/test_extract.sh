@@ -144,9 +144,13 @@ EXT="$X/bahmni_config/openmrs/apps/home/extension.json"
   && ok_ "the form builder's home page tile is removed, the other tiles kept" || bad "extension.json: $(cat "$EXT")"
 
 # the Initializer domain check guards the config-release path: a config image
-# whose tree would load rows the hub owns never replaces the current tree
+# whose tree would load rows the hub owns never replaces the current tree. The
+# default inclusion list loads no htmlforms folder; an exclusion list set as an
+# override leaves it loading, so under one the image is refused.
 H="$(mkimg acme/config:htmlforms fff)"; cp -R "$C/etc" "$H/"
 mkdir -p "$H/etc/bahmni_config/masterdata/configuration/htmlforms"; echo '<htmlform/>' > "$H/etc/bahmni_config/masterdata/configuration/htmlforms/anc.xml"
+EXCL='!bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase'
+printf "OPENMRS_INITIALIZER_DOMAINS='%s'\n" "$EXCL" > "$TMP/clinic/.env"
 src0="$(cat "$X/.source")"; prev0="$(cat "$X.prev/.source" 2>/dev/null)"
 out="$(CFG=acme/config:htmlforms run)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'refused acme/config:htmlforms: extracted/ is left as it was' && printf '%s' "$out" | grep -q 'folder for htmlforms,' \
@@ -154,6 +158,7 @@ out="$(CFG=acme/config:htmlforms run)"; rc=$?
 [ "$(cat "$X/.source")" = "$src0" ] && [ ! -e "$X/bahmni_config/masterdata/configuration/htmlforms" ] && [ "$(cat "$X.prev/.source" 2>/dev/null)" = "$prev0" ] \
   && ok_ "the refused tree replaces nothing: extracted/ and extracted.prev/ are as they were" || bad "the refused tree replaced the current one: $(cat "$X/.source")"
 ls -d "$X".new.* >/dev/null 2>&1 && bad "the refused tree was left behind" || ok_ "nothing of the refused tree is left behind"
+rm -f "$TMP/clinic/.env"
 out="$(env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE=acme/web:1 BAHMNI_CONFIG_IMAGE=acme/config:htmlforms MRN_PREFIX=MAN LAN_NAME=bahmni.clinic OPENMRS_INITIALIZER_DOMAINS=globalproperties,idgen bash "$S" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ -d "$X/bahmni_config/masterdata/configuration/htmlforms" ] && printf '%s' "$out" | grep -q 'initializer domains: inclusion list' \
   && ok_ "with the inclusion list globalproperties,idgen the same image is taken" || bad "htmlforms with the inclusion list: rc=$rc out=$out"
@@ -163,8 +168,12 @@ out="$(run --force)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'with -Dinitializer.domains=!bahmniforms the Initializer would load' && ok_ "the domain list is read from clinic/.env" || bad "domain list from clinic/.env: rc=$rc out=$out"
 rm -f "$TMP/clinic/.env"
 # the skip path checks the tree in place: an unchanged image is still refused
+printf "OPENMRS_INITIALIZER_DOMAINS='%s'\n" "$EXCL" > "$TMP/clinic/.env"
 out="$(CFG=acme/config:htmlforms run)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'the config tree in extracted/ (acme/config:htmlforms) would load rows the hub owns' && ok_ "the skip path refuses a tree in place that would load rows the hub owns" || bad "skip path with htmlforms in place: rc=$rc out=$out"
+rm -f "$TMP/clinic/.env"
+out="$(CFG=acme/config:htmlforms run)"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'initializer domains: inclusion list; from the config tree it loads: nothing' && ok_ "with no list set, the default inclusion list takes the same tree in place" || bad "skip path under the default: rc=$rc out=$out"
 out="$(run --force)"; rc=$?
 [ "$rc" -eq 0 ] && [ ! -e "$X/bahmni_config/masterdata/configuration/htmlforms" ] && ok_ "a good image replaces it again" || bad "back to the good image: rc=$rc out=$out"
 

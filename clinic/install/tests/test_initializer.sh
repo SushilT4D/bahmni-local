@@ -19,11 +19,12 @@ k(){ ( . "$I"; eval "printf '%s' \"\${$1}\"" ); }
 # --- the domain list ---------------------------------------------------------------
 [ "$(k INITIALIZER_DOMAINS_KNOWN | wc -w | tr -d ' ')" = 52 ] && ok_ "the module's 52 domains are known" || bad "known domains: $(k INITIALIZER_DOMAINS_KNOWN | wc -w)"
 DEF="$(k INITIALIZER_DOMAINS_DEFAULT)"
-case "$DEF" in '!bahmniforms,'*) ok_ "the default is an exclusion list that starts with bahmniforms" ;; *) bad "default: $DEF" ;; esac
-for d in liquibase concepts drugs locations addresshierarchy roles privileges; do
-  case ",${DEF#!}," in *",$d,"*) ;; *) bad "the default does not exclude $d" ;; esac
-done
-case ",${DEF#!}," in *,globalproperties,*|*,idgen,*) bad "the default excludes a kept domain" ;; *) ok_ "the default keeps globalproperties and idgen" ;; esac
+[ "$DEF" = globalproperties,idgen ] && ok_ "the default is the inclusion list globalproperties,idgen" || bad "default: $DEF"
+[ "$(k INITIALIZER_DOMAINS_KEPT | tr ' ' ',')" = "$DEF" ] && ok_ "the default loads exactly the domains a clinic keeps" || bad "kept $(k INITIALIZER_DOMAINS_KEPT) vs default $DEF"
+# An exclusion list stays accepted as an override: the one the README gives,
+# every domain the clinic config tree carries a folder for but the kept two.
+EXCL='!bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase'
+grep -qF -- "    ${EXCL}" "${HERE}/../README.md" && ok_ "the README gives the exclusion list these checks use" || bad "the README does not give the exclusion list"
 
 # --- compose ---------------------------------------------------------------------------
 env_block="$(svc "$Y" openmrs)"
@@ -54,33 +55,38 @@ for d in addresshierarchy appointmentservicedefinitions appointmentspecialities 
 done
 mkdir -p "$M/ocl"
 out="$(v "$DEF" "$C")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^ok exclusion list; from the config tree it loads: globalproperties idgen$' && ok_ "the default passes the config tree a clinic carries, loading only globalproperties and idgen" || bad "default: rc=$rc out=$out"
-out="$(v globalproperties,idgen "$C")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^ok inclusion list; from the config tree it loads: globalproperties idgen$' && ok_ "the inclusion list globalproperties,idgen passes" || bad "inclusion: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^ok inclusion list; from the config tree it loads: globalproperties idgen$' && ok_ "the default passes the config tree a clinic carries, loading only globalproperties and idgen" || bad "default: rc=$rc out=$out"
+out="$(v "$EXCL" "$C")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^ok exclusion list; from the config tree it loads: globalproperties idgen$' && ok_ "the exclusion list override passes the same tree, loading the same two" || bad "exclusion: rc=$rc out=$out"
 out="$(v '!bahmniforms,bogus,Concepts,!idgen' "$C")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'does not have: bogus Concepts !idgen\.' && ok_ "unknown names are refused, each named (case and a second ! included)" || bad "unknown: rc=$rc out=$out"
 out="$(v 'globalproperties,idgen,bogus' "$C")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'does not have: bogus\.' && ok_ "an unknown name in an inclusion list is refused too" || bad "unknown inclusion: rc=$rc out=$out"
 mkdir -p "$M/encountertypes"; echo x > "$M/encountertypes/encountertypes.csv"
+out="$(v "$EXCL" "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for encountertypes,' && ok_ "an exclusion list refuses a config folder for a domain it does not exclude (a config release adding one)" || bad "new folder under the exclusion list: rc=$rc out=$out"
 out="$(v "$DEF" "$C")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for encountertypes,' && ok_ "the default refuses a config folder for a domain it does not exclude (a config release adding one)" || bad "new folder under the default: rc=$rc out=$out"
-out="$(v globalproperties,idgen "$C")"; rc=$?
-[ "$rc" -eq 0 ] && ok_ "the inclusion list is not affected by that folder" || bad "inclusion with a new folder: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'it loads: globalproperties idgen$' && ok_ "the default is not affected by that folder: it loads only the kept two" || bad "default with a new folder: rc=$rc out=$out"
 rm -rf "$M/encountertypes"
 mkdir -p "$M/htmlforms"; echo x > "$M/htmlforms/f.xml"
+out="$(v "$EXCL" "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for htmlforms,' && ok_ "an exclusion list refuses a new htmlforms folder (it writes forms)" || bad "htmlforms under the exclusion list: rc=$rc out=$out"
 out="$(v "$DEF" "$C")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for htmlforms,' && ok_ "the default refuses a new htmlforms folder (it writes forms)" || bad "htmlforms under the default: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && ok_ "the default does not load a new htmlforms folder, so it passes" || bad "htmlforms under the default: rc=$rc out=$out"
 rm -rf "$M/htmlforms"
 # a folder for a domain this list does not know (a newer module's) is refused
 # by name under either kind of list, not left to load
 mkdir -p "$M/newdomain"; echo x > "$M/newdomain/x.csv"
 out="$(v "$DEF" "$C")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'carries a folder for newdomain, which is not one of the Initializer domains known here' && ok_ "an unknown folder is refused under the default, by name" || bad "unknown folder, default: rc=$rc out=$out"
-out="$(v globalproperties,idgen "$C")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'folder for newdomain,' && ok_ "an unknown folder is refused under the inclusion list too" || bad "unknown folder, inclusion: rc=$rc out=$out"
+out="$(v "$EXCL" "$C")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'folder for newdomain,' && ok_ "an unknown folder is refused under an exclusion list too" || bad "unknown folder, exclusion: rc=$rc out=$out"
 rm -rf "$M/newdomain"; mkdir -p "$M/newdomain"
-out="$(v "$DEF" "$C")"; rc=$?
-[ "$rc" -eq 0 ] && ok_ "an empty unknown folder loads nothing and is not refused" || bad "empty unknown folder: rc=$rc out=$out"
+for l in "$DEF" "$EXCL"; do
+  out="$(v "$l" "$C")"; rc=$?
+  [ "$rc" -eq 0 ] || bad "empty unknown folder refused under $l: rc=$rc out=$out"
+done
+ok_ "an empty unknown folder loads nothing and is not refused, under either list"
 rmdir "$M/newdomain"
 out="$(v '!bahmniforms' "$C")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'folder for addresshierarchy appointmentservicedefinitions .*liquibase .*roles visittypes,' && ok_ "excluding only bahmniforms is refused, naming every hub-owned folder it would load" || bad "bahmniforms only: rc=$rc out=$out"
@@ -104,7 +110,9 @@ gl="$(grep -n 'initializer-guard:end' "$T080" | head -1 | cut -d: -f1)"; ul="$(g
 g080(){ env -i PATH="$PATH" BAHMNI_CONFIG_DIR="$C" "$@" bash -c "INSTALL_DIR='${HERE}/..'; . '${HERE}/../lib.sh'; fail(){ printf 'FAIL %s\n' \"\$*\"; exit 1; }; ok(){ printf 'OK %s\n' \"\$*\"; }
 ${blk}" 2>&1; }
 out="$(g080)"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK initializer domains: exclusion list' && ok_ "080 uses the default when OPENMRS_INITIALIZER_DOMAINS is unset" || bad "080 default: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK initializer domains: inclusion list; from the config tree it loads: globalproperties idgen$' && ok_ "080 uses the default when OPENMRS_INITIALIZER_DOMAINS is unset" || bad "080 default: rc=$rc out=$out"
+out="$(g080 OPENMRS_INITIALIZER_DOMAINS="$EXCL")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK initializer domains: exclusion list' && ok_ "080 accepts an exclusion list set as an override" || bad "080 exclusion override: rc=$rc out=$out"
 out="$(g080 OPENMRS_INITIALIZER_DOMAINS='!bahmniforms,nosuchdomain')"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '^FAIL .*does not have: nosuchdomain' && ok_ "080 stops on an unknown domain" || bad "080 unknown: rc=$rc out=$out"
 

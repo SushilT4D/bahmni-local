@@ -22,23 +22,22 @@
 # module only warns about a name it does not know, which leaves that domain
 # loading, so initializer_domains_verdict refuses unknown names here.
 #
-# The default excludes every domain the config tree carries a folder for
-# except globalproperties and idgen, which write this node's own settings and
-# identifier sources. An exclusion list leaves every unnamed domain on, so a
-# config release that adds a folder for one (htmlforms, ampathforms and
-# metadatasharing also write forms) would load it silently: the verdict
-# therefore refuses any folder holding a file for a domain that would load,
-# other than the kept two, and any folder holding a file whose name is not a
-# domain known here (a newer module may have it). The inclusion list
-# globalproperties,idgen closes the first by construction and passes the same
-# check.
+# The default is the inclusion list globalproperties,idgen: those two write this
+# node's own settings and identifier sources, and no other domain loads,
+# whatever folders a config release adds. An exclusion list is still accepted
+# as an override. It leaves every unnamed domain on, so a config release that
+# adds a folder for one (htmlforms, ampathforms and metadatasharing also write
+# forms) would load it silently: the verdict therefore refuses any folder
+# holding a file for a domain that would load, other than the kept two, and,
+# under either kind of list, any folder holding a file whose name is not a
+# domain known here (a newer module may have it).
 
 # The module's 52 domains (its Domain enum, lower case, underscores removed).
 INITIALIZER_DOMAINS_KNOWN="addresshierarchy ampathforms ampathformstranslations appointmentservicedefinitions appointmentservicetypes appointmentspecialities attributetypes autogenerationoptions bahmniforms billableservices cashpoints cohortattributetypes cohorttypes conceptclasses conceptreferencerange concepts conceptsets conceptsources datafiltermappings dispositions drugs encounterroles encountertypes fhirconceptsources fhirpatientidentifiersystems globalproperties htmlforms idgen jsonkeyvalues liquibase locations locationtagmaps locationtags metadatasetmembers metadatasets metadatasharing metadatatermmappings ocl orderfrequencies ordertypes patientidentifiertypes paymentmodes personattributetypes privileges programs programworkflows programworkflowstates providerroles queues relationshiptypes roles visittypes"
 # The domains a clinic may load from the config tree.
 INITIALIZER_DOMAINS_KEPT="globalproperties idgen"
 # docker-compose.yml's default; tests/test_initializer.sh holds the two equal.
-INITIALIZER_DOMAINS_DEFAULT='!bahmniforms,roles,privileges,concepts,conceptsets,conceptclasses,conceptsources,drugs,ocl,locations,addresshierarchy,programs,programworkflows,programworkflowstates,attributetypes,visittypes,ordertypes,personattributetypes,relationshiptypes,appointmentspecialities,appointmentservicedefinitions,liquibase'
+INITIALIZER_DOMAINS_DEFAULT='globalproperties,idgen'
 
 _in_words(){ case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
 
