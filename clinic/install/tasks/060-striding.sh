@@ -1,22 +1,46 @@
 #!/usr/bin/env bash
 # phase: seed
 # Per-row ownership before the first application write: MySQL striding (server flags are
-# set; this moves the captured tables' AUTO_INCREMENT above their floors),
+# set; this moves the captured tables' AUTO_INCREMENT above their floors), the
+# order-number counter in this clinic's own range,
 # Postgres sequences at the residue (mandatory even though the dumps carry
 # INCREMENT BY 10 -- the restored last_value sits in Rawach's residue), and the
 # replication origins the customizer jar needs.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · striding + replication origins (residue ${RESIDUE})"
-[ "${DRY}" = 1 ] && { info "would: configure-pk-offsets.sh; stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: configure-pk-offsets.sh; set order.nextOrderNumberSeed in this clinic's range; stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 
-CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" bash scripts/configure-pk-offsets.sh >/dev/null
+CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh >/dev/null
 inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' | mysql_root | tr '\t' ' ')"
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
+# Read each seed-floored table's counter back rather than trusting the ALTER:
+# the next id it issues must be at or above floor + residue.
+. "${INSTALL_DIR}/state.sh"
+for t in $(seed_floor_tables "${REPO_DIR}/sync/local/tables.conf"); do
+  ai="$(printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$t" | mysql_root 2>/dev/null | tail -1 || true)"
+  v="$(counter_floor_verdict "$t" "$ai" "$(stamp_get "FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')")" "${RESIDUE}")" || fail "$v"
+  ok "${v#ok }"
+done
+# order-seed:begin
+# order numbers: this clinic's own range, set before OpenMRS first starts and
+# read back rather than trusting the write
+# (the row's value, or empty when the seed lacks the row; no answer at all is a
+# database that is not answering, never taken as "absent")
+gp_sql="select concat('v=', coalesce(max(property_value), '')) from openmrs.global_property where property='order.nextOrderNumberSeed'"
+gp_read(){ printf '%s' "$gp_sql" | mysql_root 2>/dev/null | tail -1 || true; }
+seed_now="$(gp_read)"
+case "$seed_now" in v=*) ;; *) fail "could not read order.nextOrderNumberSeed: the database is not answering. Wait a minute and run the same command again; if it persists, call the operator." ;; esac
+plan="$(order_seed_plan "${seed_now#v=}" "${RESIDUE}")" || fail "$plan"
+if [ "$plan" != keep ]; then { printf 'use openmrs;\n'; order_seed_sql "${plan#set }"; } | mysql_root; fi
+seed_now="$(gp_read)"
+v="$(order_seed_verdict "${seed_now#v=}" "${RESIDUE}")" || fail "$v"
+ok "${v#ok }"
+# order-seed:end
 
 ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$

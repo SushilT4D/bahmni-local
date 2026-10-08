@@ -13,6 +13,10 @@ ok "machine state ${st}"
 v="$(seed_manifest_verdict "${SEED_DIR}" "$(date +%s)" "${SEED_MAX_AGE_DAYS:-6}")" || refuse "$v"
 taken="${v#ok }"
 ok "seed taken ${taken} (limit ${SEED_MAX_AGE_DAYS:-6} days); three dumps match their checksums"
+# the id floors the seed was cut with, for every table whose floor comes from the seed
+v="$(seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/local/tables.conf")" || refuse "$v"
+floors="${v#ok}"
+ok "id floors from the seed:${floors:- none (no table in sync/local/tables.conf takes its floor from the seed)}"
 v="$(seed_shape_verdict "${SEED_DIR}")" || refuse "$v"
 ok "${v#ok }"
 name="${LAN_NAME:-bahmni.clinic}"; ip="$(lan_ip)"
@@ -34,4 +38,6 @@ else
 fi
 [ "${DRY}" = 1 ] && { info "would: mark this machine SEEDING"; exit 0; }
 stamp_put STATE SEEDING; stamp_put SEEDING_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; stamp_put SEED_TAKEN_AT "$taken"
+# later checks (striding, exit checks) compare the id counters with these
+for tf in $floors; do stamp_put "FLOOR_$(printf '%s' "${tf%%=*}" | tr '[:lower:]' '[:upper:]')" "${tf#*=}"; done
 ok "machine state SEEDING"

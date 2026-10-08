@@ -92,6 +92,127 @@ seed_manifest_verdict(){
   printf 'ok %s\n' "$taken"
 }
 
+# seed_floor_tables TABLES_CONF : the tables whose floor sync/local/tables.conf
+# takes from the seed (table:pk:seed), one per line. A list the reader refuses
+# fails, with the reader's reason on stderr.
+seed_floor_tables(){
+  type up_tables_read >/dev/null 2>&1 || . "${INSTALL_DIR}/../../sync/local/tables-conf.sh"
+  local recs
+  recs="$(up_tables_read "$1")" || return 1
+  printf '%s\n' "$recs" | awk '$3=="seed" {print $1}'
+}
+
+# seed_floors_verdict MANIFEST TABLES_CONF
+# Each table whose floor comes from the seed needs FLOOR_<TABLE> in the
+# manifest: the id below which every row is the hub's, measured on the hub when
+# the dump was cut. A clinic strides the table to start above it, and the sync
+# layer tells this clinic's rows from the hub's by it, so a seed without it
+# cannot be used. It is a multiple of 10, so floor + residue is on the residue.
+# Prints "ok" and the floors (TABLE=FLOOR ...), or the refusal.
+seed_floors_verdict(){
+  local m="$1" conf="$2" ts t key v got=""
+  ts="$(seed_floor_tables "$conf" 2>&1)" || { printf 'the clinic table list cannot be read: %s\n' "$ts"; return 1; }
+  for t in $ts; do
+    key="FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
+    v="$(env_get "$m" "$key")"
+    case "$v" in
+      ''|*[!0-9]*) printf 'manifest.env carries no %s floor (%s): this seed was cut without measuring where the hub'"'"'s %s ids end, so this clinic cannot start its own above them. Ask the operator for a fresh seed folder.\n' "$t" "$key" "$t"; return 1 ;;
+    esac
+    if [ "$v" -le 0 ] || [ $((v % 10)) -ne 0 ]; then
+      printf 'manifest.env %s=%s is not a positive multiple of 10, so floor + residue would not be on this clinic'"'"'s residue. Ask the operator for a fresh seed folder.\n' "$key" "$v"; return 1
+    fi
+    got="${got} ${t}=${v}"
+  done
+  printf 'ok%s\n' "$got"
+}
+
+# counter_floor_verdict TABLE AUTO_INCREMENT FLOOR RESIDUE
+# With auto_increment_increment 10 and offset RESIDUE, the next id MySQL issues
+# is the smallest value at or above AUTO_INCREMENT that is RESIDUE mod 10. It
+# must be at or above FLOOR + RESIDUE: below the floor, ids belong to the hub's
+# legacy rows, and a row written there could carry an id the hub already has.
+counter_floor_verdict(){
+  local t="$1" ai="$2" fl="$3" r="$4" next
+  case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t"; return 1 ;; esac
+  next=$(( ai + (r - ai % 10 + 10) % 10 ))
+  if [ "$next" -lt $((fl + r)) ]; then
+    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
+    return 1
+  fi
+  printf 'ok %s next id %s, at or above floor %s + residue %s\n' "$t" "$next" "$fl" "$r"
+}
+
+# Order numbers. OpenMRS issues ORD-<k> from the global property
+# order.nextOrderNumberSeed, which is node-local and not synced, and every
+# seeded node starts with the value the seed carries. Two nodes issuing from
+# the same value would write the same order number for different orders, and
+# the orders table does not refuse a duplicate. So each node issues from its
+# own range: a clinic of residue r from r x 10,000,000 + 1 to
+# (r + 1) x 10,000,000 - 1, the hub below 10,000,000, where every number issued
+# before clinics wrote orders already lies.
+ORDER_RANGE_WIDTH=10000000
+ORDER_RANGE_MARGIN=1000000
+
+# order_seed_range RESIDUE : prints "FIRST LAST", the order numbers this clinic
+# may issue. A residue outside 1..9 has no clinic range.
+order_seed_range(){
+  case "${1:-}" in [1-9]) ;; *) printf 'residue %s has no order-number range: a clinic is residue 1 to 9, and below 10,000,000 is the hub'"'"'s.\n' "${1:-none}"; return 1 ;; esac
+  printf '%s %s\n' $(( $1 * ORDER_RANGE_WIDTH + 1 )) $(( ($1 + 1) * ORDER_RANGE_WIDTH - 1 ))
+}
+
+# order_seed_owner VALUE : whose range VALUE lies in, in words.
+order_seed_owner(){
+  if [ "$1" -lt "${ORDER_RANGE_WIDTH}" ]; then printf 'the hub'"'"'s range (below 10,000,000)'
+  elif [ "$1" -lt $(( 10 * ORDER_RANGE_WIDTH )) ]; then printf 'the range of the clinic with residue %s' $(( $1 / ORDER_RANGE_WIDTH ))
+  else printf 'no node'"'"'s range (above 99,999,999)'; fi
+}
+
+# order_seed_plan VALUE RESIDUE : what task 060 does with the seed's value.
+# "keep" when it is already in this clinic's range (a rerun after orders were
+# issued must not move it back); "set FIRST" when it is the hub's value the
+# seed carries, or absent (OpenMRS would otherwise start at 1, in the hub's
+# range); refused when it is in another clinic's range or not a number, which
+# only a database copied from another clinic, or edited, can hold.
+order_seed_plan(){
+  local v="$1" r="$2" rg lo hi
+  rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
+  lo="${rg% *}"; hi="${rg#* }"
+  case "$v" in
+    '') printf 'set %s\n' "$lo"; return 0 ;;
+    *[!0-9]*) printf 'order.nextOrderNumberSeed is '"'"'%s'"'"', not a number, so the next order number this clinic issues cannot be known. Call the operator.\n' "$v"; return 1 ;;
+  esac
+  if [ "$v" -ge "$lo" ] && [ "$v" -le "$hi" ]; then printf 'keep\n'; return 0; fi
+  if [ "$v" -lt "${ORDER_RANGE_WIDTH}" ]; then printf 'set %s\n' "$lo"; return 0; fi
+  printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): this database carries another node'"'"'s order counter, and numbers issued from it would duplicate that node'"'"'s. Call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+  return 1
+}
+
+# order_seed_sql FIRST : the statement that sets the property, creating the row
+# when the seed lacks it (global_property.uuid is NOT NULL).
+order_seed_sql(){
+  printf "INSERT INTO global_property (property, property_value, description, uuid) VALUES ('order.nextOrderNumberSeed', '%s', 'The next order number to seed the order number generator', UUID()) ON DUPLICATE KEY UPDATE property_value = '%s';\n" "$1" "$1"
+}
+
+# order_seed_verdict VALUE RESIDUE : the value read back must be in this
+# clinic's range. Within 1,000,000 of the top it still passes, with a warning
+# on stderr: the range is nearly used up, and past its top the numbers would be
+# the next clinic's.
+order_seed_verdict(){
+  local v="$1" r="$2" rg lo hi
+  rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
+  lo="${rg% *}"; hi="${rg#* }"
+  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v"; return 1 ;; esac
+  if [ "$v" -lt "$lo" ] || [ "$v" -gt "$hi" ]; then
+    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+    return 1
+  fi
+  if [ $(( hi - v )) -lt "${ORDER_RANGE_MARGIN}" ]; then
+    printf 'order.nextOrderNumberSeed is %s, within 1,000,000 of the top of this clinic'"'"'s range (%s): past it, numbers are the next clinic'"'"'s. Call the operator.\n' "$v" "$hi" >&2
+  fi
+  printf 'ok order.nextOrderNumberSeed %s, in this clinic'"'"'s range %s to %s\n' "$v" "$lo" "$hi"
+}
+
 # early_data_verdict OMRS_NEW ODOO_NEW ELIS_NEW DISCARD
 # Counts are rows created after install (above the marks install recorded).
 # Nothing entered before seeding survives it, so the seed refuses rather than

@@ -37,6 +37,13 @@ CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 [ -f "${CLINICS_CONF}" ] || { echo "Error: ${CLINICS_CONF} not found"; exit 1; }
 [ -f "${ENV_FILE}" ]     || { echo "Error: .env not found"; exit 1; }
 
+# The clinic's list is read by the reader every script of it shares, so a line
+# the clinic captures is never one this generator skips: a skipped line is a
+# topic with no sink. A list it refuses stops the run before anything is written.
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+TABLE_RECS="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)"; exit 1; }
+
 set -a
 source "${ENV_FILE}"
 set +a
@@ -50,6 +57,16 @@ esac
 
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 mkdir -p "${CONNECTORS_DIR}"
+
+# Tables whose sinks use the clinical profile. Their hub tables are large and
+# their rows come from clinic-run application modules, so a sink must never
+# change the hub's schema to fit an incoming record: schema.evolution=none is
+# set explicitly, and auto.create/auto.evolve are left out. A column a newer
+# module adds then stops the sink loudly instead of altering a multi-million-row
+# table on the hub; the hub takes the column first, and the sink is restarted
+# because it caches the table's shape. validate-sink-config.py holds the same
+# list with each table's key and refuses a sink that disagrees with it.
+CLINICAL_SINK_TABLES="obs orders drug_order"
 
 WANTED="$*"
 total=0
@@ -67,12 +84,8 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     echo "== ${clinic} (${mm_prefix}.${server_name}.${DATABASE_NAME}.*) =="
     count=0
 
-    while IFS= read -r line || [ -n "$line" ]; do
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// }" ]] && continue
-        [[ "$line" =~ ^([^:]+):([^:]+)(:([0-9]+))?$ ]] || continue
-        table="${BASH_REMATCH[1]}"
-        pk="${BASH_REMATCH[2]}"
+    while read -r table pk _kind _arg; do
+        [ -n "$table" ] || continue
 
         # A table appearing in BOTH directions is legitimate: ownership is per
         # ROW, and more than one node may write a table provided no two nodes
@@ -83,6 +96,16 @@ while IFS= read -r cline || [ -n "$cline" ]; do
         # ABOVE that table's base_id floor (rows below it occupy all ten residues).
         if [ -f "${DOWN_TABLES_CONF}" ] && grep -qE "^[[:space:]]*${table}:" "${DOWN_TABLES_CONF}"; then
             echo "  NOTE ${table}: bidirectional (also in ${DOWN_TABLES_CONF##*/}). Safe only above its base_id floor." >&2
+        fi
+
+        profile=default
+        case " ${CLINICAL_SINK_TABLES} " in *" ${table} "*) profile=clinical ;; esac
+        if [ "$profile" = clinical ]; then
+            schema_keys='"//schema": "Never alter the hub table to fit a record: a schema mismatch stops this sink.",
+    "schema.evolution": "none",'
+        else
+            schema_keys='"auto.create": "true",
+    "auto.evolve": "true",'
         fi
 
         connector_name="${name_prefix}${table}"
@@ -125,8 +148,7 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     "primary.key.mode": "record_key",
     "primary.key.fields": "${pk}",
     "delete.enabled": "true",
-    "auto.create": "true",
-    "auto.evolve": "true",
+    ${schema_keys}
 
     "//restart": "connection.restart.on.errors defaults to FALSE, so MySQL closing an idle",
     "//restart2": "pooled connection (wait_timeout) or a DB restart is treated as UNRECOVERABLE:",
@@ -189,7 +211,7 @@ EOF
 
         if [ -f "${SCRIPT_DIR}/validate-sink-config.py" ]; then
             python3 "${SCRIPT_DIR}/validate-sink-config.py" "${config_file}" \
-                --known-good "${CONNECTORS_DIR}/known-good.json" \
+                --known-good "${CONNECTORS_DIR}/known-good.json" --profile "${profile}" \
                 --database-name "${DATABASE_NAME}" || exit 1
         else
             echo "  FAIL validator missing: ${SCRIPT_DIR}/validate-sink-config.py" >&2
@@ -197,10 +219,12 @@ EOF
             exit 1
         fi
 
-        echo "  ${connector_name}  <- ${topic}  (pk ${pk})"
+        echo "  ${connector_name}  <- ${topic}  (pk ${pk})$( [ "$profile" = clinical ] && printf '  [clinical profile]' )"
         count=$((count + 1))
         total=$((total + 1))
-    done < "${TABLES_CONF}"
+    done <<TABLES
+${TABLE_RECS}
+TABLES
     echo "  ${count} sink(s) for ${clinic}"
 done < "${CLINICS_CONF}"
 

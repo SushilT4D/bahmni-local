@@ -53,6 +53,20 @@ css_code="$(lan_code "$O" "${css_path}")"
   || fail "Odoo CSS bundle does not answer 200 (path '${css_path:-none found}', code ${css_code:-none}): the login page renders unstyled -- ${COMPOSE_CMD} logs odoo | grep -i asset"
 if [ "${PHASE:-install}" = install ]; then ok "baseline stack answers at ${N} and ${O}"; exit 0; fi
 bash scripts/preflight.sh || fail "clinic/scripts/preflight.sh reported a FAIL above"
+# id counters at or above the seed's floors, read now that the applications
+# have started and written (a start that resets a counter shows here)
+. "${INSTALL_DIR}/state.sh"
+MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
+for t in $(seed_floor_tables "${REPO_DIR}/sync/local/tables.conf"); do
+  ai="$(printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$t" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
+  v="$(counter_floor_verdict "$t" "$ai" "$(stamp_get "FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')")" "${RESIDUE}")" || fail "$v"
+  ok "${v#ok }"
+done
+# the order-number counter, read now that OpenMRS has started (a start that
+# loads global properties over it shows here)
+seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
+v="$(order_seed_verdict "$seed_now" "${RESIDUE}")" || fail "$v"
+ok "${v#ok }"
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 # probe-row:begin
 # The probe is a row this node OWNS: an insert takes the next id from the
