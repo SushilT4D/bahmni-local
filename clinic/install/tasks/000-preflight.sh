@@ -14,6 +14,34 @@ c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
 ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
 
+# 1b. a machine already in service: MySQL strides on this residue and each
+# floored id counter is still at or above its floor (a restored database or a
+# reset counter would hand out ids that rows written elsewhere already carry).
+# A machine not in service yet has no floors, and the line says so.
+# counters:begin
+. "${INSTALL_DIR}/state.sh"
+# TABLE -> its AUTO_INCREMENT; --stride -> "increment offset".
+# PREFLIGHT_AUTO_INCREMENT ("table=n ...") and PREFLIGHT_STRIDE stand in for MySQL.
+preflight_mysql_read(){
+  if [ -n "${PREFLIGHT_AUTO_INCREMENT:-}" ]; then
+    if [ "$1" = --stride ]; then printf '%s\n' "${PREFLIGHT_STRIDE:-}"; else printf '%s\n' ${PREFLIGHT_AUTO_INCREMENT} | awk -F= -v t="$1" '$1==t {print $2}'; fi
+    return 0
+  fi
+  local p q
+  p="$(env_get "${CLINIC_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null || true)"
+  if [ "$1" = --stride ]; then q='select @@auto_increment_increment, @@auto_increment_offset'
+  else q="$(printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1")"; fi
+  [ -n "${CT:-}" ] || setup_compose
+  printf '%s\n' "$q" | ct exec -i "${p}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 | tr '\t' ' ' || true
+}
+v="$(node_counters_verdict "$(stamp_get STATE)" "${REPO_DIR}/sync/local/tables.conf" "${RESIDUE}" preflight_mysql_read)" || fail "$v"
+while IFS= read -r l; do
+  case "$l" in skip\ *) ok "${l#skip }" ;; ok\ *) ok "${l#ok }" ;; esac
+done <<EOF
+$v
+EOF
+# counters:end
+
 # 2. fresh install only
 # fresh-only:begin
 # A dry run renders a real clinic/.env (later tasks read it to say what they

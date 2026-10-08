@@ -161,6 +161,37 @@ counter_floor_verdicts(){
   printf '%s' "$out"
 }
 
+# mysql_stride_verdict "INCREMENT OFFSET" RESIDUE : MySQL must issue ids 10
+# apart on this clinic's residue; with any other pair a new row lands on
+# another node's residue whatever its counter says.
+mysql_stride_verdict(){
+  case "$1" in
+    "10 $2") printf 'ok MySQL issues ids 10 apart on residue %s\n' "$2" ;;
+    '') printf 'could not read MySQL'"'"'s id increment and offset; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1 ;;
+    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$1" "$2"; return 1 ;;
+  esac
+}
+
+# node_counters_verdict STATE TABLES_CONF RESIDUE READER : the id counter check
+# for a machine whose install state is STATE. READER TABLE prints the table's
+# AUTO_INCREMENT; READER --stride prints MySQL's "increment offset". On a
+# seeded machine every floored counter must still be at or above its floor and
+# MySQL must stride on this residue: a restored database or a reset counter
+# would hand out ids that rows written elsewhere already carry. Any other
+# machine has no floors yet (the seed gate records them and the striding step
+# checks the counters itself), so it prints "skip" and the reason.
+node_counters_verdict(){
+  local st="${1:-}" conf="$2" r="$3" reader="$4" v
+  case "$st" in
+    SEEDED) ;;
+    SEEDING) printf 'skip id counters not checked: this machine is part-way through its seed, whose striding step checks them\n'; return 0 ;;
+    *) printf 'skip id counters not checked: this machine is not seeded yet, so it has no id floors\n'; return 0 ;;
+  esac
+  v="$(mysql_stride_verdict "$("$reader" --stride)" "$r")" || { printf '%s\n' "$v"; return 1; }
+  counter_floor_verdicts "$conf" "$r" "$reader" || return 1
+  printf '%s\n' "$v"
+}
+
 # Order numbers. OpenMRS issues ORD-<k> from the global property
 # order.nextOrderNumberSeed, which is node-local and not synced, and every
 # seeded node starts with the value the seed carries. Two nodes issuing from
