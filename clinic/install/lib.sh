@@ -368,7 +368,14 @@ hub_protocol(){
   printf '%s\n' "${p:-SASL_SSL}"
 }
 hub_tls(){ case "$(hub_protocol)" in *SSL) return 0 ;; *) return 1 ;; esac; }
-HUB_CA="${HUB_CA:-${REPO_DIR}/sync/hub-ca.pem}"
+# The hub's certificate: the one given for this run (HUB_CA), else the copy the
+# install kept beside the node's own certificates (task 020), else the fleet's
+# sync/hub-ca.pem. The kept copy is what lets the seed sitting, run later and
+# without the install's environment, trust the same hub.
+HUB_CA_KEPT="${CLINIC_DIR}/certs/hub-ca.pem"
+if [ -z "${HUB_CA:-}" ]; then
+  if [ -s "${HUB_CA_KEPT}" ]; then HUB_CA="${HUB_CA_KEPT}"; else HUB_CA="${REPO_DIR}/sync/hub-ca.pem"; fi
+fi
 # hub_truststore OUT IMAGE : a PKCS12 truststore holding sync/hub-ca.pem, made with
 # the image's keytool. The password comes from REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD
 # through the container's environment, never its command line.

@@ -73,6 +73,12 @@ put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # opens the truststor
 proto="$(hub_protocol)"
 case "$proto" in SASL_SSL|SASL_PLAINTEXT) ;; *) fail "REMOTE_KAFKA_SECURITY_PROTOCOL is '${proto}': SASL_SSL or SASL_PLAINTEXT" ;; esac
 [ "$proto" = SASL_PLAINTEXT ] || [ -s "${HUB_CA}" ] || fail "the hub link is SASL_SSL but ${HUB_CA#${REPO_DIR}/} (the hub's certificate) is missing"
+# keep the certificate this install was given, so every later sitting trusts the same hub
+if [ "$proto" = SASL_SSL ] && [ "${DRY}" != 1 ] && [ "${HUB_CA}" != "${HUB_CA_KEPT}" ]; then
+  mkdir -p "$(dirname "${HUB_CA_KEPT}")"
+  cp "${HUB_CA}" "${HUB_CA_KEPT}.new" && mv "${HUB_CA_KEPT}.new" "${HUB_CA_KEPT}" || fail "could not keep the hub's certificate at ${HUB_CA_KEPT}"
+  ok "hub certificate kept at ${HUB_CA_KEPT#${REPO_DIR}/} for the seed sitting"
+fi
 put REMOTE_KAFKA_SECURITY_PROTOCOL "$proto"
 
 # hub credentials (from the operator's secrets file; the seed's databases carry the matching users)
