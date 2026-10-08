@@ -98,13 +98,18 @@ EOF
 fi
 
 [[ ${#table_include_list[@]} -gt 0 ]] || { echo "Error: no tables parsed from ${TABLES_CONF}"; exit 1; }
+# the signal table: in the include list (Debezium's source signal channel reads
+# it from the binlog), never in the topics MirrorMaker sends to the hub
+SIGNAL_DATA_COLLECTION="$(up_signal_collection "${DATABASE_NAME}")"
+table_include_list+=("${SIGNAL_DATA_COLLECTION}")
+export SIGNAL_DATA_COLLECTION
 
 export TABLE_INCLUDE_LIST
 TABLE_INCLUDE_LIST="$(IFS=','; echo "${table_include_list[*]}")"
 KAFKA_TOPICS="$(IFS=','; echo "${kafka_topics[*]}")"
 
 mkdir -p "${CONNECTORS_DIR}"
-SUBST_VARS='${LOCAL_MYSQL_HOST} ${LOCAL_MYSQL_PORT} ${LOCAL_DEBEZIUM_USER} ${LOCAL_DEBEZIUM_PASSWORD} ${MYSQL_SERVER_NAME} ${DATABASE_INCLUDE_LIST} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE}'
+SUBST_VARS='${LOCAL_MYSQL_HOST} ${LOCAL_MYSQL_PORT} ${LOCAL_DEBEZIUM_USER} ${LOCAL_DEBEZIUM_PASSWORD} ${MYSQL_SERVER_NAME} ${DATABASE_INCLUDE_LIST} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE} ${SIGNAL_DATA_COLLECTION}'
 rendered="${OUT_PRIMARY}.new"
 envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${rendered}"
 if [[ -n "${filter_lines}" ]]; then
@@ -118,7 +123,7 @@ cp "${OUT_PRIMARY}" "${OUT_ALIAS}"
 
 echo "Generated: ${OUT_PRIMARY}"
 echo "Generated: ${OUT_ALIAS}"
-echo "  Tables: ${#table_include_list[@]}"
+echo "  Tables: $(( ${#table_include_list[@]} - 1 )), and the signal table ${SIGNAL_DATA_COLLECTION}"
 if [[ -n "${filter_lines}" ]]; then
   echo "  Capture filter (residue ${RESIDUE}):"
   printf '%s' "${floor_recs}" | while read -r table pk fl; do [[ -n "${table}" ]] && echo "    ${table}: ${pk} at or above ${fl}"; done

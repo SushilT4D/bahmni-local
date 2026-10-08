@@ -795,3 +795,75 @@ capture_filter_check(){
   printf '%s\n' "$v"
   return "$rc"
 }
+
+# The source connector's signal table, in the structure Debezium documents for
+# its source signal channel: three columns in this order, the first the key. A
+# row inserted there (type execute-snapshot) asks the connector for an
+# incremental snapshot, the way a clinic sends rows it wrote before a table
+# was captured. With the connector's default (not read-only) incremental
+# snapshot, the connector writes its own window markers into the table, so its
+# database user may insert, update and delete there. Created at seed; the
+# seed's dump does not carry it, because the hub has none.
+SIGNAL_TABLE_DDL='CREATE TABLE IF NOT EXISTS openmrs.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)'
+SIGNAL_TABLE_GRANT="GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.debezium_signal TO 'debezium'@'%'"
+# what information_schema says of it: column, type, nullable, key; then the
+# privileges the debezium user holds on it
+SIGNAL_TABLE_READ_SQL="select 'col', column_name, column_type, is_nullable, column_key from information_schema.columns where table_schema='openmrs' and table_name='debezium_signal' order by ordinal_position; select 'priv', privilege_type from information_schema.table_privileges where grantee=\"'debezium'@'%'\" and table_schema='openmrs' and table_name='debezium_signal' order by privilege_type;"
+SIGNAL_TABLE_WANT='col id varchar(42) NO PRI
+col type varchar(32) NO
+col data varchar(2048) YES'
+
+# signal_table_verdict : stdin is SIGNAL_TABLE_READ_SQL's output (tab-
+# separated). Prints "ok ..." or what is wrong and returns 1.
+signal_table_verdict(){
+  local rows cols privs p
+  rows="$(cat)"
+  cols="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="col" {s=$1" "$2" "$3" "$4; if ($5 != "") s=s" "$5; print s}')"
+  if [ -z "$cols" ]; then
+    printf 'the signal table openmrs.debezium_signal does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n'; return 1
+  fi
+  if [ "$cols" != "$SIGNAL_TABLE_WANT" ]; then
+    printf 'openmrs.debezium_signal is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
+  fi
+  privs="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="priv" {print $2}' | tr '\n' ' ')"
+  for p in SELECT INSERT UPDATE DELETE; do
+    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on openmrs.debezium_signal, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$p"; return 1 ;; esac
+  done
+  printf 'ok signal table openmrs.debezium_signal (id, type, data), writable by the debezium user\n'
+}
+
+# signal_capture_verdict CONFIG_JSON : a registered source configuration must
+# read signals from the source channel and capture the table it names, or a
+# signal inserted there is never seen. Prints "ok ..." or the refusal.
+signal_capture_verdict(){
+  python3 - "$1" <<'PY'
+import json, sys
+try:
+    c = json.load(open(sys.argv[1]))
+except Exception as e:
+    print("the registered source configuration cannot be read as JSON (%s)" % e); sys.exit(1)
+c = c.get("config", c)
+coll = c.get("signal.data.collection", "")
+chans = [x.strip() for x in c.get("signal.enabled.channels", "").split(",")]
+inc = [x.strip() for x in c.get("table.include.list", "").split(",")]
+if not coll:
+    print("the registered source connector names no signal table (signal.data.collection)"); sys.exit(1)
+if "source" not in chans:
+    print("the registered source connector does not read signals from its signal table (signal.enabled.channels is %r)" % c.get("signal.enabled.channels", "")); sys.exit(1)
+if coll not in inc:
+    print("the registered source connector does not capture its signal table %s (not in table.include.list), so a signal inserted there is never read. Regenerate and register it (scripts/generate-connectors.sh, then scripts/register-source-connector.sh)." % coll); sys.exit(1)
+print("ok source connector captures its signal table %s" % coll)
+PY
+}
+
+# signal_capture_check : signal_capture_verdict on the configuration Kafka
+# Connect holds for mysql-source-connector.
+signal_capture_check(){
+  local reg rc
+  reg="$(mktemp)"
+  if ! curl -sf --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/mysql-source-connector/config" > "$reg" 2>/dev/null; then
+    rm -f "$reg"; printf 'could not read the registered mysql-source-connector configuration from Kafka Connect, so its signal table was not checked: %s logs kafka-connect\n' "${COMPOSE_CMD:-docker compose}"; return 1
+  fi
+  signal_capture_verdict "$reg"; rc=$?
+  rm -f "$reg"; return "$rc"
+}

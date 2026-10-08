@@ -75,7 +75,8 @@ rc(){ cat "$TMP/rc.$1"; }
 
 # --- the list as it is today: unchanged output ----------------------------------
 render "$TODAY"
-inc='openmrs.encounter,openmrs.encounter_provider,openmrs.encounter_type,openmrs.patient,openmrs.patient_identifier,openmrs.person,openmrs.person_address,openmrs.person_attribute,openmrs.person_name,openmrs.visit,openmrs.visit_attribute,openmrs.idgen_seq_id_gen'
+inc='openmrs.encounter,openmrs.encounter_provider,openmrs.encounter_type,openmrs.patient,openmrs.patient_identifier,openmrs.person,openmrs.person_address,openmrs.person_attribute,openmrs.person_name,openmrs.visit,openmrs.visit_attribute,openmrs.idgen_seq_id_gen,openmrs.debezium_signal'
+# (the source connector's signal table closes every include list; it has no topic, key or sink)
 [ "$(rc tc)" = 0 ] && grep -qxF "TABLE_INCLUDE_LIST=${inc}" "$TMP/out.tc" \
   && grep -qxF '# PRIMARY_KEYS=encounter_id|encounter_provider_id|encounter_type_id|patient_id|patient_identifier_id|person_id|person_address_id|person_attribute_id|person_name_id|visit_id|visit_attribute_id|id' "$TMP/out.tc" \
   && ok_ "generate-table-config: today's include list and keys unchanged" || bad "generate-table-config today: $(cat "$TMP/out.tc")"
@@ -105,7 +106,7 @@ fi
 render "$TODAY
 $CLINICAL"
 for r in tc gc pk hs cs; do [ "$(rc $r)" = 0 ] || bad "reader $r refused the clinical lines: $(cat "$TMP/out.$r" | tail -3)"; done
-case "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" in *,openmrs.obs,openmrs.orders,openmrs.drug_order) ok_ "generate-table-config includes obs, orders, drug_order" ;; *) bad "include list: $(cat "$TMP/out.tc")" ;; esac
+case "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" in *,openmrs.obs,openmrs.orders,openmrs.drug_order,openmrs.debezium_signal) ok_ "generate-table-config includes obs, orders, drug_order" ;; *) bad "include list: $(cat "$TMP/out.tc")" ;; esac
 grep -qE '^# PRIMARY_KEYS=.*\|obs_id\|order_id\|order_id$' "$TMP/out.tc" && ok_ "generate-table-config keys: obs_id, order_id, order_id" || bad "keys: $(grep PRIMARY "$TMP/out.tc")"
 [ "$(cat "$TMP/inc.gc")" = "$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/out.tc")" ] && ok_ "the source connector includes exactly what generate-table-config lists" || bad "source include: $(cat "$TMP/inc.gc")"
 if [ -f "$TMP/rc.mm" ]; then

@@ -71,6 +71,8 @@ v="$(capture_filter_check)" || fail "$v"
 while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
+v="$(signal_capture_check)" || fail "$v"
+ok "${v#ok }"
 # the order-number counter, read now that OpenMRS has started (a start that
 # loads global properties over it shows here)
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"

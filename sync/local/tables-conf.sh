@@ -24,6 +24,15 @@
 # others, the next order number this node issues). A line for one is refused.
 UP_NEVER_TABLES="users user_property global_property"
 #
+# The source connector's signal table (Debezium's source signal channel: a row
+# inserted there asks the connector for an incremental snapshot) is captured
+# on every clinic, outside this file: it is not clinical data, is never sent to
+# the hub and has no sink. Every reader puts it in the connector's include list
+# (up_signal_collection) and refuses a line that names it, so it can never
+# acquire a topic in MirrorMaker's list or a sink on the hub.
+UP_SIGNAL_TABLE=debezium_signal
+up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
+#
 # bash 3.2 compatible (macOS): no associative arrays.
 up_tables_read(){
   local f="$1" line n=0 t pk third kind arg recs="" re
@@ -40,6 +49,7 @@ up_tables_read(){
     case " ${UP_NEVER_TABLES} " in
       *" ${t} "*) printf '%s line %s: %s is never captured at a clinic (users and user_property come from the hub; global_property is node-local)\n' "${f##*/}" "$n" "$t" >&2; return 1 ;;
     esac
+    [ "$t" = "${UP_SIGNAL_TABLE}" ] && { printf '%s line %s: %s is the source connector'"'"'s signal table; it is captured without a line here and never sent to the hub\n' "${f##*/}" "$n" "$t" >&2; return 1; }
     case "$third" in
       '') kind=sync; arg=- ;;
       seed) kind=seed; arg=- ;;

@@ -39,6 +39,8 @@ v="$(capture_filter_check)" || fail "$v"
 while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
+v="$(signal_capture_check)" || fail "$v"
+ok "${v#ok }"
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all clinlims-clinic-sink-all >/dev/null
 # after register-odoo.sh, not before: the heartbeat script patches the two PG

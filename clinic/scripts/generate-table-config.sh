@@ -77,6 +77,9 @@ if [[ "${SIDE}" == "local" ]]; then
   done <<EOF
 ${recs}
 EOF
+  # the source connector's signal table: captured, but no topic goes up for it
+  # and it has no key list here (sync/local/tables-conf.sh)
+  table_include_list+=("$(up_signal_collection "${DATABASE_NAME}")")
 else
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
