@@ -3,6 +3,18 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## Master data writes at a clinic
+
+- A clinic's proxy refuses any method but GET, HEAD and OPTIONS on the paths
+  that write the master data the hub sends down: the OpenMRS REST and FHIR
+  resources of those tables, the form builder's writers, the admin app's
+  concept, drug and reference-term CSV uploads, the reference-data writers,
+  and the legacy admin pages. It answers 403 with "Master data is maintained
+  at the hub; this change is refused at this clinic" and logs the refusal.
+  Reads and patient-flow writes pass. Users and providers are not refused. It
+  is a control on the browser path only; a row changed past the proxy shows in
+  the master-data checksum. See `clinic/install/README.md`.
+
 ## Forms
 
 - The hub owns forms. They are published only on the hub. A clinic does not
