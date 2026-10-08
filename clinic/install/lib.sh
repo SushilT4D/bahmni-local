@@ -9,6 +9,19 @@
 set -o pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# port_in_use PORT : something on this host listens on TCP PORT. netstat sees
+# every listener whoever owns it; lsof run as a normal user on macOS sees only
+# that user's sockets, so a port held by a root service would pass unseen.
+port_in_use(){
+  local p="$1"
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -an 2>/dev/null | awk '/LISTEN/ {print $4}' | grep -qE "[.:]${p}\$" && return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk 'NR>1 {print $4}' | grep -qE ":${p}\$" && return 0
+  fi
+  command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1
+}
 # The branch a clinic installs from; preflight refuses another unless EXPECTED_BRANCH names it.
 INSTALL_BRANCH="${INSTALL_BRANCH:-feat/install-seed-split}"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${INSTALL_DIR}/.." && pwd)}"

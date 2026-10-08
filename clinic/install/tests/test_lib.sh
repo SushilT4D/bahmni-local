@@ -255,5 +255,16 @@ assert_rc "has_text finds text at the start of a 100 KB reply" "$rc" 0
 rc=0; ( set -euo pipefail; has_text "$big" '"authenticated":false' ) || rc=$?
 assert_rc "has_text refuses text that is not there" "$rc" 1
 assert_eq "080's credential check judges the reply whole, never through grep -q" "$(grep -cF "| grep -q '\"authenticated\":true'" "${HERE}/../tasks/080-stack.sh")" "0"
-exit "$fails"
+
+# port_in_use sees a listener lsof would miss (a root-owned socket on macOS):
+# netstat's macOS form (*.443) and Linux form (0.0.0.0:443) both count
+PB="$TMP/portbin"; mkdir -p "$PB"
+printf '#!/bin/sh\nprintf "tcp4 0 0 *.443 *.* LISTEN\\ntcp6 0 0 ::1.9092 *.* LISTEN\\ntcp4 0 0 127.0.0.1.5433 10.0.0.2.5000 ESTABLISHED\\n"\n' > "$PB/netstat"
+printf '#!/bin/sh\nexit 1\n' > "$PB/lsof"; printf '#!/bin/sh\nexit 1\n' > "$PB/ss"; chmod +x "$PB"/*
+( PATH="$PB:$PATH"; port_in_use 443 ); assert_rc "port_in_use: a macOS netstat listener on *.443 counts, though lsof sees nothing" $? 0
+( PATH="$PB:$PATH"; port_in_use 9092 ); assert_rc "port_in_use: a loopback IPv6 listener counts" $? 0
+( PATH="$PB:$PATH"; port_in_use 5433 ); assert_rc "port_in_use: an established connection is not a listener" $? 1
+( PATH="$PB:$PATH"; port_in_use 44 ); assert_rc "port_in_use: port 44 is not port 443" $? 1
+printf '#!/bin/sh\nprintf "Proto Recv-Q Send-Q Local Address Foreign Address State\\ntcp 0 0 0.0.0.0:80 0.0.0.0:* LISTEN\\n"\n' > "$PB/netstat"
+( PATH="$PB:$PATH"; port_in_use 80 ); assert_rc "port_in_use: the Linux netstat form 0.0.0.0:80 counts" $? 0
 exit "$fails"

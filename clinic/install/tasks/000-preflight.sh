@@ -122,9 +122,7 @@ if [ "${PLATFORM}" = macos ] && [ "$(detect_runtime)" = podman ]; then
 fi
 # macos-facts:end
 for p in 80 443 5433 8052 8083 9092; do
-  if (command -v lsof >/dev/null && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1) || (command -v ss >/dev/null && ss -ltn 2>/dev/null | grep -q ":$p "); then
-    fail "port $p is already in use on this host"
-  fi
+  port_in_use "$p" && fail "port $p is already in use on this host (netstat -an | grep LISTEN names the holder's address)"
 done
 ok "ports 80 443 5433 8052 8083 9092 free"
 want_br="${EXPECTED_BRANCH:-${INSTALL_BRANCH}}"
