@@ -1,5 +1,6 @@
 # Used by test_kafka_boot.sh only: renames the Kafka node's container so the
-# boot test runs beside a real clinic stack, which owns the fixed name "kafka".
+# boot test runs beside a real clinic stack, which owns the fixed name "kafka",
+# and beside another run of the same test (each run passes its own name).
 services:
   kafka:
-    container_name: kboottest-kafka
+    container_name: ${KBOOT_CONTAINER:-kboottest-kafka}

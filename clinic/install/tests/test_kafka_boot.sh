@@ -17,7 +17,9 @@ docker_answers(){
   wait "$p"
 }
 docker_answers || { printf '  skip docker does not answer here within %ss; this test needs a real docker\n' "${DOCKER_PROBE_S:-15}"; exit 0; }
-TMP="$(mktemp -d)"; P=kboottest; CK=kboottest-kafka
+# One compose project and container name per run, so two runs of the suite on
+# one machine never remove each other's broker.
+TMP="$(mktemp -d)"; P="kboottest$$"; CK="${P}-kafka"; export KBOOT_CONTAINER="$CK"
 mkdir -p "$TMP/clinic" "$TMP/sync"
 cp "$C/.env.example" "$TMP/clinic/.env.example"; cp "$C/../sync/versions.env" "$C/../sync/hub.env" "$TMP/sync/"
 env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="$C/install" CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker \
