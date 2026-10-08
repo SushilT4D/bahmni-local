@@ -18,6 +18,9 @@ copy(){ # fresh copy of the three files under $TMP/r
   cp "$RP/hub/tables.conf" "$RP/hub/table-verdicts.conf" "$TMP/r/hub/"; cp "$RP/sync/local/tables.conf" "$TMP/r/sync/local/"
 }
 check(){ bash "$S" "$TMP/r" 2>&1; }
+copy_unclinical(){ # copy, with the clinical lines taken out of the capture list, so a case can add its own
+  copy; grep -vE '^(obs|orders|drug_order):' "$TMP/r/sync/local/tables.conf" > "$TMP/r/t"; mv "$TMP/r/t" "$TMP/r/sync/local/tables.conf"
+}
 
 # --- the repo as it stands ----------------------------------------------------------
 out="$(bash "$S" "$RP" 2>&1)"; rc=$?
@@ -72,11 +75,11 @@ out="$(check)"; rc=$?
 # A line that reader refuses (a trailing note, a third field it cannot place) must
 # fail here too: a looser parse would pass a list the source connector refuses.
 for line in 'obs:obs_id:seed   # a trailing note' 'obs:obs_id:sometext' 'users:user_id'; do
-  copy; printf '%s\n' "$line" >> "$TMP/r/sync/local/tables.conf"
+  copy_unclinical; printf '%s\n' "$line" >> "$TMP/r/sync/local/tables.conf"
   out="$(check)"; rc=$?
   [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'sync/local/tables.conf is refused by its reader' && ok_ "a capture line the shared reader refuses is refused: '${line}'" || bad "reader-refused line '${line}': rc=$rc out=$out"
 done
-copy; printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' >> "$TMP/r/sync/local/tables.conf"
+copy_unclinical; printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' >> "$TMP/r/sync/local/tables.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "the clinical lines (floors from the seed, drug_order reading the orders floor) pass" || bad "clinical lines: rc=$rc out=$out"
 
