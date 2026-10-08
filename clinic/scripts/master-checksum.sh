@@ -17,7 +17,10 @@
 # lists: a row edited in place keeps its id and uuid but changes the checksum.
 # Each column is hashed with its length and a NULL marker, so a NULL never
 # collides with an empty string or with a value moved to the next column, and
-# the per-row hashes are summed, so row order does not matter.
+# the per-row hashes are summed, so row order does not matter. The session
+# reads in UTC: MySQL renders a TIMESTAMP column in the session's time zone,
+# so two servers with different default zones would otherwise hash the same
+# stored instant differently.
 #
 # Output, sorted by table, tab-separated:
 #   <table>  <rows>  <checksum>  <column count>:<hash of the column names>
@@ -78,6 +81,7 @@ cols="$(printf "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE FROM information_schem
 sql="$(printf '%s\n' "$cols" | awk -F'\t' -v q="'" -v db="$DB" -v tables="$(printf '%s' "$tables" | tr '\n' ' ')" -v excl="$(printf '%s' "$excl" | tr '\n' ' ')" '
   BEGIN {
     n = split(excl, ex, / +/); for (i = 1; i <= n; i++) if (ex[i] != "") skip[ex[i]] = 1
+    print "SET SESSION time_zone = " q "+00:00" q ";"
     print "SET SESSION TRANSACTION READ ONLY;"
     print "START TRANSACTION WITH CONSISTENT SNAPSHOT;"
   }

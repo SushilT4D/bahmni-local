@@ -66,6 +66,8 @@ grep -qx 'SET SESSION TRANSACTION READ ONLY;' "$TMP/log" && grep -qx 'START TRAN
   && ! grep -qiE '^[[:space:]]*(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|CREATE|GRANT|TRUNCATE)[[:space:]]' "$TMP/log" \
   && ok_ "read-only: one READ ONLY transaction, no statement that writes" || bad "statements: $(grep -v '^ct ' "$TMP/log" | cut -c1-60 | tr '\n' '|')"
 grep -q "concept_datatype" "$TMP/log" && bad "a RESEED table was read without --reseed" || ok_ "RESEED tables only with --reseed"
+tz="$(grep -n "^SET SESSION time_zone = '+00:00';\$" "$TMP/log" | head -1 | cut -d: -f1)"; tx="$(grep -n '^START TRANSACTION' "$TMP/log" | head -1 | cut -d: -f1)"
+[ -n "$tz" ] && [ -n "$tx" ] && [ "$tz" -lt "$tx" ] && ok_ "the session reads in UTC, set before the snapshot is taken" || bad "no UTC session time zone before the transaction: $(grep -v '^ct ' "$TMP/log" | head -3 | tr '\n' '|')"
 : > "$TMP/log"; mc --reseed >/dev/null
 grep -q "^SELECT 'concept_datatype'," "$TMP/log" && grep -q "'care_setting'" "$TMP/log" && ok_ "--reseed adds the tables hub/table-verdicts.conf marks RESEED" || bad "--reseed: $(grep -c . "$TMP/log")"
 printf 'form.xslt\n' >> "$R/hub/checksum-exclusions.conf"; : > "$TMP/log"; mc >/dev/null
@@ -121,4 +123,12 @@ echo "DELETE FROM form; INSERT INTO form VALUES (460, 'Plan', '1', 0, 'x', 'u-46
 [ "$(real)" = "$a" ] && ok_ "the same rows written in another order give the same checksum" || bad "row order changed the checksum"
 echo "UPDATE form SET name = 'Vital', version = 's1' WHERE form_id = 454;" | sq
 [ "$(real | grep '^form	')" != "$(printf '%s\n' "$a" | grep '^form	')" ] && ok_ "text moved from one column into the next is seen" || bad "column-boundary shift not seen"
+# MySQL renders a TIMESTAMP in the session's time zone: the same stored instant
+# must hash alike whatever zone the server hands a new session
+echo "ALTER TABLE privilege ADD COLUMN date_changed TIMESTAMP NULL; UPDATE privilege SET date_changed = FROM_UNIXTIME(1000000000);" | sq
+echo "SET GLOBAL time_zone = '+00:00';" | sq; ru="$(echo "SELECT CAST(date_changed AS CHAR) FROM privilege;" | sq)"; u="$(real)"
+echo "SET GLOBAL time_zone = '+05:30';" | sq; rk="$(echo "SELECT CAST(date_changed AS CHAR) FROM privilege;" | sq)"; k="$(real)"
+echo "SET GLOBAL time_zone = 'SYSTEM';" | sq
+[ -n "$ru" ] && [ "$ru" != "$rk" ] && ok_ "the stored instant renders differently in the two zones (${ru} / ${rk})" || bad "zones did not change the rendering: '${ru}' / '${rk}'"
+[ -n "$u" ] && [ "$u" = "$k" ] && printf '%s\n' "$u" | grep -q "^privilege${TAB}1${TAB}" && ok_ "a row with a TIMESTAMP hashes alike under two session time zones" || bad "the checksum follows the session time zone: $u / $k"
 exit "$fails"
