@@ -56,6 +56,32 @@ PY
 done
 grep -q '"topics": "remote.bahmni-cloud.openmrs.form"' "$TMP/sinks/mysql-local-sink-form.json" && ok_ "the form sink reads the mirrored hub topic" || bad "form sink topic: $(grep '"topics"' "$TMP/sinks/mysql-local-sink-form.json")"
 
+# Every down sink, whatever its table: an idempotent upsert on the hub's key,
+# deletes applied, a failure stops the task instead of dropping the record, the
+# clinic's schema never created or altered by the sink, and its writes kept out
+# of the clinic's binlog so they are not captured and sent back up.
+nsinks=0
+for t in $(grep -vE '^[[:space:]]*(#|$)' "$RP/hub/tables.conf" | cut -d: -f1); do
+  f="$TMP/sinks/mysql-local-sink-${t}.json"
+  [ -f "$f" ] || { bad "no down sink generated for ${t}"; continue; }
+  nsinks=$((nsinks+1))
+  d="$(python3 - "$f" <<'PY' 2>&1
+import json, sys
+c = json.load(open(sys.argv[1]))["config"]
+want = {"insert.mode": "upsert", "primary.key.mode": "record_key", "errors.tolerance": "none",
+        "auto.create": "false", "auto.evolve": "false", "schema.evolution": "none", "delete.enabled": "true"}
+bad = ["%s=%s (want %s)" % (k, c.get(k), v) for k, v in sorted(want.items()) if c.get(k) != v]
+url = c.get("connection.url", "")
+if "sessionVariables=sql_log_bin=0" not in url:
+    bad.append("connection.url lacks sessionVariables=sql_log_bin=0")
+print("; ".join(bad) if bad else "SAME")
+PY
+)"
+  [ "$d" = SAME ] || bad "${t} down sink: ${d}"
+done
+[ "$nsinks" -gt 0 ] && ok_ "all ${nsinks} down sinks: upsert on record_key, delete.enabled, errors.tolerance=none, auto.create/auto.evolve false, schema.evolution=none, sql_log_bin=0" \
+  || bad "no down sink was checked"
+
 # --- MirrorMaker's down topics -------------------------------------------------------
 if command -v envsubst >/dev/null 2>&1; then
   printf 'BHS_LOCATION=t\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\n' > "$C/clinic/.env"

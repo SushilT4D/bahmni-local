@@ -258,12 +258,13 @@ sink_grant_sql(){
 # SINK_GRANTS_READ_SQL is the read-back: one "table<TAB>privileges" row per
 # table the sink user holds a table-level grant on.
 SINK_GRANTS_READ_SQL="select Table_name, Table_priv from mysql.tables_priv where User='sink' and Host='%' and Db='openmrs'"
-# sink_grants_missing : stdin is SINK_GRANTS_READ_SQL's output; prints every
-# down table the sink user cannot select, insert, update and delete in.
+# sink_grants_missing [TABLE...] : stdin is SINK_GRANTS_READ_SQL's output;
+# prints every named table (every down table when none is named) the sink user
+# cannot select, insert, update and delete in.
 sink_grants_missing(){
   local got ts t p
   got="$(cat)"
-  ts="$(down_tables)" || return 1
+  if [ $# -gt 0 ]; then ts="$*"; else ts="$(down_tables)" || return 1; fi
   for t in $ts; do
     p="$(printf '%s\n' "$got" | awk -F'\t' -v t="$t" '$1==t {print tolower($2)}')"
     case ",${p}," in *,select,*) ;; *) printf '%s\n' "$t"; continue ;; esac

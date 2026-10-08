@@ -160,7 +160,8 @@ author them:
   starts without it, and `extract-ui-config.sh` removes its home page tile. If
   someone starts it by hand, the read-only mount stops it writing a form's
   file; the form builder writes the form's row over REST before the file, so
-  the mount alone does not keep a row from being written.
+  the mount alone does not keep a row from being written. The proxy refuses
+  that write (see "Master data writes refused at the proxy" below).
 - **No forms from the Initializer** (see "Initializer domains" below).
 
 Two answers name the forms repo:
@@ -336,6 +337,60 @@ It refuses:
 Do not put `-Dinitializer.domains` in `OMRS_JAVA_SERVER_OPTS`: task 080 and
 `recreate-openmrs.sh` take it out of `clinic/.env` (and say what it carried),
 so the property is passed once.
+
+### Master data writes refused at the proxy
+
+The clinic's proxy (`clinic/proxy/bahmni-nginx.openelis.conf`, the file the
+proxy service mounts) answers any method other than GET, HEAD and OPTIONS with
+403 and the plain-text message
+
+    Master data is maintained at the hub; this change is refused at this clinic
+
+on the paths that write the master data the hub sends down, and logs each
+refusal as a line ending `master data write refused: master data is
+maintained at the hub`. The paths are:
+
+- the OpenMRS REST resources of those tables and their sub-resources:
+  `concept` (names, descriptions, mappings, attributes), `conceptclass`,
+  `conceptsource`, `conceptreferenceterm`, `conceptreferencetermmap`,
+  `conceptattributetype`, `conceptdatatype`, `conceptmaptype`, `drug`
+  (ingredients), `drugreferencemap`, `location` (attributes), `locationtag`,
+  `locationattributetype`, `program`, `workflow` (states),
+  `programattributetype`, `visittype`, `visitattributetype`, `ordertype`,
+  `orderfrequency`, `personattributetype`, `relationshiptype`,
+  `providerattributetype`, `encounterrole`, `patientidentifiertype`,
+  `privilege`, `role`, `form` (resources), `metadatamapping/...` and
+  `openconceptlab/...`;
+- FHIR `Location` and `Medication`;
+- the form builder's `bahmniie/form/...` writers (save, publish,
+  translations, form privileges); printing a filled form (`jsonToPdf`) passes;
+- the admin app's CSV uploads of concepts, concept sets, drugs and reference
+  terms (`bahmnicore/admin/upload/...`), the `reference-data/...` writers, and
+  the distribution module's `bahmnicore/distro/location...` and
+  `addConceptAnswer` writers;
+- the legacy admin pages that write the same tables (`/openmrs/dictionary/`,
+  `/openmrs/admin/concepts/`, `/openmrs/admin/forms/`, and the location,
+  program, visit type, person attribute and relationship type, identifier
+  type, role, privilege, encounter role and provider attribute type pages),
+  and the metadata sharing import and metadata mapping pages.
+
+Paths match on whole segments, ignoring case (`concept` does not catch
+`conceptsearch`, `program` does not catch `programenrollment`). The check runs
+before nginx picks a location, so the exact, prefix and regex routes (the form
+definition route among them) refuse alike. Reads pass, and so does every
+patient-flow write: patient, person, visit, encounter, obs, orders, program
+enrollment, appointments, documents, and the patient, encounter, program and
+lab CSV uploads. Users and providers are not refused here: a user's password
+and preferences, and a provider's attributes, are saved at the clinic.
+
+This stops authoring masters through the browser. It does not stop anyone who
+reaches OpenMRS's port or the database without the proxy; the hub-to-clinic
+checksum (`clinic/scripts/master-checksum.sh`) shows a row changed that way.
+`clinic/install/tests/test_proxy_master_writes.sh` holds the path list, the
+patient-flow list and a write path for every DOWN table of
+`hub/table-verdicts.conf`; with a container runtime it also serves the
+configuration from the proxy's nginx image against a stub upstream and sends
+the requests.
 
 ## macOS (Apple Silicon)
 

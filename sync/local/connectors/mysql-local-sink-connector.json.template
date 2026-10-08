@@ -103,6 +103,12 @@
     "//auto3": "a genuine schema mismatch instead of surfacing it.",
     "auto.create": "false",
     "auto.evolve": "false",
+    "//evolution": "schema.evolution is the Debezium JDBC sink's own key for the same rule;",
+    "//evolution2": "auto.create/auto.evolve above are another sink's names for it. none = the",
+    "//evolution3": "sink never creates or alters a table, so a column the hub has and this",
+    "//evolution4": "node lacks fails the task loudly instead of changing the clinic's schema",
+    "//evolution5": "outside an upgrade. Stated rather than left to the default.",
+    "schema.evolution": "none",
 
     "//errors": "NOT errors.tolerance=all. 'all' silently DROPS a failing record and",
     "//errors2": "moves on, so an FK-ordering miss becomes a permanently missing row with only",

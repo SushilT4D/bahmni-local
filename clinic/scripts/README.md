@@ -27,13 +27,29 @@ emit connector/topic definitions.
 
 **Register / unregister** — talk to the local Kafka Connect REST API.
 `register-source-connector.sh`, `register-local-sink-connectors.sh`,
-`unregister-connectors.sh`.
+`unregister-connectors.sh`. `register-local-sink-connectors.sh` first reads the
+`sink` user's grants and refuses, naming the tables and registering nothing,
+when any down sink's table lacks SELECT, INSERT, UPDATE or DELETE.
 
 **Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
 database user SELECT, INSERT, UPDATE and DELETE on every table
 `hub/tables.conf` lists, and reads the grants back. Seed task 050 does the same
 when it seeds; run this on a node seeded before a table joined that file, then
 regenerate and register the down sinks. `--dry-run` prints the grants.
+
+**Table verdicts** — `check-table-verdicts.sh` holds `hub/tables.conf` and
+`sync/local/tables.conf` to `hub/table-verdicts.conf`, the one record of which
+node writes each table: a down row must be a hub-written table (DOWN) or a
+relayed one, a clinic capture row must be one a clinic writes (UP or relay).
+It names every row that breaks the rule and reads files only; run it after
+editing either list.
+
+**Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
+lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
+the row count and a checksum over every column of every row except those
+`hub/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
+and on a clinic seeded from it and compare the outputs: a row edited in place
+shows even when its id and uuid are unchanged. Read-only.
 
 **Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
 MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
