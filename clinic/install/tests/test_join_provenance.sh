@@ -8,7 +8,9 @@
 #     differs; a different checksum tool or exclusion list is refused first;
 #   - with docker and the pinned MySQL image, the record is computed by
 #     clinic/scripts/master-checksum.sh on a throwaway server, the same rows
-#     pass, and a row edited in place (same id, same uuid) is refused.
+#     pass, and a row edited in place (same id, same uuid) is refused; the
+#     foreign keys read from information_schema are compared with the hub's
+#     record, and one out of obs or one the hub lacks is refused.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
 fails=0
@@ -74,6 +76,8 @@ out="$(provenance_content_verdict "$R" "$CONTENT" "$TOOL" "$TMP/x2")"; [ $? = 1 
 J="${HERE}/../tasks/110-hub-join.sh"
 blk="$(sed -n '/^# provenance:begin/,/^# provenance:end/p' "$J")"
 printf '%s' "$blk" | grep -q 'provenance_content_verdict' && printf '%s' "$blk" | grep -q 'provenance_content_lines' && ok_ "110 compares the clinic with the record before the join is printed" || bad "110 does not compare the record"
+printf '%s' "$blk" | grep -q 'provenance_fk_verdict' && ok_ "110 compares the clinic's foreign keys with the hub's before the join" || bad "110 does not compare the foreign keys"
+grep -q 'provenance_fk_verdict "${PROVENANCE_COPY}"' "${HERE}/../tasks/100-exit-checks.sh" && ok_ "100 compares them once OpenMRS has started (a module change made at its first start shows there)" || bad "100 does not compare the foreign keys"
 awk '/^# provenance:end/ {e=NR} /^cat <<EOF/ {c=NR} END {exit !(e && c > e)}' "$J" && ok_ "the comparison comes before the operator's join steps" || bad "110 prints the join before comparing"
 
 # --- on a real server: the tool computes the record, then an in-place edit -----------
@@ -111,6 +115,23 @@ SQL
     lines="$(CT=docker provenance_content_lines "$R" "$MYC")"
     out="$(provenance_content_verdict "$R" "$lines" "$TOOL" "$X")"; [ $? = 1 ] && case "$out" in "this clinic's form is not the form of the seed"*) true ;; *) false ;; esac \
       && ok_ "${MYSQL_IMAGE}: a form rewritten in place (same id, same uuid) is refused, named" || bad "${MYSQL_IMAGE} in-place edit: $out"
+    # the foreign keys, read from information_schema the way the installer reads them
+    my <<'SQL' >/dev/null
+CREATE TABLE encounter (encounter_id INT PRIMARY KEY);
+CREATE TABLE obs (obs_id INT PRIMARY KEY, encounter_id INT, location_id INT, CONSTRAINT obs_location FOREIGN KEY (location_id) REFERENCES location (location_id));
+SQL
+    hub_fks="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
+    { printf 'fk\tset\t1\tx\n'; printf '%s\n' "$hub_fks" | awk 'NF { print "fk\t" $0 }'; } > "$TMP/fk.rec"
+    rows="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
+    out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")"; [ $? = 1 ] && case "$out" in *"obs.location_id -> location.location_id"*) true ;; *) false ;; esac \
+      && ok_ "${MYSQL_IMAGE}: a key out of obs, read from information_schema, is refused even when the hub's record has it" || bad "${MYSQL_IMAGE} fk out of obs: $out"
+    echo 'ALTER TABLE obs DROP FOREIGN KEY obs_location; CREATE TABLE ipd_slot (id INT PRIMARY KEY, order_id INT, location_id INT, CONSTRAINT ipd_slot_location FOREIGN KEY (location_id) REFERENCES location (location_id));' | my >/dev/null
+    rows="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
+    printf 'fk\tset\t0\tx\n' > "$TMP/fk.rec"
+    out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")"; [ $? = 1 ] && case "$out" in *"foreign keys on ipd_slot differ from the hub's (only at this clinic: ipd_slot.location_id -> location.location_id)"*) true ;; *) false ;; esac \
+      && ok_ "${MYSQL_IMAGE}: a key the hub's record lacks is refused, named by table" || bad "${MYSQL_IMAGE} extra fk: $out"
+    { printf 'fk\tset\t1\tx\n'; printf '%s\n' "$rows" | awk 'NF { print "fk\t" $0 }'; } > "$TMP/fk.rec"
+    out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")" && ok_ "${MYSQL_IMAGE}: the same keys as the record: $out" || bad "${MYSQL_IMAGE} same fks: $out"
   else
     bad "${MYSQL_IMAGE} did not answer within ${MYSQL_BOOT_S:-300} s (MYSQL_BOOT_S)"
   fi

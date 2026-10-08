@@ -8,9 +8,10 @@ begin_task "110 · hub join (operator, from the workspace)"
 # provenance:begin
 # Before the hub is asked to take this clinic: its master tables are still the
 # ones of the seed it was built from (same rows, same content, read with the
-# same tool the hub's record was computed with). A clinic seeded from another
-# dump, or one whose masters changed after the seed, is refused here, naming
-# the first table that differs.
+# same tool the hub's record was computed with), and its foreign keys are the
+# hub's. A clinic seeded from another dump, one whose masters changed after the
+# seed, or one whose schema moved ahead of or behind the hub's is refused here,
+# naming the first table that differs.
 . "${INSTALL_DIR}/state.sh"
 if [ "${DRY}" = 1 ]; then
   info "would: compare this clinic's master tables with the seed's provenance record (${PROVENANCE_COPY})"
@@ -20,6 +21,9 @@ else
   setup_compose; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
   lines="$(provenance_content_lines "${PROVENANCE_COPY}" "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not checksum this clinic's master tables (clinic/scripts/master-checksum.sh failed above)"
   v="$(provenance_content_verdict "${PROVENANCE_COPY}" "$lines" "$(sha256_of "${REPO_DIR}/clinic/scripts/master-checksum.sh")" "${REPO_DIR}/hub/checksum-exclusions.conf")" || fail "$v"
+  ok "${v#ok }"
+  fk_rows="$(clinic_fk_rows "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
+  v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
   ok "${v#ok }"
 fi
 # provenance:end

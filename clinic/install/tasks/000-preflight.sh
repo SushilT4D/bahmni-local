@@ -41,6 +41,19 @@ done <<EOF
 $v
 EOF
 # counters:end
+# 1c. a machine in service: its foreign keys are the hub's, as recorded when
+# its data came from the hub (the hub is the reference), and none points out
+# of obs, orders or drug_order. PREFLIGHT_FK_ROWS (a file of the read's rows)
+# stands in for MySQL.
+# fk-set:begin
+preflight_fk_read(){
+  if [ -n "${PREFLIGHT_FK_ROWS:-}" ]; then cat "${PREFLIGHT_FK_ROWS}"; return 0; fi
+  [ -n "${CT:-}" ] || setup_compose
+  clinic_fk_rows "$(env_get "${CLINIC_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null || true)-bahmni-mysql-1"
+}
+v="$(node_fk_verdict "$(stamp_get STATE)" "${PROVENANCE_COPY}" preflight_fk_read)" || fail "$v"
+case "$v" in skip\ *) ok "${v#skip }" ;; *) ok "${v#ok }" ;; esac
+# fk-set:end
 
 # 2. fresh install only
 # fresh-only:begin

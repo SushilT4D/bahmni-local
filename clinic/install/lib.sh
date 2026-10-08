@@ -882,3 +882,13 @@ provenance_content_lines(){
   REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
   rm -rf "$d"; return "$rc"
 }
+
+# clinic_fk_rows CONTAINER : CLINIC_FK_READ_SQL (state.sh) on this clinic's
+# MySQL. Returns 1 when nothing comes back: a schema with no foreign key at
+# all is not an OpenMRS schema, and an empty read is never compared.
+clinic_fk_rows(){
+  local rows
+  rows="$(printf '%s\n' "${CLINIC_FK_READ_SQL}" | ct exec -i "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B' 2>/dev/null || true)"
+  [ -n "$rows" ] || return 1
+  printf '%s\n' "$rows"
+}

@@ -73,6 +73,12 @@ $v
 EOF
 v="$(signal_capture_check)" || fail "$v"
 ok "${v#ok }"
+# foreign keys, read now that OpenMRS has started (a module changeset that
+# adds one at this clinic shows here), against the hub's in the seed's record
+. "${INSTALL_DIR}/state.sh"
+fk_rows="$(clinic_fk_rows "$MY")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
+v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
+ok "${v#ok }"
 # the order-number counter, read now that OpenMRS has started (a start that
 # loads global properties over it shows here)
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
