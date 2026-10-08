@@ -78,6 +78,16 @@ on loopback only; reach them over an SSH tunnel.
 
 Rendered connector files hold passwords and are gitignored.
 
+## Checks
+
+- `scripts/check-clinical-fks.sh --container <hub mysql>` reads the foreign
+  keys on `obs`, `orders` and `drug_order` (read-only). Any FK out of those
+  tables fails it: the up sinks write each table in arrival order, and an FK
+  out would stop a sink whenever a clinic's row arrives before its parent.
+  The FKs into them are compared with `clinical-fks-in.conf`, and a difference
+  is reported (exit 2). Run it before registering the up sinks for these
+  tables and before and after every hub upgrade.
+
 ## Not provided yet
 
 Per-site certificates (mTLS) and broker ACLs. Every clinic authenticates with
