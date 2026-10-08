@@ -18,3 +18,4 @@ The source connector also captures its signal table, `openmrs.debezium_signal`,
 which the clinic seed creates. It is not a line in `tables.conf` (the reader
 refuses one): a row inserted there asks the connector for an incremental
 snapshot, and the table itself has no topic sent to the hub and no sink.
+`clinic/scripts/catch-up-clinical.sh` writes those rows.
