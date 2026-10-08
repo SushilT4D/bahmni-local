@@ -76,6 +76,10 @@ reg 'c["transforms.origin_drug_order.null.handling.mode"] = "keep"'; out="$(V 3)
 [ "$rc" = 1 ] && case "$out" in *"tombstones"*) true ;; *) false ;; esac && ok_ "a step that passes tombstones unjudged is refused" || bad "keep tombstones: rc=$rc $out"
 reg 'c["predicates.topic_obs.pattern"] = ".*"'; out="$(V 3)"; rc=$?
 [ "$rc" = 1 ] && ok_ "a step not limited to its own topic is refused" || bad "any-topic predicate: rc=$rc $out"
+reg 'c["predicates.topic_obs.pattern"] = "bahmni-x\\.openmrs\\.obs"'; out="$(V 3)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"not exactly this connector's obs topic (bahmni-t\\.openmrs\\.obs)"*) true ;; *) false ;; esac && ok_ "a step whose topic test names another prefix's obs topic is refused" || bad "wrong-prefix predicate: rc=$rc $out"
+reg 'c["topic.prefix"] = "bahmni-u"'; out="$(V 3)"; rc=$?
+[ "$rc" = 1 ] && ok_ "a connector whose topic prefix changed after its filter was rendered is refused" || bad "changed prefix: rc=$rc $out"
 reg 'c["transforms.origin_obs.condition"] = "true"'; out="$(V 3)"; rc=$?
 [ "$rc" = 1 ] && ok_ "a condition that is not the floor-and-residue test is refused" || bad "condition true: rc=$rc $out"
 reg; printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id\n' > "$CF/bad.conf"

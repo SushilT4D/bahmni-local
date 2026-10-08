@@ -123,8 +123,12 @@ if cfg.get(t + "null.handling.mode") != "evaluate":
     fail("the %s filter step does not judge deletes' tombstones (null.handling.mode is %s, not evaluate)" % (table, cfg.get(t + "null.handling.mode")))
 if cfg.get(t + "predicate") != p or p not in [x.strip() for x in cfg.get("predicates", "").split(",")]:
     fail("the %s filter step is not limited to the %s topic (predicate %s)" % (table, table, cfg.get(t + "predicate")))
-if cfg.get("predicates." + p + ".type") != ptype or not re.search(r"\\\.%s$" % re.escape(table), cfg.get("predicates." + p + ".pattern", "")):
-    fail("the %s filter step's topic test does not name the %s topic (pattern %s)" % (table, table, cfg.get("predicates." + p + ".pattern")))
+prefix, db = cfg.get("topic.prefix", ""), cfg.get("database.include.list", "")
+want = re.sub(r"[^A-Za-z0-9_-]", lambda m: "\\" + m.group(0), "%s.%s.%s" % (prefix, db, table))
+if not prefix or "," in db:
+    fail("the source connector's topic prefix (%r) or database (%r) cannot be read, so the topic its %s filter step must match is unknown" % (prefix, db, table))
+if cfg.get("predicates." + p + ".type") != ptype or cfg.get("predicates." + p + ".pattern", "") != want:
+    fail("the %s filter step's topic test is %s, not exactly this connector's %s topic (%s): a filter that matches no topic filters nothing" % (table, cfg.get("predicates." + p + ".pattern"), table, want))
 m = re.fullmatch(r"key != null && key\.get\('([a-z_][a-z0-9_]*)'\) instanceof Number && key\.get\('\1'\)\.longValue\(\) >= ([0-9]+)L && key\.get\('\1'\)\.longValue\(\) % 10 == ([0-9])", cfg.get(t + "condition", ""))
 if not m:
     fail("the %s filter condition is not the floor-and-residue test this installer writes: %s" % (table, cfg.get(t + "condition")))
