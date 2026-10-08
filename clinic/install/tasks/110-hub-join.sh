@@ -14,7 +14,10 @@ begin_task "110 · hub join (operator, from the workspace)"
 # naming the first table that differs.
 . "${INSTALL_DIR}/state.sh"
 if [ "${DRY}" = 1 ]; then
-  info "would: compare this clinic's master tables with the seed's provenance record (${PROVENANCE_COPY})"
+  info "would: compare this clinic's master tables and foreign keys with the seed's provenance record (${PROVENANCE_COPY})"
+  # nothing is installed or syncing in a dry run, so the join steps are not printed as if it were
+  info "would: print the steps the operator runs to join this clinic to the hub"
+  exit 0
 else
   [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator."
   [ "$(sha256_of "${PROVENANCE_COPY}")" = "$(stamp_get PROVENANCE_SHA)" ] || fail "the seed provenance record on this machine (${PROVENANCE_COPY}) is not the one the seed gate kept; call the operator."

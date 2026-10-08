@@ -54,6 +54,6 @@ run_tasks seed "$hint"
 . "${INSTALL_DIR}/state.sh"
 if [ "$DRY" != 1 ] && [ -z "${ONLY}" ]; then stamp_put STATE SEEDED; stamp_put SEEDED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; fi
 log ""
-if [ "$DRY" = 1 ]; then log "dry run: every check above ran; nothing was changed."
+if [ "$DRY" = 1 ]; then log "dry run: nothing was seeded or changed. Each 'would:' line above is a step a real seed takes; it was not taken."
 else log "SEEDED. This clinic now runs on the hub's data. Call the operator to join it to the hub."; fi
 log "log: ${INSTALL_LOG}"

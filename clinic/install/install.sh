@@ -171,5 +171,6 @@ if [ "${DRY}" != 1 ] && [ -z "${ONLY}" ]; then
   stamp_put STATE INSTALLED; stamp_put INSTALLED_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 log ""
-log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"
+if [ "${DRY}" = 1 ]; then log "dry run: nothing was installed or changed. Each 'would:' line above is a step a real install takes; it was not taken."
+else log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"; fi
 log "install log: ${INSTALL_LOG}"
