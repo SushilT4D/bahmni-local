@@ -20,6 +20,10 @@ floors="${v#ok}"
 ok "id floors from the seed:${floors}"
 v="$(seed_shape_verdict "${SEED_DIR}")" || refuse "$v"
 ok "${v#ok }"
+# the provenance record: what the hub's master tables and foreign keys held
+# when the dumps were cut; the join and later checks compare against it
+v="$(seed_provenance_verdict "${SEED_DIR}")" || refuse "$v"
+ok "provenance record: ${v#ok }"
 name="${LAN_NAME:-bahmni.clinic}"; ip="$(lan_ip)"
 v="$(lan_name_verdict "$(lan_resolve "$name" "$ip")" "$ip" "$name")" || refuse "$v"
 ok "${name} resolves to this machine (${ip})"
@@ -41,4 +45,8 @@ fi
 stamp_put STATE SEEDING; stamp_put SEEDING_AT "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; stamp_put SEED_TAKEN_AT "$taken"
 # later checks (striding, exit checks) compare the id counters with these
 for tf in $floors; do stamp_put "FLOOR_$(printf '%s' "${tf%%=*}" | tr '[:lower:]' '[:upper:]')" "${tf#*=}"; done
+# a copy of the provenance record stays on the machine after the seed folder goes
+prov="$(env_get "${SEED_DIR}/manifest.env" PROVENANCE)"
+cp "${SEED_DIR}/${prov}" "${PROVENANCE_COPY}" && chmod 644 "${PROVENANCE_COPY}" || fail "could not keep a copy of the seed's provenance record at ${PROVENANCE_COPY}"
+stamp_put PROVENANCE_SHA "$(sha256_of "${PROVENANCE_COPY}")"
 ok "machine state SEEDING"

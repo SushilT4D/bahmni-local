@@ -370,3 +370,71 @@ seed_shape_verdict(){
   done
   printf 'ok seed shape: openmrs iplit-1.2.0, odoo 16; village_village, res_partner_attributes sequences step 10\n'
 }
+
+# The seed's provenance record (provenance.tsv, named by PROVENANCE in the
+# manifest and bound to it by SHA256_PROVENANCE): what the hub's master tables
+# and foreign keys held when the dumps were cut, read on the hub before and
+# after them. Tab-separated; the lines read here:
+#   tool     master-checksum.sh <sha256 of the script that computed the content lines>
+#   exclude  <table>.<column> left out of every content checksum
+#   content  <table> <rows> <checksum> <columns>   (clinic/scripts/master-checksum.sh's line)
+#   fk       set <count> <sha256>  |  fk <table> <column> <referenced table> <referenced column> <constraint>
+# The seed gate checks it and keeps a copy on the machine (PROVENANCE_COPY),
+# so the join and every later check compare against the seed this machine was
+# built from, after the seed folder is gone.
+PROVENANCE_COPY="${PROVENANCE_COPY:-${CLINIC_DIR}/.seed-provenance.tsv}"
+
+# seed_provenance_verdict DIR : the record is named, present, unaltered, and
+# carries what the later checks compare: the content checksums, the tool that
+# computed them, and the foreign key set. Prints "ok ..." or the refusal.
+seed_provenance_verdict(){
+  local dir="$1" m="$1/manifest.env" p want got n k
+  p="$(env_get "$m" PROVENANCE)"
+  [ -n "$p" ] || { printf 'manifest.env names no provenance record (PROVENANCE): this seed was cut without recording what the hub'"'"'s master tables held, so this clinic could never show it was built from the hub it joins. Ask the operator for a fresh seed folder.\n'; return 1; }
+  case "$p" in */*|.*) printf 'manifest.env PROVENANCE=%s is not a file in the seed folder. Ask the operator for a fresh seed folder.\n' "$p"; return 1 ;; esac
+  [ -s "$dir/$p" ] || { printf '%s is missing from the seed folder; ask the operator for a fresh copy.\n' "$p"; return 1; }
+  want="$(env_get "$m" SHA256_PROVENANCE)"; got="$(sha256_of "$dir/$p")"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    printf '%s does not match its checksum (damaged or replaced in the copy); ask the operator for a fresh copy.\n' "$p"; return 1
+  fi
+  n="$(awk -F'\t' '$1=="content"' "$dir/$p" | grep -c . || true)"
+  [ "$n" -gt 0 ] || { printf '%s records no master table content, so nothing could be compared at join. Ask the operator for a fresh seed folder.\n' "$p"; return 1; }
+  awk -F'\t' '$1=="tool" && $2=="master-checksum.sh" && $3!="" {f=1} END {exit !f}' "$dir/$p" \
+    || { printf '%s does not say which checksum tool computed it. Ask the operator for a fresh seed folder.\n' "$p"; return 1; }
+  k="$(awk -F'\t' '$1=="fk" && $2=="set" {print $3}' "$dir/$p" | head -1)"
+  case "$k" in ''|*[!0-9]*) printf '%s records no foreign key set, so this clinic'"'"'s schema could not be compared with the hub'"'"'s. Ask the operator for a fresh seed folder.\n' "$p"; return 1 ;; esac
+  printf 'ok %s master tables, %s foreign keys\n' "$n" "$k"
+}
+
+# provenance_content_verdict RECORD CLINIC_LINES TOOL_SHA EXCLUSIONS_FILE
+# CLINIC_LINES is master-checksum.sh's output on this clinic for the record's
+# tables, TOOL_SHA the sha256 of this checkout's master-checksum.sh. Every
+# table's line must equal the record's: a clinic seeded from another dump, or
+# whose master rows changed after the seed, differs, and the first differing
+# table (in name order) is named. A different tool or exclusion list is
+# refused first: the lines would differ for that reason alone.
+provenance_content_verdict(){
+  local rec="$1" lines="$2" sha="$3" xf="$4" t want got n=0 a b
+  a="$(awk -F'\t' '$1=="tool" && $2=="master-checksum.sh" {print $3}' "$rec" | head -1)"
+  if [ "$a" != "$sha" ]; then
+    printf 'this checkout'"'"'s clinic/scripts/master-checksum.sh is not the one the seed'"'"'s record was computed with, so their checksums cannot be compared. Check out the commit the seed was cut against, or ask the operator for a seed cut with this one.\n'; return 1
+  fi
+  a="$(awk -F'\t' '$1=="exclude" {print $2}' "$rec" | LC_ALL=C sort | tr '\n' ' ')"
+  b="$(awk '{ sub(/#.*/, "") } NF { print $1 }' "$xf" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+  if [ "$a" != "$b" ]; then
+    printf 'this checkout leaves out other columns from the checksums (%s) than the seed'"'"'s record did (%s), so they cannot be compared. Check out the commit the seed was cut against.\n' "${b:-none}" "${a:-none}"; return 1
+  fi
+  while IFS='	' read -r t want; do
+    [ -n "$t" ] || continue
+    n=$((n+1))
+    got="$(printf '%s\n' "$lines" | awk -F'\t' -v t="$t" '$1==t { sub(/^[^\t]*\t/, ""); print; exit }')"
+    if [ "$got" != "$want" ]; then
+      printf 'this clinic'"'"'s %s is not the %s of the seed it was built from (seed: %s; this clinic: %s). It was seeded from another dump, or its %s rows changed after the seed. A clinic joins only the hub it was seeded from; call the operator.\n' "$t" "$t" "$(printf '%s' "$want" | tr '\t' ' ')" "$(printf '%s' "${got:-no line}" | tr '\t' ' ')" "$t"
+      return 1
+    fi
+  done <<EOF
+$(awk -F'\t' '$1=="content" { sub(/^content\t/, ""); print }' "$rec" | LC_ALL=C sort)
+EOF
+  [ "$n" -gt 0 ] || { printf 'the seed'"'"'s record holds no master table content to compare\n'; return 1; }
+  printf 'ok %s master tables equal to the seed this clinic was built from\n' "$n"
+}

@@ -867,3 +867,18 @@ signal_capture_check(){
   signal_capture_verdict "$reg"; rc=$?
   rm -f "$reg"; return "$rc"
 }
+
+# provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
+# run on this clinic's MySQL over exactly the tables the seed's provenance
+# record holds content lines for (the tool checksums the tables a hub/tables.conf
+# lists, so it runs from a scratch copy whose list is the record's).
+provenance_content_lines(){
+  local rec="$1" my="$2" d rc=0
+  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/hub"
+  cp "${REPO_DIR}/clinic/scripts/master-checksum.sh" "$d/clinic/scripts/"
+  cp "${REPO_DIR}/clinic/install/lib.sh" "$d/clinic/install/"
+  cp "${REPO_DIR}/hub/table-verdicts.conf" "${REPO_DIR}/hub/checksum-exclusions.conf" "$d/hub/"
+  awk -F'\t' '$1=="content" {print $2}' "$rec" > "$d/hub/tables.conf"
+  REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
+  rm -rf "$d"; return "$rc"
+}
