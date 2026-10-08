@@ -14,7 +14,7 @@ cat <<EOF
 
   which does, in order:
     1. appends to hub/clinics.conf:   ${CLINIC_SLUG}:mysql-sink-${CLINIC_SLUG}-:${LOCAL_CLUSTER_ALIAS}:${MYSQL_SERVER_NAME}
-       commits and pushes feat/bahmni-kraft, pushes the tracking ref into the hub, fast-forwards the hub
+       commits and pushes the install branch, pushes the tracking ref into the hub, fast-forwards the hub
     2. on the hub:  cd hub && scripts/generate-sink-connectors.sh ${CLINIC_SLUG} && scripts/register-all-sink-connectors.sh
     3. on the hub:  the Odoo and clinlims up-sinks for ${CLINIC_SLUG} (copies of Ghated's, topics ${LOCAL_CLUSTER_ALIAS}.${MYSQL_SERVER_NAME}.odoo.all / .clinlims.all)
     4. proof: a marker written here is read on the hub within a minute

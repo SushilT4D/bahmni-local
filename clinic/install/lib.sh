@@ -9,6 +9,8 @@
 set -o pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# The branch a clinic installs from; preflight refuses another unless EXPECTED_BRANCH names it.
+INSTALL_BRANCH="${INSTALL_BRANCH:-feat/install-seed-split}"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${INSTALL_DIR}/.." && pwd)}"
 REPO_DIR="${REPO_DIR:-$(cd "${CLINIC_DIR}/.." && pwd)}"
 LEDGER="${LEDGER:-${REPO_DIR}/sync/clinics.txt}"
