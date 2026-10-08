@@ -85,8 +85,10 @@ Rendered connector files hold passwords and are gitignored.
   tables fails it: the up sinks write each table in arrival order, and an FK
   out would stop a sink whenever a clinic's row arrives before its parent.
   The FKs into them are compared with `clinical-fks-in.conf`, and a difference
-  is reported (exit 2). Run it before registering the up sinks for these
-  tables and before and after every hub upgrade.
+  is reported (exit 2). Run it before and after every hub upgrade;
+  `scripts/register-all-sink-connectors.sh` runs it itself before it registers
+  any sink for these tables (set `HUB_MYSQL_CONTAINER`) and registers nothing
+  when a key points out of one.
 
 ## Not provided yet
 
