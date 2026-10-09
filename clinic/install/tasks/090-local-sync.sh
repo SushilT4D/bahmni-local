@@ -7,9 +7,32 @@ set -euo pipefail
 begin_task "90 · local sync"
 [ "${DRY}" = 1 ] && { info "would: debezium profile up; generate+register source, retention, heartbeat, odoo/clinlims connectors, local sinks; setup-mirrormaker; mirrormaker-connect up"; exit 0; }
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
+. "${INSTALL_DIR}/state.sh"
+# provenance:begin
+# Before the sync layer takes any of the hub's changes: this clinic's master
+# tables are still the ones of the seed it was built from (same rows, same
+# content, read with the same tool the hub's record was computed with), and its
+# foreign keys are the hub's. A clinic seeded from another dump, one whose
+# masters were changed locally after the restore, or one whose schema moved
+# ahead of or behind the hub's is refused here, naming the first table that
+# differs. Once sync has started the hub's own master changes arrive here, so a
+# resume past that point does not compare again.
+if [ "$(stamp_get SYNC_STARTED)" = 1 ]; then
+  info "sync already started on this machine: the master tables were compared with the seed before it did, and the hub's changes have arrived since; not compared again"
+else
+  [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator."
+  [ "$(sha256_of "${PROVENANCE_COPY}")" = "$(stamp_get PROVENANCE_SHA)" ] || fail "the seed provenance record on this machine (${PROVENANCE_COPY}) is not the one the seed gate kept; call the operator."
+  lines="$(provenance_content_lines "${PROVENANCE_COPY}" "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not checksum this clinic's master tables (clinic/scripts/master-checksum.sh failed above)"
+  v="$(provenance_content_verdict "${PROVENANCE_COPY}" "$lines" "$(sha256_of "${REPO_DIR}/clinic/scripts/master-checksum.sh")" "${REPO_DIR}/hub/checksum-exclusions.conf")" || fail "$v"
+  ok "${v#ok }"
+  fk_rows="$(clinic_fk_rows "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
+  v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
+  ok "${v#ok }"
+fi
+# provenance:end
 # From here on a seed that stops cannot be redone by dropping databases: the
 # replication slots and connector positions would point at what was dropped.
-. "${INSTALL_DIR}/state.sh"; stamp_put SYNC_STARTED 1
+stamp_put SYNC_STARTED 1
 # kafka-ui is NOT in this first up: it is gated on kafka-connect's health, and
 # compose gives up on a slow Connect long before Connect does (manpur, 1 vCPU:
 # "dependency failed to start: container kafka-connect is unhealthy"). The wait

@@ -73,12 +73,16 @@ out="$(provenance_content_verdict "$R" "$(printf '%s\n' "$CONTENT" | grep -v '^l
 out="$(provenance_content_verdict "$R" "$CONTENT" "0000" "$X")"; [ $? = 1 ] && case "$out" in *"master-checksum.sh is not the one"*) true ;; *) false ;; esac && ok_ "a different checksum tool is refused before any table is compared" || bad "tool: $out"
 printf 'privilege.uuid\nrole.uuid\n' > "$TMP/x2"
 out="$(provenance_content_verdict "$R" "$CONTENT" "$TOOL" "$TMP/x2")"; [ $? = 1 ] && case "$out" in *"leaves out other columns"*) true ;; *) false ;; esac && ok_ "a different exclusion list is refused" || bad "exclusions: $out"
-J="${HERE}/../tasks/110-hub-join.sh"
+J="${HERE}/../tasks/090-local-sync.sh"
 blk="$(sed -n '/^# provenance:begin/,/^# provenance:end/p' "$J")"
-printf '%s' "$blk" | grep -q 'provenance_content_verdict' && printf '%s' "$blk" | grep -q 'provenance_content_lines' && ok_ "110 compares the clinic with the record before the join is printed" || bad "110 does not compare the record"
-printf '%s' "$blk" | grep -q 'provenance_fk_verdict' && ok_ "110 compares the clinic's foreign keys with the hub's before the join" || bad "110 does not compare the foreign keys"
+printf '%s' "$blk" | grep -q 'provenance_content_verdict' && printf '%s' "$blk" | grep -q 'provenance_content_lines' && ok_ "090 compares the clinic with the record" || bad "090 does not compare the record"
+printf '%s' "$blk" | grep -q 'provenance_fk_verdict' && ok_ "090 compares the clinic's foreign keys with the hub's" || bad "090 does not compare the foreign keys"
+# the hub's master changes reach the clinic once its sync starts, so the
+# comparison must come before anything in 090 that starts or registers sync
+awk '/^# provenance:end/ {e=NR} /stamp_put SYNC_STARTED 1/ && !s {s=NR} /(compose_up|register|generate-|setup-mirrormaker)/ && !/would:/ && !c {c=NR} END {exit !(e && s > e && (c == 0 || c > e))}' "$J" && ok_ "090 compares before its sync layer starts" || bad "090 starts sync before comparing"
+printf '%s' "$blk" | grep -q 'stamp_get SYNC_STARTED' && ok_ "a resume after sync started does not compare again (the hub's changes have arrived)" || bad "090 compares again after sync started"
+sed -n '/^# provenance:begin/,/^# provenance:end/p' "${HERE}/../tasks/110-hub-join.sh" | grep -q 'provenance_content_verdict' && bad "110 still compares masters with the seed after sync started" || ok_ "110 does not compare masters with the seed (the hub's changes have arrived by then)"
 grep -q 'provenance_fk_verdict "${PROVENANCE_COPY}"' "${HERE}/../tasks/100-exit-checks.sh" && ok_ "100 compares them once OpenMRS has started (a module change made at its first start shows there)" || bad "100 does not compare the foreign keys"
-awk '/^# provenance:end/ {e=NR} /^cat <<EOF/ {c=NR} END {exit !(e && c > e)}' "$J" && ok_ "the comparison comes before the operator's join steps" || bad "110 prints the join before comparing"
 
 # --- on a real server: the tool computes the record, then an in-place edit -----------
 . "$RP/sync/versions.env"
