@@ -187,6 +187,10 @@ clinic/config/odoo/
 clinic/files/
 clinic/config/mysql/
 clinic/.install-state
+# the seed's provenance record, kept by the seed for the join's comparison
+clinic/.seed-provenance.tsv
+# the restore's definer users, removed after use; left behind if the restore stops
+clinic/.openmrs-definers.sql
 
 # Kept on disk for local use, not part of the repository.
 cloud/
