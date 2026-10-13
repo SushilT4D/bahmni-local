@@ -192,6 +192,14 @@ nxt="$($PSQL -Atc "select last_value from product_product_id_seq")"
 [ "$src" = 0 ] && printf '%s' "$sout" | grep -q 'floors kept' && [ "$(cat "$FL" | words)" = "$W8" ] && [ "$nxt" = 60 ] \
   && ok_ "a re-run after the hub issued ids strides forward (product_product restarts at 60) and leaves every recorded floor as it was" || bad "re-stride: rc=$src next=$nxt [$(cat "$FL" | words)] $sout"
 
+# a strided hub without its floors file: a first recording is refused, nothing strided
+mv "$FL" "$T/fl.kept"
+stride
+[ "$src" != 0 ] && printf '%s' "$sout" | grep -q "no floors file at $FL, and this hub's ids were strided before: product_template (steps by 10)" \
+  && printf '%s' "$sout" | grep -q 'record-down-floors.sh --from-file' && [ ! -e "$FL" ] && [ "$($PSQL -Atc "select last_value from product_product_id_seq")" = 60 ] \
+  && ok_ "on a hub strided before, with no floors file, no floor is recorded and nothing is strided; the message names --from-file" || bad "strided, no file: rc=$src $sout"
+mv "$T/fl.kept" "$FL"
+
 # --from-file: the values captured when the hub was strided, checked against it
 rm -f "$T/rec"; printf '%s\n' $W8 | paste -d' ' - - > "$T/from"; rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" = 0 ] && [ "$(cat "$T/rec" | words)" = "$W8" ] && ok_ "--from-file records the captured values once they check against the sequences" || bad "from-file: rc=$rrc $rout"

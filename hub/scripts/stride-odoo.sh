@@ -14,10 +14,13 @@
 # sequence would restart below its recorded floor (the database went back), or
 # when a down table with an id has no recorded floor.
 #
-# A first recording is refused, before striding, when any clinic's replication
-# origin (clinic_*) shows progress: clinics' rows have reached this hub, and a
-# floor read now could sit above them. Record the values captured when the hub
-# was first strided instead: record-down-floors.sh --from-file.
+# A first recording is allowed only on a first striding: before the run, every
+# down table's sequence still steps by 1. On a hub strided before, a floor read
+# now would sit above rows clinics may already have sent (before replication
+# origins existed, or from a clinic that has since left), so it is refused, and
+# so is a first recording while any clinic's replication origin (clinic_*) shows
+# progress. Either way, record the values captured at the first striding:
+# record-down-floors.sh --from-file.
 #
 # PSQL-COMMAND reaches the hub's Odoo database as its owner, for example:
 #   hub/scripts/stride-odoo.sh -- docker exec -i <odoo-db-container> psql -U odoo -d odoo
@@ -46,6 +49,12 @@ if [ -e "$OUT" ]; then
 $state
 EOF2
 else
+  # A first recording is a first striding: every down sequence still steps by 1.
+  # On a hub strided before, the restart values are long gone, and rows a clinic
+  # sent before replication origins existed, or from a clinic that has since
+  # left, can sit anywhere above them; only the values captured then will do.
+  strided="$(printf '%s\n' "$state" | awk -F'|' 'NF == 4 && $4 != 1 { printf "%s%s (steps by %s)", (n++ ? ", " : ""), $1, $4 }')"
+  [ -z "$strided" ] || die "no floors file at $OUT, and this hub's ids were strided before: ${strided}. Its floors are the values its sequences restarted at then; nothing was strided. Record them from those values: hub/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
   p="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" 2>&1)" \
     || die "the replication origins could not be read; nothing was strided: $p"
   [ "$p" = 0 ] || die "$p clinic replication origin(s) show progress: clinics' rows have reached this hub, so a floor read now could sit above them; nothing was strided. Record the floors captured when the hub was first strided: hub/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
