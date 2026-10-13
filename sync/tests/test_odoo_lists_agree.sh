@@ -29,12 +29,27 @@ regex_set(){ # FILE : the alternation inside \.odoo\.( ... )$ -- there is only
 want="$(conf_set)"
 [ -n "$want" ] || bad "sync/subsystems.conf has no odoo: rows"
 
-for f in "$REPO/clinic/connectors/odoo-source-connector.json" "$REPO/hub/connectors/odoo-cloud-source.json"; do
-  label="$(basename "$f")"
-  got="$(include_set "$f")"
-  [ "$got" = "$want" ] && ok "$label table.include.list == subsystems.conf odoo: rows" || bad "$label table.include.list: [$got] != [$want]"
-  got="$(regex_set "$f")"
-  [ "$got" = "$want" ] && ok "$label transforms.agg.regex == subsystems.conf odoo: rows" || bad "$label transforms.agg.regex: [$got] != [$want]"
-done
+# The clinic sends every synced Odoo table up.
+f="$REPO/clinic/connectors/odoo-source-connector.json"; label="$(basename "$f")"
+got="$(include_set "$f")"
+[ "$got" = "$want" ] && ok "$label table.include.list == subsystems.conf odoo: rows" || bad "$label table.include.list: [$got] != [$want]"
+got="$(regex_set "$f")"
+[ "$got" = "$want" ] && ok "$label transforms.agg.regex == subsystems.conf odoo: rows" || bad "$label transforms.agg.regex: [$got] != [$want]"
+
+# The hub sends down only the down list, rendered into its source at registration
+# (register-odoo.sh); the rendered config is compared, not the template.
+down="$(bash "$REPO/sync/hub-down.sh" odoo | sort | tr '\n' ' ' | sed 's/ $//')"
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/hub/connectors" "$T/sync" "$T/bin"
+cp "$REPO/hub/connectors/odoo-cloud-source.json" "$REPO/hub/connectors/register-odoo.sh" "$REPO/hub/connectors/_render_connector.py" "$T/hub/connectors/"
+cp "$REPO/sync/hub-down.sh" "$REPO/sync/hub-down.conf" "$REPO/sync/subsystems.conf" "$T/sync/"
+printf 'ODOO_DB_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\n' > "$T/hub/.env"
+printf '#!/bin/sh\ncat > "%s/body"; printf "\\n201"\n' "$T" > "$T/bin/curl"; chmod +x "$T/bin/curl"
+PATH="$T/bin:$PATH" NODE=cloud bash "$T/hub/connectors/register-odoo.sh" odoo-cloud-source >/dev/null 2>&1
+printf '{"config":%s}' "$(cat "$T/body" 2>/dev/null)" > "$T/rendered.json"
+got="$(include_set "$T/rendered.json")"
+[ "$got" = "$down" ] && ok "rendered odoo-cloud-source table.include.list == sync/hub-down.conf" || bad "rendered odoo-cloud-source table.include.list: [$got] != [$down]"
+got="$(regex_set "$T/rendered.json")"
+[ "$got" = "$down" ] && ok "rendered odoo-cloud-source transforms.agg.regex == sync/hub-down.conf" || bad "rendered odoo-cloud-source transforms.agg.regex: [$got] != [$down]"
 
 printf '%s failure(s)\n' "$fails"; exit $((fails>0))

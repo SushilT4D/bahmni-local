@@ -30,4 +30,26 @@ unresolved = [k for k, v in cfg.items()
 if unresolved:
     sys.exit('  unset env for: ' + ','.join(unresolved))
 
+# The down list's placeholders must be filled: left in, Debezium reads them as a
+# table pattern that matches nothing, and the source runs while sending nothing.
+down_left = [k for k, v in cfg.items() if isinstance(v, str) and '${HUB_DOWN_' in v]
+if down_left:
+    sys.exit('  the down list was not rendered into: ' + ','.join(down_left))
+
+# A source that reads the hub's Odoo down publication sends down exactly the
+# down list (HUB_DOWN_ODOO_TABLES, from sync/hub-down.sh): any other table in its
+# table list or aggregate regex is refused, whatever the template says.
+if cfg.get('publication.name') == 'dbz_odoo_owned':
+    want = set(t for t in os.environ.get('HUB_DOWN_ODOO_TABLES', '').split(',') if t)
+    if not want:
+        sys.exit('  %s reads dbz_odoo_owned but no down list was given (HUB_DOWN_ODOO_TABLES)' % d.get('name', sys.argv[1]))
+    inc = set(t.split('.', 1)[-1] for t in cfg.get('table.include.list', '').split(',') if t) - {'dbz_heartbeat'}
+    m = re.search(r'\(([^()]*)\)\$?$', cfg.get('transforms.agg.regex', ''))
+    agg = set(m.group(1).split('|')) if m else set()
+    for what, got in (('table.include.list', inc), ('transforms.agg.regex', agg)):
+        if got != want:
+            extra, missing = sorted(got - want), sorted(want - got)
+            sys.exit('  %s: %s differs from the down list (not down tables: %s; down tables missing: %s)'
+                     % (d.get('name', sys.argv[1]), what, ','.join(extra) or 'none', ','.join(missing) or 'none'))
+
 print(json.dumps(cfg))

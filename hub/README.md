@@ -17,24 +17,48 @@ repository, and attaches to that stack's Docker network through
   number of replication origins the instance holds (below), and every synced
   sequence incrementing by 10 on residue 0. The synced tables are listed in
   `sync/subsystems.conf`. 16 is the first version whose `pgoutput` accepts the
-  `origin` option the two sources decode with.
+  `origin` option the Odoo source decodes with.
 - **Accounts**: a MySQL account for the sinks and one for Debezium; Postgres
   roles `odoo_sink` and `clinlims_sink`, each with `EXECUTE` on
   `pg_replication_origin_session_setup`, `pg_replication_origin_session_reset`
   and `pg_replication_origin_session_is_setup` in its own database;
-  `REPLICATION` on the roles the two Postgres sources log in as.
-- **Publications** `dbz_odoo_owned` and `dbz_clinlims_owned` over the synced
-  tables, with no row filter.
+  `REPLICATION` on the role the Odoo source logs in as.
+- **Publication** `dbz_odoo_owned` over exactly the down list,
+  `sync/hub-down.conf`, built by `scripts/apply-down-publication.sh`. Each
+  table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
+  with this hub's floors in `hub/odoo-down-floors.local` (below). There is no
+  OpenELIS publication: no OpenELIS table goes down.
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
   the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
   created when the clinic joins.
 
 ## What the hub publishes
 
-Only the rows written at the hub. A row from a clinic stops here: the up-sinks
+Only master and reference tables, and of those only the rows written at the
+hub.
+
+The clinics send up every table in `sync/subsystems.conf`. The hub sends down
+only `sync/hub-down.conf`: products, categories, units of measure and the
+address tables, plus the three product link tables. Partners, sales, invoices
+and stock stay at the clinic that wrote them, and no OpenELIS table goes down,
+so a hub edit to one of those rows (by a person, or by the OpenMRS-to-Odoo
+feed) reaches no clinic. The hub source's table list and aggregate regex, the
+publication and each clinic's MirrorMaker down regex are all rendered from that
+one list; `sync/hub-down.sh` reads it and refuses an up-only table by name.
+
+On the tables that do go down, the row filter keeps a clinic's rows at the hub
+even when the hub edits them: below a table's floor the rows predate striding
+and are the hub's; above it the hub mints residue 0. The floors are measured
+once, right after the hub's Odoo ids are strided, by
+`scripts/record-down-floors.sh -- <psql command>`, which writes
+`hub/odoo-down-floors.local` (one `<table> <floor>` line per table with an
+`id`; never committed, never rewritten). The publication step refuses, naming
+the table, when a floor is missing.
+
+Within those tables, only the rows written at the hub. A row from a clinic stops here: the up-sinks
 that write a clinic's Odoo and OpenELIS rows into the hub claim that clinic's
 replication origin on their one connection (`hibernate.agroal.initialSQL`), so
-every row they apply is tagged, and the two Postgres sources decode with
+every row they apply is tagged, and the Odoo source decodes with
 `slot.stream.params=origin=none`, so a tagged row is never published down to
 another clinic or back to its sender.
 OpenMRS gets the same result from the MySQL source's table list, which holds
@@ -89,8 +113,8 @@ on loopback only; reach them over an SSH tunnel.
 
 - Down direction, hub to clinics: `scripts/generate-cloud-source-connector.sh`
   renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
-  registers the two Postgres sources (`odoo-cloud-source`,
-  `clinlims-cloud-source`).
+  registers the Odoo source, `odoo-cloud-source`, filling its table list and
+  aggregate regex from `sync/hub-down.conf`. There is no OpenELIS down source.
 - Up direction, one set per clinic listed in `clinics.conf` (the sinks for
   `obs`, `orders` and `drug_order` only for a row ending in `:clinical`, a
   clinic installed with `CLINICAL_UP_SYNC=test`):

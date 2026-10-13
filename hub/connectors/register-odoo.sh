@@ -8,6 +8,20 @@ CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/.env"; set +a
 
+# The hub's down source takes its table list and aggregate regex from the down
+# list (sync/hub-down.conf). Read before anything is registered, and only when
+# a template asks for it; a list it refuses stops every registration.
+for name in "$@"; do
+  if grep -q '${HUB_DOWN_' "$ROOT/connectors/${name}.json" 2>/dev/null; then
+    down="$(bash "$ROOT/../sync/hub-down.sh" odoo)" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
+    HUB_DOWN_ODOO_TABLES="$(printf '%s\n' "$down" | paste -sd, -)"
+    HUB_DOWN_ODOO_TABLE_INCLUDE_LIST="$(printf '%s\n' "$down" | sed 's/^/public./' | paste -sd, -)"
+    HUB_DOWN_ODOO_ALTERNATION="$(printf '%s\n' "$down" | paste -sd'|' -)"
+    export HUB_DOWN_ODOO_TABLES HUB_DOWN_ODOO_TABLE_INCLUDE_LIST HUB_DOWN_ODOO_ALTERNATION
+    break
+  fi
+done
+
 for name in "$@"; do
   f="$ROOT/connectors/${name}.json"
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
