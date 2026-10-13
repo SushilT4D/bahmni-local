@@ -44,8 +44,11 @@ lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
 # has no terminal to ask on, goes through without a person. DNS_ETC moves /etc
 # for the tests.
 DNS_ETC="${DNS_ETC:-/etc}"
-dns_wrong_answer(){ # NAME -> why NAME at 127.0.0.1 is not this machine's LAN address; nothing when it is
-  local ip got; ip="$(lan_ip)"; got="$(lan_resolve "$1")"
+dns_wrong_answer(){ # NAME -> why NAME, asked at this machine's LAN address, is not that address; nothing when it is
+  # Asked at the LAN address, as clinic devices ask: macOS dnsmasq keeps
+  # answering on 127.0.0.1 after the address changes, while the new address
+  # gets no answer until dnsmasq restarts.
+  local ip got; ip="$(lan_ip)"; got="$(lan_resolve "$1" "$ip")"
   [ -n "$ip" ] && [ "$got" = "$ip" ] || printf "%s answers '%s', this machine is '%s'" "$1" "${got:-nothing}" "${ip:-unknown}"
 }
 dns_install_macos(){ # NAME

@@ -21,9 +21,14 @@ cat > "${B}/brew" <<'EOF'
 case "$1" in --prefix) printf '%s\n' "${STUB_BREW}" ;; esac
 exit 0
 EOF
+# STUB_LAN_ANSWER, when set, is what the LAN address answers ('-' = nothing);
+# loopback keeps STUB_ANSWER. macOS dnsmasq keeps answering on 127.0.0.1 after
+# the machine's address changes, while the new address gets no answer at all.
 cat > "${B}/dig" <<'EOF'
 #!/usr/bin/env bash
-[ -n "${STUB_ANSWER}" ] && printf '%s\n' "${STUB_ANSWER}"
+a="${STUB_ANSWER}"
+case " $* " in *" @10.0.0.5 "*) [ -n "${STUB_LAN_ANSWER:-}" ] && a="${STUB_LAN_ANSWER}" ;; esac
+[ -n "$a" ] && [ "$a" != - ] && printf '%s\n' "$a"
 exit 0
 EOF
 cat > "${B}/systemctl" <<'EOF'
@@ -61,6 +66,9 @@ for p in macos linux; do
   restarted && ok_ "${p}: no answer restarts dnsmasq" || bad "${p}: no answer did not restart"
   STUB_ACTIVE=1 step "$p" 9.9.9.9
   restarted && ok_ "${p}: stopped dnsmasq is restarted" || bad "${p}: stopped dnsmasq was not restarted"
+  STUB_LAN_ANSWER=- step "$p" 9.9.9.9
+  restarted && ok_ "${p}: answering on 127.0.0.1 but not on the LAN address restarts dnsmasq" \
+    || bad "${p}: loopback answered, the LAN address did not, and dnsmasq was not restarted"
 done
 # the resolver file is written once and then left alone, even when dnsmasq restarts
 STUB_ANSWER=10.0.0.9 step macos 9.9.9.9
