@@ -6,6 +6,8 @@
     "tasks.max": "1",
     "connection.pool.min_size": "1",
     "connection.pool.max_size": "1",
+    "hibernate.agroal.initialSQL": "SELECT pg_replication_origin_session_setup('clinic_rawach_odoo')",
+    "//origin": "Every row this sink writes is tagged with the sending clinic's replication origin, so the hub's own source skips it and never publishes it to the other clinics. An origin can be held by one session at a time: tasks.max and the pool stay at one, and each clinic has its own origin per database.",
     "connection.pool.timeout": "1800",
     "hibernate.agroal.validateOnBorrow": "true",
     "hibernate.agroal.idleValidation_s": "300",

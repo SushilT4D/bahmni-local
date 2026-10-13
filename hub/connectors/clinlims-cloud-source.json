@@ -21,6 +21,8 @@
     "transforms.agg.regex": "${REMOTE_SERVER_NAME}\\.clinlims\\.(sample|sample_item|analysis|result)$",
     "database.port": "5432",
     "plugin.name": "pgoutput",
+    "slot.stream.params": "origin=none",
+    "//origin": "Decodes only what was written at this hub. A row a clinic's up-sink applied here carries that clinic's replication origin and is skipped, so the hub never publishes one clinic's rows to another clinic or back to the clinic that sent them.",
     "key.converter.schemas.enable": "true",
     "database.hostname": "${BASE_ELIS_CONTAINER}",
     "database.password": "${CLINLIMS_SOURCE_PASSWORD}",

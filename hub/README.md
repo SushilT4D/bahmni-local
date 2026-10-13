@@ -12,17 +12,37 @@ repository, and attaches to that stack's Docker network through
   least 7 days of binlog retention, a `server_id` distinct from the Debezium
   connector's own id, and striding: `auto_increment_increment=10`,
   `auto_increment_offset=10`. The hub is residue 0.
-- **Postgres (Odoo, OpenELIS), 10 or newer**: `wal_level=logical`,
-  `max_replication_slots>=4`, `max_wal_senders>=4`, and every synced sequence
-  incrementing by 10 on residue 0. The synced tables are listed in
-  `sync/subsystems.conf`.
+- **Postgres (Odoo, OpenELIS), 16 or newer**: `wal_level=logical`,
+  `max_wal_senders>=4`, `max_replication_slots` at least 4 and at least the
+  number of replication origins the instance holds (below), and every synced
+  sequence incrementing by 10 on residue 0. The synced tables are listed in
+  `sync/subsystems.conf`. 16 is the first version whose `pgoutput` accepts the
+  `origin` option the two sources decode with.
 - **Accounts**: a MySQL account for the sinks and one for Debezium; Postgres
-  roles `odoo_sink` and `clinlims_sink`; `REPLICATION` on the roles the two
-  Postgres sources log in as.
+  roles `odoo_sink` and `clinlims_sink`, each with `EXECUTE` on
+  `pg_replication_origin_session_setup`, `pg_replication_origin_session_reset`
+  and `pg_replication_origin_session_is_setup` in its own database;
+  `REPLICATION` on the roles the two Postgres sources log in as.
 - **Publications** `dbz_odoo_owned` and `dbz_clinlims_owned` over the synced
-  tables, with no row filter and no replication origin. A clinic filters so it
-  never re-publishes what it received; the hub relays everything, so a filter
-  here would drop the rows this layer exists to move.
+  tables, with no row filter.
+- **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
+  the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
+  created when the clinic joins.
+
+## What the hub publishes
+
+Only the rows written at the hub. A row from a clinic stops here: the up-sinks
+that write a clinic's Odoo and OpenELIS rows into the hub claim that clinic's
+replication origin on their one connection (`hibernate.agroal.initialSQL`), so
+every row they apply is tagged, and the two Postgres sources decode with
+`slot.stream.params=origin=none`, so a tagged row is never published down to
+another clinic or back to its sender.
+OpenMRS gets the same result from the MySQL source's table list, which holds
+only tables the hub writes. A clinic does the same in the other direction.
+
+PostgreSQL lets one session at a time hold an origin, which is why each clinic
+has its own and why those sinks keep `tasks.max` and the pool at one. A sink
+that does not claim an origin writes rows the hub publishes to every clinic.
 
 ## Files this directory needs that are not tracked
 

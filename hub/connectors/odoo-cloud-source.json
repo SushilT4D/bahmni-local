@@ -24,6 +24,8 @@
     "transforms.agg.regex": "${REMOTE_SERVER_NAME}\\.odoo\\.(res_partner|res_country_state|product_template|product_product|product_category|uom_uom|sale_order|sale_order_line|stock_move|stock_quant|stock_picking|account_move|account_move_line|state_district|district_subdistrict|village_village|res_partner_attributes|product_taxes_rel|product_supplier_taxes_rel|stock_route_product)$",
     "database.port": "5432",
     "plugin.name": "pgoutput",
+    "slot.stream.params": "origin=none",
+    "//origin": "Decodes only what was written at this hub. A row a clinic's up-sink applied here carries that clinic's replication origin and is skipped, so the hub never publishes one clinic's rows to another clinic or back to the clinic that sent them.",
     "key.converter.schemas.enable": "true",
     "database.hostname": "${BASE_PG_CONTAINER}",
     "database.password": "${ODOO_DB_PASSWORD}",
