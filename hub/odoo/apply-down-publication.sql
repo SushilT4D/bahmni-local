@@ -1,6 +1,7 @@
 -- The hub's Odoo down publication: what the hub's Odoo source sends to every clinic.
 --
--- It holds exactly the down tables passed in (sync/hub-down.conf, read through
+-- It publishes INSERT, UPDATE and DELETE, never TRUNCATE (a TRUNCATE ignores row
+-- filters). It holds exactly the down tables passed in (sync/hub-down.conf, read through
 -- sync/hub-down.sh), plus public.dbz_heartbeat when it exists, and nothing else:
 -- SET TABLE replaces whatever the publication held before, so a table that is
 -- not on the list leaves it.
@@ -96,10 +97,12 @@ BEGIN
   IF to_regclass('public.dbz_heartbeat') IS NOT NULL THEN
     v_parts := v_parts || 'public.dbz_heartbeat'::text;
   END IF;
+  -- TRUNCATE ignores row filters, so it is never published.
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = v_pub) THEN
     EXECUTE format('ALTER PUBLICATION %I SET TABLE %s', v_pub, array_to_string(v_parts, ', '));
+    EXECUTE format('ALTER PUBLICATION %I SET (publish = %L)', v_pub, 'insert, update, delete');
   ELSE
-    EXECUTE format('CREATE PUBLICATION %I FOR TABLE %s', v_pub, array_to_string(v_parts, ', '));
+    EXECUTE format('CREATE PUBLICATION %I FOR TABLE %s WITH (publish = %L)', v_pub, array_to_string(v_parts, ', '), 'insert, update, delete');
   END IF;
 END $do$;
 

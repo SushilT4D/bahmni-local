@@ -48,12 +48,17 @@ one list; `sync/hub-down.sh` reads it and refuses an up-only table by name.
 
 On the tables that do go down, the row filter keeps a clinic's rows at the hub
 even when the hub edits them: below a table's floor the rows predate striding
-and are the hub's; above it the hub mints residue 0. The floors are measured
-once, right after the hub's Odoo ids are strided, by
-`scripts/record-down-floors.sh -- <psql command>`, which writes
-`hub/odoo-down-floors.local` (one `<table> <floor>` line per table with an
-`id`; never committed, never rewritten). The publication step refuses, naming
-the table, when a floor is missing.
+and are the hub's; above it the hub mints residue 0. A floor is the value the
+table's sequence restarted at when the hub's Odoo ids were strided, and it is
+recorded by that same run: `scripts/stride-odoo.sh -- <psql command>` strides
+and writes `hub/odoo-down-floors.local` (one `<table> <floor>` line per table
+with an `id`; never committed). A re-run strides again and leaves the file as
+it is, refusing if a sequence would restart below its floor. Floors are never
+read back from the sequences later: once the hub has issued ids they no longer
+show it. A hub strided before this script records its floors from the values
+captured then, with `scripts/record-down-floors.sh --from-file <file>`. The
+publication step refuses, naming the table, when a floor is missing, and
+publishes no TRUNCATE (it ignores row filters).
 
 Within those tables, only the rows written at the hub. A row from a clinic stops here: the up-sinks
 that write a clinic's Odoo and OpenELIS rows into the hub claim that clinic's

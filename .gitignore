@@ -186,8 +186,8 @@ clinic/config/odoo/
 clinic/files/
 clinic/config/mysql/
 clinic/.install-state
-# this hub's down-table floors, measured once when its Odoo ids are strided
-# (hub/scripts/record-down-floors.sh); each hub has its own
+# this hub's down-table floors, recorded once by the run that strides its Odoo
+# ids (hub/scripts/stride-odoo.sh); each hub has its own
 hub/odoo-down-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
