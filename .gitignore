@@ -106,7 +106,7 @@ cloud/connectors/clinlims-*.json
 # hub/: the sync layer's own compose project, split out of cloud/.
 # Same secret classes as the cloud/connectors/* rules above -- the env file,
 # the JAAS SASL password, and every connector JSON a generator writes with a
-# live password already substituted. Templates are exempt by name: the six
+# live password already substituted. Templates are exempt by name: the five
 # hand-authored connector JSONs below carry only ${VAR} placeholders,
 # substituted by register-odoo.sh at registration time, not at
 # rest -- so they stay tracked.
@@ -123,7 +123,6 @@ hub/connectors/mysql-cloud-source-connector.json
 # substituted output, never meant to be committed).
 hub/connectors/generated/
 !hub/connectors/odoo-cloud-source.json
-!hub/connectors/clinlims-cloud-source.json
 !hub/connectors/odoo-cloud-sink-all.json
 !hub/connectors/clinlims-cloud-sink-all.json
 !hub/connectors/odoo-ghated-sink-all.json
