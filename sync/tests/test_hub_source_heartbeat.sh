@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every hub source heartbeats, so each one's liveness can be read on its own: the
 # MySQL source's committed offset moves every minute even when no captured table
-# changes, and each Postgres source upserts its dbz_heartbeat row every minute and
+# changes, and the Odoo source upserts its dbz_heartbeat row every minute and
 # confirms it through its own slot. The MySQL source is rendered by the real
 # generator here, against a throwaway hub dir, so a key the template carries but
 # the render drops is caught too.
@@ -19,7 +19,7 @@ if HUB_DIR="$T/hub" REPO_DIR="$R" bash "$R/hub/scripts/generate-cloud-source-con
 else
   bad "the MySQL source did not render: $(tail -3 "$T/gen.log")"
 fi
-for s in odoo-cloud-source:public clinlims-cloud-source:clinlims; do
+for s in odoo-cloud-source:public; do
   n="${s%%:*}"; sch="${s#*:}"
   r="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; print("%s|%s|%s" % (c.get("heartbeat.interval.ms",""), sys.argv[2] + ".dbz_heartbeat" in c.get("heartbeat.action.query",""), sys.argv[2] + ".dbz_heartbeat" in c.get("table.include.list","").split(",")))' "$R/hub/connectors/$n.json" "$sch")"
   [ "$r" = "60000|True|True" ] && ok_ "$n heartbeats every 60000 ms into ${sch}.dbz_heartbeat and captures it" || bad "$n heartbeat interval|action query|capture read '$r', want 60000|True|True"

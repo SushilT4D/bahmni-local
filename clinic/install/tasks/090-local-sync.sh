@@ -65,7 +65,10 @@ EOF
 v="$(signal_capture_check)" || fail "$v"
 ok "${v#ok }"
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
-NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all clinlims-clinic-sink-all >/dev/null
+# Both sources send this clinic's rows up; only Odoo has a down sink. The hub
+# sends no OpenELIS table down (lab rows are written at the clinics), so there
+# is no OpenELIS down sink to register.
+NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
 # after register-odoo.sh, not before: the heartbeat script patches the two PG
 # source connectors' configs (GET then PUT), so they must exist, and it takes
 # BOTH source names (first live clinic, manpur: it was called with one name

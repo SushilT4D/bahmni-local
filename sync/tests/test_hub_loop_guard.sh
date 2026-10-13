@@ -14,11 +14,17 @@ ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((
 C="$R/hub/connectors"
 cfg(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get(sys.argv[2], ""))' "$1" "$2"; }
 
-# --- the sources: decode only what was written at the hub -------------------
-for s in odoo-cloud-source clinlims-cloud-source; do
-  v="$(cfg "$C/$s.json" slot.stream.params)"
-  [ "$v" = origin=none ] && ok_ "$s decodes with slot.stream.params=origin=none" || bad "$s: slot.stream.params is '${v}', want origin=none"
+# --- the source: decode only what was written at the hub --------------------
+v="$(cfg "$C/odoo-cloud-source.json" slot.stream.params)"
+[ "$v" = origin=none ] && ok_ "odoo-cloud-source decodes with slot.stream.params=origin=none" || bad "odoo-cloud-source: slot.stream.params is '${v}', want origin=none"
+# No OpenELIS table goes down, so the hub has no OpenELIS source and a clinic no
+# OpenELIS down sink: neither template exists to be registered.
+for f in hub/connectors/clinlims-cloud-source.json clinic/connectors/clinlims-clinic-sink-all.json; do
+  [ -e "$R/$f" ] && bad "$f exists: no OpenELIS table goes down" || ok_ "$f does not exist: no OpenELIS table goes down"
 done
+reg="$(grep -E '^[^#]*register-odoo\.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
+printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && ! printf '%s' "$reg" | grep -q 'clinlims-clinic-sink' \
+  && ok_ "the clinic installer registers its Odoo down sink and no OpenELIS down sink" || bad "090 registers: $reg"
 
 # --- the up-sinks: each claims its own clinic's origin, on one connection ----
 # check_sinks DIR CLINICS_CONF : every Postgres JDBC sink in DIR claims

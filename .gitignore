@@ -106,7 +106,7 @@ cloud/connectors/clinlims-*.json
 # hub/: the sync layer's own compose project, split out of cloud/.
 # Same secret classes as the cloud/connectors/* rules above -- the env file,
 # the JAAS SASL password, and every connector JSON a generator writes with a
-# live password already substituted. Templates are exempt by name: the six
+# live password already substituted. Templates are exempt by name: the five
 # hand-authored connector JSONs below carry only ${VAR} placeholders,
 # substituted by register-odoo.sh at registration time, not at
 # rest -- so they stay tracked.
@@ -123,7 +123,6 @@ hub/connectors/mysql-cloud-source-connector.json
 # substituted output, never meant to be committed).
 hub/connectors/generated/
 !hub/connectors/odoo-cloud-source.json
-!hub/connectors/clinlims-cloud-source.json
 !hub/connectors/odoo-cloud-sink-all.json
 !hub/connectors/clinlims-cloud-sink-all.json
 !hub/connectors/odoo-ghated-sink-all.json
@@ -187,6 +186,9 @@ clinic/config/odoo/
 clinic/files/
 clinic/config/mysql/
 clinic/.install-state
+# this hub's down-table floors, recorded once by the run that strides its Odoo
+# ids (hub/scripts/stride-odoo.sh); each hub has its own
+hub/odoo-down-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
 # the restore's definer users, removed after use; left behind if the restore stops

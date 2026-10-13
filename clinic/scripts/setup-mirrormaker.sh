@@ -16,6 +16,7 @@ LEGACY_OUTPUT="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties"
 TABLES_CONF="${PROJECT_DIR}/../sync/local/tables.conf"
 DOWN_TABLES_CONF="${PROJECT_DIR}/../hub/tables.conf"
 SUBSYSTEMS_CONF="${PROJECT_DIR}/../sync/subsystems.conf"
+HUB_DOWN_SH="${PROJECT_DIR}/../sync/hub-down.sh"
 
 echo "Setting up MirrorMaker configuration..."
 
@@ -86,18 +87,29 @@ SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
 
-# build_topic_pattern <server-name> <openmrs-tables.conf> [up]
+# build_topic_pattern <server-name> <openmrs-tables.conf> [up|down]
 # Emits a MirrorMaker topics regex.  Dots are escaped for the regex, so a topic
 # name is matched literally rather than "." matching any character.  `up` reads
 # the clinic's own list through sync/local/tables-conf.sh, the reader the
 # source connector uses too, so MirrorMaker forwards exactly the topics the
 # source writes; a list it refuses returns 2, which stops this script rather
 # than rendering a config that mirrors none of the clinic's tables.
+# `down` takes the Odoo/OpenELIS topics from the hub's down list
+# (sync/hub-down.sh) instead of sync/subsystems.conf: the hub sends down only
+# master tables, and a subsystem with nothing on that list sends nothing down,
+# not even its aggregate topic. A down list it refuses also returns 2.
 build_topic_pattern() {
   local sn="$1" tconf="$2" grammar="${3:-}"
-  local aggs=() omrs=() subs=() line schema topic table recs
+  local aggs=() omrs=() subs=() line schema topic table recs dsubs dtabs
 
-  if [[ -f "${SUBSYSTEMS_CONF}" ]]; then
+  if [[ "${grammar}" == down ]]; then
+    dsubs="$(bash "${HUB_DOWN_SH}" --subsystems)" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+    for schema in ${dsubs}; do
+      dtabs="$(bash "${HUB_DOWN_SH}" "${schema}")" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+      aggs+=("${sn}\\.${schema}\\.all")
+      for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
+    done
+  elif [[ -f "${SUBSYSTEMS_CONF}" ]]; then
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$line" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
@@ -146,7 +158,9 @@ if [[ -z "${KAFKA_TOPIC_PATTERNS:-}" ]]; then
 fi
 
 if [[ -z "${KAFKA_DOWN_TOPIC_PATTERNS:-}" ]]; then
-  if KAFKA_DOWN_TOPIC_PATTERNS="$(build_topic_pattern "${REMOTE_SERVER_NAME}" "${DOWN_TABLES_CONF}")"; then
+  down_rc=0; KAFKA_DOWN_TOPIC_PATTERNS="$(build_topic_pattern "${REMOTE_SERVER_NAME}" "${DOWN_TABLES_CONF}" down)" || down_rc=$?
+  [[ "${down_rc}" -ne 2 ]] || exit 1
+  if [[ "${down_rc}" -eq 0 ]]; then
     export KAFKA_DOWN_TOPIC_PATTERNS
     echo "✓ DOWN topics ($(grep -o '|' <<<"${KAFKA_DOWN_TOPIC_PATTERNS}" | wc -l | tr -d ' ') separators): ${REMOTE_SERVER_NAME}.*"
   fi
