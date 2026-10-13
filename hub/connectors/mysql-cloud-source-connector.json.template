@@ -40,6 +40,10 @@
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
     "value.converter.schemas.enable": "true",
 
-    "tombstones.on.delete": "true"
+    "tombstones.on.delete": "true",
+
+    "//heartbeat": "Commits a fresh source offset every minute even when no captured table",
+    "//heartbeat2": "changes, so an idle source still shows it is reading the binlog.",
+    "heartbeat.interval.ms": "60000"
   }
 }
