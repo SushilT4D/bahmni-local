@@ -10,7 +10,7 @@
 # Refuses (exit 1, naming the row) when a row is malformed, names a table that
 # is not a synced table of its subsystem in sync/subsystems.conf, repeats a
 # table, or names a table that is written at the clinics and must never go down
-# (any OpenELIS table; Odoo partners, sales, invoices and stock). Nothing is
+# (any OpenELIS table; Odoo partners, sales, invoices and stock levels). Nothing is
 # printed when it refuses, so a caller never renders from half a list.
 #
 # HUB_DOWN_CONF and SUBSYSTEMS_CONF override the two files (tests).
@@ -24,7 +24,7 @@ die(){ printf 'hub-down.sh: %s\n' "$*" >&2; exit 1; }
 [ -f "$SUBS" ] || die "no such file: $SUBS"
 
 # Written at the clinics: never sent down, whatever the list says.
-UP_ONLY_ODOO=" res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_move stock_picking stock_quant "
+UP_ONLY_ODOO=" res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_quant "
 
 strip(){ sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 SYNCED=" $(strip "$SUBS" | grep . | tr '\n' ' ') "

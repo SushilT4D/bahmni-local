@@ -18,7 +18,7 @@
     "database.dbname": "openelis",
     "time.precision.mode": "connect",
     "heartbeat.interval.ms": "60000",
-    "transforms.agg.regex": "${MYSQL_SERVER_NAME}\\.clinlims\\.(sample|sample_item|analysis|result)$",
+    "transforms.agg.regex": "${MYSQL_SERVER_NAME}\\.clinlims\\.(sample|sample_item|analysis|result|person|patient|patient_identity|provider|sample_human)$",
     "database.port": "5432",
     "plugin.name": "pgoutput",
     "key.converter.schemas.enable": "true",
@@ -26,7 +26,7 @@
     "database.password": "${CLINLIMS_SOURCE_PASSWORD}",
     "value.converter.schemas.enable": "true",
     "transforms.agg.replacement": "${MYSQL_SERVER_NAME}.clinlims.all",
-    "table.include.list": "clinlims.sample,clinlims.sample_item,clinlims.analysis,clinlims.result,clinlims.dbz_heartbeat",
+    "table.include.list": "clinlims.sample,clinlims.sample_item,clinlims.analysis,clinlims.result,clinlims.person,clinlims.patient,clinlims.patient_identity,clinlims.provider,clinlims.sample_human,clinlims.dbz_heartbeat",
     "snapshot.mode": "no_data",
     "schemas.enable": "true",
     "slot.stream.params": "origin=none"

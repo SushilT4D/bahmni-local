@@ -22,8 +22,9 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0
 ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
-UP_ONLY="res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_move stock_picking stock_quant"
-WANT="product_template product_product product_category uom_uom res_country_state state_district district_subdistrict village_village product_taxes_rel product_supplier_taxes_rel stock_route_product"
+UP_ONLY="res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_quant"
+TRANSFER="stock_location stock_warehouse stock_picking_type stock_route stock_rule procurement_group stock_lot stock_warehouse_orderpoint stock_picking stock_move stock_move_line"
+WANT="product_template product_product product_category uom_uom res_country_state state_district district_subdistrict village_village product_taxes_rel product_supplier_taxes_rel stock_route_product $TRANSFER"
 PGC=""
 T="$(mktemp -d)"
 cleanup(){ [ -n "$PGC" ] && docker rm -f -v "$PGC" >/dev/null 2>&1; rm -rf "$T"; }
@@ -45,7 +46,9 @@ has(){ case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }
 
 # --- the list --------------------------------------------------------------------
 got="$(bash "$C/sync/hub-down.sh" odoo | words)"
-[ "$got" = "$WANT" ] && ok_ "sync/hub-down.conf holds exactly the eleven master tables" || bad "the down list reads [$got], want [$WANT]"
+[ "$got" = "$WANT" ] && ok_ "sync/hub-down.conf holds exactly the eleven master tables and the central-transfer tables" || bad "the down list reads [$got], want [$WANT]"
+for t in $TRANSFER; do has "$got" "$t" || bad "the down list lacks transfer table $t"; done
+has "$got" stock_quant && bad "stock levels go down" || ok_ "stock levels (stock_quant) stay up-only while transfers go down"
 for t in $UP_ONLY; do has "$got" "$t" && bad "the down list carries up-only $t"; done
 bash "$C/sync/hub-down.sh" clinlims >/dev/null 2>&1 && bad "the down list has OpenELIS rows" || ok_ "no OpenELIS table goes down"
 [ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = odoo ] && ok_ "only Odoo sends anything down" || bad "subsystems sending down: $(bash "$C/sync/hub-down.sh" --subsystems | words)"
@@ -59,7 +62,7 @@ for t in $UP_ONLY; do
   if [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q "odoo:$t is written at the clinics and never goes down" && ! printf '%s' "$pout" | grep -qx product_template; then n=$((n+1))
   else bad "planted odoo:$t: rc=$prc $pout"; fi
 done
-[ "$n" = 9 ] && ok_ "each of the nine up-only Odoo tables planted in the list is refused by name, and nothing is printed"
+[ "$n" = 7 ] && ok_ "each of the seven up-only Odoo tables planted in the list is refused by name, and nothing is printed"
 plant "clinlims:sample"
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'clinlims:sample: no OpenELIS table goes down' && ok_ "an OpenELIS table planted in the list is refused" || bad "planted clinlims:sample: rc=$prc $pout"
 plant "odoo:ir_config_parameter"
@@ -117,7 +120,8 @@ if command -v envsubst >/dev/null 2>&1; then
   for t in $UP_ONLY; do printf '%s\n' "$down" | grep -qx "bahmni-cloud.odoo.$t" && bad "the MirrorMaker down regex carries up-only $t"; done
   printf '%s\n' "$down" | grep -q 'clinlims' && bad "the MirrorMaker down regex carries an OpenELIS topic" || ok_ "no OpenELIS topic comes down"
   usub="$(printf '%s\n' "$up" | grep -cE '^bahmni-test\.(odoo|clinlims)\.')"
-  [ "$usub" = 26 ] && ok_ "the up regex still carries every synced Odoo and OpenELIS topic (20 + 4 tables, 2 aggregates)" || bad "up regex carries $usub subsystem topics, want 26"
+  nsub=$(( $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | grep -cE '^(odoo|clinlims):') ))
+  [ "$usub" = "$nsub" ] && ok_ "the up regex still carries every synced Odoo and OpenELIS topic ($nsub: every table and the two aggregates)" || bad "up regex carries $usub subsystem topics, want $nsub"
   { cat "$R/sync/hub-down.conf"; echo odoo:stock_quant; } > "$C/sync/hub-down.conf"; mm
   [ "$mrc" != 0 ] && printf '%s' "$mout" | grep -q 'odoo:stock_quant is written at the clinics' && ok_ "a down list carrying stock_quant stops the MirrorMaker render" || bad "planted list at MirrorMaker: rc=$mrc $mout"
   cp "$R/sync/hub-down.conf" "$C/sync/hub-down.conf"
@@ -172,7 +176,7 @@ pubtables(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') fro
 seqinc(){ $PSQL -Atc "select increment_by from pg_sequences where sequencename = '$1_id_seq'"; }
 FL="$T/hub-floors.local"
 stride(){ sout="$(bash "$C/hub/scripts/stride-odoo.sh" --floors "$FL" -- $PSQL 2>&1)"; src=$?; }
-W8="product_template 40 product_product 40 product_category 40 uom_uom 40 res_country_state 1010 state_district 40 district_subdistrict 40 village_village 40"
+W8="product_template 40 product_product 40 product_category 40 uom_uom 40 res_country_state 1010 state_district 40 district_subdistrict 40 village_village 40 stock_location 40 stock_warehouse 40 stock_picking_type 40 stock_route 40 stock_rule 40 procurement_group 40 stock_lot 40 stock_warehouse_orderpoint 40 stock_picking 40 stock_move 40 stock_move_line 40"
 
 # a clinic's rows have reached this hub: no first recording, nothing strided
 $PSQL -q -v ON_ERROR_STOP=1 -c "SELECT pg_replication_origin_create('clinic_t_odoo'); SELECT pg_replication_origin_advance('clinic_t_odoo', '0/1000');" >/dev/null
@@ -184,7 +188,7 @@ $PSQL -q -c "SELECT pg_replication_origin_drop('clinic_t_odoo')" >/dev/null
 # the striding run records each restart value as it happens
 stride
 [ "$src" = 0 ] && [ "$(cat "$FL" 2>/dev/null | words)" = "$W8" ] && [ "$(seqinc product_template)" = 10 ] && [ "$(seqinc sale_order)" = 10 ] \
-  && ok_ "the striding run strides every synced table and records the eight down floors at their restart values (res_country_state from the master step)" || bad "first stride: rc=$src [$(cat "$FL" 2>/dev/null | words)] $sout"
+  && ok_ "the striding run strides every synced table and records a floor for every down table with an id at its restart value (res_country_state from the master step)" || bad "first stride: rc=$src [$(cat "$FL" 2>/dev/null | words)] $sout"
 # the hub issues ids, then the step runs again: strided forward, floors kept
 $PSQL -q -v ON_ERROR_STOP=1 -c "INSERT INTO product_product (name) VALUES ('hub 1'), ('hub 2')" >/dev/null
 stride
@@ -238,7 +242,7 @@ out="$(bash "$C/hub/scripts/apply-down-publication.sh" "$T/short" -- $PSQL 2>&1)
 out="$(bash "$C/hub/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 got="$(pubtables)"
 f(){ printf '%s:((id < %s) OR ((id %% 10) = 0))' "$1" "$2"; }
-want="$(printf '%s\n' dbz_heartbeat:- "$(f district_subdistrict 40)" "$(f product_category 40)" product_supplier_taxes_rel:- product_taxes_rel:- "$(f product_product 40)" "$(f product_template 40)" "$(f res_country_state 1010)" "$(f state_district 40)" stock_route_product:- "$(f uom_uom 40)" "$(f village_village 40)" | LC_ALL=C sort | words)"
+want="$( { printf '%s\n' dbz_heartbeat:- "$(f district_subdistrict 40)" "$(f product_category 40)" product_supplier_taxes_rel:- product_taxes_rel:- "$(f product_product 40)" "$(f product_template 40)" "$(f res_country_state 1010)" "$(f state_district 40)" stock_route_product:- "$(f uom_uom 40)" "$(f village_village 40)"; for t in $TRANSFER; do f "$t" 40; echo; done; } | LC_ALL=C sort | words)"
 [ "$rc" = 0 ] && [ "$got" = "$want" ] && ok_ "dbz_odoo_owned holds exactly the down list and the heartbeat, each table with an id filtered on its floor" || bad "publication: rc=$rc
     got  $got
     want $want
