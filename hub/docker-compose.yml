@@ -87,6 +87,13 @@ services:
     volumes:
       - ./connectors:/kafka/connect/connectors:ro
       - connect-data:/kafka/connect/data
+      # The OpenMRS source's row filter for lab results (hub/tables.conf
+      # `patient=` rows) is a Groovy Filter step, which needs these three jars
+      # inside the MySQL connector's plugin directory. They are the clinic's,
+      # fetched by clinic/config/kafka-connect/ext/fetch-scripting-jars.sh.
+      - '../clinic/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '../clinic/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '../clinic/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s

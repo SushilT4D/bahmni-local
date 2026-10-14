@@ -51,12 +51,32 @@ PREFIX_REGEX="^$(printf '%s' "$SRC_PREFIX" | sed 's/\./\\\\./g')(.*)\$"
 # newline is silently dropped — one table would lose its sink while the run still
 # reported success. The up-direction generator already guards this; this one did not.
 # ---------------------------------------------------------------------------
-TABLES=()
+TABLES=(); PATIENT_COLS=()
 while read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-    t="$(printf '%s' "$line" | awk '{print $1}' | cut -d: -f1)"
-    [[ -n "$t" ]] && TABLES+=("$t")
+    f="$(printf '%s' "$line" | awk '{print $1}')"
+    t="$(printf '%s' "$f" | cut -d: -f1)"
+    role="$(printf '%s' "$f" | cut -s -d: -f3)"
+    [[ -n "$t" ]] || continue
+    TABLES+=("$t")
+    case "$role" in patient=*) PATIENT_COLS+=("${role#patient=}") ;; *) PATIENT_COLS+=("") ;; esac
 done < "$TABLES_CONF"
+
+# A `patient=<column>` row carries the hub's rows for clinics' patients (lab
+# results entered at the hub). This clinic keeps only the rows whose patient
+# ends in its own residue, at or above the person base: another clinic's
+# patient and visit do not exist here. The residue comes from this clinic's
+# .env; without it nothing is generated.
+need_residue=no
+for c in "${PATIENT_COLS[@]}"; do [[ -n "$c" ]] && need_residue=yes; done
+RESIDUE_OWN=""; PERSON_BASE=""
+if [[ "$need_residue" == yes ]]; then
+    RESIDUE_OWN="${RESIDUE:-}"
+    [[ -n "$RESIDUE_OWN" ]] || { [[ -n "${MYSQL_AUTO_INCREMENT_OFFSET:-}" ]] && RESIDUE_OWN=$(( MYSQL_AUTO_INCREMENT_OFFSET % 10 )); }
+    [[ "$RESIDUE_OWN" =~ ^[1-9]$ ]] || { echo "this clinic's residue (RESIDUE, 1-9) is not set: the lab-result sinks keep only this clinic's patients and cannot be generated without it" >&2; exit 1; }
+    PERSON_BASE="$(grep -E '^[[:space:]]*person:person_id:[0-9]+' "$UP_TABLES_CONF" | head -1 | cut -d: -f3 | tr -cd '0-9')"
+    [[ -n "$PERSON_BASE" ]] || { echo "${UP_TABLES_CONF} gives no person base (person:person_id:<base>); the lab-result sinks need it" >&2; exit 1; }
+fi
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
@@ -101,9 +121,11 @@ fi
 
 mkdir -p "$OUT"
 count=0
-for TABLE in "${TABLES[@]}"; do
+for i in "${!TABLES[@]}"; do
+    TABLE="${TABLES[$i]}"
     TOPIC="${SRC_PREFIX}${TABLE}"
 
+    PATIENT_COL="${PATIENT_COLS[$i]}" RESIDUE_OWN="$RESIDUE_OWN" PERSON_BASE="$PERSON_BASE" \
     TEMPLATE="$TEMPLATE" TABLE="$TABLE" KAFKA_TOPICS="$TOPIC" \
     TOPIC_PREFIX_REGEX="$PREFIX_REGEX" \
     LOCAL_MYSQL_HOST="$LOCAL_MYSQL_HOST" LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT" \
@@ -126,6 +148,20 @@ if leftover:
     sys.exit(f"unsubstituted placeholder(s) in {leftover}")
 if doc['config'].get('transforms.dropPrefix.replacement') != '$1':
     sys.exit("RegexRouter replacement is not literal $1 — the shell expanded it")
+
+col = os.environ.get('PATIENT_COL', '')
+if col:
+    # this clinic's patients only; tombstones carry no row and are dropped, a
+    # delete still arrives as its own change event with the row in `before`
+    cfg = doc['config']; r = os.environ['RESIDUE_OWN']; base = os.environ['PERSON_BASE']
+    cfg['transforms'] = cfg['transforms'] + ',thisClinicsPatients'
+    cfg['transforms.thisClinicsPatients.type'] = 'io.debezium.transforms.Filter'
+    cfg['transforms.thisClinicsPatients.language'] = 'jsr223.groovy'
+    cfg['transforms.thisClinicsPatients.null.handling.mode'] = 'drop'
+    cfg['transforms.thisClinicsPatients.condition'] = (
+        "def r = value.get('after') != null ? value.get('after') : value.get('before'); "
+        f"r != null && r.get('{col}') instanceof Number && r.get('{col}').longValue() >= {base}L "
+        f"&& r.get('{col}').longValue() % 10 == {r}")
 
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 PYEOF

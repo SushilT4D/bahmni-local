@@ -263,6 +263,24 @@ down_tables(){
     printf '%s\n' "$name"
   done < "$conf"
 }
+# master_down_tables : the down tables that are master data -- every row of
+# hub/tables.conf except those marked `patient=<column>`. Those carry the hub's
+# rows for one clinic's patients (lab results), which differ on every node by
+# design, so they are never compared between a clinic and the hub.
+master_down_tables(){
+  local conf="${REPO_DIR}/hub/tables.conf" line name
+  [ -f "$conf" ] || fail "master_down_tables: no such file: $conf"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -n "$line" ] || continue
+    case "$line" in *:*:patient=*) continue ;; esac
+    name="${line%%:*}"
+    printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
+      || fail "hub/tables.conf: bad table name '${name}' (row: ${line})"
+    printf '%s\n' "$name"
+  done < "$conf"
+}
 # sink_grant_sql : one GRANT per down table for the clinic's sink database
 # user: what a JDBC upsert sink with deletes enabled needs, on that table only.
 sink_grant_sql(){

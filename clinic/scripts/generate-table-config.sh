@@ -99,7 +99,10 @@ else
     # One file, two correct answers. Before this field existed there was no way to
     # say that, so adding person/person_name made the cloud source generator
     # refuse outright and the two branches drifted to different answers.
-    if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+))?$ ]]; then
+    # The other role is `patient=<column>`: a table the clinics write, of which
+    # the hub publishes only its own rows for a clinic's patient (lab results);
+    # the hub's source connector filters those rows (hub/tables.conf).
+    if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+|patient=[a-z_][a-z0-9_]*))?$ ]]; then
       table="${BASH_REMATCH[1]}"
       pk="${BASH_REMATCH[2]}"
       role="${BASH_REMATCH[4]:-}"

@@ -36,7 +36,8 @@ got="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]
 [ "$rc" -eq 0 ] && [ "$got" = "$inc" ] && ok_ "the hub's source connector renders with both tables in table.include.list" || bad "hub source render: rc=$rc got=${got} out=${out}"
 
 # --- the clinic's down sinks -------------------------------------------------------
-out="$(LOCAL_MYSQL_PASSWORD=x bash "$C/clinic/scripts/generate-local-sink-connectors.sh" "$TMP/sinks" 2>&1)"; rc=$?
+# RESIDUE: a clinic's .env always carries it (task 020); the lab-result sinks need it
+out="$(LOCAL_MYSQL_PASSWORD=x RESIDUE=3 bash "$C/clinic/scripts/generate-local-sink-connectors.sh" "$TMP/sinks" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMP/sinks/mysql-local-sink-form.json" ] && [ -f "$TMP/sinks/mysql-local-sink-form_resource.json" ] \
   && ok_ "the clinic gets one down sink per form table" || bad "down sinks: rc=$rc out=$out; $(ls "$TMP/sinks" 2>/dev/null | tr '\n' ' ')"
 for t in form form_resource; do

@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || fail "bad database name: $DB"
 
-tables="$(down_tables)" || fail "could not read hub/tables.conf"
+tables="$(master_down_tables)" || fail "could not read hub/tables.conf"
 if [ "$RESEED" = 1 ]; then
   V="${REPO_DIR}/hub/table-verdicts.conf"
   [ -f "$V" ] || fail "no ${V}"

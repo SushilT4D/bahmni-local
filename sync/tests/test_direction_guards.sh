@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Each direction's capture list keeps out the tables the other side writes.
-#   - The hub's source never publishes obs, orders or drug_order: clinics write
-#     them and the hub receives them through its up sinks. The generator refuses
-#     any of them in hub/tables.conf, by name, whether or not the clinic's own
-#     list carries it yet.
+#   - The hub's source never publishes orders or drug_order, nor obs except its
+#     own lab-result rows for a clinic's patient (hub/tables.conf, patient=):
+#     clinics write them and the hub receives them through its up sinks. The
+#     generator refuses an unmarked row for any of them, by name, whether or
+#     not the clinic's own list carries it yet.
 #   - A clinic never captures users, user_property (written at the hub) or
 #     global_property (each node's own configuration): every reader of
 #     sync/local/tables.conf refuses them, so the source connector cannot list them.
@@ -24,9 +25,16 @@ cp "$R/hub/tables.conf" "$C/hub/tables.conf"
 out="$(hub_src)"; rc=$?
 inc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$TMP/src.json" 2>/dev/null)"
 [ "$rc" -eq 0 ] && ok_ "the hub's source renders from hub/tables.conf" || bad "hub source: rc=$rc $out"
-for t in obs orders drug_order; do
+for t in orders drug_order; do
   case ",${inc}," in *",openmrs.${t},"*) bad "the hub publishes ${t}: ${inc}" ;; *) ok_ "the hub does not publish ${t}" ;; esac
 done
+# obs goes down only as the hub's own lab-result rows for a clinic's patient:
+# captured only together with its row filter
+case ",${inc}," in *",openmrs.obs,"*)
+  python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(0 if "hubRowsForClinicPatients_obs" in c.get("transforms","").split(",") and "% 10 == 0" in c.get("transforms.hubRowsForClinicPatients_obs.condition","") else 1)' "$TMP/src.json" \
+    && ok_ "the hub publishes obs only through the filter that passes its own rows for a clinic's patient" || bad "the hub publishes obs without its row filter" ;;
+  *) ok_ "the hub does not publish obs" ;;
+esac
 up="$(bash "$C/clinic/scripts/generate-table-config.sh" local 2>&1 | sed -n 's/^TABLE_INCLUDE_LIST=//p')"
 [ -n "$up" ] && ok_ "the clinic's include list renders" || bad "clinic include list empty"
 for t in users user_property global_property; do

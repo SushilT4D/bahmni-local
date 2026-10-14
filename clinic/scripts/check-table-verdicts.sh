@@ -46,7 +46,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# hub/tables.conf: table:pk[,pk2...][:relay]
+# hub/tables.conf: table:pk[,pk2...][:relay|:patient=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -56,6 +56,10 @@ while IFS= read -r line || [ -n "$line" ]; do
   v="$(verdict_of "$t")"; n=$((n+1))
   if [ -z "$v" ]; then bad "hub/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf"
   elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "hub/tables.conf marks ${t} relay, but its verdict is ${v}"
+  elif case "$role" in patient=*) true ;; *) false ;; esac; then
+    # a clinic's table; the hub sends down only its own rows for that clinic's patients
+    [ "$v" = UP ] || bad "hub/tables.conf marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic's patients"
+    printf '%s' "${role#patient=}" | grep -qE '^[a-z_][a-z0-9_]*$' || bad "hub/tables.conf: ${t} names a bad patient column '${role#patient=}'"
   elif [ -n "$role" ]; then bad "hub/tables.conf: ${t} has an unknown role '${role}'"
   else [ "$v" = DOWN ] || bad "hub/tables.conf lists ${t} for a down sink, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   fi
