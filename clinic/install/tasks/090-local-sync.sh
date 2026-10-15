@@ -73,8 +73,8 @@ bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 # on its residue; deletes dropped). It claims replication origin hub_2 (the Odoo
 # down sink holds hub_1; an origin is held by one session at a time), so this
 # clinic's OpenELIS source, which decodes with origin=none, never sends those
-# rows back up. Without this clinic's OpenELIS floors the filter cannot be
-# written and the OpenELIS down sink is not registered: said, not guessed.
+# rows back up. The floors are recorded by task 060 before it strides; without
+# them (or the residue) the filter cannot be written and this task stops.
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
 # clinlims-down:begin
 # The filter script prints only the condition when it succeeds, and only the
@@ -83,7 +83,7 @@ if cond="$(SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/cl
   CLINLIMS_DOWN_CONDITION="$cond" NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh clinlims-clinic-sink-all >/dev/null
   ok "OpenELIS down sink registered: keeps the hub's result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
 else
-  warn "OpenELIS down sink NOT registered: $(printf '%s\n' "$cond" | sed 's/^clinlims-down-filter: //' | tail -1)"
+  fail "the OpenELIS down sink cannot be registered, so lab results entered at the hub would never reach this clinic's OpenELIS: $(printf '%s\n' "$cond" | sed 's/^clinlims-down-filter: //' | tail -1)"
 fi
 # clinlims-down:end
 # after register-odoo.sh, not before: the heartbeat script patches the two PG

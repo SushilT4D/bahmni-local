@@ -10,7 +10,12 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "60 · striding + replication origins (residue ${RESIDUE})"
-[ "${DRY}" = 1 ] && { info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"; exit 0; }
+if [ "${DRY}" = 1 ]; then
+  . "${INSTALL_DIR}/state.sh"
+  ft="$(clinlims_floor_tables 2>&1)" || ft="<the down list could not be read: ${ft}>"
+  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"
+  exit 0
+fi
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"; PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
@@ -68,6 +73,18 @@ v="$(order_seed_verdict "${seed_now#v=}" "${RESIDUE}")" || fail "$v"
 ok "${v#ok }"
 # order-seed:end
 
+# clinlims-floors:begin
+# Before the OpenELIS sequences are strided: where this clinic's own ids of
+# each table the hub's OpenELIS down rows are routed by begin (state.sh
+# record_clinlims_floors), read from the sequence as it stands, recorded once.
+# The OpenELIS down filter (scripts/clinlims-down-filter.sh, task 090) reads
+# them from .install-state.
+elis_seq(){ clinlims_seq_sql "$1" | ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -At; }
+v="$(record_clinlims_floors elis_seq)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
+# clinlims-floors:end
 ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$
 DECLARE r record; lv bigint; ns bigint; res int := ${RESIDUE}; n int := 0;

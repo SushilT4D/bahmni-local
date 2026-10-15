@@ -516,3 +516,70 @@ node_fk_verdict(){
   rows="$("$3")" && [ -n "$rows" ] || { printf 'could not read this clinic'"'"'s foreign keys from MySQL; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1; }
   provenance_fk_verdict "$2" "$rows"
 }
+
+# --- OpenELIS floors: where this clinic's own ids of a routed down table begin --
+# The hub sends every clinic the OpenELIS rows its lab users wrote
+# (sync/hub-down.conf); each clinic keeps a row only when its routing column
+# names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh).
+# Every id of a table the seed restored is the hub's, on any residue; this
+# clinic's own ids start where the striding step restarts that table's
+# sequence. So the floor of each table a routed row points at is recorded from
+# the sequence BEFORE the stride, as the striding step computes its restart:
+#     floor = (last_value / 10 + 1) * 10
+# and the first id this clinic mints is floor + residue. It is written once,
+# as CLINLIMS_FLOOR_<TABLE> in .install-state: a re-run after the clinic has
+# minted ids reads a higher last_value, and a floor moved up would drop this
+# clinic's earlier rows, so an existing value is kept.
+
+# clinlims_floor_tables : the tables whose floor a routed OpenELIS down row is
+# compared with (sync/hub-down.sh --routes clinlims, third field), once each.
+clinlims_floor_tables(){
+  local r
+  r="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || return 1
+  printf '%s\n' "$r" | awk 'NF == 3 && !seen[$3]++ { print $3 }'
+}
+clinlims_floor_key(){ printf 'CLINLIMS_FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
+# clinlims_seq_sql TABLE : psql input printing one line "<sequence>|<last_value>"
+# for TABLE's id sequence: the column's own (pg_get_serial_sequence), else the
+# clinlims.<table>_seq OpenELIS assigns ids from; no line when neither exists.
+# last_value is read from the sequence itself, as the striding step reads it
+# (pg_sequences shows NULL for a sequence whose value was set but not yet used).
+clinlims_seq_sql(){
+  printf "with s as (select coalesce(case when to_regclass('clinlims.%s') is not null then pg_get_serial_sequence('clinlims.%s', 'id') end, (select quote_ident(schemaname) || '.' || quote_ident(sequencename) from pg_sequences where schemaname = 'clinlims' and sequencename = '%s_seq')) as n) select format('select %%L || ''|'' || last_value::text from %%s', n, n) from s where n is not null \\gexec\n" "$1" "$1" "$1"
+}
+# clinlims_floor_plan TABLE RECORDED READ : what the striding step does with
+# TABLE's floor. RECORDED is the value already in .install-state (empty: none);
+# READ is clinlims_seq_sql's answer. Prints "keep FLOOR" or "set FLOOR", or the
+# refusal (status 1).
+clinlims_floor_plan(){
+  local t="$1" rec="$2" read="$3" seq lv
+  if [ -n "$rec" ]; then
+    case "$rec" in *[!0-9]*|0*) printf '.install-state has %s=%s, not a whole number above 0; it is never rewritten, so call the operator.\n' "$(clinlims_floor_key "$t")" "$rec"; return 1 ;; esac
+    [ $(( rec % 10 )) = 0 ] || { printf '.install-state has %s=%s, not a multiple of 10; it is never rewritten, so call the operator.\n' "$(clinlims_floor_key "$t")" "$rec"; return 1; }
+    printf 'keep %s\n' "$rec"; return 0
+  fi
+  case "$read" in
+    *'|'*) seq="${read%%|*}"; lv="${read#*|}" ;;
+    *) printf 'no id sequence found for clinlims.%s (neither its id column'"'"'s own nor clinlims.%s_seq), so where this clinic'"'"'s %s ids begin cannot be recorded and lab results entered at the hub could not be kept here. Nothing was strided; call the operator.\n' "$t" "$t" "$t"; return 1 ;;
+  esac
+  case "$lv" in '') lv=0 ;; *[!0-9]*) printf 'the last value of %s reads '"'"'%s'"'"', not a number; nothing was strided.\n' "$seq" "$lv"; return 1 ;; esac
+  printf 'set %s\n' $(( (lv / 10 + 1) * 10 ))
+}
+# record_clinlims_floors READER : for each floor table, keeps a recorded floor
+# or records one from READER TABLE (a command printing clinlims_seq_sql's
+# answer from the clinic's OpenELIS database, read before the stride). Prints
+# "ok <KEY>=<floor> (recorded|kept)" per table; on the first refusal prints it
+# and returns 1, having recorded nothing for that table or any after it.
+record_clinlims_floors(){
+  local reader="$1" tables t key rec got plan
+  tables="$(clinlims_floor_tables)" || { printf 'the hub'"'"'s down list could not be read (reason above), so the OpenELIS floors could not be recorded; nothing was strided.\n'; return 1; }
+  for t in $tables; do
+    key="$(clinlims_floor_key "$t")"; rec="$(stamp_get "$key")"; got=""
+    if [ -z "$rec" ]; then got="$("$reader" "$t")" || { printf 'could not read the id sequence of clinlims.%s; the database is not answering. Nothing was strided; run the same command again.\n' "$t"; return 1; }; fi
+    plan="$(clinlims_floor_plan "$t" "$rec" "$(printf '%s\n' "$got" | grep . | tail -1)")" || { printf '%s\n' "$plan"; return 1; }
+    case "$plan" in
+      keep*) printf 'ok %s=%s (kept: recorded before, never moved)\n' "$key" "${plan#keep }" ;;
+      set*) stamp_put "$key" "${plan#set }"; printf 'ok %s=%s (recorded from the sequence before the stride)\n' "$key" "${plan#set }" ;;
+    esac
+  done
+}

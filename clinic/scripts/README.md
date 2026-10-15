@@ -82,8 +82,9 @@ routing column (a result's `analysis_id`, an analysis's or a sample's `id`) is
 at or above this clinic's floor for the table that column names and on its
 residue, and drops deletes and tombstones. The residue is `RESIDUE`; each floor
 is `CLINLIMS_FLOOR_<TABLE>` (environment, `.env`, `SEED_MANIFEST` or
-`.install-state`). Without the residue or a floor it prints nothing and names
-what is missing, and the installer then registers no OpenELIS down sink. The
+`.install-state`), which installer task 060 records once, from each sequence
+before it strides. Without the residue or a floor it prints nothing and names
+what is missing, and the installer stops. The
 sink claims replication origin `hub_2` so this clinic's OpenELIS source never
 sends those rows back up.
 
