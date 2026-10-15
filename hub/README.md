@@ -126,7 +126,8 @@ on loopback only; reach them over an SSH tunnel.
   registers the Odoo source, `odoo-cloud-source`, filling its table list and
   aggregate regex from `sync/hub-down.conf`. There is no OpenELIS down source.
 - Up direction, one set per clinic listed in `clinics.conf` (the sinks for
-  `obs`, `orders` and `drug_order` only for a row ending in `:clinical`, a
+  `obs`, `orders`, `drug_order` and `test_order` only for a row ending in
+  `:clinical`, a
   clinic installed with `CLINICAL_UP_SYNC=test`):
   `scripts/generate-sink-connectors.sh <slug>` then
   `scripts/register-all-sink-connectors.sh` for the MySQL sinks, and
@@ -137,7 +138,7 @@ Rendered connector files hold passwords and are gitignored.
 ## Checks
 
 - `scripts/check-clinical-fks.sh --container <hub mysql>` reads the foreign
-  keys on `obs`, `orders` and `drug_order` (read-only). Any FK out of those
+  keys on `obs`, `orders`, `drug_order` and `test_order` (read-only). Any FK out of those
   tables fails it: the up sinks write each table in arrival order, and an FK
   out would stop a sink whenever a clinic's row arrives before its parent.
   The FKs into them are compared with `clinical-fks-in.conf`, and a difference

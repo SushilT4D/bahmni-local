@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # hub/scripts/check-clinical-fks.sh on fixture query output, and (with docker
 # and the pinned MySQL image) on a throwaway server:
-#   - no FK out of obs, orders, drug_order and the recorded FKs into them: passes;
-#   - one FK out of any of the three: fails, naming it;
+#   - no FK out of obs, orders, drug_order, test_order and the recorded FKs into
+#     them: passes;
+#   - one FK out of any of the four: fails, naming it;
 #   - an FK into them that is not recorded, or a recorded one gone: reported
 #     (status 2), named;
-#   - a schema without the three tables: fails, never "no FK found".
+#   - a schema without all four tables: fails, never "no FK found".
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 S="$R/hub/scripts/check-clinical-fks.sh"
@@ -22,14 +23,14 @@ awk -v T="$T" '{ sub(/#.*/, "") } NF == 4 { print $1 T $2 T $3 T $4 T $1 "_fk" }
 check(){ # FIXTURE-FILE : runs the check; output in $TMP/out, status in $TMP/rc
   bash "$S" --from "$1" > "$TMP/out" 2>&1; echo $? > "$TMP/rc"
 }
-schema="schema${T}3"
+schema="schema${T}4"
 
 { cat "$TMP/in.tsv"; echo "$schema"; } > "$TMP/clean"
 check "$TMP/clean"
-[ "$(cat "$TMP/rc")" = 0 ] && [ "$(grep -c '^ok   .*: no foreign key out' "$TMP/out")" = 3 ] && grep -q '^ok   11 foreign key(s) into' "$TMP/out" \
-  && ok_ "0 / 0 / 0 out and the 11 recorded in: passes" || bad "clean: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
+[ "$(cat "$TMP/rc")" = 0 ] && [ "$(grep -c '^ok   .*: no foreign key out' "$TMP/out")" = 4 ] && grep -q '^ok   11 foreign key(s) into' "$TMP/out" \
+  && ok_ "0 / 0 / 0 / 0 out and the 11 recorded in: passes" || bad "clean: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
 
-for t in obs orders drug_order; do
+for t in obs orders drug_order test_order; do
   { cat "$TMP/in.tsv"; printf '%s\tencounter_id\tencounter\tencounter_id\t%s_encounter_fk\n' "$t" "$t"; echo "$schema"; } > "$TMP/out_$t"
   check "$TMP/out_$t"
   [ "$(cat "$TMP/rc")" = 1 ] && grep -q "^FAIL ${t} has 1 foreign key(s) out of it" "$TMP/out" && grep -q "${t}.encounter_id -> encounter.encounter_id (${t}_encounter_fk)" "$TMP/out" \
@@ -50,7 +51,15 @@ check "$TMP/gone"
 check "$TMP/both"
 [ "$(cat "$TMP/rc")" = 1 ] && grep -q 'CHANGED' "$TMP/out" && ok_ "an FK out and a change in: the FK out decides the status (1), the change is still named" || bad "both: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
 cat "$TMP/in.tsv" > "$TMP/noschema"; check "$TMP/noschema"
-[ "$(cat "$TMP/rc")" = 1 ] && grep -q 'does not hold obs, orders and drug_order' "$TMP/out" && ok_ "a schema without the three tables: fails, nothing checked" || bad "no schema: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
+[ "$(cat "$TMP/rc")" = 1 ] && grep -q 'does not hold all 4 of obs, orders, drug_order, test_order' "$TMP/out" && ok_ "a schema without the four tables: fails, nothing checked" || bad "no schema: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
+{ cat "$TMP/in.tsv"; printf 'schema\t3\n'; } > "$TMP/three"; check "$TMP/three"
+[ "$(cat "$TMP/rc")" = 1 ] && grep -q '(found 3); nothing was checked' "$TMP/out" && ok_ "a schema holding three of the four tables: fails, nothing checked" || bad "three tables: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
+{ cat "$TMP/in.tsv"; printf 'test_order\tconcept_id\tconcept\tconcept_id\ttest_order_concept_fk\n'; echo "$schema"; } > "$TMP/to"
+check "$TMP/to"
+[ "$(cat "$TMP/rc")" = 1 ] && grep -q '^FAIL test_order has 1 foreign key(s) out of it' "$TMP/out" && ok_ "an FK out of test_order to a non-clinical table: fails, named" || bad "test_order FK out: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
+{ cat "$TMP/in.tsv"; printf 'lab_result_note\torder_id\ttest_order\torder_id\tlrn_fk\n'; echo "$schema"; } > "$TMP/toin"
+check "$TMP/toin"
+[ "$(cat "$TMP/rc")" = 2 ] && grep -q '+ lab_result_note.order_id -> test_order.order_id' "$TMP/out" && ok_ "an FK into test_order that is not recorded: reported (status 2), named" || bad "FK into test_order: rc=$(cat "$TMP/rc") $(cat "$TMP/out")"
 bash "$S" > "$TMP/out" 2>&1; [ $? = 1 ] && ok_ "neither --container nor --from: refused" || bad "no source: $(cat "$TMP/out")"
 
 # --- the same query on a real server -------------------------------------------
@@ -77,6 +86,7 @@ CREATE TABLE encounter (encounter_id INT PRIMARY KEY);
 CREATE TABLE obs (obs_id INT PRIMARY KEY, encounter_id INT);
 CREATE TABLE orders (order_id INT PRIMARY KEY);
 CREATE TABLE drug_order (order_id INT PRIMARY KEY);
+CREATE TABLE test_order (order_id INT PRIMARY KEY);
 CREATE TABLE ipd_slot (id INT PRIMARY KEY, order_id INT, CONSTRAINT ipd_slot_order_fk FOREIGN KEY (order_id) REFERENCES orders (order_id));
 SQL
     printf 'ipd_slot order_id orders order_id\n' > "$TMP/one.conf"

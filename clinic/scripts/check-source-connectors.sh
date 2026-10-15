@@ -73,8 +73,8 @@ fi
 
 
 
-# Capture filter: the steps that keep the clinic's own rows of obs, orders and
-# drug_order, read back from the registered connector (sync/origin-filter.sh).
+# Capture filter: the steps that keep the clinic's own rows of obs, orders,
+# drug_order and test_order, read back from the registered connector (sync/origin-filter.sh).
 # Its residue is checked against the running MySQL's auto_increment_offset
 # (MYSQL_OFFSET overrides the read) and its floors against SEED_MANIFEST, or
 # else the floors the seed recorded on this machine (.install-state).

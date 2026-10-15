@@ -188,8 +188,8 @@ while read -r table pk kind floor_arg; do
       dim "Sync-only (no PK offset): ${table}"
       continue ;;
     floor)
-      # Its key is the other table's key (drug_order.order_id is an
-      # orders.order_id): there is no counter here to move.
+      # Its key is the other table's key (drug_order.order_id and
+      # test_order.order_id are an orders.order_id): there is no counter here to move.
       dim "Shares ${floor_arg}'s key (no PK offset of its own): ${table}"
       continue ;;
     seed)

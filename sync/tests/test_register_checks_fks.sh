@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hub/scripts/register-all-sink-connectors.sh runs check-clinical-fks.sh before
-# it registers any sink for obs, orders or drug_order, and registers nothing
+# it registers any sink for obs, orders, drug_order or test_order, and registers nothing
 # when a foreign key points out of one of them. Kafka Connect and the hub's
 # MySQL are stood in for.
 set -u
@@ -18,7 +18,7 @@ awk '{ sub(/#.*/, "") } NF == 4 { printf "%s\t%s\t%s\t%s\t%s_fk\n", $1, $2, $3, 
 cat > "$TMP/bin/docker" <<SH
 #!/bin/sh
 [ "\$1" = ps ] && exit 0
-cat >/dev/null; cat "$TMP/fks"; printf 'schema\t3\n'
+cat >/dev/null; cat "$TMP/fks"; printf 'schema\t4\n'
 SH
 cat > "$TMP/bin/curl" <<SH
 #!/bin/sh

@@ -108,8 +108,8 @@ seed_floor_tables(){
 # its first consultation. With the counter the dump restored, those ids fall
 # below the floor, among ids the hub's own rows use, so once the tables are
 # synced the hub could not tell the clinic's rows from its own, and a row
-# could carry an id the hub already has. drug_order's key is orders.order_id,
-# so it has no counter of its own.
+# could carry an id the hub already has. drug_order's and test_order's key is
+# orders.order_id, so neither has a counter of its own.
 SEED_COUNTER_TABLES="obs orders"
 
 floor_key(){ printf 'FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
@@ -474,7 +474,7 @@ lines_not_in(){
 
 # provenance_fk_verdict RECORD CLINIC_FK_ROWS : this clinic's foreign keys
 # against the hub's, as the seed's provenance record holds them; the hub is the
-# reference. A key out of obs, orders or drug_order is refused whatever the
+# reference. A key out of obs, orders, drug_order or test_order is refused whatever the
 # hub has: the hub's up sinks write those tables in arrival order, and a key
 # out of one would stop its sink whenever a row arrives before its parent.
 # Otherwise the two sets (table, column, referenced table and column; the
@@ -483,7 +483,7 @@ lines_not_in(){
 # The first table that differs is named, with what differs.
 provenance_fk_verdict(){
   local rec="$1" rows="$2" out hub mine t plus minus n
-  out="$(printf '%s\n' "$rows" | awk -F'\t' 'NF >= 4 && ($1=="obs" || $1=="orders" || $1=="drug_order") {print $1 "." $2 " -> " $3 "." $4}' | head -3)"
+  out="$(printf '%s\n' "$rows" | awk -F'\t' 'NF >= 4 && ($1=="obs" || $1=="orders" || $1=="drug_order" || $1=="test_order") {print $1 "." $2 " -> " $3 "." $4}' | head -3)"
   if [ -n "$out" ]; then
     printf 'this clinic has a foreign key out of a clinical table (%s): the hub would stop taking that table whenever a row arrived before its parent. The schema change that added it must not run at a clinic; call the operator.\n' "$(printf '%s' "$out" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
     return 1
@@ -500,7 +500,7 @@ provenance_fk_verdict(){
     return 1
   fi
   n="$(printf '%s\n' "$mine" | grep -c . || true)"
-  printf 'ok %s foreign keys, the same as the hub'"'"'s when the seed was cut; none out of obs, orders or drug_order\n' "$n"
+  printf 'ok %s foreign keys, the same as the hub'"'"'s when the seed was cut; none out of obs, orders, drug_order or test_order\n' "$n"
 }
 
 # node_fk_verdict STATE RECORD READER : provenance_fk_verdict on a machine in

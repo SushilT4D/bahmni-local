@@ -19,7 +19,7 @@ copy(){ # fresh copy of the three files under $TMP/r
 }
 check(){ bash "$S" "$TMP/r" 2>&1; }
 copy_unclinical(){ # copy, with the clinical lines taken out of the capture list, so a case can add its own
-  copy; grep -vE '^(obs|orders|drug_order):' "$TMP/r/sync/local/tables.conf" > "$TMP/r/t"; mv "$TMP/r/t" "$TMP/r/sync/local/tables.conf"
+  copy; grep -vE '^(obs|orders|drug_order|test_order):' "$TMP/r/sync/local/tables.conf" > "$TMP/r/t"; mv "$TMP/r/t" "$TMP/r/sync/local/tables.conf"
 }
 
 # --- the repo as it stands ----------------------------------------------------------

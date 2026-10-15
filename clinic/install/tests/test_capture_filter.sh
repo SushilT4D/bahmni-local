@@ -25,10 +25,11 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/clinic"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/sync" "$C/"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
-TODAY="$(grep -E '^[a-z_]+:' "$RP/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order):')"
+TODAY="$(grep -E '^[a-z_]+:' "$RP/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order|test_order):')"
 CLINICAL='obs:obs_id:seed
 orders:order_id:seed
-drug_order:order_id:floor=orders'
+drug_order:order_id:floor=orders
+test_order:order_id:floor=orders'
 OUT="$C/clinic/connectors/mysql-local-source-connector.json"
 
 # render LIST ENV_LINES [MANIFEST] : runs the generator; its status in $TMP/rc, its output in $TMP/out
@@ -43,14 +44,14 @@ cfg(){ python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; pr
 rm -rf "$C/clinic/connectors"; render "$TODAY" 'RESIDUE=3'
 [ "$(cat "$TMP/rc")" = 0 ] && [ -z "$(cfg transforms)" ] && [ -z "$(cfg predicates)" ] && ok_ "today's list: no transform, no predicate" || bad "today's list: rc=$(cat "$TMP/rc") transforms='$(cfg transforms)' $(tail -2 "$TMP/out")"
 
-# --- the three clinical tables: one step each, on its own topic ---------------
+# --- the four clinical tables: one step each, on its own topic ---------------
 rm -rf "$C/clinic/connectors"; render "$TODAY
 $CLINICAL" 'RESIDUE=3
 MYSQL_AUTO_INCREMENT_OFFSET=3'
 [ "$(cat "$TMP/rc")" = 0 ] || bad "the generator refused the clinical list: $(tail -3 "$TMP/out")"
-[ "$(cfg transforms)" = 'origin_obs,origin_orders,origin_drug_order' ] && ok_ "a filter step for obs, orders and drug_order, and none for another table" || bad "transforms: '$(cfg transforms)'"
-[ "$(cfg predicates)" = 'topic_obs,topic_orders,topic_drug_order' ] && ok_ "each step has its own topic test" || bad "predicates: '$(cfg predicates)'"
-for t in obs orders drug_order; do
+[ "$(cfg transforms)" = 'origin_obs,origin_orders,origin_drug_order,origin_test_order' ] && ok_ "a filter step for obs, orders, drug_order and test_order, and none for another table" || bad "transforms: '$(cfg transforms)'"
+[ "$(cfg predicates)" = 'topic_obs,topic_orders,topic_drug_order,topic_test_order' ] && ok_ "each step has its own topic test" || bad "predicates: '$(cfg predicates)'"
+for t in obs orders drug_order test_order; do
   [ "$(cfg "transforms.origin_${t}.type")" = io.debezium.transforms.Filter ] && [ "$(cfg "transforms.origin_${t}.language")" = jsr223.groovy ] \
     && ok_ "${t}: Debezium's Filter step, in Groovy" || bad "${t}: type '$(cfg "transforms.origin_${t}.type")' language '$(cfg "transforms.origin_${t}.language")'"
   [ "$(cfg "transforms.origin_${t}.null.handling.mode")" = evaluate ] && ok_ "${t}: tombstones are judged by the condition, not passed" || bad "${t}: null.handling.mode '$(cfg "transforms.origin_${t}.null.handling.mode")'"
@@ -60,6 +61,7 @@ for t in obs orders drug_order; do
   case "$(cfg "transforms.origin_${t}.condition")" in *value*) bad "${t}: the condition reads the record value, which a tombstone lacks" ;; *) ok_ "${t}: the condition reads the record key only" ;; esac
 done
 case "$(cfg transforms.origin_drug_order.condition)" in *"key.get('order_id')"*'>= 300000L'*'% 10 == 3') ok_ "drug_order: its order_id at or above the orders floor 300000, residue 3" ;; *) bad "drug_order condition: $(cfg transforms.origin_drug_order.condition)" ;; esac
+case "$(cfg transforms.origin_test_order.condition)" in *"key.get('order_id')"*'>= 300000L'*'% 10 == 3') ok_ "test_order: its order_id at or above the orders floor 300000, residue 3" ;; *) bad "test_order condition: $(cfg transforms.origin_test_order.condition)" ;; esac
 case "$(cfg transforms.origin_obs.condition)" in *"key.get('obs_id')"*'>= 5000000L'*'% 10 == 3') ok_ "obs: its obs_id at or above the obs floor 5000000, residue 3" ;; *) bad "obs condition: $(cfg transforms.origin_obs.condition)" ;; esac
 python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; [print("%s\t%s" % (k, v)) for k, v in c.items()]' "$OUT" > "$TMP/config.tsv"
 good="$(cat "$OUT")"

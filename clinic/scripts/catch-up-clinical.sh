@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Send up the rows of obs, orders and drug_order this clinic wrote before the
+# Send up the rows of obs, orders, drug_order and test_order this clinic wrote before the
 # source connector captured those tables, or that the hub lost (an outage
 # longer than the hub keeps changes).
 #
@@ -10,7 +10,7 @@
 # (openmrs.debezium_signal), limited to the rows this clinic owns:
 #     <key> >= <floor> AND <key> % 10 = <residue>
 # the same test the capture filter applies, so no hub row and no other
-# clinic's row is read. drug_order reads the orders floor. The hub's sinks
+# clinic's row is read. drug_order and test_order read the orders floor. The hub's sinks
 # upsert on the key, so sending a row the hub already has changes nothing, and
 # running this twice is harmless.
 #
@@ -82,7 +82,7 @@ FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
 . "${REPO_ROOT}/sync/local/tables-conf.sh"
 v="$(up_clinical_mode_verdict "${CLINICAL_UP_SYNC:-off}")" || die "$v"
 if [ "${v#ok }" != test ]; then
-  echo "catch-up: CLINICAL_UP_SYNC is off at this clinic: obs, orders and drug_order stay here, so there is nothing to send up."
+  echo "catch-up: CLINICAL_UP_SYNC is off at this clinic: obs, orders, drug_order and test_order stay here, so there is nothing to send up."
   exit 0
 fi
 recs="$(up_tables_for_clinic "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"

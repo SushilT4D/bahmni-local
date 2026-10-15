@@ -70,8 +70,9 @@ ENVIRONMENT_KEYS = {
 _PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
 
 # The clinical tables and the key each sink upserts on: the strided integer PK
-# the clinic's record key carries. drug_order's key is orders.order_id.
-CLINICAL_KEYS = {"obs": "obs_id", "orders": "order_id", "drug_order": "order_id"}
+# the clinic's record key carries. drug_order's and test_order's key is
+# orders.order_id.
+CLINICAL_KEYS = {"obs": "obs_id", "orders": "order_id", "drug_order": "order_id", "test_order": "order_id"}
 # known-good.json describes the default profile; under the clinical profile
 # these keys must be absent rather than equal to it.
 CLINICAL_ABSENT = ("auto.create", "auto.evolve")

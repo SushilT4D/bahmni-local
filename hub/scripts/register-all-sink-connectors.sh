@@ -20,7 +20,7 @@ if [ ${#connector_files[@]} -eq 0 ] || [ ! -f "${connector_files[0]}" ]; then
     exit 1
 fi
 
-# Up sinks for obs, orders or drug_order write each table in arrival order, so a
+# Up sinks for obs, orders, drug_order or test_order write each table in arrival order, so a
 # clinic's row can land before its parent. That is safe only while no foreign
 # key points out of those tables on the hub: one would stop the sink at every
 # early arrival. Before any of them is registered, check-clinical-fks.sh reads
@@ -30,12 +30,12 @@ fi
 clinical_sinks=""
 for config_file in "${connector_files[@]}"; do
     t="$(jq -r '.config.topics // empty' "${config_file}" 2>/dev/null)"
-    case "${t##*.}" in obs|orders|drug_order) clinical_sinks="${clinical_sinks} $(basename "${config_file}" .json)" ;; esac
+    case "${t##*.}" in obs|orders|drug_order|test_order) clinical_sinks="${clinical_sinks} $(basename "${config_file}" .json)" ;; esac
 done
 if [ -n "${clinical_sinks}" ]; then
     echo "Clinical sinks to register:${clinical_sinks}"
     if [ -z "${HUB_MYSQL_CONTAINER:-}" ]; then
-        echo "Error: set HUB_MYSQL_CONTAINER to the hub's OpenMRS MySQL container, so the foreign keys on obs, orders and drug_order are checked before their sinks are registered. Nothing was registered."
+        echo "Error: set HUB_MYSQL_CONTAINER to the hub's OpenMRS MySQL container, so the foreign keys on obs, orders, drug_order and test_order are checked before their sinks are registered. Nothing was registered."
         exit 1
     fi
     fk_rc=0

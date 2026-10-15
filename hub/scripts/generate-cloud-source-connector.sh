@@ -101,10 +101,10 @@ with open(os.path.join(root, 'hub', 'tables.conf')) as fh:
                          f"({parts[0]}:<key>:clinic={ROUTE[parts[0]]}), on a single-column key")
             routed[parts[0]] = (parts[1], col)
 
-# Orders and drug orders are written at the clinics only. obs is published only
+# Orders and their drug and test details are written at the clinics only. obs is published only
 # through its clinic= row above: an unmarked obs row, even beside it, is refused.
-never = sorted(({'orders', 'drug_order'} & {t.split('.')[-1] for t in inc.split(',')})
-               | ({'obs', 'orders', 'drug_order'} & plain) | ({'obs'} & ({t.split('.')[-1] for t in inc.split(',')} - set(routed))))
+never = sorted(({'orders', 'drug_order', 'test_order'} & {t.split('.')[-1] for t in inc.split(',')})
+               | ({'obs', 'orders', 'drug_order', 'test_order'} & plain) | ({'obs'} & ({t.split('.')[-1] for t in inc.split(',')} - set(routed))))
 if never:
     sys.exit(
         f"REFUSING to generate: the hub never publishes {never}: they are written at\n"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Each direction's capture list keeps out the tables the other side writes.
-#   - The hub's source never publishes orders or drug_order, nor obs except its
+#   - The hub's source never publishes orders, drug_order or test_order, nor obs except its
 #     own lab-result rows, for the clinic each names (hub/tables.conf, clinic=):
 #     clinics write them and the hub receives them through its up sinks. The
 #     generator refuses an unmarked row for any of them, by name, whether or
@@ -25,7 +25,7 @@ cp "$R/hub/tables.conf" "$C/hub/tables.conf"
 out="$(hub_src)"; rc=$?
 inc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$TMP/src.json" 2>/dev/null)"
 [ "$rc" -eq 0 ] && ok_ "the hub's source renders from hub/tables.conf" || bad "hub source: rc=$rc $out"
-for t in orders drug_order; do
+for t in orders drug_order test_order; do
   case ",${inc}," in *",openmrs.${t},"*) bad "the hub publishes ${t}: ${inc}" ;; *) ok_ "the hub does not publish ${t}" ;; esac
 done
 # obs goes down only as the hub's own lab-result rows:
@@ -42,7 +42,7 @@ for t in users user_property global_property; do
 done
 
 # --- a clinical table planted in hub/tables.conf --------------------------------
-for line in obs:obs_id orders:order_id drug_order:order_id; do
+for line in obs:obs_id orders:order_id drug_order:order_id test_order:order_id; do
   { cat "$R/hub/tables.conf"; printf '%s\n' "$line"; } > "$C/hub/tables.conf"
   rm -f "$TMP/src.json"; out="$(hub_src)"; rc=$?
   [ "$rc" -ne 0 ] && [ ! -f "$TMP/src.json" ] && printf '%s' "$out" | grep -q "never publishes.*'${line%%:*}'" \

@@ -12,9 +12,9 @@
 # and on a line it refuses prints the reason to stderr and returns 1.
 #
 # A floor=<other> line names a table with a floor of its own (base or seed)
-# and the same key column: drug_order's key is orders.order_id, so its rows
-# are on a clinic's residue exactly when the orders row is, and the capture
-# filter and catch-up read the orders floor. A sync-only line whose key column
+# and the same key column: drug_order's key is orders.order_id, and so is
+# test_order's, so their rows are on a clinic's residue exactly when the orders
+# row is, and the capture filter and catch-up read the orders floor. A sync-only line whose key column
 # is a floored table's key is refused for the same reason: without a floor
 # source nothing can tell its legacy rows from the clinic's own.
 #
@@ -37,7 +37,7 @@ UP_SIGNAL_TABLE=debezium_signal
 # from (seed, or floor=<table>): read as sync-only or with a fixed base_id, it
 # would carry no capture filter and every clinic would publish its edits to
 # the hub's rows. Such a line is refused.
-UP_CLINICAL_TABLES="obs orders drug_order"
+UP_CLINICAL_TABLES="obs orders drug_order test_order"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
 # bash 3.2 compatible (macOS): no associative arrays.
@@ -140,7 +140,7 @@ EOF
 
 # Whether this clinic sends the clinical tables up at all: CLINICAL_UP_SYNC in
 # clinic/.env, written at install from the answers. "off" (the default) keeps
-# obs, orders and drug_order at the clinic whatever this file lists; "test"
+# obs, orders, drug_order and test_order at the clinic whatever this file lists; "test"
 # sends them, for a clinic that carries test data only. Real patients'
 # clinical data does not travel until the hub link has per-site credentials
 # and access control, so a clinic is never switched on by default, and a
@@ -148,7 +148,7 @@ EOF
 up_clinical_mode_verdict(){ # VALUE -> "ok off|test", or the refusal
   case "${1:-off}" in
     off|test) printf 'ok %s\n' "${1:-off}" ;;
-    *) printf 'CLINICAL_UP_SYNC is '"'"'%s'"'"', not off or test: off keeps obs, orders and drug_order at this clinic, test sends them to the hub (test data only). Fix the answers file.\n' "$1"; return 1 ;;
+    *) printf 'CLINICAL_UP_SYNC is '"'"'%s'"'"', not off or test: off keeps obs, orders, drug_order and test_order at this clinic, test sends them to the hub (test data only). Fix the answers file.\n' "$1"; return 1 ;;
   esac
 }
 # up_tables_for_clinic FILE [MODE] : up_tables_read, as a clinic reads it: the

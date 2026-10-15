@@ -66,7 +66,7 @@ mkdir -p "${CONNECTORS_DIR}"
 # table on the hub; the hub takes the column first, and the sink is restarted
 # because it caches the table's shape. validate-sink-config.py holds the same
 # list with each table's key and refuses a sink that disagrees with it.
-CLINICAL_SINK_TABLES="obs orders drug_order"
+CLINICAL_SINK_TABLES="obs orders drug_order test_order"
 
 WANTED="$*"
 total=0
@@ -78,13 +78,13 @@ while IFS= read -r cline || [ -n "$cline" ]; do
     [ -n "$clinic" ] && [ -n "$name_prefix" ] && [ -n "$mm_prefix" ] && [ -n "$server_name" ] || {
         echo "Skipping malformed clinics.conf line: $cline" >&2; continue; }
     # A clinic's clinical sinks exist only when its row says clinical: only a
-    # clinic installed with CLINICAL_UP_SYNC=test sends obs, orders and
-    # drug_order, and a sink for a clinic that does not would sit on a topic
+    # clinic installed with CLINICAL_UP_SYNC=test sends obs, orders,
+    # drug_order and test_order, and a sink for a clinic that does not would sit on a topic
     # nothing writes.
     case "${clinical_flag}" in
         '') clinical_on=0 ;;
         clinical) clinical_on=1 ;;
-        *) echo "Error: ${CLINICS_CONF##*/}: ${clinic}: the fifth field is '${clinical_flag}'; it is empty, or clinical for a clinic that sends obs, orders and drug_order. Nothing was written for ${clinic}." >&2; exit 1 ;;
+        *) echo "Error: ${CLINICS_CONF##*/}: ${clinic}: the fifth field is '${clinical_flag}'; it is empty, or clinical for a clinic that sends obs, orders, drug_order and test_order. Nothing was written for ${clinic}." >&2; exit 1 ;;
     esac
     if [ -n "$WANTED" ]; then
         case " $WANTED " in *" $clinic "*) ;; *) continue ;; esac

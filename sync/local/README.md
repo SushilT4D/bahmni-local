@@ -14,7 +14,7 @@ MirrorMaker run from `clinic/docker-compose.yml`, and the clinic installer
 To add a table to clinic → hub sync, add it to `tables.conf` and re-run the
 clinic installer's sync phase; the generators read it from here.
 
-`obs`, `orders` and `drug_order` are sent only by a clinic installed with
+`obs`, `orders`, `drug_order` and `test_order` are sent only by a clinic installed with
 `CLINICAL_UP_SYNC=test` (an install answer, kept in `clinic/.env`; the default
 is `off`). At any other clinic every clinic-side reader leaves them out,
 whatever `tables.conf` lists (`up_tables_for_clinic` in `tables-conf.sh`). The
