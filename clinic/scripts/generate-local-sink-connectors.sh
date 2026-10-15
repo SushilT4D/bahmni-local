@@ -51,7 +51,7 @@ PREFIX_REGEX="^$(printf '%s' "$SRC_PREFIX" | sed 's/\./\\\\./g')(.*)\$"
 # newline is silently dropped — one table would lose its sink while the run still
 # reported success. The up-direction generator already guards this; this one did not.
 # ---------------------------------------------------------------------------
-TABLES=(); PATIENT_COLS=()
+TABLES=(); ROUTE_COLS=()
 while read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     f="$(printf '%s' "$line" | awk '{print $1}')"
@@ -59,24 +59,46 @@ while read -r line || [[ -n "$line" ]]; do
     role="$(printf '%s' "$f" | cut -s -d: -f3)"
     [[ -n "$t" ]] || continue
     TABLES+=("$t")
-    case "$role" in patient=*) PATIENT_COLS+=("${role#patient=}") ;; *) PATIENT_COLS+=("") ;; esac
+    case "$role" in clinic=*) ROUTE_COLS+=("${role#clinic=}") ;; *) ROUTE_COLS+=("") ;; esac
 done < "$TABLES_CONF"
 
-# A `patient=<column>` row carries the hub's rows for clinics' patients (lab
-# results entered at the hub). This clinic keeps only the rows whose patient
-# ends in its own residue, at or above the person base: another clinic's
-# patient and visit do not exist here. The residue comes from this clinic's
-# .env; without it nothing is generated.
+# A `clinic=<column>` row carries the hub's own rows (lab results entered at
+# the hub) for whichever clinic <column> names. This clinic keeps a row only
+# when <column> points at a row this clinic wrote: it ends in this clinic's
+# residue and is at or above that table's base. Below the base a residue says
+# nothing about who wrote the row (older rows were numbered before striding),
+# so those rows are not kept anywhere. The column says which table it points
+# at: visit_id -> visit, order_id -> orders. The base is that table's in
+# sync/local/tables.conf; a table whose base comes from the seed (orders) takes
+# the floor recorded at seeding (FLOOR_ORDERS, in .env or .install-state). The
+# residue comes from this clinic's .env. Without either nothing is generated.
 need_residue=no
-for c in "${PATIENT_COLS[@]}"; do [[ -n "$c" ]] && need_residue=yes; done
-RESIDUE_OWN=""; PERSON_BASE=""
+for c in "${ROUTE_COLS[@]}"; do [[ -n "$c" ]] && need_residue=yes; done
+RESIDUE_OWN=""
+declare -a ROUTE_BASES=()
+route_table(){ case "$1" in visit_id) echo visit ;; order_id) echo orders ;; *) return 1 ;; esac; }
+route_base(){ # COLUMN -> the base of the table it points at
+    local t b k
+    t="$(route_table "$1")" || { echo "hub/tables.conf routes by '$1'; a clinic can route only by visit_id or order_id" >&2; return 1; }
+    b="$(grep -E "^[[:space:]]*${t}:[^:]+:" "$UP_TABLES_CONF" | head -1 | awk '{print $1}' | cut -d: -f3)"
+    if [[ "$b" == seed ]]; then
+        k="FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
+        b="${!k:-}"
+        [[ -n "$b" ]] || b="$(sed -n "s/^${k}=//p" "${ROOT}/.install-state" 2>/dev/null | tail -1)"
+        [[ "$b" =~ ^[1-9][0-9]*$ ]] || { echo "${k} (the ${t} floor recorded at seeding) is not in ${ROOT}/.env or ${ROOT}/.install-state; the lab-result sinks need it" >&2; return 1; }
+    fi
+    [[ "$b" =~ ^[1-9][0-9]*$ ]] || { echo "${UP_TABLES_CONF} gives no base for ${t}; the lab-result sinks need it" >&2; return 1; }
+    printf '%s' "$b"
+}
 if [[ "$need_residue" == yes ]]; then
     RESIDUE_OWN="${RESIDUE:-}"
     [[ -n "$RESIDUE_OWN" ]] || { [[ -n "${MYSQL_AUTO_INCREMENT_OFFSET:-}" ]] && RESIDUE_OWN=$(( MYSQL_AUTO_INCREMENT_OFFSET % 10 )); }
-    [[ "$RESIDUE_OWN" =~ ^[1-9]$ ]] || { echo "this clinic's residue (RESIDUE, 1-9) is not set: the lab-result sinks keep only this clinic's patients and cannot be generated without it" >&2; exit 1; }
-    PERSON_BASE="$(grep -E '^[[:space:]]*person:person_id:[0-9]+' "$UP_TABLES_CONF" | head -1 | cut -d: -f3 | tr -cd '0-9')"
-    [[ -n "$PERSON_BASE" ]] || { echo "${UP_TABLES_CONF} gives no person base (person:person_id:<base>); the lab-result sinks need it" >&2; exit 1; }
+    [[ "$RESIDUE_OWN" =~ ^[1-9]$ ]] || { echo "this clinic's residue (RESIDUE, 1-9) is not set: the lab-result sinks keep only this clinic's rows and cannot be generated without it" >&2; exit 1; }
 fi
+for i in "${!ROUTE_COLS[@]}"; do
+    if [[ -n "${ROUTE_COLS[$i]}" ]]; then ROUTE_BASES[$i]="$(route_base "${ROUTE_COLS[$i]}")" || exit 1
+    else ROUTE_BASES[$i]=""; fi
+done
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
@@ -125,7 +147,7 @@ for i in "${!TABLES[@]}"; do
     TABLE="${TABLES[$i]}"
     TOPIC="${SRC_PREFIX}${TABLE}"
 
-    PATIENT_COL="${PATIENT_COLS[$i]}" RESIDUE_OWN="$RESIDUE_OWN" PERSON_BASE="$PERSON_BASE" \
+    ROUTE_COL="${ROUTE_COLS[$i]}" ROUTE_BASE="${ROUTE_BASES[$i]}" RESIDUE_OWN="$RESIDUE_OWN" \
     TEMPLATE="$TEMPLATE" TABLE="$TABLE" KAFKA_TOPICS="$TOPIC" \
     TOPIC_PREFIX_REGEX="$PREFIX_REGEX" \
     LOCAL_MYSQL_HOST="$LOCAL_MYSQL_HOST" LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT" \
@@ -149,16 +171,17 @@ if leftover:
 if doc['config'].get('transforms.dropPrefix.replacement') != '$1':
     sys.exit("RegexRouter replacement is not literal $1 — the shell expanded it")
 
-col = os.environ.get('PATIENT_COL', '')
+col = os.environ.get('ROUTE_COL', '')
 if col:
-    # this clinic's patients only; tombstones carry no row and are dropped, a
-    # delete still arrives as its own change event with the row in `before`
-    cfg = doc['config']; r = os.environ['RESIDUE_OWN']; base = os.environ['PERSON_BASE']
-    cfg['transforms'] = cfg['transforms'] + ',thisClinicsPatients'
-    cfg['transforms.thisClinicsPatients.type'] = 'io.debezium.transforms.Filter'
-    cfg['transforms.thisClinicsPatients.language'] = 'jsr223.groovy'
-    cfg['transforms.thisClinicsPatients.null.handling.mode'] = 'drop'
-    cfg['transforms.thisClinicsPatients.condition'] = (
+    # only rows whose column points at a row this clinic wrote; tombstones carry
+    # no row and are dropped, a delete still arrives as its own change event
+    # with the row in `before`
+    cfg = doc['config']; r = os.environ['RESIDUE_OWN']; base = os.environ['ROUTE_BASE']
+    cfg['transforms'] = cfg['transforms'] + ',rowsForThisClinic'
+    cfg['transforms.rowsForThisClinic.type'] = 'io.debezium.transforms.Filter'
+    cfg['transforms.rowsForThisClinic.language'] = 'jsr223.groovy'
+    cfg['transforms.rowsForThisClinic.null.handling.mode'] = 'drop'
+    cfg['transforms.rowsForThisClinic.condition'] = (
         "def r = value.get('after') != null ? value.get('after') : value.get('before'); "
         f"r != null && r.get('{col}') instanceof Number && r.get('{col}').longValue() >= {base}L "
         f"&& r.get('{col}').longValue() % 10 == {r}")

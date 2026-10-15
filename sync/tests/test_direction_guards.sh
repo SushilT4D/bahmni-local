@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Each direction's capture list keeps out the tables the other side writes.
 #   - The hub's source never publishes orders or drug_order, nor obs except its
-#     own lab-result rows for a clinic's patient (hub/tables.conf, patient=):
+#     own lab-result rows, for the clinic each names (hub/tables.conf, clinic=):
 #     clinics write them and the hub receives them through its up sinks. The
 #     generator refuses an unmarked row for any of them, by name, whether or
 #     not the clinic's own list carries it yet.
@@ -28,11 +28,11 @@ inc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]
 for t in orders drug_order; do
   case ",${inc}," in *",openmrs.${t},"*) bad "the hub publishes ${t}: ${inc}" ;; *) ok_ "the hub does not publish ${t}" ;; esac
 done
-# obs goes down only as the hub's own lab-result rows for a clinic's patient:
+# obs goes down only as the hub's own lab-result rows:
 # captured only together with its row filter
 case ",${inc}," in *",openmrs.obs,"*)
-  python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(0 if "hubRowsForClinicPatients_obs" in c.get("transforms","").split(",") and "% 10 == 0" in c.get("transforms.hubRowsForClinicPatients_obs.condition","") else 1)' "$TMP/src.json" \
-    && ok_ "the hub publishes obs only through the filter that passes its own rows for a clinic's patient" || bad "the hub publishes obs without its row filter" ;;
+  python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(0 if "hubWrittenRows_obs" in c.get("transforms","").split(",") and "% 10 == 0" in c.get("transforms.hubWrittenRows_obs.condition","") else 1)' "$TMP/src.json" \
+    && ok_ "the hub publishes obs only through the filter that passes the rows it wrote" || bad "the hub publishes obs without its row filter" ;;
   *) ok_ "the hub does not publish obs" ;;
 esac
 up="$(bash "$C/clinic/scripts/generate-table-config.sh" local 2>&1 | sed -n 's/^TABLE_INCLUDE_LIST=//p')"

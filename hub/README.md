@@ -80,8 +80,8 @@ that does not claim an origin writes rows the hub publishes to every clinic.
 - The three Groovy scripting jars in `clinic/config/kafka-connect/ext/`
   (`bash clinic/config/kafka-connect/ext/fetch-scripting-jars.sh`). The hub's
   Connect mounts them into its MySQL connector, whose row filter sends down
-  only the hub's own lab-result rows for clinics' patients (`hub/tables.conf`,
-  `patient=` rows). Without them that connector fails at configuration.
+  only the lab-result rows the hub wrote itself (`hub/tables.conf`, `clinic=`
+  rows). Without them that connector fails at configuration.
 - `hub/kafka_server_jaas.conf`, mode 600: a `KafkaServer` section for the
   `PLAIN` mechanism with two users, `admin` (`KAFKA_ADMIN_PASSWORD`) and the
   one clinics log in as (`REMOTE_KAFKA_PASSWORD`).

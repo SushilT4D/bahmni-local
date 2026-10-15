@@ -264,9 +264,9 @@ down_tables(){
   done < "$conf"
 }
 # master_down_tables : the down tables that are master data -- every row of
-# hub/tables.conf except those marked `patient=<column>`. Those carry the hub's
-# rows for one clinic's patients (lab results), which differ on every node by
-# design, so they are never compared between a clinic and the hub.
+# hub/tables.conf except those marked `clinic=<column>`. Those carry the hub's
+# rows for one clinic (lab results), which differ on every node by design, so
+# they are never compared between a clinic and the hub.
 master_down_tables(){
   local conf="${REPO_DIR}/hub/tables.conf" line name
   [ -f "$conf" ] || fail "master_down_tables: no such file: $conf"
@@ -274,7 +274,7 @@ master_down_tables(){
     line="${line%%#*}"
     line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -n "$line" ] || continue
-    case "$line" in *:*:patient=*) continue ;; esac
+    case "$line" in *:*:clinic=*) continue ;; esac
     name="${line%%:*}"
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
       || fail "hub/tables.conf: bad table name '${name}' (row: ${line})"

@@ -60,7 +60,7 @@ for f in "$C/hub/connectors"/mysql-sink-alpha-*.json; do
 done
 [ -z "$vbad" ] && ok_ "validate-sink-config.py accepts every rendered hub sink, the three on the clinical profile" || bad "validator refused:${vbad}"
 grep -qE '^[[:space:]]*(orders|drug_order):' "$R/hub/tables.conf" && bad "hub/tables.conf names orders or drug_order" || ok_ "hub/tables.conf names neither orders nor drug_order"
-grep -E '^[[:space:]]*obs:' "$R/hub/tables.conf" | grep -vqE '^[[:space:]]*obs:obs_id:patient=person_id[[:space:]]*$' && bad "hub/tables.conf names obs other than as the hub's lab results for a clinic's patient" || ok_ "hub/tables.conf names obs only as the hub's lab results for a clinic's patient"
+grep -E '^[[:space:]]*obs:' "$R/hub/tables.conf" | grep -vqE '^[[:space:]]*obs:obs_id:clinic=order_id[[:space:]]*$' && bad "hub/tables.conf names obs other than as the hub's lab results, routed by order" || ok_ "hub/tables.conf names obs only as the hub's lab results, routed by order"
 # --- the same committed list at a clinic left at the default ---------------------
 sed -i.bak '/^CLINICAL_UP_SYNC=/d' "$C/clinic/.env"; rm -f "$C/clinic/.env.bak"
 rm -rf "$C/clinic/connectors"

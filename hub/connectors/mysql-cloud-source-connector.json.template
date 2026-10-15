@@ -27,7 +27,11 @@
     "schema.history.internal.kafka.topic": "schema-changes.${CLOUD_MYSQL_SERVER_NAME}",
     "schema.history.internal.store.only.captured.tables.ddl": "true",
 
-    "snapshot.mode": "initial",
+    "//snapshot": "when_needed: a connector that already has offsets resumes from them, and",
+    "//snapshot2": "snapshots only when it has none or the binlog no longer holds them. Kept",
+    "//snapshot3": "under its name across a hub upgrade, it carries on from where it was;",
+    "//snapshot4": "adding a table to the list does not re-send the master tables.",
+    "snapshot.mode": "when_needed",
     "snapshot.locking.mode": "minimal",
 
     "//converters": "schemas.enable MUST be true on BOTH sides. 'They must match' is",

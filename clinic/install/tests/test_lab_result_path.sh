@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lab results entered at the hub reach the clinic whose patient they belong to;
+# Lab results entered at the hub reach the clinic that placed the order;
 # the test lives with the sync tests and runs with this suite too.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
