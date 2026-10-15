@@ -73,6 +73,15 @@ out="$(provenance_content_verdict "$R" "$(printf '%s\n' "$CONTENT" | grep -v '^l
 out="$(provenance_content_verdict "$R" "$CONTENT" "0000" "$X")"; [ $? = 1 ] && case "$out" in *"master-checksum.sh is not the one"*) true ;; *) false ;; esac && ok_ "a different checksum tool is refused before any table is compared" || bad "tool: $out"
 printf 'privilege.uuid\nrole.uuid\n' > "$TMP/x2"
 out="$(provenance_content_verdict "$R" "$CONTENT" "$TOOL" "$TMP/x2")"; [ $? = 1 ] && case "$out" in *"leaves out other columns"*) true ;; *) false ;; esac && ok_ "a different exclusion list is refused" || bad "exclusions: $out"
+# a key out of a clinical table: refused to a table a clinic writes, allowed to
+# one only the hub writes (hub/table-verdicts.conf: concept is DOWN)
+FKR="$TMP/fk.pure"; T9="$(printf '\t')"
+printf 'fk\tset\t1\tx\nfk\ttest_order\tlocation\tconcept\tconcept_id\n' > "$FKR"
+out="$(provenance_fk_verdict "$FKR" "test_order${T9}location${T9}concept${T9}concept_id${T9}test_order_location_fk")" \
+  && ok_ "a key out of test_order to concept (a table only the hub writes) passes: $out" || bad "test_order -> concept: $out"
+printf 'fk\tset\t1\tx\nfk\ttest_order\tencounter_id\tencounter\tencounter_id\n' > "$FKR"
+out="$(provenance_fk_verdict "$FKR" "test_order${T9}encounter_id${T9}encounter${T9}encounter_id${T9}x_fk")"; [ $? = 1 ] && case "$out" in *"test_order.encounter_id -> encounter.encounter_id"*) true ;; *) false ;; esac \
+  && ok_ "a key out of test_order to encounter (a table a clinic writes) is refused, named" || bad "test_order -> encounter: $out"
 J="${HERE}/../tasks/090-local-sync.sh"
 blk="$(sed -n '/^# provenance:begin/,/^# provenance:end/p' "$J")"
 printf '%s' "$blk" | grep -q 'provenance_content_verdict' && printf '%s' "$blk" | grep -q 'provenance_content_lines' && ok_ "090 compares the clinic with the record" || bad "090 does not compare the record"
@@ -122,14 +131,14 @@ SQL
     # the foreign keys, read from information_schema the way the installer reads them
     my <<'SQL' >/dev/null
 CREATE TABLE encounter (encounter_id INT PRIMARY KEY);
-CREATE TABLE obs (obs_id INT PRIMARY KEY, encounter_id INT, location_id INT, CONSTRAINT obs_location FOREIGN KEY (location_id) REFERENCES location (location_id));
+CREATE TABLE obs (obs_id INT PRIMARY KEY, encounter_id INT, location_id INT, CONSTRAINT obs_encounter FOREIGN KEY (encounter_id) REFERENCES encounter (encounter_id));
 SQL
     hub_fks="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
     { printf 'fk\tset\t1\tx\n'; printf '%s\n' "$hub_fks" | awk 'NF { print "fk\t" $0 }'; } > "$TMP/fk.rec"
     rows="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
-    out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")"; [ $? = 1 ] && case "$out" in *"obs.location_id -> location.location_id"*) true ;; *) false ;; esac \
-      && ok_ "${MYSQL_IMAGE}: a key out of obs, read from information_schema, is refused even when the hub's record has it" || bad "${MYSQL_IMAGE} fk out of obs: $out"
-    echo 'ALTER TABLE obs DROP FOREIGN KEY obs_location; CREATE TABLE ipd_slot (id INT PRIMARY KEY, order_id INT, location_id INT, CONSTRAINT ipd_slot_location FOREIGN KEY (location_id) REFERENCES location (location_id));' | my >/dev/null
+    out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")"; [ $? = 1 ] && case "$out" in *"obs.encounter_id -> encounter.encounter_id"*) true ;; *) false ;; esac \
+      && ok_ "${MYSQL_IMAGE}: a key out of obs to a table a clinic writes, read from information_schema, is refused even when the hub's record has it" || bad "${MYSQL_IMAGE} fk out of obs: $out"
+    echo 'ALTER TABLE obs DROP FOREIGN KEY obs_encounter; CREATE TABLE ipd_slot (id INT PRIMARY KEY, order_id INT, location_id INT, CONSTRAINT ipd_slot_location FOREIGN KEY (location_id) REFERENCES location (location_id));' | my >/dev/null
     rows="$(ct(){ docker "$@"; }; clinic_fk_rows "$MYC")"
     printf 'fk\tset\t0\tx\n' > "$TMP/fk.rec"
     out="$(provenance_fk_verdict "$TMP/fk.rec" "$rows")"; [ $? = 1 ] && case "$out" in *"foreign keys on ipd_slot differ from the hub's (only at this clinic: ipd_slot.location_id -> location.location_id)"*) true ;; *) false ;; esac \

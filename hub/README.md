@@ -152,9 +152,12 @@ Rendered connector files hold passwords and are gitignored.
 ## Checks
 
 - `scripts/check-clinical-fks.sh --container <hub mysql>` reads the foreign
-  keys on `obs`, `orders`, `drug_order` and `test_order` (read-only). Any FK out of those
-  tables fails it: the up sinks write each table in arrival order, and an FK
-  out would stop a sink whenever a clinic's row arrives before its parent.
+  keys on `obs`, `orders`, `drug_order` and `test_order` (read-only). An FK out
+  of those tables to a table a clinic writes fails it: the up sinks write each
+  table in arrival order, and such an FK would stop a sink whenever a clinic's
+  row arrives before its parent. An FK out to a table only the hub writes
+  (`DOWN` in `table-verdicts.conf`) or only changesets and the seed write
+  (`RESEED`) passes and is named: its rows are at the hub first.
   The FKs into them are compared with `clinical-fks-in.conf`, and a difference
   is reported (exit 2). Run it before and after every hub upgrade;
   `scripts/register-all-sink-connectors.sh` runs it itself before it registers

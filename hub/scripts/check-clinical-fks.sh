@@ -6,14 +6,18 @@
 #   hub/scripts/check-clinical-fks.sh --from FILE
 #
 # Two checks:
-#   OUT  No foreign key may point OUT of obs, orders, drug_order or test_order. The hub's
-#        up sinks write one table each, in arrival order, and a clinic's obs
-#        can arrive before the encounter it belongs to; with no FK out of the
-#        table the early row is written and its parent follows. One FK out
-#        turns that ordinary early arrival into a stopped sink. Any such FK
-#        fails the check, named. A module upgrade can add one, so run this
-#        before and after every hub upgrade, and before any up sink for these
-#        tables is registered.
+#   OUT  No foreign key may point OUT of obs, orders, drug_order or test_order
+#        to a table a clinic writes. The hub's up sinks write one table each,
+#        in arrival order, and a clinic's obs can arrive before the encounter
+#        it belongs to; with no FK out of the table the early row is written
+#        and its parent follows. One FK out to a clinic-written parent turns
+#        that ordinary early arrival into a stopped sink, and fails the check,
+#        named. An FK out to a table only the hub writes (verdict DOWN in
+#        hub/table-verdicts.conf) or that only changesets and the seed write
+#        (RESEED) is allowed and named: its rows are at the hub before any
+#        clinic can name one. A table with no verdict counts as clinic-written.
+#        A module upgrade can add an FK, so run this before and after every
+#        hub upgrade, and before any up sink for these tables is registered.
 #   IN   The FKs pointing INTO the four tables are compared with
 #        hub/clinical-fks-in.conf. These do not stop a sink on an early
 #        arrival, but each makes a clinic's delete of a referenced row fail
@@ -31,6 +35,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HUB_DIR="$(cd "${HERE}/.." && pwd)"
 BASELINE="${CLINICAL_FKS_IN:-${HUB_DIR}/clinical-fks-in.conf}"
+VERDICTS="${CLINICAL_FK_VERDICTS:-${HUB_DIR}/table-verdicts.conf}"
 CLINICAL="obs orders drug_order test_order"
 # the same list as SQL: 'obs', 'orders', ...
 CLINICAL_SQL="$(printf "'%s', " $CLINICAL | sed 's/, $//')"
@@ -49,6 +54,9 @@ while [ $# -gt 0 ]; do
 done
 printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || die "bad database name: $DB"
 [ -f "$BASELINE" ] || die "no ${BASELINE}: the recorded FKs into the clinical tables are required"
+[ -f "$VERDICTS" ] || die "no ${VERDICTS}: the table verdicts are required to tell a hub-written parent from a clinic-written one"
+# the tables only the hub writes (DOWN) or only changesets and the seed write (RESEED)
+HUB_WRITTEN=" $(awk '{ sub(/#.*/, "") } NF >= 2 && ($2 == "DOWN" || $2 == "RESEED") { print $1 }' "$VERDICTS" | tr '\n' ' ') "
 
 SQL="SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '${DB}' AND REFERENCED_TABLE_NAME IS NOT NULL AND (TABLE_NAME IN (${CLINICAL_SQL}) OR REFERENCED_TABLE_NAME IN (${CLINICAL_SQL})) ORDER BY 1, 2;
 SELECT 'schema', COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '${DB}' AND TABLE_NAME IN (${CLINICAL_SQL});"
@@ -70,11 +78,14 @@ rows="$(printf '%s\n' "$rows" | awk -F'\t' 'NF >= 4 && $1 != "schema"')"
 
 rc=0
 for t in $CLINICAL; do
-  out="$(printf '%s\n' "$rows" | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4 " (" $5 ")"}')"
+  out="$(printf '%s\n' "$rows" | awk -F'\t' -v t="$t" -v hw="$HUB_WRITTEN" '$1==t && index(hw, " " $3 " ") == 0 {print $1 "." $2 " -> " $3 "." $4 " (" $5 ")"}')"
+  hub="$(printf '%s\n' "$rows" | awk -F'\t' -v t="$t" -v hw="$HUB_WRITTEN" '$1==t && index(hw, " " $3 " ") > 0 {print $1 "." $2 " -> " $3 "." $4 " (" $5 ")"}')"
   if [ -n "$out" ]; then
-    printf 'FAIL %s has %s foreign key(s) out of it; an early-arriving row would stop its up sink:\n' "$t" "$(printf '%s\n' "$out" | grep -c .)"
+    printf 'FAIL %s has %s foreign key(s) out of it to a table a clinic writes; an early-arriving row would stop its up sink:\n' "$t" "$(printf '%s\n' "$out" | grep -c .)"
     printf '%s\n' "$out" | sed 's/^/       /'
     rc=1
+  elif [ -n "$hub" ]; then
+    printf 'ok   %s: no foreign key out to a table a clinic writes; %s to a table only the hub writes: %s\n' "$t" "$(printf '%s\n' "$hub" | grep -c .)" "$(printf '%s\n' "$hub" | paste -sd';' - | sed 's/;/; /g')"
   else
     printf 'ok   %s: no foreign key out\n' "$t"
   fi

@@ -10,7 +10,7 @@ ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/hub"; mkdir -p "$C/connectors" "$TMP/bin"
-cp -R "$R/hub/scripts" "$C/"; cp "$R/hub/clinical-fks-in.conf" "$C/"
+cp -R "$R/hub/scripts" "$C/"; cp "$R/hub/clinical-fks-in.conf" "$R/hub/table-verdicts.conf" "$C/"
 sink(){ printf '{"name": "%s", "config": {"topics": "alpha.bahmni-alpha.openmrs.%s"}}\n' "$1" "$2" > "$C/connectors/$1.json"; }
 # the hub's keys, as information_schema would print them
 awk '{ sub(/#.*/, "") } NF == 4 { printf "%s\t%s\t%s\t%s\t%s_fk\n", $1, $2, $3, $4, $1 }' "$R/hub/clinical-fks-in.conf" > "$TMP/fks.clean"
