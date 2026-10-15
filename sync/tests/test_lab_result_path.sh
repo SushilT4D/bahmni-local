@@ -42,6 +42,15 @@ copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id/' "$T/r/hub/tables.c
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "never publishes \['obs'\]" && ok_ "obs without the role is refused" || bad "obs without role: rc=$rc $out"
 gen_hub "$R" >/dev/null 2>&1
+python3 - "$T/src.json" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows, and every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
+import json, sys
+c = json.load(open(sys.argv[1]))['config']
+want = {"openmrs.encounter", "openmrs.obs"}
+assert set(c.get("snapshot.select.statement.overrides", "").split(",")) == want
+for t in want:
+    assert c["snapshot.select.statement.overrides." + t].endswith("WHERE 1 = 0"), t
+assert not [k for k in c if k.startswith("snapshot.select.statement.overrides.") and k[len("snapshot.select.statement.overrides."):] not in want]
+EOF
 python3 - "$T/src.json" > "$T/hub.cfg" <<'EOF'
 import json, sys
 for k, v in json.load(open(sys.argv[1]))['config'].items(): print(f"{k}\t{v}")

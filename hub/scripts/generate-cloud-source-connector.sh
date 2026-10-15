@@ -157,14 +157,21 @@ if clash:
 # Which clinic keeps a passed row is the clinic sink's filter, by <column>.
 # Tombstones carry no row and are dropped; a delete still arrives as its own
 # change event, with the row in `before`.
+# A snapshot of a `clinic=` table reads its structure and none of its rows:
+# rows written before the source started answer orders and visits older than
+# every clinic's base, which no clinic keeps, and reading them would publish
+# millions of rows for every clinic to drop. Changes from the start on are sent.
 if routed:
     cfg = doc['config']
     names = [n for n in cfg.get('transforms', '').split(',') if n]
     preds = [n for n in cfg.get('predicates', '').split(',') if n]
     server = os.environ['CLOUD_MYSQL_SERVER_NAME']; db = os.environ['CLOUD_MYSQL_DATABASE']
+    overrides = []
     for t, (pk, col) in sorted(routed.items()):
         if f"{db}.{t}" not in inc.split(','):
             continue
+        overrides.append(f"{db}.{t}")
+        cfg[f"snapshot.select.statement.overrides.{db}.{t}"] = f"SELECT * FROM `{db}`.`{t}` WHERE 1 = 0"
         n = f"hubWrittenRows_{t}"; p = f"topicIs_{t}"
         names.append(n); preds.append(p)
         cfg[f"transforms.{n}.type"] = "io.debezium.transforms.Filter"
@@ -178,6 +185,8 @@ if routed:
         cfg[f"predicates.{p}.pattern"] = "^" + re.escape(f"{server}.{db}.{t}") + "$"
     cfg['transforms'] = ','.join(names)
     cfg['predicates'] = ','.join(preds)
+    if overrides:
+        cfg['snapshot.select.statement.overrides'] = ','.join(overrides)
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")
 if routed:
