@@ -898,6 +898,42 @@ signal_capture_check(){
   rm -f "$reg"; return "$rc"
 }
 
+# clinlims_down_sink_verdict STATUS_FILE CONFIG_FILE : the OpenELIS down sink
+# (clinlims-clinic-sink-all) as Kafka Connect holds it: STATUS_FILE is its
+# /status answer, CONFIG_FILE its /config. Passes when the connector and every
+# task (at least one) are RUNNING and it still claims its replication origin
+# and carries this clinic's filter; otherwise names what was read. Without the
+# sink, lab results entered at the hub never reach this clinic's OpenELIS.
+clinlims_down_sink_verdict(){
+  python3 - "$1" "$2" <<'PYV'
+import json, sys
+try:
+    st = json.load(open(sys.argv[1])); cf = json.load(open(sys.argv[2]))
+except Exception as e:
+    print("the OpenELIS down sink (clinlims-clinic-sink-all) could not be read from Kafka Connect: %s" % e); sys.exit(1)
+if "connector" not in st:
+    print("the OpenELIS down sink (clinlims-clinic-sink-all) is not registered: lab results entered at the hub would never reach this clinic's OpenELIS"); sys.exit(1)
+c = st["connector"].get("state", "?"); ts = [t.get("state", "?") for t in st.get("tasks", [])]
+if c != "RUNNING" or not ts or any(t != "RUNNING" for t in ts):
+    print("the OpenELIS down sink (clinlims-clinic-sink-all) is not running: connector %s, tasks %s" % (c, ",".join(ts) or "none")); sys.exit(1)
+if "pg_replication_origin_session_setup(" not in cf.get("hibernate.agroal.initialSQL", ""):
+    print("the OpenELIS down sink (clinlims-clinic-sink-all) claims no replication origin: this clinic's OpenELIS source would send the hub's rows back up"); sys.exit(1)
+if "value.get('source').get('table')" not in cf.get("transforms.rowsForThisClinic.condition", ""):
+    print("the OpenELIS down sink (clinlims-clinic-sink-all) carries no filter for this clinic: it would keep every clinic's lab rows"); sys.exit(1)
+print("ok OpenELIS down sink running (connector and %d task(s)), claiming its origin, keeping only this clinic's rows" % len(ts))
+PYV
+}
+# clinlims_down_sink_check : clinlims_down_sink_verdict on what Kafka Connect
+# answers now.
+clinlims_down_sink_check(){
+  local s c rc
+  s="$(mktemp)"; c="$(mktemp)"
+  curl -s --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/clinlims-clinic-sink-all/status" > "$s" 2>/dev/null || true
+  curl -s --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/clinlims-clinic-sink-all/config" > "$c" 2>/dev/null || true
+  clinlims_down_sink_verdict "$s" "$c"; rc=$?
+  rm -f "$s" "$c"; return "$rc"
+}
+
 # provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
 # run on this clinic's MySQL over exactly the tables the seed's provenance
 # record holds content lines for (the tool checksums the tables a hub/tables.conf

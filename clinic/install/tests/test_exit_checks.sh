@@ -123,4 +123,24 @@ out="$(PATH="$CF/bin:$PATH" MYSQL_OFFSET=3 bash "$CF/repo/clinic/scripts/check-s
 [ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | grep -c 'ok .* capture filter')" = 3 ] && ok_ "check-source-connectors.sh: the filter read back and passed" || bad "check-source-connectors.sh, good: rc=$rc $(printf '%s' "$out" | tail -3)"
 out="$(PATH="$CF/bin:$PATH" MYSQL_OFFSET=5 bash "$CF/repo/clinic/scripts/check-source-connectors.sh" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"residue 5"*) true ;; *) false ;; esac && ok_ "check-source-connectors.sh: a wrong residue fails the check" || bad "check-source-connectors.sh, offset 5: rc=$rc $(printf '%s' "$out" | tail -3)"
+# --- the OpenELIS down sink, as Connect holds it ---------------------------------------
+SK="$(mktemp -d)"
+good_cfg='{"hibernate.agroal.initialSQL":"SELECT pg_replication_origin_session_setup('"'"'hub_2'"'"')","transforms.rowsForThisClinic.condition":"def a = value.get('"'"'after'"'"'); def t = value.get('"'"'source'"'"').get('"'"'table'"'"'); true"}'
+sv(){ printf '%s' "$1" > "$SK/st"; printf '%s' "$2" > "$SK/cf"; out="$(clinlims_down_sink_verdict "$SK/st" "$SK/cf")"; rc=$?; }
+sv '{"connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"RUNNING"}]}' "$good_cfg"
+[ "$rc" = 0 ] && case "$out" in "ok OpenELIS down sink running"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink: running, claiming its origin, with its filter: passes" || bad "down sink good: rc=$rc $out"
+sv '{"error_code":404,"message":"No status found for connector clinlims-clinic-sink-all"}' "$good_cfg"
+[ "$rc" = 1 ] && case "$out" in *"is not registered"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink not registered: fails" || bad "down sink absent: rc=$rc $out"
+sv '{"connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"FAILED"}]}' "$good_cfg"
+[ "$rc" = 1 ] && case "$out" in *"not running: connector RUNNING, tasks FAILED"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink with a FAILED task: fails, naming it" || bad "down sink failed task: rc=$rc $out"
+sv '{"connector":{"state":"RUNNING"},"tasks":[]}' "$good_cfg"
+[ "$rc" = 1 ] && case "$out" in *"tasks none"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink with no task: fails" || bad "down sink no task: rc=$rc $out"
+sv '{"connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"RUNNING"}]}' '{"transforms.rowsForThisClinic.condition":"x"}'
+[ "$rc" = 1 ] && case "$out" in *"claims no replication origin"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink without its origin claim: fails" || bad "down sink no origin: rc=$rc $out"
+sv '{"connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"RUNNING"}]}' '{"hibernate.agroal.initialSQL":"SELECT pg_replication_origin_session_setup('"'"'hub_2'"'"')"}'
+[ "$rc" = 1 ] && case "$out" in *"carries no filter"*) true ;; *) false ;; esac && ok_ "OpenELIS down sink without its filter: fails" || bad "down sink no filter: rc=$rc $out"
+sv '' ''
+[ "$rc" = 1 ] && case "$out" in *"could not be read"*) true ;; *) false ;; esac && ok_ "Kafka Connect not answering: fails, never a pass" || bad "down sink unreadable: rc=$rc $out"
+grep -q 'v="$(clinlims_down_sink_check)" || fail "$v"' "${HERE}/../tasks/100-exit-checks.sh" && ok_ "task 100 runs the OpenELIS down sink check and stops on it" || bad "100 does not check the OpenELIS down sink"
+rm -rf "$SK"
 exit $((fails > 0))

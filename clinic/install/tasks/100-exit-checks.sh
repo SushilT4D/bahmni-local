@@ -73,6 +73,9 @@ $v
 EOF
 v="$(signal_capture_check)" || fail "$v"
 ok "${v#ok }"
+# the OpenELIS down sink, read from Connect (lib.sh clinlims_down_sink_check)
+v="$(clinlims_down_sink_check)" || fail "$v"
+ok "${v#ok }"
 # foreign keys, read now that OpenMRS has started (a module changeset that
 # adds one at this clinic shows here), against the hub's in the seed's record
 . "${INSTALL_DIR}/state.sh"
