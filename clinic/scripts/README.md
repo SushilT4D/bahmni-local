@@ -77,7 +77,9 @@ count the run logged for each table.
 **OpenELIS down filter** — `clinlims-down-filter.sh` prints the condition of
 the clinic's OpenELIS down sink (`connectors/clinlims-clinic-sink-all.json`).
 The hub sends every clinic the `result`, `analysis` and `sample` rows its lab
-users wrote (`sync/hub-down.conf`); the condition keeps a row only when its
+users wrote, and its lab accounts (`sync/hub-down.conf`); the condition keeps
+every account the hub sends (a sample the hub moved on names one), and a lab
+row only when its
 routing column (a result's `analysis_id`, an analysis's or a sample's `id`) is
 at or above this clinic's floor for the table that column names and on its
 residue, and drops deletes and tombstones. The residue is `RESIDUE`; each floor

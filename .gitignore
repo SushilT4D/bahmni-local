@@ -188,8 +188,11 @@ clinic/files/
 clinic/config/mysql/
 clinic/.install-state
 # this hub's down-table floors, recorded once by the run that strides its Odoo
-# ids (hub/scripts/stride-odoo.sh); each hub has its own
+# ids (hub/scripts/stride-odoo.sh), and its OpenELIS ones, recorded once before
+# its OpenELIS ids are strided (hub/scripts/record-clinlims-down-floors.sh);
+# each hub has its own
 hub/odoo-down-floors.local
+hub/clinlims-down-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
 # the restore's definer users, removed after use; left behind if the restore stops

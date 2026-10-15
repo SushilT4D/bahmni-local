@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Lab rows a hub lab user writes for a clinic's sample come down to that clinic
-# only: the result, and the analysis and sample the hub moved on.
+# only: the result, and the analysis and sample the hub moved on. The hub's lab
+# accounts, which a sample it moved on names, come down to every clinic.
 #
-#   - the down list's reader (sync/hub-down.sh) prints the three OpenELIS rows
-#     and their routes, and refuses every other OpenELIS table by name, an
-#     OpenELIS row without a route, an Odoo row with one, and a route whose
-#     column names no routed table;
+#   - the down list's reader (sync/hub-down.sh) prints the four OpenELIS rows,
+#     the three routes and the one unrouted table, and refuses every other
+#     OpenELIS table by name, a lab row without a route, an account or Odoo row
+#     with one, and a route whose column names no routed table;
+#   - the hub's OpenELIS floors are recorded just before its OpenELIS ids are
+#     strided (record-clinlims-down-floors.sh), once, and refused on a hub
+#     strided before unless given --from-file values that check out;
 #   - the hub's OpenELIS source, as register-odoo.sh renders it, captures
 #     exactly those tables and its heartbeat, decodes with origin=none, sends
 #     nothing written before it started (snapshot.mode=no_data), and a template
@@ -22,11 +26,13 @@
 #   - with docker, the pinned Debezium image and the scripting jars: the
 #     rendered sink's transform chain keeps exactly this clinic's rows
 #     (skipped, not failed, without them unless REQUIRE_FILTER_RUN=1);
-#   - with docker and postgres:16: the hub publication holds the three tables
-#     and the heartbeat with no row filter and no TRUNCATE, refuses a table
-#     without a replica identity, and logical decoding with origin=none sends
-#     what a hub session wrote to a clinic's analysis but nothing a clinic's
-#     up-sink applied under its origin.
+#   - with docker and postgres:16: the hub publication holds the three lab
+#     tables with no row filter, system_user on the hub's floor, and the
+#     heartbeat, no TRUNCATE; refuses a table without a replica identity and
+#     a filtered table without a floor; and logical decoding with origin=none
+#     sends what a hub session wrote (a clinic's analysis moved on, a result, a
+#     hub account) but nothing a clinic's up-sink applied under its origin and
+#     no account a clinic minted.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0; ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
@@ -38,15 +44,16 @@ C="$T/repo"; mkdir -p "$C"
 (cd "$R" && tar cf - sync hub/connectors hub/scripts hub/openelis clinic/connectors clinic/scripts clinic/install/tasks) | (cd "$C" && tar xf -)
 
 # --- the down list's reader --------------------------------------------------------
-[ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "result analysis sample" ] && ok_ "the OpenELIS rows of the down list: result, analysis, sample" || bad "clinlims down rows: $(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)"
+[ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "system_user result analysis sample" ] && ok_ "the OpenELIS rows of the down list: system_user (first), result, analysis, sample" || bad "clinlims down rows: $(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)"
 [ "$(bash "$C/sync/hub-down.sh" --routes clinlims | words)" = "result analysis_id analysis analysis id analysis sample id sample" ] \
   && ok_ "routes: a result by its analysis (the analysis floor), an analysis and a sample by their own id" || bad "routes: $(bash "$C/sync/hub-down.sh" --routes clinlims 2>&1 | words)"
+[ "$(bash "$C/sync/hub-down.sh" --unrouted clinlims | words)" = system_user ] && ok_ "the one OpenELIS table that goes to every clinic, filtered on the hub's floor: system_user" || bad "unrouted: $(bash "$C/sync/hub-down.sh" --unrouted clinlims 2>&1 | words)"
 [ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = "odoo clinlims" ] && ok_ "Odoo and OpenELIS send down" || bad "subsystems: $(bash "$C/sync/hub-down.sh" --subsystems 2>&1 | words)"
 plant(){ # LINE : the reader on the list with LINE added; output in $pout, status in $prc
   { cat "$R/sync/hub-down.conf"; printf '%s\n' "$1"; } > "$C/sync/hub-down.conf"
   pout="$(bash "$C/sync/hub-down.sh" clinlims 2>&1)"; prc=$?
   cp "$R/sync/hub-down.conf" "$C/sync/hub-down.conf"; }
-for t in sample_item patient person sample_human system_user result_signature; do
+for t in sample_item patient person sample_human result_signature; do
   plant "clinlims:$t:clinic=id"
   [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q "clinlims:$t is written at the clinics and never goes down" && ! printf '%s' "$pout" | grep -qx result \
     && ok_ "clinlims:$t planted in the list is refused by name, and nothing is printed" || bad "planted clinlims:$t: rc=$prc $pout"
@@ -63,6 +70,8 @@ replace 'clinlims:result:clinic=analysis_id' 'clinlims:result:clinic=value'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'the column is id or <table>_id' && ok_ "a route by a column that names no table is refused" || bad "route by value: rc=$prc $pout"
 replace 'clinlims:result:clinic=analysis_id' 'clinlims:result:analysis_id'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'the third field is clinic=<column> or nothing' && ok_ "a third field that is not clinic=<column> is refused" || bad "bad third field: rc=$prc $pout"
+replace 'clinlims:system_user' 'clinlims:system_user:clinic=id'
+[ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'clinlims:system_user goes to every clinic, filtered on the hub' && ok_ "the lab accounts with clinic= are refused (they go to every clinic)" || bad "routed system_user: rc=$prc $pout"
 replace 'odoo:uom_uom' 'odoo:uom_uom:clinic=id'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'only an OpenELIS row is routed by clinic=<column>' && ok_ "an Odoo row with clinic= is refused (Odoo rows go to every clinic)" || bad "odoo with clinic=: rc=$prc $pout"
 replace 'clinlims:sample:clinic=id' 'clinlims:sample:clinic=id\nclinlims:sample:clinic=id'
@@ -80,9 +89,9 @@ printf 'CLINLIMS_SOURCE_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\nBASE_ELIS_C
 reg_hub(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/hub/connectors/register-odoo.sh" clinlims-cloud-source 2>&1)"; rrc=$?; }
 reg_hub
 cfg(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], "<absent>"))' "$T/body" "$1" 2>/dev/null; }
-[ "$rrc" = 0 ] && [ "$(cfg table.include.list)" = "clinlims.result,clinlims.analysis,clinlims.sample,clinlims.dbz_heartbeat" ] \
-  && ok_ "the hub's OpenELIS source captures exactly the three down tables and its heartbeat" || bad "hub source include list: rc=$rrc [$(cfg table.include.list)] $rout"
-[ "$(cfg transforms.agg.regex)" = 'bahmni-cloud\.clinlims\.(result|analysis|sample)$' ] && [ "$(cfg transforms.agg.replacement)" = bahmni-cloud.clinlims.all ] \
+[ "$rrc" = 0 ] && [ "$(cfg table.include.list)" = "clinlims.system_user,clinlims.result,clinlims.analysis,clinlims.sample,clinlims.dbz_heartbeat" ] \
+  && ok_ "the hub's OpenELIS source captures exactly the four down tables and its heartbeat" || bad "hub source include list: rc=$rrc [$(cfg table.include.list)] $rout"
+[ "$(cfg transforms.agg.regex)" = 'bahmni-cloud\.clinlims\.(system_user|result|analysis|sample)$' ] && [ "$(cfg transforms.agg.replacement)" = bahmni-cloud.clinlims.all ] \
   && ok_ "its aggregate regex is the down list, routed into bahmni-cloud.clinlims.all" || bad "hub source regex: $(cfg transforms.agg.regex) -> $(cfg transforms.agg.replacement)"
 [ "$(cfg slot.stream.params)|$(cfg snapshot.mode)|$(cfg publication.name)|$(cfg slot.name)|$(cfg publication.autocreate.mode)" = "origin=none|no_data|dbz_clinlims_owned|dbz_clinlims_down|disabled" ] \
   && ok_ "it decodes with origin=none, sends nothing written before it started, and reads dbz_clinlims_owned through slot dbz_clinlims_down" || bad "hub source settings: $(cfg slot.stream.params)|$(cfg snapshot.mode)|$(cfg publication.name)|$(cfg slot.name)|$(cfg publication.autocreate.mode)"
@@ -118,6 +127,7 @@ filt
 COND="$fout"
 [ "$frc" = 0 ] && case "$COND" in "def a = value.get('after'); def t = value.get('source').get('table'); value.get('op') != 'd' && a != null && ("*) true ;; *) false ;; esac \
   && ok_ "from clinic/.env and the recorded floors: a filter that drops deletes and tombstones" || bad "filter: rc=$frc $fout"
+case "$COND" in *"&& (t == 'system_user' || (t == 'result'"*) ok_ "filter term: system_user, every row the hub sends (its own accounts)" ;; *) bad "filter does not keep system_user: $COND" ;; esac
 for term in "t == 'result' && a.get('analysis_id') instanceof Number && a.get('analysis_id').longValue() >= 1200L && a.get('analysis_id').longValue() % 10 == 3" \
             "t == 'analysis' && a.get('id') instanceof Number && a.get('id').longValue() >= 1200L && a.get('id').longValue() % 10 == 3" \
             "t == 'sample' && a.get('id') instanceof Number && a.get('id').longValue() >= 800L && a.get('id').longValue() % 10 == 3"; do
@@ -190,6 +200,9 @@ $TOP	analysis	d	1213	id	1213	double	dropped	the hub's delete of this clinic's an
 $TOP	sample	u	803	id	803	double	kept	this clinic's sample, moved on by the hub
 $TOP	sample	u	793	id	793	double	dropped	a sample below the sample floor on residue 3
 $TOP	sample	u	1210	id	1210	double	dropped	a sample the hub created
+$TOP	system_user	c	170	id	170	double	kept	a lab account the hub created
+$TOP	system_user	u	42	id	42	long	kept	the hub's edit of a seeded lab account
+$TOP	system_user	d	170	id	170	double	dropped	the hub's delete of a lab account
 EOF
 if [ "$have_jars" != 1 ]; then
   skipped "the scripting jars are not in ${EXT} (clinic/config/kafka-connect/ext/fetch-scripting-jars.sh fetches them; SCRIPTING_JARS_DIR points elsewhere)"
@@ -230,32 +243,60 @@ CREATE TABLE clinlims.sample_item (id numeric(10) PRIMARY KEY, samp_id numeric(1
 CREATE TABLE clinlims.analysis (id numeric(10) PRIMARY KEY, sampitem_id numeric(10), status_id numeric(10));
 CREATE TABLE clinlims.result (id numeric(10) PRIMARY KEY, analysis_id numeric(10), value text);
 CREATE TABLE clinlims.dbz_heartbeat (id int PRIMARY KEY, ts timestamptz);
+CREATE TABLE clinlims.system_user (id numeric(10) PRIMARY KEY, login_name text);
+CREATE SEQUENCE clinlims.system_user_seq;
+INSERT INTO clinlims.system_user SELECT nextval('clinlims.system_user_seq'), 'u' || g FROM generate_series(1, 163) g;
 INSERT INTO clinlims.sample VALUES (803, 1);
 INSERT INTO clinlims.analysis VALUES (1213, 1, 1);
 SELECT pg_replication_origin_create('clinic_t_clinlims');
 CREATE PUBLICATION dbz_clinlims_owned FOR TABLE clinlims.sample_item;
 SQL
 pubrows(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from pg_publication_tables where pubname = 'dbz_clinlims_owned'" | LC_ALL=C sort | words; }
-out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" -- $PSQL 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(pubrows)" = "analysis:- dbz_heartbeat:- result:- sample:-" ] \
-  && ok_ "dbz_clinlims_owned holds exactly result, analysis, sample and the heartbeat, with no row filter; sample_item, held before, is gone" || bad "publication: rc=$rc [$(pubrows)] $out"
+FL="$T/clinlims-floors.local"
+out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'no floors file at' && ok_ "the publication is refused while the hub's OpenELIS floors are not recorded" || bad "publication without floors: rc=$rc $out"
+# the floors: recorded just before the hub's OpenELIS ids are strided
+out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$FL" 2>/dev/null | words)" = "system_user 170" ] && ok_ "before the stride: system_user's floor recorded where the stride restarts it (last value 163 -> 170)" || bad "record floors: rc=$rc $out"
+out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'already exists' && ok_ "the floors file is never rewritten" || bad "rewrite: rc=$rc $out"
+$PSQL -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+DO $$ DECLARE r record; lv bigint; BEGIN
+  FOR r IN SELECT schemaname s, sequencename q FROM pg_sequences WHERE schemaname='clinlims' LOOP
+    EXECUTE format('SELECT last_value FROM %I.%I', r.s, r.q) INTO lv;
+    EXECUTE format('ALTER SEQUENCE %I.%I INCREMENT BY 10 RESTART WITH %s', r.s, r.q, ((COALESCE(lv,0) / 10) + 1) * 10);
+  END LOOP; END $$;
+SQL
+[ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = "$(cut -d' ' -f2 "$FL")" ] && ok_ "the hub's stride restarts system_user at the recorded floor" || bad "stride restart differs from the floor"
+out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'were strided before: system_user (steps by 10)' && [ ! -e "$T/fl2" ] && ok_ "on a hub strided before, a first recording is refused, naming --from-file" || bad "strided before: rc=$rc $out"
+printf 'system_user 9990\n' > "$T/src"; out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'is above the id its sequence issues next' && [ ! -e "$T/fl2" ] && ok_ "--from-file refuses a floor above the sequence" || bad "from-file too high: rc=$rc $out"
+printf 'system_user 170\n' > "$T/src"; out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$T/fl2")" = "system_user 170" ] && ok_ "--from-file records values that check out against the strided sequence" || bad "from-file: rc=$rc $out"
+out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(pubrows)" = "analysis:- dbz_heartbeat:- result:- sample:- system_user:((id < (170)::numeric) OR ((id % (10)::numeric) = (0)::numeric))" ] \
+  && ok_ "dbz_clinlims_owned: result, analysis, sample unfiltered, system_user on the hub's floor, the heartbeat; sample_item, held before, is gone" || bad "publication: rc=$rc [$(pubrows)] $out"
 [ "$($PSQL -Atc "select pubinsert::text || pubupdate::text || pubdelete::text || pubtruncate::text from pg_publication where pubname = 'dbz_clinlims_owned'")" = truetruetruefalse ] \
   && ok_ "it publishes insert, update and delete, never truncate" || bad "publish flags"
 $PSQL -q -c "SELECT pg_create_logical_replication_slot('t_elis', 'pgoutput')" >/dev/null
 $PSQL -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 UPDATE clinlims.analysis SET status_id = 6 WHERE id = 1213;                   -- a hub lab user completes the clinic's analysis
 INSERT INTO clinlims.result VALUES (5000, 1213, '12.5');                     -- and enters its result
+INSERT INTO clinlims.system_user VALUES (180, 'hub lab user');               -- a hub account, minted after the stride
+UPDATE clinlims.system_user SET login_name = 'renamed' WHERE id = 47;        -- the hub's edit of a seeded account
+INSERT INTO clinlims.system_user VALUES (183, 'clinic 3 account');           -- an account a clinic minted, edited at the hub
 SELECT pg_replication_origin_session_setup('clinic_t_clinlims');
 INSERT INTO clinlims.analysis VALUES (1223, 1, 1);                           -- a clinic's analysis, applied by its up-sink
 UPDATE clinlims.sample SET status_id = 2 WHERE id = 803;                     -- a clinic's own edit, applied by its up-sink
 SELECT pg_replication_origin_session_reset();
 SQL
 msgs="$($PSQL -Atc "select string_agg(chr(get_byte(data, 0)), '' order by lsn) from pg_logical_slot_get_binary_changes('t_elis', NULL, NULL, 'proto_version', '4', 'publication_names', 'dbz_clinlims_owned', 'origin', 'none') where chr(get_byte(data, 0)) in ('I', 'U', 'D')")"
-[ "$msgs" = UI ] && ok_ "decoded with origin=none: the hub session's update of the clinic's analysis and its new result are sent; the rows a clinic's up-sink applied are not" || bad "decoded row messages '$msgs', want UI"
+[ "$msgs" = UIIU ] && ok_ "decoded with origin=none: the hub session's update of the clinic's analysis, its new result, its new account and its edit of a seeded account are sent; a clinic-minted account the hub wrote and the rows a clinic's up-sink applied are not" || bad "decoded row messages '$msgs', want UIIU"
 $PSQL -q -c "SELECT pg_drop_replication_slot('t_elis')" >/dev/null
 $PSQL -q -v ON_ERROR_STOP=1 -c "ALTER TABLE clinlims.result DROP CONSTRAINT result_pkey" >/dev/null
 before="$(pubrows)"
-out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'clinlims.result has no replica identity' && [ "$(pubrows)" = "$before" ] \
   && ok_ "a down table without a replica identity is refused before the publication changes" || bad "replica identity: rc=$rc $out"
 exit $((fails > 0))

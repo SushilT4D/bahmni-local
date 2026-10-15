@@ -7,34 +7,50 @@
 -- publishes INSERT, UPDATE and DELETE, never TRUNCATE (a TRUNCATE at the hub
 -- would empty every clinic's copy).
 --
--- No table carries a row filter. The rows keep the ids the clinic gave them (a
--- result answers a clinic's analysis; the analysis and sample are the clinic's
--- own rows, moved on by the hub), so an id filter would drop exactly the rows
--- that must go down. What goes down is chosen by replication origin instead:
--- the source decodes with origin=none, so a row a clinic's up-sink applied here
--- is never published. Each clinic keeps only the rows routed to it.
+-- A table routed to one clinic (result, analysis, sample) carries no row
+-- filter: the rows keep the ids the clinic gave them (a result answers a
+-- clinic's analysis; the analysis and sample are the clinic's own rows, moved
+-- on by the hub), so an id filter would drop exactly the rows that must go
+-- down. What goes down is chosen by replication origin instead: the source
+-- decodes with origin=none, so a row a clinic's up-sink applied here is never
+-- published. Each clinic keeps only the rows routed to it.
+--
+-- A table that goes to every clinic (system_user) carries the filter
+--     (id < <floor> OR id % 10 = 0)
+-- with this hub's floor (hub/clinlims-down-floors.local): the hub's own rows,
+-- from before its ids were strided and since. A row a clinic minted that the
+-- hub edits stays at the hub.
 --
 -- Refused, naming the table, before the publication is touched:
 --   - a down table that does not exist;
 --   - a down table without a replica identity (no primary key and none set):
 --     PostgreSQL refuses every UPDATE and DELETE on a table that a publication
 --     publishes updates for without one, so the hub's OpenELIS could no longer
---     write it;
+--     write it; for a filtered table, one whose replica identity does not
+--     cover id;
+--   - a filtered table with no floor, or a floor that is not a multiple of 10;
+--     a floor for a table that is not a down table;
 --   - a server older than PostgreSQL 16 (the source's origin=none needs it).
 --
--- Usage: psql -d openelis -v pub=dbz_clinlims_owned -v tables=result,analysis,sample \
---             -f apply-down-publication.sql
+-- Usage: psql -d openelis -v pub=dbz_clinlims_owned -v tables=system_user,result,analysis,sample \
+--             -v filtered=system_user -v floors=system_user:170 -f apply-down-publication.sql
 -- Prints one line per published table: "<table> <row filter>", "-" for none.
 \set ON_ERROR_STOP on
 SELECT set_config('myvars.pub', :'pub', false) \g /dev/null
 SELECT set_config('myvars.tables', :'tables', false) \g /dev/null
+SELECT set_config('myvars.filtered', :'filtered', false) \g /dev/null
+SELECT set_config('myvars.floors', :'floors', false) \g /dev/null
 
 DO $do$
 DECLARE
   v_pub    text   := current_setting('myvars.pub');
   v_tables text[] := string_to_array(nullif(current_setting('myvars.tables'), ''), ',');
+  v_filt   text[] := coalesce(string_to_array(nullif(current_setting('myvars.filtered'), ''), ','), '{}');
+  v_floors text[] := coalesce(string_to_array(nullif(current_setting('myvars.floors'), ''), ','), '{}');
   v_parts  text[] := '{}';
   v_t      text;
+  v_f      text;
+  v_floor  bigint;
   v_rel    regclass;
   v_ri     "char";
 BEGIN
@@ -44,6 +60,14 @@ BEGIN
   IF v_tables IS NULL THEN
     RAISE EXCEPTION 'no down tables passed in (-v tables=...)';
   END IF;
+  FOREACH v_f IN ARRAY v_floors LOOP
+    IF split_part(v_f, ':', 2) !~ '^[0-9]+$' THEN
+      RAISE EXCEPTION 'floor entry "%" is not <table>:<whole number>', v_f;
+    END IF;
+    IF NOT split_part(v_f, ':', 1) = ANY (v_filt) THEN
+      RAISE EXCEPTION 'a floor is recorded for clinlims.%, which the hub does not send down filtered on a floor', split_part(v_f, ':', 1);
+    END IF;
+  END LOOP;
   FOREACH v_t IN ARRAY v_tables LOOP
     v_rel := to_regclass(format('clinlims.%I', v_t));
     IF v_rel IS NULL THEN
@@ -53,7 +77,25 @@ BEGIN
     IF v_ri = 'n' OR (v_ri = 'd' AND NOT EXISTS (SELECT 1 FROM pg_index WHERE indrelid = v_rel AND indisprimary)) THEN
       RAISE EXCEPTION 'clinlims.% has no replica identity (no primary key): published for updates, PostgreSQL would refuse every UPDATE and DELETE on it', v_t;
     END IF;
-    v_parts := v_parts || format('clinlims.%I', v_t);
+    IF v_t = ANY (v_filt) THEN
+      v_floor := NULL;
+      FOREACH v_f IN ARRAY v_floors LOOP
+        IF split_part(v_f, ':', 1) = v_t THEN v_floor := split_part(v_f, ':', 2)::bigint; END IF;
+      END LOOP;
+      IF v_floor IS NULL THEN
+        RAISE EXCEPTION 'no floor recorded for clinlims.%: it goes to every clinic, filtered (id < floor OR id %% 10 = 0); record it before the hub''s OpenELIS ids are strided', v_t;
+      END IF;
+      IF v_floor % 10 <> 0 THEN
+        RAISE EXCEPTION 'the floor recorded for clinlims.% is %, not a multiple of 10', v_t, v_floor;
+      END IF;
+      IF NOT (v_ri = 'f' OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                 WHERE i.indrelid = v_rel AND a.attname = 'id' AND ((v_ri = 'd' AND i.indisprimary) OR (v_ri = 'i' AND i.indisreplident)))) THEN
+        RAISE EXCEPTION 'clinlims.%: its replica identity (relreplident %) does not cover id, so with the row filter PostgreSQL would refuse every UPDATE and DELETE on it', v_t, v_ri;
+      END IF;
+      v_parts := v_parts || format('clinlims.%I WHERE (id < %s OR id %% 10 = 0)', v_t, v_floor);
+    ELSE
+      v_parts := v_parts || format('clinlims.%I', v_t);
+    END IF;
   END LOOP;
   IF to_regclass('clinlims.dbz_heartbeat') IS NOT NULL THEN
     v_parts := v_parts || 'clinlims.dbz_heartbeat'::text;

@@ -2,6 +2,9 @@
 # hub-down.sh SUBSYSTEM : prints the tables of SUBSYSTEM the hub sends down to
 # clinics, one per line, in sync/hub-down.conf's order.
 # hub-down.sh --subsystems : prints each subsystem that sends anything down, once.
+# hub-down.sh --unrouted SUBSYSTEM : prints the tables of SUBSYSTEM that go to
+#   every clinic (no clinic=<column>), which the hub's publication filters on
+#   its own floor: (id < floor OR id % 10 = 0).
 # hub-down.sh --routes SUBSYSTEM : prints "<table> <column> <floor table>" for
 #   each routed row of SUBSYSTEM (a row ending in :clinic=<column>): the column
 #   a clinic reads to keep the row, and the table whose clinic floor that
@@ -16,10 +19,11 @@
 # is not a synced table of its subsystem in sync/subsystems.conf, repeats a
 # table, or names a table that is written at the clinics and must never go down
 # (Odoo partners, sales, invoices and stock levels; any OpenELIS table other
-# than the three a hub lab user completes). An OpenELIS row must say which
-# column routes it to its clinic; an Odoo row must not (Odoo rows are chosen by
-# the publication's floor filter and go to every clinic). Nothing is printed
-# when it refuses, so a caller never renders from half a list.
+# than the three a hub lab user completes and the lab accounts they name). An
+# OpenELIS result, analysis or sample row must say which column routes it to
+# its clinic; an OpenELIS system_user row and every Odoo row must not (they go
+# to every clinic, chosen by the publication's floor filter). Nothing is
+# printed when it refuses, so a caller never renders from half a list.
 #
 # HUB_DOWN_CONF and SUBSYSTEMS_CONF override the two files (tests).
 set -u
@@ -27,6 +31,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE=tables
 case "${1:-}" in
   --routes) MODE=routes; SUB="${2:?usage: hub-down.sh --routes <subsystem>}" ;;
+  --unrouted) MODE=unrouted; SUB="${2:?usage: hub-down.sh --unrouted <subsystem>}" ;;
   *) SUB="${1:?usage: hub-down.sh <subsystem>}" ;;
 esac
 CONF="${HUB_DOWN_CONF:-$HERE/hub-down.conf}"
@@ -42,6 +47,10 @@ UP_ONLY_ODOO=" res_partner res_partner_attributes sale_order sale_order_line acc
 # analysis and its sample. Every other OpenELIS table is written at the
 # clinics only and is refused by name.
 DOWN_CLINLIMS=" result analysis sample "
+# The lab accounts the hub's lab users write: a sample the hub moves on names
+# the account that did it (sample.sys_user_id, a foreign key), so every clinic
+# takes the hub's accounts, filtered on the hub's floor like an Odoo master row.
+DOWN_CLINLIMS_ALL=" system_user "
 
 strip(){ sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 SYNCED=" $(strip "$SUBS" | grep . | tr '\n' ' ') "
@@ -62,9 +71,13 @@ while IFS= read -r row; do
     *) die "$CONF: row '$row': the third field is clinic=<column> or nothing" ;;
   esac
   if [ "$s" = clinlims ]; then
+    case "$DOWN_CLINLIMS $DOWN_CLINLIMS_ALL" in
+      *" $t "*) ;;
+      *) die "$CONF: clinlims:$t is written at the clinics and never goes down; only result, analysis and sample, completed by a hub lab user, and the lab accounts (system_user) go down" ;;
+    esac
     case "$DOWN_CLINLIMS" in
       *" $t "*) [ -n "$col" ] || die "$CONF: clinlims:$t goes to one clinic, so the row must name the column that routes it (clinlims:$t:clinic=<column>)" ;;
-      *) die "$CONF: clinlims:$t is written at the clinics and never goes down; only result, analysis and sample, completed by a hub lab user, go down" ;;
+      *) [ -z "$col" ] || die "$CONF: clinlims:$t goes to every clinic, filtered on the hub's floor; it takes no clinic=<column>" ;;
     esac
   else
     [ -z "$col" ] || die "$CONF: $s:$t: only an OpenELIS row is routed by clinic=<column>; an $s row goes to every clinic, chosen by the publication's filter"
@@ -78,6 +91,8 @@ while IFS= read -r row; do
   seen="$seen$s:$t "
   [ -n "$col" ] && routes="$routes$s $t $col
 "
+  if [ "$MODE" = unrouted ] && [ "$s" = "$SUB" ] && [ -z "$col" ]; then out="$out$t
+"; fi
   if [ "$MODE" = tables ] && [ "$SUB" = --subsystems ]; then
     case " $(printf '%s' "$out" | tr '\n' ' ') " in *" $s "*) ;; *) out="$out$s
 " ;; esac
@@ -108,5 +123,6 @@ if [ "$MODE" = routes ]; then
   [ -n "$rout" ] || die "$CONF has no routed ${SUB} rows"
   printf '%s' "$rout"; exit 0
 fi
+if [ "$MODE" = unrouted ]; then printf '%s' "$out"; exit 0; fi
 [ -n "$out" ] || die "$CONF has no ${SUB#--} rows"
 printf '%s' "$out"

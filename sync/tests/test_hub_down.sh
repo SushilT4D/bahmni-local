@@ -52,7 +52,7 @@ got="$(bash "$C/sync/hub-down.sh" odoo | words)"
 for t in $TRANSFER; do has "$got" "$t" || bad "the down list lacks transfer table $t"; done
 has "$got" stock_quant && bad "stock levels go down" || ok_ "stock levels (stock_quant) stay up-only while transfers go down"
 for t in $UP_ONLY; do has "$got" "$t" && bad "the down list carries up-only $t"; done
-[ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "result analysis sample" ] && ok_ "of the OpenELIS tables only result, analysis and sample go down" || bad "the OpenELIS down rows read [$(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)]"
+[ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "system_user result analysis sample" ] && ok_ "of the OpenELIS tables only the lab accounts, result, analysis and sample go down" || bad "the OpenELIS down rows read [$(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)]"
 [ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = "odoo clinlims" ] && ok_ "Odoo and OpenELIS send down" || bad "subsystems sending down: $(bash "$C/sync/hub-down.sh" --subsystems | words)"
 plant(){ # LINE : the reader on the list with LINE added -> its output; rc in $prc
   { cat "$R/sync/hub-down.conf"; printf '%s\n' "$1"; } > "$C/sync/hub-down.conf"
@@ -112,7 +112,7 @@ if command -v envsubst >/dev/null 2>&1; then
   down="$(sed -n 's/^remote->[a-z_]*\.topics = //p' "$P" 2>/dev/null | tr -d '()\\' | tr '|' '\n')"
   up="$(sed -n 's/^[a-z_]*->remote\.topics = //p' "$P" 2>/dev/null | tr -d '()\\' | tr '|' '\n')"
   dsub="$(printf '%s\n' "$down" | grep -E '^bahmni-cloud\.(odoo|clinlims)\.' | sed 's/^bahmni-cloud\.//' | words)"
-  wsub="odoo.all clinlims.all $(printf '%s\n' $WANT | sed 's/^/odoo./' | words) clinlims.result clinlims.analysis clinlims.sample"
+  wsub="odoo.all clinlims.all $(printf '%s\n' $WANT | sed 's/^/odoo./' | words) clinlims.system_user clinlims.result clinlims.analysis clinlims.sample"
   # All Odoo traffic rides the aggregate topic, which carries only what the
   # publication sends; the per-table names are listed for parity with the up
   # regex and match no topic. What this guards is that the regex is rendered
@@ -120,7 +120,7 @@ if command -v envsubst >/dev/null 2>&1; then
   [ "$mrc" = 0 ] && [ "$dsub" = "$wsub" ] && ok_ "the clinic MirrorMaker down regex is rendered from the down list: the Odoo and OpenELIS aggregates and the list's names, nothing else" || bad "MirrorMaker down topics: rc=$mrc [$dsub] want [$wsub] $(printf '%s' "$mout" | tail -2)"
   printf '%s\n' "$down" | grep -q '^bahmni-cloud\.openmrs\.' && ok_ "the MirrorMaker down regex still carries the hub's OpenMRS tables" || bad "no OpenMRS topic in the down regex"
   for t in $UP_ONLY; do printf '%s\n' "$down" | grep -qx "bahmni-cloud.odoo.$t" && bad "the MirrorMaker down regex carries up-only $t"; done
-  printf '%s\n' "$down" | grep -E '^bahmni-cloud\.clinlims\.' | grep -vqxE 'bahmni-cloud\.clinlims\.(all|result|analysis|sample)' && bad "the MirrorMaker down regex carries an OpenELIS topic other than the three down rows and their aggregate" || ok_ "of the OpenELIS topics only the aggregate and the three down rows come down"
+  printf '%s\n' "$down" | grep -E '^bahmni-cloud\.clinlims\.' | grep -vqxE 'bahmni-cloud\.clinlims\.(all|system_user|result|analysis|sample)' && bad "the MirrorMaker down regex carries an OpenELIS topic other than the four down rows and their aggregate" || ok_ "of the OpenELIS topics only the aggregate and the four down rows come down"
   usub="$(printf '%s\n' "$up" | grep -cE '^bahmni-test\.(odoo|clinlims)\.')"
   nsub=$(( $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | grep -cE '^(odoo|clinlims):') ))
   [ "$usub" = "$nsub" ] && ok_ "the up regex still carries every synced Odoo and OpenELIS topic ($nsub: every table and the two aggregates)" || bad "up regex carries $usub subsystem topics, want $nsub"

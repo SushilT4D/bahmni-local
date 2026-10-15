@@ -27,11 +27,15 @@ repository, and attaches to that stack's Docker network through
   `sync/hub-down.conf`, built by `scripts/apply-down-publication.sh`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
   with this hub's floors in `hub/odoo-down-floors.local` (below).
-- **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list
-  (`result`, `analysis`, `sample`), built by
-  `scripts/apply-clinlims-down-publication.sh`, with no row filter: those rows
-  keep the clinic's ids, and the source's `origin=none` is what keeps a
-  clinic's own writes at the hub.
+- **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
+  built by `scripts/apply-clinlims-down-publication.sh`: `result`, `analysis`
+  and `sample` with no row filter (those rows keep the clinic's ids, and the
+  source's `origin=none` is what keeps a clinic's own writes at the hub), and
+  the lab accounts, `system_user`, with `(id < <floor> OR id % 10 = 0)` on this
+  hub's floor in `hub/clinlims-down-floors.local`. That floor is recorded once,
+  just before the hub's OpenELIS ids are strided:
+  `scripts/record-clinlims-down-floors.sh -- <psql command>` (on a hub strided
+  before, `--from-file <file>` with values that check out against it).
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
   the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
   created when the clinic joins.

@@ -6,13 +6,16 @@
 #   clinic/scripts/clinlims-down-filter.sh
 #
 # Every clinic receives the same stream: the result, analysis and sample rows a
-# hub lab user wrote (sync/hub-down.conf). Each row names its clinic by a
-# routing column (sync/hub-down.sh --routes clinlims): a result by the analysis
-# it answers, an analysis or a sample by its own id. A record is kept when
-#   - it is not a delete (a delete of a clinic's lab row at the hub stays at the
-#     hub; the clinic's copy is the clinic's), and
-#   - the routing column is a number, at or above this clinic's floor for the
-#     table it names, and ends in this clinic's residue.
+# hub lab user wrote, and the hub's lab accounts (sync/hub-down.conf). A lab
+# row names its clinic by a routing column (sync/hub-down.sh --routes
+# clinlims): a result by the analysis it answers, an analysis or a sample by
+# its own id. A record is kept when
+#   - it is not a delete (a delete at the hub stays at the hub; the clinic's
+#     copy is the clinic's), and
+#   - it is a table that goes to every clinic (sync/hub-down.sh --unrouted
+#     clinlims: the hub's lab accounts, which a sample the hub moved on names),
+#     or its routing column is a number, at or above this clinic's floor for
+#     the table it names, and ends in this clinic's residue.
 # Below the floor a residue says nothing about who wrote a row: those ids were
 # handed out before the clinic's sequences were strided, and are the hub's.
 #
@@ -44,7 +47,9 @@ r="$(value_of RESIDUE)"
 case "$r" in [1-9]) ;; *) die "this clinic's residue (RESIDUE, 1-9) is not set (read '${r}'): the OpenELIS down filter keeps only this clinic's rows and is not written without it" ;; esac
 routes="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
 
+unrouted="$(bash "${REPO_DIR}/sync/hub-down.sh" --unrouted clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
 parts=""; missing=""
+for t in $unrouted; do parts="${parts}${parts:+ || }t == '${t}'"; done
 while read -r t col ft; do
   [ -n "$t" ] || continue
   key="CLINLIMS_FLOOR_$(printf '%s' "$ft" | tr '[:lower:]' '[:upper:]')"
@@ -58,5 +63,5 @@ done <<EOF
 ${routes}
 EOF
 [ -z "$missing" ] || die "no OpenELIS floor for this clinic:${missing} (looked in the environment, clinic/.env, SEED_MANIFEST and clinic/.install-state). Each is the id below which every row of that table came from the hub's seed. Without it the OpenELIS down filter is not written, and lab results entered at the hub do not reach this clinic's OpenELIS."
-[ -n "$parts" ] || die "the hub's down list routes no OpenELIS table; there is nothing to filter"
+[ -n "$parts" ] || die "the hub's down list sends no OpenELIS table down; there is nothing to filter"
 printf "%s\n" "def a = value.get('after'); def t = value.get('source').get('table'); value.get('op') != 'd' && a != null && (${parts})"
