@@ -74,6 +74,19 @@ The hub's sinks upsert on the key, so a second run changes nothing. When it is
 done, the hub holds, for this clinic's residue at or above the floor, the
 count the run logged for each table.
 
+**OpenELIS down filter** — `clinlims-down-filter.sh` prints the condition of
+the clinic's OpenELIS down sink (`connectors/clinlims-clinic-sink-all.json`).
+The hub sends every clinic the `result`, `analysis` and `sample` rows its lab
+users wrote (`sync/hub-down.conf`); the condition keeps a row only when its
+routing column (a result's `analysis_id`, an analysis's or a sample's `id`) is
+at or above this clinic's floor for the table that column names and on its
+residue, and drops deletes and tombstones. The residue is `RESIDUE`; each floor
+is `CLINLIMS_FLOOR_<TABLE>` (environment, `.env`, `SEED_MANIFEST` or
+`.install-state`). Without the residue or a floor it prints nothing and names
+what is missing, and the installer then registers no OpenELIS down sink. The
+sink claims replication origin `hub_2` so this clinic's OpenELIS source never
+sends those rows back up.
+
 **Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
 lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
 the row count and a checksum over every column of every row except those

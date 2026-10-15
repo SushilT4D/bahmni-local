@@ -65,10 +65,27 @@ EOF
 v="$(signal_capture_check)" || fail "$v"
 ok "${v#ok }"
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
-# Both sources send this clinic's rows up; only Odoo has a down sink. The hub
-# sends no OpenELIS table down (lab rows are written at the clinics), so there
-# is no OpenELIS down sink to register.
+# Both sources send this clinic's rows up; both subsystems have a down sink.
+# The Odoo down sink takes the hub's master rows. The OpenELIS down sink takes
+# the result, analysis and sample rows a hub lab user wrote for a sample this
+# clinic sent out, and keeps only this clinic's (clinic/scripts/
+# clinlims-down-filter.sh: the routing column at or above this clinic's floor,
+# on its residue; deletes dropped). It claims replication origin hub_2 (the Odoo
+# down sink holds hub_1; an origin is held by one session at a time), so this
+# clinic's OpenELIS source, which decodes with origin=none, never sends those
+# rows back up. Without this clinic's OpenELIS floors the filter cannot be
+# written and the OpenELIS down sink is not registered: said, not guessed.
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
+# clinlims-down:begin
+# The filter script prints only the condition when it succeeds, and only the
+# reason when it refuses.
+if cond="$(SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/clinlims-down-filter.sh 2>&1)"; then
+  CLINLIMS_DOWN_CONDITION="$cond" NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh clinlims-clinic-sink-all >/dev/null
+  ok "OpenELIS down sink registered: keeps the hub's result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
+else
+  warn "OpenELIS down sink NOT registered: $(printf '%s\n' "$cond" | sed 's/^clinlims-down-filter: //' | tail -1)"
+fi
+# clinlims-down:end
 # after register-odoo.sh, not before: the heartbeat script patches the two PG
 # source connectors' configs (GET then PUT), so they must exist, and it takes
 # BOTH source names (first live clinic, manpur: it was called with one name

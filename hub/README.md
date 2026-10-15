@@ -17,31 +17,37 @@ repository, and attaches to that stack's Docker network through
   number of replication origins the instance holds (below), and every synced
   sequence incrementing by 10 on residue 0. The synced tables are listed in
   `sync/subsystems.conf`. 16 is the first version whose `pgoutput` accepts the
-  `origin` option the Odoo source decodes with.
+  `origin` option the Odoo and OpenELIS sources decode with.
 - **Accounts**: a MySQL account for the sinks and one for Debezium; Postgres
   roles `odoo_sink` and `clinlims_sink`, each with `EXECUTE` on
   `pg_replication_origin_session_setup`, `pg_replication_origin_session_reset`
   and `pg_replication_origin_session_is_setup` in its own database;
-  `REPLICATION` on the role the Odoo source logs in as.
+  `REPLICATION` on the roles the Odoo and OpenELIS sources log in as.
 - **Publication** `dbz_odoo_owned` over exactly the down list,
   `sync/hub-down.conf`, built by `scripts/apply-down-publication.sh`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
-  with this hub's floors in `hub/odoo-down-floors.local` (below). There is no
-  OpenELIS publication: no OpenELIS table goes down.
+  with this hub's floors in `hub/odoo-down-floors.local` (below).
+- **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list
+  (`result`, `analysis`, `sample`), built by
+  `scripts/apply-clinlims-down-publication.sh`, with no row filter: those rows
+  keep the clinic's ids, and the source's `origin=none` is what keeps a
+  clinic's own writes at the hub.
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
   the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
   created when the clinic joins.
 
 ## What the hub publishes
 
-Only master and reference tables, and of those only the rows written at the
-hub.
+Master and reference tables, and the lab rows a hub lab user completes for a
+clinic's sample; of those, only the rows written at the hub.
 
 The clinics send up every table in `sync/subsystems.conf`. The hub sends down
 only `sync/hub-down.conf`: products, categories, units of measure and the
-address tables, plus the three product link tables. Partners, sales, invoices
-and stock stay at the clinic that wrote them, and no OpenELIS table goes down,
-so a hub edit to one of those rows (by a person, or by the OpenMRS-to-Odoo
+address tables, plus the three product link tables and the central-transfer
+tables; and the OpenELIS `result`, `analysis` and `sample` rows, each routed
+to one clinic. Partners, sales, invoices, stock levels and every other
+OpenELIS table stay at the clinic that wrote them, so a hub edit to one of
+those rows (by a person, or by the OpenMRS-to-Odoo
 feed) reaches no clinic. The hub source's table list and aggregate regex, the
 publication and each clinic's MirrorMaker down regex are all rendered from that
 one list; `sync/hub-down.sh` reads it and refuses an up-only table by name.
@@ -124,7 +130,11 @@ on loopback only; reach them over an SSH tunnel.
 - Down direction, hub to clinics: `scripts/generate-cloud-source-connector.sh`
   renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
   registers the Odoo source, `odoo-cloud-source`, filling its table list and
-  aggregate regex from `sync/hub-down.conf`. There is no OpenELIS down source.
+  aggregate regex from `sync/hub-down.conf`, and the OpenELIS source,
+  `clinlims-cloud-source` (slot `dbz_clinlims_down`), filling its table list
+  and aggregate regex from the same file's OpenELIS rows. Each decodes with
+  `origin=none` and starts with `snapshot.mode=no_data`: nothing written
+  before it is registered is sent.
 - Up direction, one set per clinic listed in `clinics.conf` (the sinks for
   `obs`, `orders`, `drug_order` and `test_order` only for a row ending in
   `:clinical`, a

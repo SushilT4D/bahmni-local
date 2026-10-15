@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# The hub sends down only master tables, and every artefact that sends tables
-# down is rendered from one list, sync/hub-down.conf:
+# The hub sends down only master tables (and the three OpenELIS rows a hub lab
+# user completes, routed to one clinic: sync/tests/test_clinlims_down.sh), and
+# every artefact that sends tables down is rendered from one list,
+# sync/hub-down.conf:
 #   - the reader (sync/hub-down.sh) prints exactly the eleven master tables and
 #     refuses, by name, every up-only table planted in the list;
 #   - the hub Odoo source, rendered by register-odoo.sh, carries exactly that
 #     list, and a template edited to carry anything else is refused before any
 #     registration;
-#   - the clinic MirrorMaker's down regex carries the list's Odoo topics, no
-#     up-only table and no OpenELIS topic, while its up regex still carries them all;
+#   - the clinic MirrorMaker's down regex carries the list's Odoo and OpenELIS
+#     topics and no up-only table, while its up regex still carries them all;
 #   - on a real PostgreSQL 16 (when docker and the image are here): the floors
 #     are recorded by the run that strides the ids, never changed by a re-run,
 #     refused when a clinic's origin shows progress or a sequence would restart
@@ -50,8 +52,8 @@ got="$(bash "$C/sync/hub-down.sh" odoo | words)"
 for t in $TRANSFER; do has "$got" "$t" || bad "the down list lacks transfer table $t"; done
 has "$got" stock_quant && bad "stock levels go down" || ok_ "stock levels (stock_quant) stay up-only while transfers go down"
 for t in $UP_ONLY; do has "$got" "$t" && bad "the down list carries up-only $t"; done
-bash "$C/sync/hub-down.sh" clinlims >/dev/null 2>&1 && bad "the down list has OpenELIS rows" || ok_ "no OpenELIS table goes down"
-[ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = odoo ] && ok_ "only Odoo sends anything down" || bad "subsystems sending down: $(bash "$C/sync/hub-down.sh" --subsystems | words)"
+[ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "result analysis sample" ] && ok_ "of the OpenELIS tables only result, analysis and sample go down" || bad "the OpenELIS down rows read [$(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)]"
+[ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = "odoo clinlims" ] && ok_ "Odoo and OpenELIS send down" || bad "subsystems sending down: $(bash "$C/sync/hub-down.sh" --subsystems | words)"
 plant(){ # LINE : the reader on the list with LINE added -> its output; rc in $prc
   { cat "$R/sync/hub-down.conf"; printf '%s\n' "$1"; } > "$C/sync/hub-down.conf"
   pout="$(bash "$C/sync/hub-down.sh" odoo 2>&1)"; prc=$?
@@ -63,8 +65,8 @@ for t in $UP_ONLY; do
   else bad "planted odoo:$t: rc=$prc $pout"; fi
 done
 [ "$n" = 7 ] && ok_ "each of the seven up-only Odoo tables planted in the list is refused by name, and nothing is printed"
-plant "clinlims:sample"
-[ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'clinlims:sample: no OpenELIS table goes down' && ok_ "an OpenELIS table planted in the list is refused" || bad "planted clinlims:sample: rc=$prc $pout"
+plant "clinlims:sample_item:clinic=id"
+[ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'clinlims:sample_item is written at the clinics and never goes down' && ok_ "an OpenELIS table a hub lab user does not complete, planted in the list, is refused" || bad "planted clinlims:sample_item: rc=$prc $pout"
 plant "odoo:ir_config_parameter"
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'odoo:ir_config_parameter is not a synced table' && ok_ "a table that is not synced is refused" || bad "planted ir_config_parameter: rc=$prc $pout"
 plant "odoo:uom_uom"
@@ -110,15 +112,15 @@ if command -v envsubst >/dev/null 2>&1; then
   down="$(sed -n 's/^remote->[a-z_]*\.topics = //p' "$P" 2>/dev/null | tr -d '()\\' | tr '|' '\n')"
   up="$(sed -n 's/^[a-z_]*->remote\.topics = //p' "$P" 2>/dev/null | tr -d '()\\' | tr '|' '\n')"
   dsub="$(printf '%s\n' "$down" | grep -E '^bahmni-cloud\.(odoo|clinlims)\.' | sed 's/^bahmni-cloud\.//' | words)"
-  wsub="odoo.all $(printf '%s\n' $WANT | sed 's/^/odoo./' | words)"
+  wsub="odoo.all clinlims.all $(printf '%s\n' $WANT | sed 's/^/odoo./' | words) clinlims.result clinlims.analysis clinlims.sample"
   # All Odoo traffic rides the aggregate topic, which carries only what the
   # publication sends; the per-table names are listed for parity with the up
   # regex and match no topic. What this guards is that the regex is rendered
   # from the down list, and so names no up-only table.
-  [ "$mrc" = 0 ] && [ "$dsub" = "$wsub" ] && ok_ "the clinic MirrorMaker down regex is rendered from the down list: the Odoo aggregate and the list's names, nothing else" || bad "MirrorMaker down topics: rc=$mrc [$dsub] want [$wsub] $(printf '%s' "$mout" | tail -2)"
+  [ "$mrc" = 0 ] && [ "$dsub" = "$wsub" ] && ok_ "the clinic MirrorMaker down regex is rendered from the down list: the Odoo and OpenELIS aggregates and the list's names, nothing else" || bad "MirrorMaker down topics: rc=$mrc [$dsub] want [$wsub] $(printf '%s' "$mout" | tail -2)"
   printf '%s\n' "$down" | grep -q '^bahmni-cloud\.openmrs\.' && ok_ "the MirrorMaker down regex still carries the hub's OpenMRS tables" || bad "no OpenMRS topic in the down regex"
   for t in $UP_ONLY; do printf '%s\n' "$down" | grep -qx "bahmni-cloud.odoo.$t" && bad "the MirrorMaker down regex carries up-only $t"; done
-  printf '%s\n' "$down" | grep -q 'clinlims' && bad "the MirrorMaker down regex carries an OpenELIS topic" || ok_ "no OpenELIS topic comes down"
+  printf '%s\n' "$down" | grep -E '^bahmni-cloud\.clinlims\.' | grep -vqxE 'bahmni-cloud\.clinlims\.(all|result|analysis|sample)' && bad "the MirrorMaker down regex carries an OpenELIS topic other than the three down rows and their aggregate" || ok_ "of the OpenELIS topics only the aggregate and the three down rows come down"
   usub="$(printf '%s\n' "$up" | grep -cE '^bahmni-test\.(odoo|clinlims)\.')"
   nsub=$(( $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | grep -cE '^(odoo|clinlims):') ))
   [ "$usub" = "$nsub" ] && ok_ "the up regex still carries every synced Odoo and OpenELIS topic ($nsub: every table and the two aggregates)" || bad "up regex carries $usub subsystem topics, want $nsub"

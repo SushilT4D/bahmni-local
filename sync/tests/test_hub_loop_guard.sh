@@ -15,16 +15,30 @@ C="$R/hub/connectors"
 cfg(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get(sys.argv[2], ""))' "$1" "$2"; }
 
 # --- the source: decode only what was written at the hub --------------------
-v="$(cfg "$C/odoo-cloud-source.json" slot.stream.params)"
-[ "$v" = origin=none ] && ok_ "odoo-cloud-source decodes with slot.stream.params=origin=none" || bad "odoo-cloud-source: slot.stream.params is '${v}', want origin=none"
-# No OpenELIS table goes down, so the hub has no OpenELIS source and a clinic no
-# OpenELIS down sink: neither template exists to be registered.
-for f in hub/connectors/clinlims-cloud-source.json clinic/connectors/clinlims-clinic-sink-all.json; do
-  [ -e "$R/$f" ] && bad "$f exists: no OpenELIS table goes down" || ok_ "$f does not exist: no OpenELIS table goes down"
+for n in odoo-cloud-source clinlims-cloud-source; do
+  v="$(cfg "$C/$n.json" slot.stream.params)"
+  [ "$v" = origin=none ] && ok_ "$n decodes with slot.stream.params=origin=none" || bad "$n: slot.stream.params is '${v}', want origin=none"
+done
+# --- the clinic's down sinks: each claims an origin of its own -----------------
+# A row a clinic's down sink writes is tagged with the origin the sink claims,
+# so the clinic's own Postgres sources (origin=none) never send it back up. An
+# origin is held by one session at a time, so the two down sinks claim two.
+CC="$R/clinic/connectors"
+for n in odoo-source-connector clinlims-source-connector; do
+  v="$(cfg "$CC/$n.json" slot.stream.params)"
+  [ "$v" = origin=none ] && ok_ "the clinic's $n decodes with origin=none" || bad "the clinic's $n: slot.stream.params is '${v}', want origin=none"
+done
+o1="$(cfg "$CC/odoo-clinic-sink-all.json" hibernate.agroal.initialSQL)"; o2="$(cfg "$CC/clinlims-clinic-sink-all.json" hibernate.agroal.initialSQL)"
+case "$o1|$o2" in
+  "SELECT pg_replication_origin_session_setup('hub_"*"')|SELECT pg_replication_origin_session_setup('hub_"*"')") [ "$o1" != "$o2" ] && ok_ "the clinic's Odoo and OpenELIS down sinks claim two different hub origins" || bad "both clinic down sinks claim one origin: $o1" ;;
+  *) bad "a clinic down sink claims no hub origin: Odoo '$o1', OpenELIS '$o2'" ;;
+esac
+for n in odoo-clinic-sink-all clinlims-clinic-sink-all; do
+  [ "$(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)" = "1|1" ] && ok_ "$n: one task on one connection (the origin is held by one session)" || bad "$n: tasks.max/pool read $(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)"
 done
 reg="$(grep -E '^[^#]*register-odoo\.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
-printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && ! printf '%s' "$reg" | grep -q 'clinlims-clinic-sink' \
-  && ok_ "the clinic installer registers its Odoo down sink and no OpenELIS down sink" || bad "090 registers: $reg"
+printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && printf '%s' "$reg" | grep -q 'CLINLIMS_DOWN_CONDITION=.*clinlims-clinic-sink-all' \
+  && ok_ "the clinic installer registers its Odoo down sink, and its OpenELIS down sink with its filter" || bad "090 registers: $reg"
 
 # --- the up-sinks: each claims its own clinic's origin, on one connection ----
 # check_sinks DIR CLINICS_CONF : every Postgres JDBC sink in DIR claims

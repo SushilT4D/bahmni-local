@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Registers the Odoo CDC connectors, substituting credentials from
+# Registers the hub's Postgres CDC connectors (the Odoo and OpenELIS down
+# sources and the per-clinic Odoo and OpenELIS up-sinks), substituting credentials from
 # .env at registration time so no committed file holds a literal secret. The four
 # clinlims connector JSONs predate this and DO carry literals -- see the note in
 # f74613f; do not copy their pattern.
@@ -8,24 +9,31 @@ CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/.env"; set +a
 
-# The hub's down source takes its table list and aggregate regex from the down
-# list (sync/hub-down.conf). Read before anything is registered, and only when
-# a template asks for it; a list it refuses stops every registration.
+# The hub's down sources take their table lists and aggregate regexes from the
+# down list (sync/hub-down.conf): HUB_DOWN_ODOO_* for the Odoo source (schema
+# public), HUB_DOWN_CLINLIMS_* for the OpenELIS source (schema clinlims). Read
+# before anything is registered, and only when a template asks for that
+# subsystem; a list it refuses stops every registration.
+down_vars(){ # SUBSYSTEM PG_SCHEMA : exports HUB_DOWN_<SUB>_TABLES, _TABLE_INCLUDE_LIST, _ALTERNATION
+  local sub="$1" schema="$2" up down
+  up="$(printf '%s' "$sub" | tr '[:lower:]' '[:upper:]')"
+  down="$(bash "$ROOT/../sync/hub-down.sh" "$sub")" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
+  export "HUB_DOWN_${up}_TABLES=$(printf '%s\n' "$down" | paste -sd, -)"
+  export "HUB_DOWN_${up}_TABLE_INCLUDE_LIST=$(printf '%s\n' "$down" | sed "s/^/${schema}./" | paste -sd, -)"
+  export "HUB_DOWN_${up}_ALTERNATION=$(printf '%s\n' "$down" | paste -sd'|' -)"
+}
+want_odoo=0; want_clinlims=0
 for name in "$@"; do
-  if grep -q '${HUB_DOWN_' "$ROOT/connectors/${name}.json" 2>/dev/null; then
-    down="$(bash "$ROOT/../sync/hub-down.sh" odoo)" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
-    HUB_DOWN_ODOO_TABLES="$(printf '%s\n' "$down" | paste -sd, -)"
-    HUB_DOWN_ODOO_TABLE_INCLUDE_LIST="$(printf '%s\n' "$down" | sed 's/^/public./' | paste -sd, -)"
-    HUB_DOWN_ODOO_ALTERNATION="$(printf '%s\n' "$down" | paste -sd'|' -)"
-    export HUB_DOWN_ODOO_TABLES HUB_DOWN_ODOO_TABLE_INCLUDE_LIST HUB_DOWN_ODOO_ALTERNATION
-    break
-  fi
+  grep -q '${HUB_DOWN_ODOO_' "$ROOT/connectors/${name}.json" 2>/dev/null && want_odoo=1
+  grep -q '${HUB_DOWN_CLINLIMS_' "$ROOT/connectors/${name}.json" 2>/dev/null && want_clinlims=1
 done
+[ "$want_odoo" = 0 ] || down_vars odoo public
+[ "$want_clinlims" = 0 ] || down_vars clinlims clinlims
 
 for name in "$@"; do
   f="$ROOT/connectors/${name}.json"
   [ -f "$f" ] || { echo "  no such config: $f" >&2; exit 1; }
-  body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
+  body=$(ODOO_DB_PASSWORD="${ODOO_DB_PASSWORD:-}" ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:-}" CLINLIMS_SOURCE_PASSWORD="${CLINLIMS_SOURCE_PASSWORD:-}" NODE="${NODE:?set NODE=rawach|ghated|cloud}" TOPIC_PREFIX="${TOPIC_PREFIX:-bahmni-local}" \
          python3 "$ROOT/connectors/_render_connector.py" "$f") || {
     # _render_connector.py substitutes
     # every value (passwords included) into cfg BEFORE its own unresolved-

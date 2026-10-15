@@ -87,3 +87,17 @@ SQL
 echo "  clinlims_sink role ready on ${CTR} (node ${NODE})"
 "$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -t -A \
   -c "SELECT '  verified: role=' || rolname || ' canlogin=' || rolcanlogin FROM pg_roles WHERE rolname='clinlims_sink';"
+
+# The OpenELIS down sink writes, as this role, the rows the hub sends down
+# (sync/hub-down.sh clinlims): read each privilege back on each table (a
+# comma list in has_table_privilege is true when ANY one is held), rather than
+# trusting the GRANT above, so a sink is never refused its first write. Re-run
+# this script on a clinic seeded before a table joined that list.
+DOWN="$(bash "$(cd "$(dirname "$0")/../.." && pwd)/sync/hub-down.sh" clinlims)" || { echo "  the hub's down list could not be read (reason above)" >&2; exit 1; }
+lacking=""
+for t in $DOWN; do
+  got="$("$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -t -A -c "SELECT has_table_privilege('clinlims_sink', 'clinlims.${t}', 'SELECT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'INSERT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'UPDATE')")" || got=""
+  [ "$got" = t ] || lacking="${lacking} ${t}(${got:-unreadable})"
+done
+[ -z "$lacking" ] || { echo "  clinlims_sink lacks SELECT, INSERT or UPDATE on the OpenELIS down table(s):${lacking}" >&2; exit 1; }
+echo "  verified: clinlims_sink may SELECT, INSERT, UPDATE the OpenELIS down tables: $(printf '%s' "$DOWN" | tr '\n' ' ')"

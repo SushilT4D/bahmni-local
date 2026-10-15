@@ -36,13 +36,16 @@ down_left = [k for k, v in cfg.items() if isinstance(v, str) and '${HUB_DOWN_' i
 if down_left:
     sys.exit('  the down list was not rendered into: ' + ','.join(down_left))
 
-# A source that reads the hub's Odoo down publication sends down exactly the
-# down list (HUB_DOWN_ODOO_TABLES, from sync/hub-down.sh): any other table in its
-# table list or aggregate regex is refused, whatever the template says.
-if cfg.get('publication.name') == 'dbz_odoo_owned':
-    want = set(t for t in os.environ.get('HUB_DOWN_ODOO_TABLES', '').split(',') if t)
+# A source that reads one of the hub's down publications sends down exactly the
+# down list of its subsystem (HUB_DOWN_ODOO_TABLES / HUB_DOWN_CLINLIMS_TABLES,
+# from sync/hub-down.sh): any other table in its table list or aggregate regex
+# is refused, whatever the template says.
+DOWN_PUBLICATIONS = {'dbz_odoo_owned': 'HUB_DOWN_ODOO_TABLES', 'dbz_clinlims_owned': 'HUB_DOWN_CLINLIMS_TABLES'}
+if cfg.get('publication.name') in DOWN_PUBLICATIONS:
+    var = DOWN_PUBLICATIONS[cfg['publication.name']]
+    want = set(t for t in os.environ.get(var, '').split(',') if t)
     if not want:
-        sys.exit('  %s reads dbz_odoo_owned but no down list was given (HUB_DOWN_ODOO_TABLES)' % d.get('name', sys.argv[1]))
+        sys.exit('  %s reads %s but no down list was given (%s)' % (d.get('name', sys.argv[1]), cfg['publication.name'], var))
     inc = set(t.split('.', 1)[-1] for t in cfg.get('table.include.list', '').split(',') if t) - {'dbz_heartbeat'}
     m = re.search(r'\(([^()]*)\)\$?$', cfg.get('transforms.agg.regex', ''))
     agg = set(m.group(1).split('|')) if m else set()
