@@ -31,6 +31,17 @@ mac="$(render docker-compose.yml:docker-compose.macos.yml)"
 [ "$(mount_type "$mac" /var/lib/mysql)" = volume ] && ok_ "macOS: MySQL data on a named volume" || bad "macOS: MySQL data is a $(mount_type "$mac" /var/lib/mysql)"
 printf '%s\n' "$mac" | grep -q 'target: /filestore' && ok_ "macOS: the PostgreSQL filestore bind is kept" || bad "macOS: the filestore bind was lost"
 printf '%s\n' "$mac" | grep -q 'target: /etc/mysql/conf.d/sync-tuning.cnf' && ok_ "macOS: the MySQL tuning file is kept" || bad "macOS: the tuning file mount was lost"
+# A clinic keeping a MySQL database created in a host directory adds a third
+# file: MySQL on that directory, PostgreSQL still on its volume.
+H=docker-compose.yml:docker-compose.macos.yml:docker-compose.macos-mysql-host-dir.yml
+[ -f "$C/docker-compose.macos-mysql-host-dir.yml" ] && ok_ "docker-compose.macos-mysql-host-dir.yml exists" || bad "no docker-compose.macos-mysql-host-dir.yml"
+hd="$(MYSQL_HOST_DATA_DIR=/old/data/mysql render "$H")"
+[ -n "$hd" ] && ok_ "the three-file set renders" || bad "the three-file set does not render"
+[ "$(mount_type "$hd" /var/lib/mysql)" = bind ] && ok_ "host-dir MySQL: data is a host bind" || bad "host-dir MySQL: data is a $(mount_type "$hd" /var/lib/mysql)"
+printf '%s\n' "$hd" | grep -B4 -E 'target: /var/lib/mysql$' | grep -q 'source: /old/data/mysql' && ok_ "host-dir MySQL: the bind is MYSQL_HOST_DATA_DIR" || bad "host-dir MySQL: the bind is not MYSQL_HOST_DATA_DIR"
+[ "$(mount_type "$hd" /var/lib/postgresql/data)" = volume ] && ok_ "host-dir MySQL: PostgreSQL stays on its volume" || bad "host-dir MySQL: PostgreSQL data is a $(mount_type "$hd" /var/lib/postgresql/data)"
+printf '%s\n' "$hd" | grep -q 'target: /etc/mysql/conf.d/sync-tuning.cnf' && ok_ "host-dir MySQL: the tuning file is kept" || bad "host-dir MySQL: the tuning file mount was lost"
+[ -z "$(render "$H")" ] && ok_ "host-dir MySQL: no MYSQL_HOST_DATA_DIR, no render" || bad "host-dir MySQL rendered without MYSQL_HOST_DATA_DIR"
 lin="$(render docker-compose.yml)"
 [ "$(mount_type "$lin" /var/lib/postgresql/data)" = bind ] && ok_ "Linux: PostgreSQL data stays a host bind" || bad "Linux: PostgreSQL data is a $(mount_type "$lin" /var/lib/postgresql/data)"
 [ "$(mount_type "$lin" /var/lib/mysql)" = bind ] && ok_ "Linux: MySQL data stays a host bind" || bad "Linux: MySQL data is a $(mount_type "$lin" /var/lib/mysql)"
