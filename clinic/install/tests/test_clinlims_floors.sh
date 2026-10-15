@@ -3,7 +3,8 @@
 # hub's OpenELIS down rows are routed by begin (state.sh
 # record_clinlims_floors), before it strides, and the OpenELIS down filter
 # reads them back:
-#   - the tables come from the down list's routes (today analysis and sample);
+#   - the tables come from the down list's routes (today analysis and sample)
+#     and the OpenELIS source's own-rows tables (system_user, result_signature);
 #   - a first run records CLINLIMS_FLOOR_<TABLE> = (last_value / 10 + 1) * 10
 #     in .install-state, the restart the stride gives the sequence, less the
 #     residue;
@@ -30,15 +31,17 @@ CLINIC_DIR="$TMP/clinic"; mkdir -p "$CLINIC_DIR"; REPO_DIR="$R"
 . "${HERE}/../lib.sh"; . "${HERE}/../state.sh"
 SF="$CLINIC_DIR/.install-state"
 
-[ "$(clinlims_floor_tables | tr '\n' ' ')" = "analysis sample " ] && ok_ "the floor tables come from the down list's routes: analysis, sample" || bad "floor tables: $(clinlims_floor_tables 2>&1 | tr '\n' ' ')"
+[ "$(clinlims_floor_tables | tr '\n' ' ')" = "analysis sample system_user result_signature " ] && ok_ "the floor tables: the down list's routes (analysis, sample), then the tables the OpenELIS source publishes only above the clinic's floor (system_user, result_signature)" || bad "floor tables: $(clinlims_floor_tables 2>&1 | tr '\n' ' ')"
 
 # a stand-in for the database: FAKE_<table> holds what the read prints; each read is logged
 fake_read(){ echo "$1" >> "$TMP/reads"; [ -f "$TMP/err.$1" ] && return 2; cat "$TMP/FAKE_$1" 2>/dev/null; return 0; }
 echo 'clinlims.analysis_seq|1203' > "$TMP/FAKE_analysis"; echo 'clinlims.sample_seq|790' > "$TMP/FAKE_sample"
+echo 'clinlims.system_user_seq|163' > "$TMP/FAKE_system_user"; echo 'clinlims.result_signature_seq|4391' > "$TMP/FAKE_result_signature"
 out="$(record_clinlims_floors fake_read)"; rc=$?
 [ "$rc" = 0 ] && [ "$(stamp_get CLINLIMS_FLOOR_ANALYSIS)" = 1210 ] && [ "$(stamp_get CLINLIMS_FLOOR_SAMPLE)" = 800 ] \
+  && [ "$(stamp_get CLINLIMS_FLOOR_SYSTEM_USER)" = 170 ] && [ "$(stamp_get CLINLIMS_FLOOR_RESULT_SIGNATURE)" = 4400 ] \
   && printf '%s' "$out" | grep -q '^ok CLINLIMS_FLOOR_ANALYSIS=1210 (recorded' \
-  && ok_ "first run: analysis 1203 -> floor 1210, sample 790 -> floor 800, recorded in .install-state" || bad "first run: rc=$rc $out | $(cat "$SF" 2>/dev/null)"
+  && ok_ "first run: analysis 1203 -> 1210, sample 790 -> 800, system_user 163 -> 170, result_signature 4391 -> 4400, recorded in .install-state" || bad "first run: rc=$rc $out | $(cat "$SF" 2>/dev/null)"
 before="$(cat "$SF")"; rm -f "$TMP/reads"
 echo 'clinlims.analysis_seq|1563' > "$TMP/FAKE_analysis"; echo 'clinlims.sample_seq|993' > "$TMP/FAKE_sample"
 out="$(record_clinlims_floors fake_read)"; rc=$?
@@ -73,7 +76,7 @@ nrec="$(grep -n 'record_clinlims_floors elis_seq' "$T60" | cut -d: -f1)"; nstr="
   && ok_ "060 records the floors before it strides the OpenELIS sequences, and stops on a refusal" || bad "060 order: record at ${nrec:-none}, stride at ${nstr:-none}"
 [ "$(ls "${HERE}/../tasks" | grep -n '^060-' | cut -d: -f1)" -lt "$(ls "${HERE}/../tasks" | grep -n '^090-' | cut -d: -f1)" ] && ok_ "060 runs before 090, which registers the OpenELIS down sink" || bad "task order"
 out="$(env -i PATH="$PATH" HOME="$TMP" DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/dry" REPO_DIR="$R" RESIDUE=3 bash "$T60" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'record CLINLIMS_FLOOR_ANALYSIS CLINLIMS_FLOOR_SAMPLE in .install-state' && [ ! -e "$TMP/dry/.install-state" ] \
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'record CLINLIMS_FLOOR_ANALYSIS CLINLIMS_FLOOR_SAMPLE CLINLIMS_FLOOR_SYSTEM_USER CLINLIMS_FLOOR_RESULT_SIGNATURE in .install-state' && [ ! -e "$TMP/dry/.install-state" ] \
   && ok_ "060's dry run names the floors it would record, and records nothing" || bad "060 dry run: rc=$rc $out"
 
 # --- a real PostgreSQL 16 ------------------------------------------------------------
@@ -95,6 +98,9 @@ P -q >/dev/null <<'SQL'
 CREATE SCHEMA clinlims;
 CREATE TABLE clinlims.analysis (id numeric(10) PRIMARY KEY);
 CREATE TABLE clinlims.sample (id numeric(10) PRIMARY KEY);
+CREATE TABLE clinlims.system_user (id numeric(10) PRIMARY KEY);
+CREATE TABLE clinlims.result_signature (id numeric(10) PRIMARY KEY);
+CREATE SEQUENCE clinlims.system_user_seq; CREATE SEQUENCE clinlims.result_signature_seq;
 CREATE SEQUENCE clinlims.analysis_seq; SELECT setval('clinlims.analysis_seq', 1203, true);
 CREATE SEQUENCE clinlims.sample_seq;   SELECT setval('clinlims.sample_seq', 790, false);
 SQL

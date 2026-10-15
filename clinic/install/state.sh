@@ -517,10 +517,12 @@ node_fk_verdict(){
   provenance_fk_verdict "$2" "$rows"
 }
 
-# --- OpenELIS floors: where this clinic's own ids of a routed down table begin --
+# --- OpenELIS floors: where this clinic's own ids of a table begin ------------
 # The hub sends every clinic the OpenELIS rows its lab users wrote
 # (sync/hub-down.conf); each clinic keeps a row only when its routing column
-# names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh).
+# names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh). The
+# clinic's OpenELIS source, in turn, publishes a lab account or signature only
+# when this clinic minted it (UP_CLINLIMS_OWN_ROWS).
 # Every id of a table the seed restored is the hub's, on any residue; this
 # clinic's own ids start where the striding step restarts that table's
 # sequence. So the floor of each table a routed row points at is recorded from
@@ -532,11 +534,14 @@ node_fk_verdict(){
 # clinic's earlier rows, so an existing value is kept.
 
 # clinlims_floor_tables : the tables whose floor a routed OpenELIS down row is
-# compared with (sync/hub-down.sh --routes clinlims, third field), once each.
+# compared with (sync/hub-down.sh --routes clinlims, third field), then the
+# tables the clinic's OpenELIS source publishes only above the clinic's floor
+# (UP_CLINLIMS_OWN_ROWS, sync/local/tables-conf.sh), once each.
 clinlims_floor_tables(){
   local r
   r="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || return 1
-  printf '%s\n' "$r" | awk 'NF == 3 && !seen[$3]++ { print $3 }'
+  [ -n "${UP_CLINLIMS_OWN_ROWS+x}" ] || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  { printf '%s\n' "$r" | awk 'NF == 3 { print $3 }'; printf '%s\n' ${UP_CLINLIMS_OWN_ROWS}; } | awk 'NF && !seen[$1]++ { print $1 }'
 }
 clinlims_floor_key(){ printf 'CLINLIMS_FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
 # clinlims_seq_sql TABLE : psql input printing one line "<sequence>|<last_value>"

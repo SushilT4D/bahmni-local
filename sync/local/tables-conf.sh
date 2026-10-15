@@ -38,6 +38,16 @@ UP_SIGNAL_TABLE=debezium_signal
 # would carry no capture filter and every clinic would publish its edits to
 # the hub's rows. Such a line is refused.
 UP_CLINICAL_TABLES="obs orders drug_order test_order"
+#
+# The OpenELIS tables a clinic's OpenELIS source publishes only for rows this
+# clinic minted: id at or above the clinic's floor for the table (recorded by
+# installer task 060 before it strides, CLINLIMS_FLOOR_<TABLE>) and on its
+# residue. The seed copies the hub's lab accounts and signatures to every
+# clinic; an edit a clinic makes to one of those stays at the clinic, as an
+# edit to a hub obs does. Each has a filter step in
+# clinic/connectors/clinlims-source-connector.json, in this order, before the
+# step that routes every table into the one ordered topic.
+UP_CLINLIMS_OWN_ROWS="system_user result_signature"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
 # bash 3.2 compatible (macOS): no associative arrays.

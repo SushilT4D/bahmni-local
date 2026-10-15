@@ -75,6 +75,19 @@ bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 # clinic's OpenELIS source, which decodes with origin=none, never sends those
 # rows back up. The floors are recorded by task 060 before it strides; without
 # them (or the residue) the filter cannot be written and this task stops.
+# clinlims-own-rows:begin
+# The OpenELIS source publishes a lab account or signature only when this
+# clinic minted it (sync/local/tables-conf.sh UP_CLINLIMS_OWN_ROWS): one filter
+# step per table, on the record key, at or above the floor task 060 recorded
+# and on this clinic's residue (sync/origin-filter.sh's condition).
+. "${REPO_DIR}/sync/local/tables-conf.sh"; . "${REPO_DIR}/sync/origin-filter.sh"
+for t in ${UP_CLINLIMS_OWN_ROWS}; do
+  k="$(clinlims_floor_key "$t")"; fl="$(stamp_get "$k")"
+  [ -n "$fl" ] || fail "no ${k} is recorded on this machine (task 060 records it before it strides the OpenELIS ids), so the OpenELIS source cannot tell this clinic's ${t} rows from the hub's: rerun from 060 (seed.sh --seed <folder> --from 060) or call the operator."
+  c="$(origin_filter_condition id "$fl" "${RESIDUE}")" || fail "the ${t} filter could not be written (reason above)"
+  export "CLINLIMS_UP_CONDITION_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')=$c"
+done
+# clinlims-own-rows:end
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
 # clinlims-down:begin
 # The filter script prints only the condition when it succeeds, and only the
