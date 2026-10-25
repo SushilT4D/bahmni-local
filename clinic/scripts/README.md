@@ -77,9 +77,10 @@ count the run logged for each table.
 **OpenELIS down filter** — `clinlims-down-filter.sh` prints the condition of
 the clinic's OpenELIS down sink (`connectors/clinlims-clinic-sink-all.json`).
 The hub sends every clinic the `result`, `analysis` and `sample` rows its lab
-users wrote, and its lab accounts (`sync/hub-down.conf`); the condition keeps
-every account the hub sends (a sample the hub moved on names one), and a lab
-row only when its
+users wrote, its lab accounts and its lab test catalogue (`sync/hub-down.conf`);
+the condition keeps every account and catalogue row the hub sends (a sample the
+hub moved on names an account; a lab order is matched to the catalogue), and a
+lab row only when its
 routing column (a result's `analysis_id`, an analysis's or a sample's `id`) is
 at or above this clinic's floor for the table that column names and on its
 residue, and drops deletes and tombstones. The residue is `RESIDUE`; each floor
@@ -135,6 +136,25 @@ incoming commits and `MANIFEST.tsv` changes and changes nothing. See
 read-only, with the deploy key `clinic/.env` names; it opens no shell anywhere.
 Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
 4 another run holds `clinic/forms`.
+
+**Concepts minted at this clinic** — `clinic-minted-concepts.sh --hub-ids
+<file>` compares this clinic's concept dictionary (the tables `hub/tables.conf`
+marks `changes`) with the hub's, read on the hub with `--hub-query`, and lists
+every row this clinic minted for itself: a `twin` (the hub holds its uuid under
+another id), a `collision` (the hub holds its id with another uuid) or a
+`residue` row (on a residue other than the hub's, above the hub's last legacy
+id). The concept down sinks start only when it finds none. `--rekey` moves the
+twins to the hub's ids in one transaction with binary logging off, rewriting
+every reference to them, and checks counts, uuids and references before it
+commits; it refuses, changing nothing, on a collision, while OpenMRS runs, or
+when a table this clinic sends up (obs) or an unknown column refers to a
+moving row.
+
+**Lab catalogue refresh** — `refresh-lab-catalogue.sh "<concept name>"`, run
+outside clinic hours after the hub adds or changes a lab test: stops
+odoo-connect and OpenELIS, restarts OpenMRS, waits until its search finds the
+concept, then starts OpenELIS and odoo-connect, each wait on a named budget.
+`--start-readers` runs the last two alone.
 
 **Recreate OpenMRS** — `recreate-openmrs.sh` runs the checks installer task
 080 runs before OpenMRS starts (JVM options, the forms mount, the Initializer

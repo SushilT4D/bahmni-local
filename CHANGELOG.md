@@ -3,6 +3,24 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## The lab test catalogue comes down from the hub
+
+- A lab test is created or changed at the hub only, and comes down to every
+  clinic as changes: its OpenMRS concept rows (the ten concept tables
+  `hub/tables.conf` marks `changes`; the hub's source reads none of their
+  existing rows, every clinic already holds them) and its OpenELIS catalogue
+  rows (on the one ordered OpenELIS stream, `sync/hub-down.conf`). A clinic's
+  concept sinks never apply a delete; the hub retires a test rather than
+  deleting it.
+- Before a clinic's concept sinks start, `clinic/scripts/clinic-minted-concepts.sh`
+  must find no concept row the clinic minted for itself; `--rekey` moves the
+  ones the hub also holds to the hub's ids.
+- A clinic's applications show a new test after OpenMRS restarts:
+  `clinic/scripts/refresh-lab-catalogue.sh`, run outside clinic hours.
+- A clinic's proxy refuses OpenELIS's administration actions that write the
+  catalogue (any method), with "The lab test catalogue is maintained at the
+  hub; this change is refused at this clinic".
+
 ## Master data writes at a clinic
 
 - A clinic's proxy refuses any method but GET, HEAD and OPTIONS on the paths
