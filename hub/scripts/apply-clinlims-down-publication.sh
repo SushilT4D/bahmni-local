@@ -5,8 +5,10 @@
 # the OpenELIS rows of the down list (sync/hub-down.conf through
 # sync/hub-down.sh clinlims), plus clinlims.dbz_heartbeat: the rows routed to
 # one clinic with no row filter, the rows that go to every clinic
-# (sync/hub-down.sh --unrouted clinlims) with (id < <floor> OR id % 10 = 0) on
-# this hub's floor from FLOORS-FILE (hub/clinlims-down-floors.local).
+# (sync/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
+# catalogue) with (id < <floor> OR id % 10 = 0) on this hub's floor from
+# FLOORS-FILE (hub/clinlims-down-floors.local), each of those without an id
+# column (a link table) with no row filter.
 # hub/openelis/apply-down-publication.sql does the work and refuses, naming the
 # table, a missing table, one without a replica identity (covering id, when
 # filtered), or a missing floor. Prints "<table> <row filter>" per published

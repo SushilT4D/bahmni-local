@@ -4,7 +4,7 @@
 # hub-down.sh --subsystems : prints each subsystem that sends anything down, once.
 # hub-down.sh --unrouted SUBSYSTEM : prints the tables of SUBSYSTEM that go to
 #   every clinic (no clinic=<column>), which the hub's publication filters on
-#   its own floor: (id < floor OR id % 10 = 0).
+#   its own floor, (id < floor OR id % 10 = 0), when the table has an `id`.
 # hub-down.sh --routes SUBSYSTEM : prints "<table> <column> <floor table>" for
 #   each routed row of SUBSYSTEM (a row ending in :clinic=<column>): the column
 #   a clinic reads to keep the row, and the table whose clinic floor that
@@ -19,11 +19,14 @@
 # is not a synced table of its subsystem in sync/subsystems.conf, repeats a
 # table, or names a table that is written at the clinics and must never go down
 # (Odoo partners, sales, invoices and stock levels; any OpenELIS table other
-# than the three a hub lab user completes and the lab accounts they name). An
-# OpenELIS result, analysis or sample row must say which column routes it to
-# its clinic; an OpenELIS system_user row and every Odoo row must not (they go
-# to every clinic, chosen by the publication's floor filter). Nothing is
-# printed when it refuses, so a caller never renders from half a list.
+# than the three a hub lab user completes, the lab accounts they name and the
+# lab test catalogue). An OpenELIS result, analysis or sample row must say which
+# column routes it to its clinic; an OpenELIS system_user row, a catalogue row
+# and every Odoo row must not (they go to every clinic, chosen by the
+# publication's floor filter). A catalogue table is the one kind of down table
+# that is not in sync/subsystems.conf: only the hub writes it, so no clinic
+# sends it up, and one listed there too is refused. Nothing is printed when it
+# refuses, so a caller never renders from half a list.
 #
 # HUB_DOWN_CONF and SUBSYSTEMS_CONF override the two files (tests).
 set -u
@@ -51,6 +54,11 @@ DOWN_CLINLIMS=" result analysis sample "
 # the account that did it (sample.sys_user_id, a foreign key), so every clinic
 # takes the hub's accounts, filtered on the hub's floor like an Odoo master row.
 DOWN_CLINLIMS_ALL=" system_user "
+# The lab test catalogue, written at the hub only: the tables a test, a panel,
+# a sample type, a department and a result option are stored in, and every
+# table they point to by a foreign key. Every clinic takes them. No clinic
+# writes them, so none of them is in sync/subsystems.conf (the up list).
+DOWN_CLINLIMS_CATALOGUE=" scriptlet label method test_formats test_trailer type_of_test_result org_mls_lab_type organization organization_type organization_organization_type dictionary_category dictionary unit_of_measure test_section type_of_sample analyte test test_result test_analyte result_limits panel panel_item sampletype_test sampletype_panel "
 
 strip(){ sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$1"; }
 SYNCED=" $(strip "$SUBS" | grep . | tr '\n' ' ') "
@@ -70,11 +78,13 @@ while IFS= read -r row; do
       case "$col" in ''|*[!a-z0-9_]*|[0-9]*) die "$CONF: row '$row': clinic=<column> needs a bare lowercase column name" ;; esac ;;
     *) die "$CONF: row '$row': the third field is clinic=<column> or nothing" ;;
   esac
+  catalogue=0
   if [ "$s" = clinlims ]; then
-    case "$DOWN_CLINLIMS $DOWN_CLINLIMS_ALL" in
+    case "$DOWN_CLINLIMS $DOWN_CLINLIMS_ALL $DOWN_CLINLIMS_CATALOGUE" in
       *" $t "*) ;;
-      *) die "$CONF: clinlims:$t is written at the clinics and never goes down; only result, analysis and sample, completed by a hub lab user, and the lab accounts (system_user) go down" ;;
+      *) die "$CONF: clinlims:$t is written at the clinics and never goes down; only result, analysis and sample, completed by a hub lab user, the lab accounts (system_user) and the lab test catalogue go down" ;;
     esac
+    case "$DOWN_CLINLIMS_CATALOGUE" in *" $t "*) catalogue=1 ;; esac
     case "$DOWN_CLINLIMS" in
       *" $t "*) [ -n "$col" ] || die "$CONF: clinlims:$t goes to one clinic, so the row must name the column that routes it (clinlims:$t:clinic=<column>)" ;;
       *) [ -z "$col" ] || die "$CONF: clinlims:$t goes to every clinic, filtered on the hub's floor; it takes no clinic=<column>" ;;
@@ -86,7 +96,11 @@ while IFS= read -r row; do
     case "$UP_ONLY_ODOO" in *" $t "*) die "$CONF: odoo:$t is written at the clinics and never goes down (a hub write to it would reach every clinic)" ;; esac
   fi
   [ "$t" = all ] && die "$CONF: $s:all is the aggregate topic, not a table"
-  case "$SYNCED" in *" $s:$t "*) ;; *) die "$CONF: $s:$t is not a synced table ($SUBS has no row $s:$t)" ;; esac
+  if [ "$catalogue" = 1 ]; then
+    case "$SYNCED" in *" $s:$t "*) die "$CONF: $s:$t is the hub's lab test catalogue, which only the hub writes, but $SUBS sends it up too: a table that travels both ways comes back to the node that wrote it" ;; esac
+  else
+    case "$SYNCED" in *" $s:$t "*) ;; *) die "$CONF: $s:$t is not a synced table ($SUBS has no row $s:$t)" ;; esac
+  fi
   case "$seen" in *" $s:$t "*) die "$CONF: $s:$t is listed twice" ;; esac
   seen="$seen$s:$t "
   [ -n "$col" ] && routes="$routes$s $t $col

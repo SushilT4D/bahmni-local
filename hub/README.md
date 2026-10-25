@@ -30,15 +30,19 @@ repository, and attaches to that stack's Docker network through
 - **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
   built by `scripts/apply-clinlims-down-publication.sh`: `result`, `analysis`
   and `sample` with no row filter (those rows keep the clinic's ids, and the
-  source's `origin=none` is what keeps a clinic's own writes at the hub), and
-  the lab accounts, `system_user`, with `(id < <floor> OR id % 10 = 0)` on this
-  hub's floor in `hub/clinlims-down-floors.local`. That floor is recorded once,
-  by the run that strides the hub's OpenELIS ids, just before it strides:
+  source's `origin=none` is what keeps a clinic's own writes at the hub); the
+  lab accounts, `system_user`, and the lab test catalogue (tests, panels,
+  sample types, departments, result options and every table they point to)
+  with `(id < <floor> OR id % 10 = 0)` on this hub's floors in
+  `hub/clinlims-down-floors.local`, the catalogue's two link tables without an
+  `id` unfiltered. The floors are recorded once, by the run that strides the
+  hub's OpenELIS ids, just before it strides:
   `scripts/stride-openelis.sh -- <psql command>` (residue 0, from
   `openelis/apply-sequence-striding.sql`; a second run keeps the floors and
-  moves nothing). On a hub strided before, record the floors with
-  `scripts/record-clinlims-down-floors.sh --from-file <file> -- <psql command>`,
-  values that check out against it.
+  moves nothing). On a hub strided before a table joined the down list,
+  `scripts/record-clinlims-down-floors.sh --derive -- <psql command>` prints
+  that table's floor read from its rows, and `--from-file <file>` adds it to
+  the floors file, leaving the floors it already holds as they are.
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
   the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
   created when the clinic joins.
@@ -51,9 +55,11 @@ clinic's sample; of those, only the rows written at the hub.
 The clinics send up every table in `sync/subsystems.conf`. The hub sends down
 only `sync/hub-down.conf`: products, categories, units of measure and the
 address tables, plus the three product link tables and the central-transfer
-tables; and the OpenELIS `result`, `analysis` and `sample` rows, each routed
-to one clinic. Partners, sales, invoices, stock levels and every other
-OpenELIS table stay at the clinic that wrote them, so a hub edit to one of
+tables; the OpenELIS `result`, `analysis` and `sample` rows, each routed to
+one clinic; and, to every clinic, the OpenELIS lab accounts and lab test
+catalogue and the OpenMRS concept dictionary (as changes only). Partners,
+sales, invoices, stock levels and every other OpenELIS table stay at the
+clinic that wrote them, so a hub edit to one of
 those rows (by a person, or by the OpenMRS-to-Odoo
 feed) reaches no clinic. The hub source's table list and aggregate regex, the
 publication and each clinic's MirrorMaker down regex are all rendered from that
@@ -142,6 +148,17 @@ on loopback only; reach them over an SSH tunnel.
   and aggregate regex from the same file's OpenELIS rows. Each decodes with
   `origin=none` and starts with `snapshot.mode=no_data`: nothing written
   before it is registered is sent.
+- A table added to `tables.conf` after the MySQL source first started: the
+  source records the structure of only the tables it captures
+  (`schema.history.internal.store.only.captured.tables.ddl=true`) and resumes
+  from its offsets, so it has no structure for the new table and stops at that
+  table's first change ("whose schema isn't known to this connector"). Before
+  it captures the table, rebuild its structure record: stop the source
+  (`PUT .../stop`), delete its topic `schema-changes.<server name>`, register
+  the generated config once with `"snapshot.mode": "recovery"` (the structure
+  of every captured table, no rows), resume it, then register the generated
+  config as it is. A source registered on a Kafka with no offsets reads every
+  structure on its first start and needs none of this.
 - Up direction, one set per clinic listed in `clinics.conf` (the sinks for
   `obs`, `orders`, `drug_order` and `test_order` only for a row ending in
   `:clinical`, a

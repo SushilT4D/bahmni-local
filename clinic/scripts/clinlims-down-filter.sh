@@ -6,16 +6,18 @@
 #   clinic/scripts/clinlims-down-filter.sh
 #
 # Every clinic receives the same stream: the result, analysis and sample rows a
-# hub lab user wrote, and the hub's lab accounts (sync/hub-down.conf). A lab
-# row names its clinic by a routing column (sync/hub-down.sh --routes
-# clinlims): a result by the analysis it answers, an analysis or a sample by
-# its own id. A record is kept when
+# hub lab user wrote, the hub's lab accounts and the hub's lab test catalogue
+# (sync/hub-down.conf). A lab row names its clinic by a routing column
+# (sync/hub-down.sh --routes clinlims): a result by the analysis it answers, an
+# analysis or a sample by its own id. A record is kept when
 #   - it is not a delete (a delete at the hub stays at the hub; the clinic's
-#     copy is the clinic's), and
+#     copy is the clinic's; a catalogue row the hub deletes is kept here, and
+#     the hub retires a test rather than deleting it), and
 #   - it is a table that goes to every clinic (sync/hub-down.sh --unrouted
-#     clinlims: the hub's lab accounts, which a sample the hub moved on names),
-#     or its routing column is a number, at or above this clinic's floor for
-#     the table it names, and ends in this clinic's residue.
+#     clinlims: the hub's lab accounts, which a sample the hub moved on names,
+#     and the catalogue a lab order is matched to), or its routing column is a
+#     number, at or above this clinic's floor for the table it names, and ends
+#     in this clinic's residue.
 # Below the floor a residue says nothing about who wrote a row: those ids were
 # handed out before the clinic's sequences were strided, and are the hub's.
 #

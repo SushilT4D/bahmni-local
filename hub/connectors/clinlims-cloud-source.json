@@ -22,7 +22,7 @@
     "database.port": "5432",
     "plugin.name": "pgoutput",
     "slot.stream.params": "origin=none",
-    "//down": "Sends down only the OpenELIS rows in sync/hub-down.conf: register-odoo.sh fills the table list and the aggregate regex from that list, and refuses to register when it cannot. The publication it reads (dbz_clinlims_owned) holds the same tables, with no row filter: the rows keep the clinic's ids, and each clinic's down sink keeps only its own.",
+    "//down": "Sends down only the OpenELIS rows in sync/hub-down.conf: register-odoo.sh fills the table list and the aggregate regex from that list, and refuses to register when it cannot. The publication it reads (dbz_clinlims_owned) holds the same tables: the lab rows routed to one clinic with no row filter (they keep the clinic's ids, and each clinic's down sink keeps only its own), the lab accounts and the lab test catalogue filtered on the hub's floor and kept by every clinic. All of them travel on one ordered topic, so a row reaches a clinic after the rows it points to.",
     "//origin": "Decodes only what was written at this hub. A row a clinic's up-sink applied here carries that clinic's replication origin and is skipped, so the hub publishes a clinic's lab rows only after a hub lab user has written them, and never sends a clinic's own write back to it or on to another clinic.",
     "key.converter.schemas.enable": "true",
     "database.hostname": "${BASE_ELIS_CONTAINER}",

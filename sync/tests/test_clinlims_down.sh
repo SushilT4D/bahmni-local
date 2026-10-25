@@ -45,6 +45,13 @@ trap cleanup EXIT
 words(){ tr '\n' ' ' | sed 's/ $//'; }
 C="$T/repo"; mkdir -p "$C"
 (cd "$R" && tar cf - sync hub/connectors hub/scripts hub/openelis clinic/connectors clinic/scripts clinic/install/tasks) | (cd "$C" && tar xf -)
+# The lab test catalogue rides the same stream to every clinic; it has its own
+# test (sync/tests/test_lab_catalogue_down.sh). Here the down list is read
+# without it, so the lab rows and the lab accounts are tested on their own.
+BASE="$T/hub-down.base"
+CATALOGUE="$(sed -n 's/^DOWN_CLINLIMS_CATALOGUE=" *\(.*[^ ]\) *"$/\1/p' "$R/sync/hub-down.sh" | tr ' ' '|')"
+[ -n "$CATALOGUE" ] || bad "sync/hub-down.sh names no catalogue tables (DOWN_CLINLIMS_CATALOGUE)"
+grep -vE "^clinlims:(${CATALOGUE})\$" "$R/sync/hub-down.conf" > "$BASE"; cp "$BASE" "$C/sync/hub-down.conf"
 
 # --- one restart rule: where the floors say a sequence restarts is where the stride restarts it
 rule='((coalesce(v_last, 0) / 10) + 1) * 10'
@@ -59,18 +66,18 @@ done
 [ "$(bash "$C/sync/hub-down.sh" --unrouted clinlims | words)" = system_user ] && ok_ "the one OpenELIS table that goes to every clinic, filtered on the hub's floor: system_user" || bad "unrouted: $(bash "$C/sync/hub-down.sh" --unrouted clinlims 2>&1 | words)"
 [ "$(bash "$C/sync/hub-down.sh" --subsystems | words)" = "odoo clinlims" ] && ok_ "Odoo and OpenELIS send down" || bad "subsystems: $(bash "$C/sync/hub-down.sh" --subsystems 2>&1 | words)"
 plant(){ # LINE : the reader on the list with LINE added; output in $pout, status in $prc
-  { cat "$R/sync/hub-down.conf"; printf '%s\n' "$1"; } > "$C/sync/hub-down.conf"
+  { cat "$BASE"; printf '%s\n' "$1"; } > "$C/sync/hub-down.conf"
   pout="$(bash "$C/sync/hub-down.sh" clinlims 2>&1)"; prc=$?
-  cp "$R/sync/hub-down.conf" "$C/sync/hub-down.conf"; }
+  cp "$BASE" "$C/sync/hub-down.conf"; }
 for t in sample_item patient person sample_human result_signature; do
   plant "clinlims:$t:clinic=id"
   [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q "clinlims:$t is written at the clinics and never goes down" && ! printf '%s' "$pout" | grep -qx result \
     && ok_ "clinlims:$t planted in the list is refused by name, and nothing is printed" || bad "planted clinlims:$t: rc=$prc $pout"
 done
 replace(){ # FROM TO : the reader on the list with one line changed
-  sed "s/^$1\$/$2/" "$R/sync/hub-down.conf" > "$C/sync/hub-down.conf"
+  sed "s/^$1\$/$2/" "$BASE" > "$C/sync/hub-down.conf"
   pout="$(bash "$C/sync/hub-down.sh" clinlims 2>&1)"; prc=$?
-  cp "$R/sync/hub-down.conf" "$C/sync/hub-down.conf"; }
+  cp "$BASE" "$C/sync/hub-down.conf"; }
 replace 'clinlims:result:clinic=analysis_id' 'clinlims:result'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'must name the column that routes it' && ok_ "an OpenELIS row without clinic=<column> is refused" || bad "unrouted result: rc=$prc $pout"
 replace 'clinlims:result:clinic=analysis_id' 'clinlims:result:clinic=sample_item_id'
@@ -85,7 +92,7 @@ replace 'odoo:uom_uom' 'odoo:uom_uom:clinic=id'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'only an OpenELIS row is routed by clinic=<column>' && ok_ "an Odoo row with clinic= is refused (Odoo rows go to every clinic)" || bad "odoo with clinic=: rc=$prc $pout"
 replace 'clinlims:sample:clinic=id' 'clinlims:sample:clinic=id\nclinlims:sample:clinic=id'
 [ "$prc" != 0 ] && printf '%s' "$pout" | grep -q 'clinlims:sample is listed twice' && ok_ "an OpenELIS row listed twice is refused" || bad "duplicate: rc=$prc $pout"
-[ "$(bash "$C/sync/hub-down.sh" odoo | grep -c .)" = "$(sed 's/#.*//' "$R/sync/hub-down.conf" | grep -c '^odoo:')" ] && ok_ "the Odoo rows read as before" || bad "odoo rows changed"
+[ "$(bash "$C/sync/hub-down.sh" odoo | grep -c .)" = "$(sed 's/#.*//' "$BASE" | grep -c '^odoo:')" ] && ok_ "the Odoo rows read as before" || bad "odoo rows changed"
 
 # --- the hub's OpenELIS source, rendered for registration -------------------------
 mkdir -p "$T/bin"
@@ -116,9 +123,9 @@ reg_hub
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'table.include.list differs from the down list (not down tables: sample_item' && [ ! -s "$T/body.log" ] \
   && ok_ "a template that adds sample_item to the hub's OpenELIS source is refused, and nothing is registered" || bad "edited hub template: rc=$rrc $rout"
 cp "$R/hub/connectors/clinlims-cloud-source.json" "$C/hub/connectors/"
-{ cat "$R/sync/hub-down.conf"; echo 'clinlims:sample_item:clinic=id'; } > "$C/sync/hub-down.conf"; reg_hub
+{ cat "$BASE"; echo 'clinlims:sample_item:clinic=id'; } > "$C/sync/hub-down.conf"; reg_hub
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'nothing was registered' && [ ! -s "$T/body.log" ] && ok_ "a down list the reader refuses stops the hub source's registration" || bad "refused list at registration: rc=$rrc $rout"
-cp "$R/sync/hub-down.conf" "$C/sync/hub-down.conf"
+cp "$BASE" "$C/sync/hub-down.conf"
 
 # --- the clinic's filter ------------------------------------------------------------
 CD="$C/clinic"
