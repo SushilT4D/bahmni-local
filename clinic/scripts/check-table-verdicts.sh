@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Check both sync table lists against hub/table-verdicts.conf:
 #
-#   hub/tables.conf          an unmarked row must have verdict DOWN, a row
-#                            marked `relay` must have verdict relay;
+#   hub/tables.conf          an unmarked row, or one marked `changes`, must
+#                            have verdict DOWN, a row marked `relay` must have
+#                            verdict relay;
 #   sync/local/tables.conf   every row must have verdict UP or relay, and
 #                            the file must pass sync/local/tables-conf.sh's
 #                            reader, which every script that reads it uses;
@@ -46,7 +47,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# hub/tables.conf: table:pk[,pk2...][:relay|:clinic=<column>]
+# hub/tables.conf: table:pk[,pk2...][:relay|:changes|:clinic=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -56,6 +57,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   v="$(verdict_of "$t")"; n=$((n+1))
   if [ -z "$v" ]; then bad "hub/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf"
   elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "hub/tables.conf marks ${t} relay, but its verdict is ${v}"
+  elif [ "$role" = changes ]; then
+    # the hub's own table, sent as changes only: the same verdict as an unmarked row
+    [ "$v" = DOWN ] || bad "hub/tables.conf marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   elif case "$role" in clinic=*) true ;; *) false ;; esac; then
     # a clinic's table; the hub sends down only its own rows, each kept by the clinic its column names
     [ "$v" = UP ] || bad "hub/tables.conf marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic"

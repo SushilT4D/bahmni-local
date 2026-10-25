@@ -51,7 +51,7 @@ PREFIX_REGEX="^$(printf '%s' "$SRC_PREFIX" | sed 's/\./\\\\./g')(.*)\$"
 # newline is silently dropped — one table would lose its sink while the run still
 # reported success. The up-direction generator already guards this; this one did not.
 # ---------------------------------------------------------------------------
-TABLES=(); ROUTE_COLS=()
+TABLES=(); ROUTE_COLS=(); CHANGES_ONLY=()
 while read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
     f="$(printf '%s' "$line" | awk '{print $1}')"
@@ -60,6 +60,7 @@ while read -r line || [[ -n "$line" ]]; do
     [[ -n "$t" ]] || continue
     TABLES+=("$t")
     case "$role" in clinic=*) ROUTE_COLS+=("${role#clinic=}") ;; *) ROUTE_COLS+=("") ;; esac
+    case "$role" in changes) CHANGES_ONLY+=(1) ;; *) CHANGES_ONLY+=(0) ;; esac
 done < "$TABLES_CONF"
 
 # A `clinic=<column>` row carries the hub's own rows (lab results entered at
@@ -147,7 +148,7 @@ for i in "${!TABLES[@]}"; do
     TABLE="${TABLES[$i]}"
     TOPIC="${SRC_PREFIX}${TABLE}"
 
-    ROUTE_COL="${ROUTE_COLS[$i]}" ROUTE_BASE="${ROUTE_BASES[$i]}" RESIDUE_OWN="$RESIDUE_OWN" \
+    CHANGES="${CHANGES_ONLY[$i]}" ROUTE_COL="${ROUTE_COLS[$i]}" ROUTE_BASE="${ROUTE_BASES[$i]}" RESIDUE_OWN="$RESIDUE_OWN" \
     TEMPLATE="$TEMPLATE" TABLE="$TABLE" KAFKA_TOPICS="$TOPIC" \
     TOPIC_PREFIX_REGEX="$PREFIX_REGEX" \
     LOCAL_MYSQL_HOST="$LOCAL_MYSQL_HOST" LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT" \
@@ -185,6 +186,19 @@ if col:
         "def r = value.get('after') != null ? value.get('after') : value.get('before'); "
         f"r != null && r.get('{col}') instanceof Number && r.get('{col}').longValue() >= {base}L "
         f"&& r.get('{col}').longValue() % 10 == {r}")
+
+if os.environ.get('CHANGES') == '1':
+    # a `changes` table (hub/tables.conf): inserts and updates are applied,
+    # never a delete. The hub retires such a row rather than deleting it, and a
+    # delete here would fail on, or orphan, the clinic's own rows that point to
+    # it. Tombstones carry no row and are dropped with the deletes.
+    cfg = doc['config']
+    cfg['delete.enabled'] = 'false'
+    cfg['transforms'] = cfg['transforms'] + ',noDeletes'
+    cfg['transforms.noDeletes.type'] = 'io.debezium.transforms.Filter'
+    cfg['transforms.noDeletes.language'] = 'jsr223.groovy'
+    cfg['transforms.noDeletes.null.handling.mode'] = 'drop'
+    cfg['transforms.noDeletes.condition'] = "value.get('op') != 'd'"
 
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 PYEOF

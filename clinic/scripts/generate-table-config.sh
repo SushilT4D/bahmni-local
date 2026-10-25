@@ -99,6 +99,8 @@ else
     # One file, two correct answers. Before this field existed there was no way to
     # say that, so adding person/person_name made the cloud source generator
     # refuse outright and the two branches drifted to different answers.
+    # The role `changes` is a table the cloud authors whose source sends changes
+    # only (no existing rows); it is captured and sunk like an unmarked one.
     # The other role is `clinic=<column>`: a table the clinics write, of which
     # the hub publishes only its own rows (lab results), each kept by the clinic
     # <column> names; the hub's source and the clinic's sink filter them

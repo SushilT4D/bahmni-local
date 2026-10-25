@@ -85,12 +85,20 @@ root = os.environ['ROOT']
 ROUTE = {'encounter': 'visit_id', 'obs': 'order_id'}
 routed = {}
 plain = set()
+# Rows marked `changes`: tables the hub authors whose rows every clinic already
+# holds; the source sends changes made from now on and none of the rows the
+# table holds when the source first snapshots it.
+changes = set()
 with open(os.path.join(root, 'hub', 'tables.conf')) as fh:
     for line in fh:
         line = line.split('#', 1)[0].strip()
         parts = line.split(':')
+        if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes') or parts[2].startswith('clinic=')):
+            sys.exit(f"hub/tables.conf: {line}: unknown role '{parts[2]}' (relay, changes or clinic=<column>)")
         if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
             plain.add(parts[0])
+        if line and len(parts) == 3 and parts[2] == 'changes':
+            changes.add(parts[0])
         if len(parts) == 3 and parts[2].startswith('clinic='):
             col = parts[2][len('clinic='):]
             if parts[0] not in ROUTE:
@@ -161,12 +169,20 @@ if clash:
 # rows written before the source started answer orders and visits older than
 # every clinic's base, which no clinic keeps, and reading them would publish
 # millions of rows for every clinic to drop. Changes from the start on are sent.
+# A `changes` table is snapshotted the same way: every clinic already holds its
+# rows, and only what changes from now on goes down.
+cfg = doc['config']
+db = os.environ['CLOUD_MYSQL_DATABASE']
+overrides = []
+for t in sorted(changes):
+    if f"{db}.{t}" not in inc.split(','):
+        continue
+    overrides.append(f"{db}.{t}")
+    cfg[f"snapshot.select.statement.overrides.{db}.{t}"] = f"SELECT * FROM `{db}`.`{t}` WHERE 1 = 0"
 if routed:
-    cfg = doc['config']
     names = [n for n in cfg.get('transforms', '').split(',') if n]
     preds = [n for n in cfg.get('predicates', '').split(',') if n]
-    server = os.environ['CLOUD_MYSQL_SERVER_NAME']; db = os.environ['CLOUD_MYSQL_DATABASE']
-    overrides = []
+    server = os.environ['CLOUD_MYSQL_SERVER_NAME']
     for t, (pk, col) in sorted(routed.items()):
         if f"{db}.{t}" not in inc.split(','):
             continue
@@ -185,11 +201,13 @@ if routed:
         cfg[f"predicates.{p}.pattern"] = "^" + re.escape(f"{server}.{db}.{t}") + "$"
     cfg['transforms'] = ','.join(names)
     cfg['predicates'] = ','.join(preds)
-    if overrides:
-        cfg['snapshot.select.statement.overrides'] = ','.join(overrides)
+if overrides:
+    cfg['snapshot.select.statement.overrides'] = ','.join(sorted(overrides))
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
 print(f"  tables captured: {inc}")
 if routed:
     print(f"  hub-written rows only: {', '.join(sorted(routed))}")
+if changes:
+    print(f"  changes only, no existing rows: {', '.join(sorted(changes))}")
 PYEOF
 echo "wrote ${OUT}"

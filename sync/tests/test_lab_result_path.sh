@@ -42,10 +42,11 @@ copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id/' "$T/r/hub/tables.c
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "never publishes \['obs'\]" && ok_ "obs without the role is refused" || bad "obs without role: rc=$rc $out"
 gen_hub "$R" >/dev/null 2>&1
-python3 - "$T/src.json" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows, and every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
+python3 - "$T/src.json" "$R/hub/tables.conf" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows (and the changes-only concept tables), every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
 import json, sys
 c = json.load(open(sys.argv[1]))['config']
-want = {"openmrs.encounter", "openmrs.obs"}
+changes = {"openmrs." + l.split("#")[0].strip().split(":")[0] for l in open(sys.argv[2]) if l.split("#")[0].strip().endswith(":changes")}
+want = {"openmrs.encounter", "openmrs.obs"} | changes
 assert set(c.get("snapshot.select.statement.overrides", "").split(",")) == want
 for t in want:
     assert c["snapshot.select.statement.overrides." + t].endswith("WHERE 1 = 0"), t
