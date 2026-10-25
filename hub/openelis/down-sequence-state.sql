@@ -77,13 +77,13 @@ WITH t AS (
   SELECT x.n, x.name, x.hasid, x.seq, x.inc,
          coalesce((xpath('/row/mx/text()', x.rx))[1]::text::bigint, 0) AS mx,
          coalesce((xpath('/row/mxnz/text()', x.rx))[1]::text::bigint, 0) AS mxnz,
-         coalesce((xpath('/row/lv/text()', x.sx))[1]::text::bigint, 0) AS lv,
+         (xpath('/row/lv/text()', x.sx))[1]::text::bigint AS v_last,
          (xpath('/row/ic/text()', x.sx))[1]::text::boolean AS ic
     FROM x
 ), r AS (
   SELECT v.n, v.name, v.hasid, v.mx, v.mxnz,
-         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 ELSE ((v.lv / 10) + 1) * 10 END AS restart,
-         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 WHEN v.ic THEN v.lv + v.inc ELSE v.lv END AS nxt,
+         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 ELSE ((coalesce(v_last, 0) / 10) + 1) * 10 END AS restart,
+         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 WHEN v.ic THEN coalesce(v_last, 0) + v.inc ELSE coalesce(v_last, 0) END AS nxt,
          CASE WHEN v.seq IS NULL THEN 0 ELSE v.inc END AS inc
     FROM v
 )
