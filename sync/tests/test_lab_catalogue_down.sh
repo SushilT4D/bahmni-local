@@ -248,7 +248,7 @@ out="$(bash "$REC" --derive --out "$T/up.local" -- $PSQL 2>&1)"; rc=$?
 P="$C/hub/scripts/apply-clinlims-down-publication.sh"
 out="$(bash "$P" "$FL" -- $PSQL 2>&1)"; rc=$?
 rows="$($PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from pg_publication_tables where pubname = 'dbz_clinlims_owned'" | LC_ALL=C sort)"
-want="$( { for t in system_user $CAT; do case "$t" in organization_organization_type|org_mls_lab_type) echo "$t:-" ;; *) printf '%s:((id < (%s)::numeric) OR ((id %% (10)::numeric) = (0)::numeric))\n' "$t" "$(fl "$t" "$FL")" ;; esac; done; printf '%s\n' result:- analysis:- sample:- dbz_heartbeat:-; } | LC_ALL=C sort)"
+want="$( { for t in system_user $CAT; do case "$t" in (organization_organization_type|org_mls_lab_type) echo "$t:-" ;; (*) printf '%s:((id < (%s)::numeric) OR ((id %% (10)::numeric) = (0)::numeric))\n' "$t" "$(fl "$t" "$FL")" ;; esac; done; printf '%s\n' result:- analysis:- sample:- dbz_heartbeat:-; } | LC_ALL=C sort)"
 [ "$rc" = 0 ] && [ "$rows" = "$want" ] && ok_ "dbz_clinlims_owned: every catalogue table with an id on its floor, the two link tables whole, the lab rows unfiltered, the heartbeat" \
   || bad "publication: rc=$rc $out$(diff <(printf '%s\n' "$want") <(printf '%s\n' "$rows") | head -8 | tr '\n' ' ')"
 { cat "$FL"; echo 'org_mls_lab_type 10'; } > "$T/linkfl"
