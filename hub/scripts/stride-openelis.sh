@@ -42,10 +42,16 @@ if [ -e "$OUT" ]; then
   if [ -n "$down" ]; then
     state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/hub/openelis/down-sequence-state.sql" 2>&1)" \
       || die "the OpenELIS sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
+    # The tables clinics also write and send up (sync/subsystems.conf). Only for
+    # those does an id issued below the floor matter; the lab test catalogue is
+    # written at the hub alone, and its floor may stand above its sequence (some
+    # catalogue sequences stand below the rows they hold).
+    up=" $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "
     while IFS='|' read -r t restart nxt inc; do
       [ -n "$t" ] || continue
       f="$(printf '%s\n' "$floors" | awk -v t="$t" '$1 == t { print $2 }')"
       [ -n "$f" ] || die "$OUT records no floor for $t; nothing was strided. Its floor is the value its sequence restarted at when the hub's OpenELIS ids were first strided: add that line by hand from the striding record"
+      case "$up" in *" $t "*) ;; *) continue ;; esac
       if [ "$inc" = 10 ]; then at="$nxt"; else at="$restart"; fi
       [ "$at" -ge "$f" ] || die "clinlims.$t would issue $at, below its recorded floor $f (the database holds fewer rows than when it was strided); nothing was strided"
     done <<EOF

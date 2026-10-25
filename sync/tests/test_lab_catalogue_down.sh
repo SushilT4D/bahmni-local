@@ -191,14 +191,6 @@ PSQL="docker exec -i $PGC psql -U postgres -d openelis"
   echo 'CREATE TABLE clinlims.dbz_heartbeat (id int PRIMARY KEY, ts timestamptz);'
 } > "$T/schema.sql"
 $PSQL -q -v ON_ERROR_STOP=1 < "$T/schema.sql" >/dev/null 2>"$T/schema.err" || bad "fixture schema refused: $(head -3 "$T/schema.err")"
-stride(){ $PSQL -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-DO $$ DECLARE r record; lv bigint; BEGIN
-  FOR r IN SELECT schemaname s, sequencename q FROM pg_sequences WHERE schemaname='clinlims' LOOP
-    EXECUTE format('SELECT last_value FROM %I.%I', r.s, r.q) INTO lv;
-    EXECUTE format('ALTER SEQUENCE %I.%I INCREMENT BY 10 RESTART WITH %s', r.s, r.q, ((COALESCE(lv,0) / 10) + 1) * 10);
-  END LOOP; END $$;
-SQL
-}
 REC="$C/hub/scripts/record-clinlims-down-floors.sh"
 # before the stride
 FL="$T/before.local"; out="$(bash "$REC" --out "$FL" -- $PSQL 2>&1)"; rc=$?
@@ -208,7 +200,17 @@ fl(){ awk -v t="$1" '$1 == t { print $2 }' "$2"; }
   || bad "before the stride: rc=$rc [$(cat "$FL" 2>/dev/null | words)] $out"
 [ -z "$(fl organization_organization_type "$FL")$(fl org_mls_lab_type "$FL")" ] && [ "$(grep -c . "$FL" 2>/dev/null)" = 23 ] \
   && ok_ "no floor for the two link tables; 23 floors in all" || bad "floors file: [$(cat "$FL" 2>/dev/null | words)]"
-stride
+# the hub's stride, run with the floors already recorded, on a database as it was
+# before the stride (the stride step repeated after going back to a backup): a
+# lab-accounts floor its sequence would issue below is refused, changing nothing; a
+# catalogue floor standing above its sequence (analyte) is no reason to refuse
+sed 's/^system_user .*/system_user 9990/' "$FL" > "$T/high.local"
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$T/high.local" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'clinlims.system_user would issue .* below its recorded floor 9990' && [ "$($PSQL -Atc "select increment_by from pg_sequences where sequencename = 'analyte_seq'")" = 1 ] \
+  && ok_ "the stride refuses a lab-accounts floor its sequence would issue below (clinics write those rows), striding nothing" || bad "stride, accounts below floor: rc=$rc $out"
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'floors kept' && [ "$(grep -c . "$FL")" = 23 ] && [ "$($PSQL -Atc "select count(*) filter (where increment_by = 10) = count(*) from pg_sequences where schemaname = 'clinlims'")" = t ] \
+  && ok_ "the stride keeps the 23 recorded floors and strides every sequence, though analyte's floor (280) stands above its sequence" || bad "stride with recorded floors: rc=$rc $out"
 # a hub strided before the catalogue joined the list: only the lab accounts were recorded
 FL="$T/strided.local"; printf 'system_user 170\n' > "$FL"
 out="$(bash "$REC" --out "$FL" -- $PSQL 2>&1)"; rc=$?
