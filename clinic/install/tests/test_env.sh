@@ -44,4 +44,14 @@ assert_eq "LAN_NAME defaults to bahmni.clinic" "$(env_get "$E" LAN_NAME)" "bahmn
 assert_eq "proxy HTTP on 80" "$(env_get "$E" BAHMNI_PROXY_HTTP_PORT)" "80"
 assert_eq "proxy HTTPS on 443" "$(env_get "$E" BAHMNI_PROXY_HTTPS_PORT)" "443"
 assert_eq "no separate Odoo port" "$(grep -c '^BAHMNI_ODOO_HTTPS_PORT=' "$E")" "0"
+assert_eq "ODOO_ATOMFEED_USER defaults to the hub's feed login" "$(env_get "$E" ODOO_ATOMFEED_USER)" "emrsync"
+# the hub's passwords file may name another feed login; the answer is rendered as given
+mkdir -p "$TMP/clinic2"; cp "${HERE}/../../.env.example" "$TMP/clinic2/.env.example"
+env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic2" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker \
+  CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h.test \
+  REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.test:9092 REMOTE_KAFKA_USERNAME=mirrormaker REMOTE_KAFKA_PASSWORD='p&w' \
+  OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_USER=admin ODOO_ATOMFEED_PASSWORD=c \
+  BHS_LOCATION=azure COMPOSE_PROJECT_NAME=bahmni-azure MYSQL_SERVER_NAME=bahmni-azure LOCAL_CLUSTER_ALIAS=azure MYSQL_AUTO_INCREMENT_OFFSET=7 MYSQL_SERVER_ID=7 DEBEZIUM_SERVER_ID=184057 ODOO_DB_VOLUME_NAME=bahmni-azure_odoodb-data ODOO_APP_VOLUME_NAME=bahmni-azure_odooapp-data \
+  bash "${HERE}/../tasks/020-env.sh" >/dev/null 2>&1
+assert_eq "ODOO_ATOMFEED_USER given in the answers is rendered" "$(env_get "$TMP/clinic2/.env" ODOO_ATOMFEED_USER)" "admin"
 exit "$fails"

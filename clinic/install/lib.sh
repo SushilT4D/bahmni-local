@@ -375,11 +375,15 @@ refuse_inherited_alias(){ # ALIAS [SLUG]
 FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
-ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD CLINICAL_UP_SYNC"
+ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD CLINICAL_UP_SYNC"
 # Answers with a default: an answers file without one takes the default, and is
 # not short of an answer for lacking it. CLINICAL_UP_SYNC=off keeps the
-# clinical tables at the clinic (sync/local/tables-conf.sh).
-ANSWER_DEFAULTS="CLINICAL_UP_SYNC=off"
+# clinical tables at the clinic (sync/local/tables-conf.sh). ODOO_ATOMFEED_USER
+# is the hub's own Odoo feed login: the clinic's Odoo is a copy of the hub's, so
+# odoo-connect logs in with the hub's user and that user's password
+# (ODOO_ATOMFEED_PASSWORD); both come from the hub's passwords file, and a hub
+# whose file names no user uses emrsync, the feed login of the hub's Odoo image.
+ANSWER_DEFAULTS="CLINICAL_UP_SYNC=off ODOO_ATOMFEED_USER=emrsync"
 answer_defaults_apply(){ local kv k; for kv in $ANSWER_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 # --- the hub link --------------------------------------------------------------

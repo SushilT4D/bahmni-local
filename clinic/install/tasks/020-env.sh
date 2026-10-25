@@ -63,7 +63,7 @@ put REMOTE_SERVER_NAME bahmni-cloud
 put MM2_REMOTE_ALIAS remote
 put ODOO_HOST odoo; put ODOO_PORT 8069
 versions_put "$T"   # every fleet pin from sync/versions.env, the one place they live
-put ODOO_ATOMFEED_USER admin
+put ODOO_ATOMFEED_USER "${ODOO_ATOMFEED_USER:-emrsync}"   # the hub's own Odoo feed login, an answer (lib.sh ANSWER_DEFAULTS)
 put HEIGHT_CONCEPT_UUID 5090AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put WEIGHT_CONCEPT_UUID 5089AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put MAIL_USER ""; put MAIL_PASSWORD ""; put MAIL_FROM none@localhost
