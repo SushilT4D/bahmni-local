@@ -7,8 +7,11 @@
 #     the three routes and the one unrouted table, and refuses every other
 #     OpenELIS table by name, a lab row without a route, an account or Odoo row
 #     with one, and a route whose column names no routed table;
-#   - the hub's OpenELIS floors are recorded just before its OpenELIS ids are
-#     strided (record-clinlims-down-floors.sh), once, and refused on a hub
+#   - the hub's OpenELIS floors are recorded by the stride itself
+#     (stride-openelis.sh, through record-clinlims-down-floors.sh) just before
+#     it strides, once; a second stride keeps them and moves nothing; a
+#     sequence on another node's residue is refused; the floors and the
+#     stride read one restart rule; a first recording is refused on a hub
 #     strided before unless given --from-file values that check out;
 #   - the hub's OpenELIS source, as register-odoo.sh renders it, captures
 #     exactly those tables and its heartbeat, decodes with origin=none, sends
@@ -42,6 +45,12 @@ trap cleanup EXIT
 words(){ tr '\n' ' ' | sed 's/ $//'; }
 C="$T/repo"; mkdir -p "$C"
 (cd "$R" && tar cf - sync hub/connectors hub/scripts hub/openelis clinic/connectors clinic/scripts clinic/install/tasks) | (cd "$C" && tar xf -)
+
+# --- one restart rule: where the floors say a sequence restarts is where the stride restarts it
+rule='((coalesce(v_last, 0) / 10) + 1) * 10'
+for f in hub/openelis/down-sequence-state.sql hub/openelis/apply-sequence-striding.sql; do
+  tr 'A-Z' 'a-z' < "$R/$f" | grep -qF "$rule" && ok_ "$f restarts a sequence at $rule" || bad "$f does not restart a sequence at $rule"
+done
 
 # --- the down list's reader --------------------------------------------------------
 [ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "system_user result analysis sample" ] && ok_ "the OpenELIS rows of the down list: system_user (first), result, analysis, sample" || bad "clinlims down rows: $(bash "$C/sync/hub-down.sh" clinlims 2>&1 | words)"
@@ -255,19 +264,24 @@ pubrows(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from 
 FL="$T/clinlims-floors.local"
 out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'no floors file at' && ok_ "the publication is refused while the hub's OpenELIS floors are not recorded" || bad "publication without floors: rc=$rc $out"
-# the floors: recorded just before the hub's OpenELIS ids are strided
-out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$FL" 2>/dev/null | words)" = "system_user 170" ] && ok_ "before the stride: system_user's floor recorded where the stride restarts it (last value 163 -> 170)" || bad "record floors: rc=$rc $out"
+# the floors: recorded by the hub's OpenELIS stride itself, just before it strides
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$FL" 2>/dev/null | words)" = "system_user 170" ] && printf '%s' "$out" | grep -q 'sequences step 10: 1 of 1' \
+  && ok_ "the stride records system_user's floor where it restarts it (last value 163 -> 170), then strides every sequence" || bad "stride with floors: rc=$rc $out"
 out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'already exists' && ok_ "the floors file is never rewritten" || bad "rewrite: rc=$rc $out"
-$PSQL -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-DO $$ DECLARE r record; lv bigint; BEGIN
-  FOR r IN SELECT schemaname s, sequencename q FROM pg_sequences WHERE schemaname='clinlims' LOOP
-    EXECUTE format('SELECT last_value FROM %I.%I', r.s, r.q) INTO lv;
-    EXECUTE format('ALTER SEQUENCE %I.%I INCREMENT BY 10 RESTART WITH %s', r.s, r.q, ((COALESCE(lv,0) / 10) + 1) * 10);
-  END LOOP; END $$;
-SQL
 [ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = "$(cut -d' ' -f2 "$FL")" ] && ok_ "the hub's stride restarts system_user at the recorded floor" || bad "stride restart differs from the floor"
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'floors kept' && printf '%s' "$out" | grep -q 'strided 0 sequence' && [ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = 180 ] \
+  && ok_ "a second stride keeps the floors and moves nothing" || bad "second stride: rc=$rc $out"
+$PSQL -q -c "CREATE SEQUENCE clinlims.clinic_seq INCREMENT BY 10 START WITH 13" -c "SELECT nextval('clinlims.clinic_seq')" >/dev/null
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$T/fl3" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q "not the hub's striding (residue 0): clinic_seq" && [ ! -e "$T/fl3" ] \
+  && ok_ "on a first stride, a sequence on another node's residue is refused before any floor is recorded" || bad "another node's residue, first stride: rc=$rc $out"
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q "not the hub's striding (residue 0): clinic_seq" && [ "$($PSQL -Atc "select increment_by || ':' || last_value from pg_sequences where sequencename = 'clinic_seq'")" = "10:13" ] \
+  && ok_ "a sequence on another node's residue is refused, and nothing changes" || bad "another node's residue: rc=$rc $out"
+$PSQL -q -c "DROP SEQUENCE clinlims.clinic_seq" >/dev/null
 out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'were strided before: system_user (steps by 10)' && [ ! -e "$T/fl2" ] && ok_ "on a hub strided before, a first recording is refused, naming --from-file" || bad "strided before: rc=$rc $out"
 printf 'system_user 9990\n' > "$T/src"; out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?

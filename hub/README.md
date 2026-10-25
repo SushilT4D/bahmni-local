@@ -33,9 +33,12 @@ repository, and attaches to that stack's Docker network through
   source's `origin=none` is what keeps a clinic's own writes at the hub), and
   the lab accounts, `system_user`, with `(id < <floor> OR id % 10 = 0)` on this
   hub's floor in `hub/clinlims-down-floors.local`. That floor is recorded once,
-  just before the hub's OpenELIS ids are strided:
-  `scripts/record-clinlims-down-floors.sh -- <psql command>` (on a hub strided
-  before, `--from-file <file>` with values that check out against it).
+  by the run that strides the hub's OpenELIS ids, just before it strides:
+  `scripts/stride-openelis.sh -- <psql command>` (residue 0, from
+  `openelis/apply-sequence-striding.sql`; a second run keeps the floors and
+  moves nothing). On a hub strided before, record the floors with
+  `scripts/record-clinlims-down-floors.sh --from-file <file> -- <psql command>`,
+  values that check out against it.
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
   the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
   created when the clinic joins.
