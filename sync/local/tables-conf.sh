@@ -164,7 +164,7 @@ up_clinical_mode_verdict(){ # VALUE -> "ok off|test", or the refusal
 # up_tables_for_clinic FILE [MODE] : up_tables_read, as a clinic reads it: the
 # clinical tables (UP_CLINICAL_TABLES) are left out unless MODE (default
 # CLINICAL_UP_SYNC, default off) is test. Every clinic-side reader uses it;
-# the hub reads the whole list and decides per clinic (hub/clinics.conf).
+# the hub reads the whole list and decides per clinic (hub/clinics.<hub>.conf).
 up_tables_for_clinic(){
   local f="$1" mode="${2:-${CLINICAL_UP_SYNC:-off}}" recs v
   v="$(up_clinical_mode_verdict "$mode")" || { printf '%s\n' "$v" >&2; return 1; }

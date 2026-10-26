@@ -18,7 +18,7 @@ clinic installer's sync phase; the generators read it from here.
 `CLINICAL_UP_SYNC=test` (an install answer, kept in `clinic/.env`; the default
 is `off`). At any other clinic every clinic-side reader leaves them out,
 whatever `tables.conf` lists (`up_tables_for_clinic` in `tables-conf.sh`). The
-hub renders their sinks only for a clinic whose `hub/clinics.conf` row ends in
+hub renders their sinks only for a clinic whose `hub/clinics.<hub>.conf` row ends in
 `:clinical`.
 
 The source connector also captures its signal table, `openmrs.debezium_signal`,

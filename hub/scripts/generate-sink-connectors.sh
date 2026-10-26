@@ -29,8 +29,14 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 # reporting RUNNING and inflating any "all sinks green" check.
 TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/local/tables.conf}"
 DOWN_TABLES_CONF="${PROJECT_DIR}/tables.conf"
-CLINICS_CONF="${CLINICS_CONF:-${PROJECT_DIR}/clinics.conf}"
 ENV_FILE="${PROJECT_DIR}/.env"
+# Each hub keeps its own clinics: hub/clinics.<HUB_NAME>.conf, HUB_NAME from the
+# environment or hub/.env. A hub without a name has no clinics file to read.
+HUB_NAME="${HUB_NAME:-$(sed -n 's/^HUB_NAME=//p' "${ENV_FILE}" 2>/dev/null | tail -1)}"
+if [ -z "${CLINICS_CONF:-}" ]; then
+  [ -n "${HUB_NAME}" ] || { echo "Error: HUB_NAME is not set (hub/.env names this hub; its clinics are in hub/clinics.<HUB_NAME>.conf)"; exit 1; }
+  CLINICS_CONF="${PROJECT_DIR}/clinics.${HUB_NAME}.conf"
+fi
 CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 
 [ -f "${TABLES_CONF}" ]  || { echo "Error: ${TABLES_CONF} not found"; exit 1; }

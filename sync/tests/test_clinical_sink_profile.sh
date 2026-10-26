@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The hub's up sinks for obs, orders and drug_order, one per clinic in
-# hub/clinics.conf, upsert on the table's strided key, stop on an error, apply
+# hub/clinics.<hub>.conf, upsert on the table's strided key, stop on an error, apply
 # deletes and never change the hub's schema. The validator the generator runs
 # refuses a config that breaks any of that. The other sinks keep their settings.
 set -u
@@ -11,10 +11,10 @@ bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"; mkdir -p "$C/hub" "$C/sync/local"
 cp -R "$R/hub/scripts" "$R/hub/connectors" "$C/hub/"; cp "$R/hub/tables.conf" "$C/hub/"
-# every clinic of hub/clinics.conf, each marked as sending the clinical tables
-grep -vE '^[[:space:]]*(#|$)' "$R/hub/clinics.conf" | sed -E 's/^([^:]+:[^:]+:[^:]+:[^:]+).*/\1:clinical/' > "$C/hub/clinics.conf"
+# every clinic of every hub's clinics file, each marked as sending the clinical tables
+cat "$R"/hub/clinics.*.conf | grep -vE '^[[:space:]]*(#|$)' | sed -E 's/^([^:]+:[^:]+:[^:]+:[^:]+).*/\1:clinical/' > "$C/hub/clinics.t.conf"
 cp "$R/sync/local/tables-conf.sh" "$C/sync/local/"
-printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\n' > "$C/hub/.env"
+printf 'HUB_NAME=t\nREMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\n' > "$C/hub/.env"
 { grep -vE '^[[:space:]]*(#|$)' "$R/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order):'
   printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n'; } > "$C/sync/local/tables.conf"
 
@@ -53,12 +53,12 @@ EOF
   f="$C/hub/connectors/${prefix}encounter.json"
   python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(not (c.get("auto.create")=="true" and c.get("auto.evolve")=="true" and "schema.evolution" not in c))' "$f" 2>/dev/null \
     && ok_ "${clinic}: the encounter sink keeps auto.create/auto.evolve and no schema.evolution" || bad "${clinic}: the encounter sink changed"
-done < "$C/hub/clinics.conf"
-[ "$nclin" -ge 1 ] && ok_ "${nclin} clinic(s) in hub/clinics.conf checked" || bad "no clinic in hub/clinics.conf"
+done < "$C/hub/clinics.t.conf"
+[ "$nclin" -ge 1 ] && ok_ "${nclin} clinic(s) of the hubs' clinics files checked" || bad "no clinic in any hub/clinics.<hub>.conf"
 
 # the validator refuses each way a clinical sink can be wrong
 V="$C/hub/scripts/validate-sink-config.py"; K="$C/hub/connectors/known-good.json"
-first="$(sed -n 's/^\([^#:][^:]*\):\([^:]*\):.*/\2/p' "$R/hub/clinics.conf" | head -1)"
+first="$(sed -n 's/^\([^#:][^:]*\):\([^:]*\):.*/\2/p' "$C/hub/clinics.t.conf" | head -1)"
 src="$C/hub/connectors/${first}obs.json"
 python3 "$V" "$src" --known-good "$K" --profile clinical >/dev/null 2>&1 && ok_ "validator: the rendered obs sink passes" || bad "validator rejects the rendered obs sink"
 mutate(){ # KEY VALUE|-  -> a copy of the obs sink with KEY set (or removed with -)

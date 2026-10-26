@@ -3,7 +3,7 @@
 # CLINICAL_UP_SYNC=test; the default, off, keeps them at the clinic even though
 # sync/local/tables.conf lists them, so a production clinic installed from this
 # tree sends none. On the hub, a clinic gets sinks for them only when its
-# hub/clinics.conf row is marked clinical.
+# hub/clinics.<hub>.conf row is marked clinical.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
 fails=0

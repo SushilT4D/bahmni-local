@@ -159,7 +159,7 @@ on loopback only; reach them over an SSH tunnel.
   of every captured table, no rows), resume it, then register the generated
   config as it is. A source registered on a Kafka with no offsets reads every
   structure on its first start and needs none of this.
-- Up direction, one set per clinic listed in `clinics.conf` (the sinks for
+- Up direction, one set per clinic listed in this hub's `clinics.<HUB_NAME>.conf` (the sinks for
   `obs`, `orders`, `drug_order` and `test_order` only for a row ending in
   `:clinical`, a
   clinic installed with `CLINICAL_UP_SYNC=test`):

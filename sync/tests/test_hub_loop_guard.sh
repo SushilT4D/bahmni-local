@@ -96,14 +96,15 @@ if n < 2:
 sys.exit(1 if bad else 0)
 PY
 }
-check_sinks "$C" "$R/hub/clinics.conf" || fails=$((fails+1))
+CL="$(mktemp)"; cat "$R"/hub/clinics.*.conf > "$CL"   # every hub's clinics
+check_sinks "$C" "$CL" || fails=$((fails+1))
 
 # --- a join renders the ghated template for its own slug ---------------------
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d)"; trap 'rm -rf "$T" "$CL"' EXIT
 for slug in manpur bedawal; do
   for k in odoo clinlims; do sed "s/ghated/$slug/g" "$C/$k-ghated-sink-all.json" > "$T/$k-$slug-sink-all.json"; done
 done
-{ cat "$R/hub/clinics.conf"; printf 'bedawal:mysql-sink-bedawal-:bedawal:bahmni-bedawal\n'; } > "$T/clinics.conf"
+{ cat "$CL"; printf 'bedawal:mysql-sink-bedawal-:bedawal:bahmni-bedawal\n'; } > "$T/clinics.conf"
 out="$(check_sinks "$T" "$T/clinics.conf")"; rc=$?
 printf '%s\n' "$out" | sed 's/^  /  render: /'
 [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q "clinic_manpur_odoo" && printf '%s\n' "$out" | grep -q "clinic_bedawal_clinlims" \
@@ -119,7 +120,7 @@ d['config']['topics'] = 'manpur.bahmni-manpur.odoo.all'
 d['config']['hibernate.agroal.initialSQL'] = "SELECT pg_replication_origin_session_setup('clinic_ghated_odoo')"
 json.dump(d, open(sys.argv[2], 'w'))
 PY
-out="$(check_sinks "$T/neg" "$R/hub/clinics.conf")"; rc=$?
+out="$(check_sinks "$T/neg" "$CL")"; rc=$?
 [ "$rc" != 0 ] && printf '%s\n' "$out" | grep -q 'odoo-ghated-sink-all.json: hibernate.agroal.initialSQL is' \
   && printf '%s\n' "$out" | grep -q "odoo-manpur-sink-all.json: hibernate.agroal.initialSQL is \"SELECT pg_replication_origin_session_setup('clinic_ghated_odoo')\"" \
   && ok_ "a sink with no claim, and a sink claiming another clinic's origin, both fail" || bad "the check passes a sink without its own claim: rc=$rc $out"
