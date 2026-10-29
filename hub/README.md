@@ -49,8 +49,10 @@ repository, and attaches to that stack's Docker network through
 
 ## What the hub publishes
 
-Master and reference tables, and the lab rows a hub lab user completes for a
-clinic's sample; of those, only the rows written at the hub.
+Master and reference tables, the lab rows a hub lab user completes for a
+clinic's sample, and the people the hub creates (the `person` and `person_name`
+behind a user or provider made at the hub); of those, only the rows written at
+the hub.
 
 The clinics send up every table in `sync/subsystems.conf`. The hub sends down
 only `sync/hub-down.conf`: products, categories, units of measure and the
@@ -86,7 +88,12 @@ every row they apply is tagged, and the Odoo source decodes with
 `slot.stream.params=origin=none`, so a tagged row is never published down to
 another clinic or back to its sender.
 OpenMRS gets the same result from the MySQL source's table list, which holds
-only tables the hub writes. A clinic does the same in the other direction.
+only tables the hub writes, and from a row filter on the tables both sides
+write: `person` and `person_name` (marked `hub-rows` in `tables.conf`) are
+published only for a key at or above the table's floor (its base in
+`sync/local/tables.conf`) that ends in 0. The filter judges the record's key, so
+updates, deletes and tombstones are treated alike, and the source's first
+snapshot reads only those rows. A clinic does the same in the other direction.
 
 PostgreSQL lets one session at a time hold an origin, which is why each clinic
 has its own and why those sinks keep `tasks.max` and the pool at one. A sink

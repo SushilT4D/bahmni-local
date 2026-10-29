@@ -101,11 +101,14 @@ else
     # refuse outright and the two branches drifted to different answers.
     # The role `changes` is a table the cloud authors whose source sends changes
     # only (no existing rows); it is captured and sunk like an unmarked one.
+    # The role `hub-rows` is a table the hub and the clinics both write, each its
+    # own rows; the hub's source publishes only the hub's (its row filter), so it
+    # is captured at the hub and sunk at every clinic like an unmarked one.
     # The other role is `clinic=<column>`: a table the clinics write, of which
     # the hub publishes only its own rows (lab results), each kept by the clinic
     # <column> names; the hub's source and the clinic's sink filter them
     # (hub/tables.conf).
-    if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+|clinic=[a-z_][a-z0-9_]*))?$ ]]; then
+    if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+|hub-rows|clinic=[a-z_][a-z0-9_]*))?$ ]]; then
       table="${BASH_REMATCH[1]}"
       pk="${BASH_REMATCH[2]}"
       role="${BASH_REMATCH[4]:-}"

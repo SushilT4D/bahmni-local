@@ -89,16 +89,25 @@ plain = set()
 # holds; the source sends changes made from now on and none of the rows the
 # table holds when the source first snapshots it.
 changes = set()
+# Rows marked `hub-rows`: tables the hub and the clinics both write, each its own
+# rows (the people behind logins at the hub, patients at a clinic). The source
+# publishes only the hub's: key at or above the table's floor, ending in 0. The
+# floor is the table's base in sync/local/tables.conf, read below.
+hubrows = {}
 with open(os.path.join(root, 'hub', 'tables.conf')) as fh:
     for line in fh:
         line = line.split('#', 1)[0].strip()
         parts = line.split(':')
-        if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes') or parts[2].startswith('clinic=')):
-            sys.exit(f"hub/tables.conf: {line}: unknown role '{parts[2]}' (relay, changes or clinic=<column>)")
+        if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes', 'hub-rows') or parts[2].startswith('clinic=')):
+            sys.exit(f"hub/tables.conf: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
         if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
             plain.add(parts[0])
         if line and len(parts) == 3 and parts[2] == 'changes':
             changes.add(parts[0])
+        if line and len(parts) == 3 and parts[2] == 'hub-rows':
+            if ',' in parts[1]:
+                sys.exit(f"hub/tables.conf: {line}: a hub-rows table is filtered on its key, which must be a single column")
+            hubrows[parts[0]] = parts[1]
         if len(parts) == 3 and parts[2].startswith('clinic='):
             col = parts[2][len('clinic='):]
             if parts[0] not in ROUTE:
@@ -119,46 +128,41 @@ if never:
         "  the clinics and reach the hub through its up sinks. Remove them from hub/tables.conf.")
 
 up = set()
+base = {}
 with open(os.path.join(root, 'sync', 'local', 'tables.conf')) as fh:
     for line in fh:
         line = line.strip()
         if line and not line.startswith('#'):
-            up.add(line.split()[0].split(':')[0])
+            f = line.split()[0].split(':')
+            up.add(f[0])
+            if len(f) >= 3 and f[2].isdigit():
+                base[f[0]] = int(f[2])
 down = {t.split('.')[-1] for t in inc.split(',')}
-clash = sorted((down & up) - set(routed))
+# A hub-rows table is published behind its floor filter, or not at all: a floor
+# that cannot be read refuses the whole source, never a source without the filter.
+floor = {}
+for t, pk in sorted(hubrows.items()):
+    if t not in down:
+        continue
+    f = base.get(t)
+    if not f or f % 10:
+        sys.exit(f"REFUSING to generate: {t} is marked hub-rows, and its floor in sync/local/tables.conf "
+                 f"({t}:{pk}:<floor>) is {'missing' if not f else f'{f}, not a multiple of 10'}. Without a floor "
+                 "the source cannot tell the hub's rows from older ones, which sit on every residue.")
+    floor[t] = f
+clash = sorted((down & up) - set(routed) - set(floor))
 if clash:
     sys.exit(
         f"REFUSING to generate: these tables appear in BOTH direction files: {clash}\n"
         "  (clinic-owned per sync/local/tables.conf, and cloud-owned per this one)\n"
         "\n"
-        "  This is NOT a claim that the hub must never capture them. The running hub DOES\n"
-        "  capture person and person_name, deliberately. The relay rule: spokes publish\n"
-        "  only their own writes, THE HUB PUBLISHES EVERYTHING, spokes drop their own echo.\n"
-        "  That is the mechanism that makes a patient registered at one clinic visible at\n"
-        "  another. The hub's up-direction sinks therefore run WITHOUT sql_log_bin=0 by\n"
-        "  construction; on MySQL 5.6 they could not set it in any case,\n"
-        "  SYSTEM_VARIABLES_ADMIN being an 8.0 privilege. The clinics, on 8.0, do set it,\n"
-        "  which is what stops the relayed row travelling back up.\n"
-        "\n"
-        "  The refusal stands because that relay rule is designed but not yet ratified\n"
-        "  or tested end to end. Generating a source config from an unratified rule\n"
-        "  would put this file ahead of the decision.\n"
-        "\n"
-        "  So do not simply add the table here to silence this. If the clinic needs the\n"
-        "  table to arrive -- a cloud-created user must reach the clinic whole -- mark it\n"
-        "  with the role field:\n"
-        "\n"
-        "      person:person_id:relay\n"
-        "\n"
-        "  `relay` says the CLINIC authors it and the hub only passes it downward. The\n"
-        "  clinic's generators then include it (they read every row) while this one still\n"
-        "  does not (it reads unmarked rows only), which is the split that lets one file\n"
-        "  answer both readers. An UNMARKED clinic-owned table is still refused, because\n"
-        "  that is the accident this guard exists to catch.\n"
-        "\n"
-        "  Marking a table does NOT ratify the relay. The hub keeps publishing only what\n"
-        "  the cloud authors until the relay rule is ratified; `generate-table-config.sh cloud\n"
-        "  --include-relay` is the explicit opt-in for when it is.")
+        "  A table the clinics write is published by the hub only under a mark in\n"
+        "  hub/tables.conf that gives it a row filter: `hub-rows` (the hub's own rows of a\n"
+        "  table both sides write, at or above its floor and ending in 0) or\n"
+        "  `clinic=<column>` (the hub's lab results for one clinic). `relay` is not\n"
+        "  published here at all: a hub that passed every clinic's rows on would send each\n"
+        "  clinic's patients to every other clinic. An UNMARKED clinic-owned table is\n"
+        "  refused, because that is the accident this guard exists to catch.")
 # The row filter for each `clinic=` table. A row passes only when the hub wrote
 # it: its key ends in 0, the hub's residue. Rows a clinic sent up end in that
 # clinic's residue and never pass, so nothing a clinic wrote comes back down.
@@ -201,6 +205,37 @@ if routed:
         cfg[f"predicates.{p}.pattern"] = "^" + re.escape(f"{server}.{db}.{t}") + "$"
     cfg['transforms'] = ','.join(names)
     cfg['predicates'] = ','.join(preds)
+# The row filter for each `hub-rows` table, on the record's key so that an
+# update, a delete and its tombstone are judged alike: the key is at or above
+# the table's floor and ends in 0. A snapshot of such a table reads the same
+# rows and no others.
+if floor:
+    names = [n for n in cfg.get('transforms', '').split(',') if n]
+    preds = [n for n in cfg.get('predicates', '').split(',') if n]
+    server = os.environ['CLOUD_MYSQL_SERVER_NAME']
+    for t, f in sorted(floor.items()):
+        pk = hubrows[t]
+        overrides.append(f"{db}.{t}")
+        cfg[f"snapshot.select.statement.overrides.{db}.{t}"] = (
+            f"SELECT * FROM `{db}`.`{t}` WHERE `{pk}` >= {f} AND `{pk}` % 10 = 0")
+        n = f"hubOwnRows_{t}"; p = f"topicIs_{t}"
+        names.append(n); preds.append(p)
+        cfg[f"transforms.{n}.type"] = "io.debezium.transforms.Filter"
+        cfg[f"transforms.{n}.language"] = "jsr223.groovy"
+        cfg[f"transforms.{n}.null.handling.mode"] = "evaluate"
+        cfg[f"transforms.{n}.condition"] = (
+            f"key != null && key.get('{pk}') instanceof Number && "
+            f"key.get('{pk}').longValue() >= {f} && key.get('{pk}').longValue() % 10 == 0")
+        cfg[f"transforms.{n}.predicate"] = p
+        cfg[f"predicates.{p}.type"] = "org.apache.kafka.connect.transforms.predicates.TopicNameMatches"
+        cfg[f"predicates.{p}.pattern"] = "^" + re.escape(f"{server}.{db}.{t}") + "$"
+    cfg['transforms'] = ','.join(names)
+    cfg['predicates'] = ','.join(preds)
+    # fail closed: each hub-rows table in the list has its filter, or nothing is written
+    for t in floor:
+        n = f"hubOwnRows_{t}"
+        if n not in cfg['transforms'].split(',') or f">= {floor[t]}" not in cfg.get(f"transforms.{n}.condition", ""):
+            sys.exit(f"REFUSING to write: {t} is captured without its row filter {n}")
 if overrides:
     cfg['snapshot.select.statement.overrides'] = ','.join(sorted(overrides))
 json.dump(doc, open(sys.argv[1], 'w'), indent=2)
@@ -209,5 +244,7 @@ if routed:
     print(f"  hub-written rows only: {', '.join(sorted(routed))}")
 if changes:
     print(f"  changes only, no existing rows: {', '.join(sorted(changes))}")
+if floor:
+    print(f"  the hub's own rows only: {', '.join(f'{t} (from {f}, ending in 0)' for t, f in sorted(floor.items()))}")
 PYEOF
 echo "wrote ${OUT}"
