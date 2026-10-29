@@ -145,7 +145,15 @@ done
 # HUB_LINK_PER_SITE_TLS=yes, which states that this clinic's link to the hub is
 # TLS with plaintext refused and logs in with a login of its own, read on this
 # clinic's connection. A hub that gives every clinic the same login does not
-# meet it.
+# meet it. HUB_STAFF_SHARED_TLS_LOGIN=accepted is the operator's acceptance of
+# the hashes crossing over TLS with that shared login instead; it holds only
+# while this clinic's .env reaches the hub over TLS
+# (REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL), so a plaintext link is still refused.
+hub_staff_link_ok(){ # CLINIC_DIR : 0 when the users rows may come to this clinic
+    [[ "${HUB_LINK_PER_SITE_TLS:-}" == yes ]] && return 0
+    [[ "${HUB_STAFF_SHARED_TLS_LOGIN:-}" == accepted ]] || return 1
+    [[ "$(sed -n 's/^REMOTE_KAFKA_SECURITY_PROTOCOL=//p' "${CLINIC_ENV_FILE:-$1/.env}" 2>/dev/null | tail -1 | tr -d "\"' ")" == SASL_SSL ]]
+}
 declare -a HW_FLOORS=()
 NODE_LOCAL_PROPS="${NODE_LOCAL_PROPS:-${ROOT}/../sync/user-property-node-local.conf}"
 hw_floor_table(){ case "$1" in user_id) echo users ;; *) return 1 ;; esac; }
@@ -176,10 +184,12 @@ for i in "${!HW_COLS[@]}"; do
         ft="$t"
     fi
     HW_FLOORS[$i]="$(hw_floor "$ft")" || exit 1
-    if [[ "$t" == users && "${HUB_LINK_PER_SITE_TLS:-}" != yes ]]; then
+    if [[ "$t" == users ]] && ! hub_staff_link_ok "$ROOT"; then
         { echo "REFUSING users: its rows carry password hashes. Its receiver is generated only for a clinic whose"
           echo "  link to the hub is TLS with plaintext refused and logs in with a login of its own, read on this"
-          echo "  clinic's connection (then HUB_LINK_PER_SITE_TLS=yes). Nothing was generated."; } >&2
+          echo "  clinic's connection (then HUB_LINK_PER_SITE_TLS=yes), or, with the operator's acceptance of the"
+          echo "  shared login, HUB_STAFF_SHARED_TLS_LOGIN=accepted on a clinic whose .env reaches the hub over TLS"
+          echo "  (REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL). Nothing was generated."; } >&2
         exit 1
     fi
     if [[ "$t" == user_property ]]; then

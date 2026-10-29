@@ -190,6 +190,11 @@ S0="$(state)"
 run --load "$TMP/dump.sql"
 [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'holds users rows, which carry password hashes' && [ "$(state)" = "$S0" ] \
   && ok_ "users rows are not loaded without the link statement; nothing loaded" || bad "load without link: rc=$rc $out"
+printf 'REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT\n' > "$TMP/.env"
+HUB_STAFF_SHARED_TLS_LOGIN=accepted run --load "$TMP/dump.sql"
+[ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'holds users rows, which carry password hashes' && [ "$(state)" = "$S0" ] \
+  && ok_ "the shared login accepted over a plaintext link loads nothing" || bad "accepted over plaintext: rc=$rc $out"
+printf 'REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL\n' > "$TMP/.env"
 { cat "$TMP/dump.sql"; echo 'DROP TABLE users;'; } > "$TMP/dump-extra.sql"
 HUB_LINK_PER_SITE_TLS=yes run --load "$TMP/dump-extra.sql"
 [ "$rc" = 2 ] && printf '%s' "$out" | grep -q 'is not --hub-dump'"'"'s output' && [ "$(state)" = "$S0" ] \
@@ -207,8 +212,8 @@ case "$(state)" in "1=u-1,2=u-2,13=u-13,20=u-20,23=u-23,30=u-30 1,2,3,4,5,230003
   ok_ "every hub row is here under the hub's id, with its role grants and its setting; the hub's grant to an older user, its node-local properties and the person a clinic sent up are not" ;;
   *) bad "after the load: $(state)" ;; esac
 S1="$(state)"
-HUB_LINK_PER_SITE_TLS=yes run --load "$TMP/dump.sql"
-[ "$rc" = 0 ] && [ "$(state)" = "$S1" ] && ok_ "a second load changes nothing and passes" || bad "second load: rc=$rc $out"
+HUB_STAFF_SHARED_TLS_LOGIN=accepted run --load "$TMP/dump.sql"
+[ "$rc" = 0 ] && [ "$(state)" = "$S1" ] && ok_ "a second load, with the shared login accepted over TLS, changes nothing and passes" || bad "second load: rc=$rc $out"
 run
 [ "$rc" = 0 ] && ok_ "after the load the check still passes: the hub's rows here are the hub's" || bad "check after load: rc=$rc $out"
 exit "$fails"

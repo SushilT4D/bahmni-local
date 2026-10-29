@@ -128,6 +128,13 @@ refuse(){ # LABEL EXPECTED-TEXT VAR=value...
   [ "$rc" != 0 ] && printf '%s' "$out" | grep -qF "$want" && [ ! -d "$T/staff-r" ] && ok_ "$label" || bad "$label: rc=$rc $out"
 }
 refuse "users is refused, nothing generated, unless the link to the hub is TLS with a login of this clinic's own" "REFUSING users: its rows carry password hashes" HUB_LINK_PER_SITE_TLS=
+# the operator's acceptance of the shared login holds only over TLS, read from the clinic's .env
+printf 'REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL\n' > "$T/env-tls"; printf 'REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT\n' > "$T/env-plain"
+rm -rf "$T/staff-a"; out="$(gen_staff "$T/staff-a" HUB_LINK_PER_SITE_TLS= HUB_STAFF_SHARED_TLS_LOGIN=accepted CLINIC_ENV_FILE="$T/env-tls")"; rc=$?
+[ "$rc" = 0 ] && [ -f "$T/staff-a/mysql-local-sink-users.json" ] && ok_ "users with the shared login accepted, over TLS: generated" || bad "shared login over TLS: rc=$rc $out"
+refuse "the shared login accepted over a plaintext link is still refused" "REFUSING users: its rows carry password hashes" HUB_LINK_PER_SITE_TLS= HUB_STAFF_SHARED_TLS_LOGIN=accepted CLINIC_ENV_FILE="$T/env-plain"
+refuse "the shared login accepted with no protocol in the clinic's .env is refused" "REFUSING users: its rows carry password hashes" HUB_LINK_PER_SITE_TLS= HUB_STAFF_SHARED_TLS_LOGIN=accepted CLINIC_ENV_FILE="$T/no-such-env"
+refuse "an acceptance other than the word accepted is refused" "REFUSING users: its rows carry password hashes" HUB_LINK_PER_SITE_TLS= HUB_STAFF_SHARED_TLS_LOGIN=yes CLINIC_ENV_FILE="$T/env-tls"
 refuse "without the hub's recorded floors nothing is generated" "no floor for users" HUB_STAFF_FLOORS=
 refuse "a user_property receiver without the property names to keep is refused" "USER_PROPERTY_KEEP (the property names the hub's users carry as settings) is empty" USER_PROPERTY_KEEP=
 refuse "a node-local property name is never kept" "keeps loginAttempts, which holds each node's own state" USER_PROPERTY_KEEP=defaultLocale,loginAttempts

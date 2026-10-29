@@ -78,7 +78,9 @@
 #                      every hub-written user, provider, name, grant and
 #                      property finds the person, user and role it names.
 #                      users rows carry password hashes: loaded only with
-#                      HUB_LINK_PER_SITE_TLS=yes, as for their receiver.
+#                      HUB_LINK_PER_SITE_TLS=yes, or with
+#                      HUB_STAFF_SHARED_TLS_LOGIN=accepted on a clinic whose
+#                      .env reaches the hub over TLS, as for their receiver.
 #
 # --container   the MySQL container (default <COMPOSE_PROJECT_NAME>-bahmni-mysql-1,
 #               COMPOSE_PROJECT_NAME from clinic/.env)
@@ -336,8 +338,13 @@ fi
 STAFF_DUMP_TABLES="person person_name users provider user_role user_property"
 bad_line="$(grep -vE '^$' "$DUMP" | grep -vnE '^INSERT INTO `(person|person_name|users|provider|user_role|user_property)` \(' | head -1 || true)"
 [ -z "$bad_line" ] || die2 "${DUMP} is not --hub-dump's output: line ${bad_line%%:*} is not an INSERT into one of the staff tables; nothing was loaded"
-if grep -q '^INSERT INTO `users` ' "$DUMP" && [ "${HUB_LINK_PER_SITE_TLS:-}" != yes ]; then
-  die2 "${DUMP} holds users rows, which carry password hashes: they are loaded only for a clinic whose link to the hub is TLS with plaintext refused and logs in with a login of its own (then HUB_LINK_PER_SITE_TLS=yes); nothing was loaded"
+staff_link_ok(){ # 0 when users rows may be loaded here; the receiver's rule
+  [ "${HUB_LINK_PER_SITE_TLS:-}" = yes ] && return 0
+  [ "${HUB_STAFF_SHARED_TLS_LOGIN:-}" = accepted ] || return 1
+  [ "$(sed -n 's/^REMOTE_KAFKA_SECURITY_PROTOCOL=//p' "${CLINIC_DIR}/.env" 2>/dev/null | tail -1 | tr -d "\"' ")" = SASL_SSL ]
+}
+if grep -q '^INSERT INTO `users` ' "$DUMP" && ! staff_link_ok; then
+  die2 "${DUMP} holds users rows, which carry password hashes: they are loaded only for a clinic whose link to the hub is TLS with plaintext refused and logs in with a login of its own (then HUB_LINK_PER_SITE_TLS=yes), or with the operator's acceptance of the shared login (HUB_STAFF_SHARED_TLS_LOGIN=accepted) on a clinic whose .env reaches the hub over TLS (REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL); nothing was loaded"
 fi
 q(){ printf '`%s`.`%s`' "$DB" "$1"; }
 check(){ # NAME CONDITION-THAT-IS-1-WHEN-BROKEN : stops the session (error 1242) when broken

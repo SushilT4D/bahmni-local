@@ -167,7 +167,11 @@ rows (`--hub-dump` on the hub) once, before the receivers start, in one
 transaction with binary logging off, checked before it commits. `users` carries
 password hashes: its receiver and its load need `HUB_LINK_PER_SITE_TLS=yes`,
 which states that this clinic's link to the hub is TLS with plaintext refused
-and a login of its own.
+and a login of its own, or `HUB_STAFF_SHARED_TLS_LOGIN=accepted`, the
+operator's acceptance of the hashes crossing over TLS with the login every
+clinic shares. The acceptance holds only while the clinic's `.env` reaches the
+hub over TLS (`REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`); over plaintext both
+still refuse.
 
 **Lab catalogue refresh** — `refresh-lab-catalogue.sh "<concept name>"`, run
 outside clinic hours after the hub adds or changes a lab test: stops
