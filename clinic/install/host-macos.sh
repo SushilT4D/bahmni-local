@@ -82,9 +82,16 @@ host_macos(){
     export DOCKER_HOST="${sock}"
   fi
   # LaunchAgent: start the machine at login, then the containers that carry a
-  # restart policy (podman does not reattach them by itself on macOS).
+  # restart policy (podman does not reattach them by itself on macOS). The job
+  # exits once they are started, and launchd ends every process a job leaves
+  # behind, the machine's VM included, unless the job sets AbandonProcessGroup.
   plist="${HOME}/Library/LaunchAgents/com.bahmni.clinic.start-at-login.plist"
-  if [ ! -f "$plist" ]; then
+  if [ -f "$plist" ] && [ "$(plutil -extract AbandonProcessGroup raw "$plist" 2>/dev/null || true)" != true ]; then
+    run plutil -insert AbandonProcessGroup -bool true "$plist"
+    run launchctl unload "$plist"
+    run launchctl load "$plist"
+    ok "LaunchAgent keeps the podman machine it starts: ${plist}"
+  elif [ ! -f "$plist" ]; then
     mkdir -p "${HOME}/Library/LaunchAgents"
     run sh -c "cat > '${plist}' <<EOF
 <?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -93,6 +100,7 @@ host_macos(){
   <key>Label</key><string>com.bahmni.clinic.start-at-login</string>
   <key>ProgramArguments</key><array><string>/bin/bash</string><string>${CLINIC_DIR}/podman/start-at-login.sh</string></array>
   <key>RunAtLoad</key><true/>
+  <key>AbandonProcessGroup</key><true/>
   <key>StandardOutPath</key><string>${HOME}/Library/Logs/bahmni-clinic-start.log</string>
   <key>StandardErrorPath</key><string>${HOME}/Library/Logs/bahmni-clinic-start.log</string>
 </dict></plist>

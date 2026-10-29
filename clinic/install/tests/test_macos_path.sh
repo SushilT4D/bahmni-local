@@ -113,6 +113,14 @@ grep -q 'CLINIC_MIN_DISK_GB:-45' "${HERE}/../tasks/000-preflight.sh" && ok_ "dis
 [ "$(cpu_of 10)" = 8 ] && ok_ "sizing: 10 host cpus -> 8 machine cpus" || bad "sizing cpus=10 gave $(cpu_of 10)"
 [ "$(cpu_of 15)" = 8 ] && ok_ "sizing: 15 host cpus -> 8 machine cpus" || bad "sizing cpus=15 gave $(cpu_of 15)"
 
+# The start-at-login job starts the podman machine and exits. launchd ends every
+# process a job leaves behind when the job exits, the machine's VM included,
+# unless the job sets AbandonProcessGroup: without it the machine stops seconds
+# after it starts and nothing comes back after a power cut. A job installed
+# without the key gets it on the next run.
+grep -q '<key>AbandonProcessGroup</key><true/>' "$HM" && ok_ "start-at-login job keeps the machine it starts (AbandonProcessGroup)" || bad "start-at-login plist lacks AbandonProcessGroup: launchd stops the machine when the start script exits"
+grep -q 'plutil -insert AbandonProcessGroup -bool true' "$HM" && ok_ "a start-at-login job installed without AbandonProcessGroup gets it" || bad "an existing start-at-login plist is skipped without AbandonProcessGroup"
+
 # A dry run on a Mac with no podman on PATH must never crash with the rc=127
 # "podman machine inspect" FAILED line. PATH keeps Homebrew's
 # own directory (so the install-Homebrew branch, which shells out to curl even
