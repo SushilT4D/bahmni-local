@@ -11,7 +11,14 @@
 #     transform chain in the pinned Debezium image with the scripting jars:
 #     the hub publishes only the rows it wrote, for any patient, and a clinic
 #     keeps an encounter only in a visit it opened and an obs only for an order
-#     it placed (residue and base of visit_id / order_id). Skipped (not failed) without docker,
+#     it placed (residue and base of visit_id / order_id);
+#   - a clinic that keeps its own OpenMRS database and takes the hub's staff
+#     (role hub-written in its down list): its sinks keep only rows at or above
+#     the hub's floor ending in 0, never apply a delete of a user, provider or
+#     person, apply a revoked role, keep only the property names given and never
+#     a node-local one, and the generator refuses users without the link
+#     statement, a missing or off-grid floor, and a link row judged by anything
+#     but its user. The records skipped (not failed) without docker,
 #     the image or the jars, unless REQUIRE_FILTER_RUN=1.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
@@ -92,6 +99,82 @@ EOF
 cfg_of "$T/sinks/mysql-local-sink-obs.json" > "$T/sink.cfg"
 cfg_of "$T/sinks/mysql-local-sink-encounter.json" > "$T/enc.cfg"
 
+# --- the hub's staff at a clinic that keeps its own OpenMRS database ----------------
+# its down list (role hub-written), the hub's recorded floors for users and provider
+printf 'users:user_id:hub-written\nuser_role:user_id,role:hub-written=user_id\nuser_property:user_id,property:hub-written=user_id\nprovider:provider_id:hub-written\nperson:person_id:hub-written\nperson_name:person_name_id:hub-written\nrole:role:changes\n' > "$T/staff.conf"
+printf 'users 2000\nprovider 500\n' > "$T/staff-floors"
+gen_staff(){ # OUT-DIR, then VAR=value... for the generator
+  local o="$1"; shift
+  ( cd "$R/clinic" && env LOCAL_MYSQL_PASSWORD=x TABLES_CONF="$T/staff.conf" HUB_STAFF_FLOORS="$T/staff-floors" USER_PROPERTY_KEEP=defaultLocale HUB_LINK_PER_SITE_TLS=yes "$@" bash scripts/generate-local-sink-connectors.sh "$o" 2>&1 )
+}
+out="$(gen_staff "$T/staff")"; rc=$?
+[ "$rc" = 0 ] && [ "$(ls "$T/staff" | grep -c .)" = 7 ] && ok_ "a clinic's down list with hub-written rows renders its seven staff sinks" || bad "staff sinks: rc=$rc $out"
+python3 - "$T/staff" <<'EOF' && ok_ "users, provider, person and person_name never apply a delete; user_role and user_property do; role takes changes only" || bad "staff sink deletes: $(grep -h '"delete.enabled"' "$T"/staff/*.json | tr -d ' \n')"
+import json, sys, os
+d = {t: json.load(open(os.path.join(sys.argv[1], f"mysql-local-sink-{t}.json")))["config"] for t in
+     ("users", "provider", "person", "person_name", "user_role", "user_property", "role")}
+for t in ("users", "provider", "person", "person_name", "role"):
+    assert d[t]["delete.enabled"] == "false" and "noDeletes" in d[t]["transforms"].split(","), t
+for t in ("user_role", "user_property"):
+    assert d[t]["delete.enabled"] == "true" and "noDeletes" not in d[t]["transforms"].split(","), t
+assert "hubWrittenOnly" not in d["role"]["transforms"], "role"
+assert ">= 230000L" in d["person"]["transforms.hubWrittenOnly.condition"]
+assert ">= 2000L" in d["user_role"]["transforms.hubWrittenOnly.condition"]
+assert ">= 500L" in d["provider"]["transforms.hubWrittenOnly.condition"]
+EOF
+refuse(){ # LABEL EXPECTED-TEXT VAR=value...
+  local label="$1" want="$2"; shift 2
+  rm -rf "$T/staff-r"; out="$(gen_staff "$T/staff-r" "$@")"; rc=$?
+  [ "$rc" != 0 ] && printf '%s' "$out" | grep -qF "$want" && [ ! -d "$T/staff-r" ] && ok_ "$label" || bad "$label: rc=$rc $out"
+}
+refuse "users is refused, nothing generated, unless the link to the hub is TLS with a login of this clinic's own" "REFUSING users: its rows carry password hashes" HUB_LINK_PER_SITE_TLS=
+refuse "without the hub's recorded floors nothing is generated" "no floor for users" HUB_STAFF_FLOORS=
+refuse "a user_property receiver without the property names to keep is refused" "USER_PROPERTY_KEEP (the property names the hub's users carry as settings) is empty" USER_PROPERTY_KEEP=
+refuse "a node-local property name is never kept" "keeps loginAttempts, which holds each node's own state" USER_PROPERTY_KEEP=defaultLocale,loginAttempts
+printf 'users 2005\nprovider 500\n' > "$T/staff-floors-odd"
+refuse "a floor off the residue grid is refused" "the floor of users is '2005', not a whole multiple of 10" HUB_STAFF_FLOORS="$T/staff-floors-odd"
+printf 'users 2000\nprovider 500\nperson 240000\n' > "$T/staff-floors-person"
+refuse "a floors file that moves person off the hub source's own floor is refused" "gives person a floor, but its floor is its base" HUB_STAFF_FLOORS="$T/staff-floors-person"
+cp "$T/staff.conf" "$T/staff.conf.keep"
+printf 'user_role:user_id,role:hub-written=role\n' > "$T/staff.conf"
+refuse "a link row judged by anything but its user is refused" "a link row can be judged only by user_id"
+printf 'user_role:user_id,role:hub-written\n' > "$T/staff.conf"
+refuse "a composite key with no column named is refused" "judged on its own key, which must be one column"
+cp "$T/staff.conf.keep" "$T/staff.conf"
+for t in users user_role user_property person provider; do cfg_of "$T/staff/mysql-local-sink-$t.json" > "$T/staff-$t.cfg"; done
+cat > "$T/staff-users.cases" <<'EOF'
+remote.bahmni-cloud.openmrs.users	user_id	2010	c	person_id	230010	kept	a login the hub created
+remote.bahmni-cloud.openmrs.users	user_id	2010	u	person_id	230010	kept	the hub's change to it (a password reset at the hub)
+remote.bahmni-cloud.openmrs.users	user_id	1500	u	person_id	120	dropped	a hub edit to an older login, whose id this clinic's own history may share
+remote.bahmni-cloud.openmrs.users	user_id	2013	c	person_id	230013	dropped	a login not on the hub's residue
+remote.bahmni-cloud.openmrs.users	user_id	2010	d	person_id	230010	dropped	a delete: a login is retired, never deleted
+remote.bahmni-cloud.openmrs.users	user_id	2010	t	person_id	230010	dropped	its tombstone
+EOF
+cat > "$T/staff-user_role.cases" <<'EOF'
+remote.bahmni-cloud.openmrs.user_role	user_id,role	2010,Doctor	c	creator	1	kept	a role granted to a hub user
+remote.bahmni-cloud.openmrs.user_role	user_id,role	2010,Doctor	d	creator	1	kept	the role revoked from a hub user
+remote.bahmni-cloud.openmrs.user_role	user_id,role	2010,Doctor	t	creator	1	kept	its tombstone, judged on the key
+remote.bahmni-cloud.openmrs.user_role	user_id,role	1500,Doctor	d	creator	1	dropped	a hub change to an older user's roles
+remote.bahmni-cloud.openmrs.user_role	user_id,role	2013,Doctor	c	creator	1	dropped	a grant to a user not on the hub's residue
+EOF
+cat > "$T/staff-user_property.cases" <<'EOF'
+remote.bahmni-cloud.openmrs.user_property	user_id,property	2010,defaultLocale	c	creator	1	kept	a hub user's setting
+remote.bahmni-cloud.openmrs.user_property	user_id,property	2010,defaultLocale	d	creator	1	kept	that setting removed at the hub
+remote.bahmni-cloud.openmrs.user_property	user_id,property	2010,loginAttempts	u	creator	1	dropped	the hub's failed-login counter (each node keeps its own)
+remote.bahmni-cloud.openmrs.user_property	user_id,property	2010,favouriteWards	u	creator	1	dropped	a name not in the kept list
+remote.bahmni-cloud.openmrs.user_property	user_id,property	1500,defaultLocale	u	creator	1	dropped	an older user's setting
+EOF
+cat > "$T/staff-person.cases" <<'EOF'
+remote.bahmni-cloud.openmrs.person	person_id	230010	c	creator	1	kept	the person behind a hub login
+remote.bahmni-cloud.openmrs.person	person_id	230013	c	creator	1	dropped	a person on this clinic's residue, even if the hub's source let it pass
+remote.bahmni-cloud.openmrs.person	person_id	120000	u	creator	1	dropped	a hub edit to an older person
+remote.bahmni-cloud.openmrs.person	person_id	230010	d	creator	1	dropped	a delete: a person is retired, never deleted
+EOF
+cat > "$T/staff-provider.cases" <<'EOF'
+remote.bahmni-cloud.openmrs.provider	provider_id	510	c	person_id	230010	kept	a provider the hub created
+remote.bahmni-cloud.openmrs.provider	provider_id	490	u	person_id	120	dropped	a hub edit to a provider below its floor
+EOF
+
 # --- the records, through Kafka Connect's transform chain --------------------------
 #   topic   key column   key   op   row column   row value   want   why
 cat > "$T/hub.cases" <<'EOF'
@@ -166,6 +249,10 @@ else
   judge "clinic 3's obs sink" "$T/sink.cases" "$T/sink.got"
   run debezium-connector-jdbc "$T/enc.cfg" "$T/enc.cases" > "$T/enc.got"
   judge "clinic 3's encounter sink" "$T/enc.cases" "$T/enc.got"
+  for t in users user_role user_property person provider; do
+    run debezium-connector-jdbc "$T/staff-$t.cfg" "$T/staff-$t.cases" > "$T/staff-$t.got"
+    judge "the hub's staff, $t sink" "$T/staff-$t.cases" "$T/staff-$t.got"
+  done
 fi
 printf '\n%s failure(s)\n' "$fails"
 exit $((fails > 0))

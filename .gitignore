@@ -193,6 +193,9 @@ clinic/.install-state
 # each hub has its own
 hub/odoo-down-floors.local
 hub/clinlims-down-floors.local
+# this hub's floors for users and provider, where its own rows begin, recorded
+# once (clinic/scripts/clinic-minted-staff.sh --derive-floors); each hub has its own
+hub/openmrs-staff-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
 # the restore's definer users, removed after use; left behind if the restore stops

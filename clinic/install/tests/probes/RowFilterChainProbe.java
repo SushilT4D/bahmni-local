@@ -6,7 +6,9 @@
 // CONFIG: the connector's configuration, one "<key><TAB><value>" per line.
 // RECORDS: one "<topic><TAB><key column><TAB><key value><TAB><op><TAB><row column><TAB><row value>"
 //   per line; op c or u puts the row in `after`, d in `before`, t is the
-//   tombstone after a delete (no value at all).
+//   tombstone after a delete (no value at all). A composite key lists its
+//   columns and its values comma-separated, in the same order; a value of
+//   digits is an integer, any other a string.
 // Prints "kept" or "dropped" per record, in order. A step that cannot be
 // configured prints "configure-failed <reason>" and exits 3.
 import java.nio.file.*;
@@ -60,14 +62,22 @@ public class RowFilterChainProbe {
     for (String l : Files.readAllLines(Paths.get(a[1]))) {
       if (l.isBlank()) continue;
       String[] f = l.split("\t");
-      Schema ks = SchemaBuilder.struct().name(f[0] + ".Key").field(f[1], Schema.INT32_SCHEMA).build();
-      Struct key = new Struct(ks).put(f[1], Integer.valueOf(f[2]));
+      String[] kc = f[1].split(","), kv = f[2].split(",");
+      SchemaBuilder kb = SchemaBuilder.struct().name(f[0] + ".Key");
+      for (int i = 0; i < kc.length; i++) kb.field(kc[i], kv[i].matches("[0-9]+") ? Schema.INT32_SCHEMA : Schema.STRING_SCHEMA);
+      Schema ks = kb.build();
+      Struct key = new Struct(ks);
+      for (int i = 0; i < kc.length; i++) key.put(kc[i], kv[i].matches("[0-9]+") ? (Object) Integer.valueOf(kv[i]) : kv[i]);
       Schema vs = null;
       Struct val = null;
       if (!f[3].equals("t")) {
-        Schema rs = SchemaBuilder.struct().name(f[0] + ".Value").optional()
-            .field(f[1], Schema.INT32_SCHEMA).field(f[4], Schema.INT32_SCHEMA).build();
-        Struct row = new Struct(rs).put(f[1], Integer.valueOf(f[2])).put(f[4], Integer.valueOf(f[5]));
+        SchemaBuilder rb = SchemaBuilder.struct().name(f[0] + ".Value").optional();
+        for (Field kf : ks.fields()) rb.field(kf.name(), kf.schema());
+        if (ks.field(f[4]) == null) rb.field(f[4], Schema.INT32_SCHEMA);
+        Schema rs = rb.build();
+        Struct row = new Struct(rs);
+        for (Field kf : ks.fields()) row.put(kf.name(), key.get(kf));
+        if (ks.field(f[4]) == null) row.put(f[4], Integer.valueOf(f[5]));
         vs = SchemaBuilder.struct().name(f[0] + ".Envelope")
             .field("before", rs).field("after", rs).field("op", Schema.STRING_SCHEMA).build();
         val = new Struct(vs).put("op", f[3]);

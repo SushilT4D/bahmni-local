@@ -150,6 +150,25 @@ commits; it refuses, changing nothing, on a collision, while OpenMRS runs, or
 when a table this clinic sends up (obs) or an unknown column refers to a
 moving row.
 
+**The hub's staff at a clinic that keeps its own database** —
+`clinic-minted-staff.sh --hub-rows <file>` compares this clinic's users,
+providers, people, names and roles with the hub's own rows (key at or above the
+hub's floor and ending in 0), read on the hub with `--hub-query --floors
+<hub floors file>`, and lists every row in their way: a `collision`, a `twin`,
+a `login-twin` (the same username, system id or provider identifier under
+another id), a row of this clinic `in-the-hub-range`, a role that differs in
+privileges or parents (`role-differs`), and a role a hub user holds that this
+clinic lacks (`role-missing`). The staff receivers (role `hub-written` in the
+clinic's down list) start only when it finds none; nothing is ever moved.
+`--print-floors` and `--print-properties` give the receivers their floors and
+the user property names to keep (never one in
+`sync/user-property-node-local.conf`); `--load <dump>` loads the hub's existing
+rows (`--hub-dump` on the hub) once, before the receivers start, in one
+transaction with binary logging off, checked before it commits. `users` carries
+password hashes: its receiver and its load need `HUB_LINK_PER_SITE_TLS=yes`,
+which states that this clinic's link to the hub is TLS with plaintext refused
+and a login of its own.
+
 **Lab catalogue refresh** — `refresh-lab-catalogue.sh "<concept name>"`, run
 outside clinic hours after the hub adds or changes a lab test: stops
 odoo-connect and OpenELIS, restarts OpenMRS, waits until its search finds the
