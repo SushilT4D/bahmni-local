@@ -10,6 +10,12 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 # `|| true`: under set -e a missing file would end the task with no FAIL line.
 appjson_prefix(){ { jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev/null || true; } | head -1; }
+# lab_site_code SITE_NUMBER : OpenELIS's site code for the SITEYEARNUM lab number.
+# That format is exactly 13 characters (a 5-character site code, the two-digit
+# year, a 6-digit counter), and OpenELIS refuses any other length when a sample
+# is saved, after generating it from the site code: a one-digit code makes every
+# sample save fail. So the site number is written padded to five digits.
+lab_site_code(){ case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 99999 ] || return 1; printf '%05d' "$((10#$1))"; }
 [ "${1:-}" = "--lib-only" ] && return 0 2>/dev/null
 
 begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
@@ -39,15 +45,16 @@ else
   info "  jq '.config.defaultIdentifierPrefix = \"${MRN_PREFIX}\"' ${APP#${CLINIC_DIR}/} > /tmp/app.json && mv /tmp/app.json ${APP#${CLINIC_DIR}/}   # then commit; or make the prefix per-node (open item)"
 fi
 info "hand-step (idgen): add an identifierSource row with prefix ${MRN_PREFIX} and a fresh UUID $(python3 -c 'import uuid; print(uuid.uuid4())') in masterdata/configuration/idgen/identifierSource.csv, then rebuild the config image"
-[ "${DRY}" = 1 ] && { info "would: set clinlims.site_information siteNumber=${SITE_NUMBER}, acessionFormat=SITEYEARNUM; set ir_sequence prefix ${MRN_PREFIX}-SO for sale.order"; exit 0; }
+SITE_CODE="$(lab_site_code "${SITE_NUMBER}")" || fail "SITE_NUMBER='${SITE_NUMBER}' is not a site number from 1 to 99999: OpenELIS's lab numbers start with it"
+[ "${DRY}" = 1 ] && { info "would: set clinlims.site_information siteNumber=${SITE_CODE}, acessionFormat=SITEYEARNUM; set ir_sequence prefix ${MRN_PREFIX}-SO for sale.order"; exit 0; }
 setup_compose
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -q <<SQL
-update clinlims.site_information set value='${SITE_NUMBER}' where name='siteNumber';
+update clinlims.site_information set value='${SITE_CODE}' where name='siteNumber';
 update clinlims.site_information set value='SITEYEARNUM' where name='acessionFormat';
 SQL
 sn="$(printf "select value from clinlims.site_information where name='siteNumber'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
 af="$(printf "select value from clinlims.site_information where name='acessionFormat'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
-check_eq "openelis siteNumber" "$sn" "${SITE_NUMBER}"; check_eq "openelis acessionFormat" "$af" "SITEYEARNUM"
+check_eq "openelis siteNumber" "$sn" "${SITE_CODE}"; check_eq "openelis acessionFormat" "$af" "SITEYEARNUM"
 printf "update ir_sequence set prefix='%s-SO' where code='sale.order'" "${MRN_PREFIX}" | ct exec -i "$PG" psql -U postgres -d odoo -q
 check_eq "odoo sale.order prefix" "$(printf "select prefix from ir_sequence where code='sale.order'" | ct exec -i "$PG" psql -U postgres -d odoo -At)" "${MRN_PREFIX}-SO"

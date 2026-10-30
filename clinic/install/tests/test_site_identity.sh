@@ -9,10 +9,18 @@ mkdir -p "$TMP/clinic/extracted/bahmni_config/openmrs/apps/registration"
 printf '{"id":"bahmni.registration","config":{"defaultIdentifierPrefix":"ABC"}}\n' > "$TMP/clinic/extracted/bahmni_config/openmrs/apps/registration/app.json"
 . "${HERE}/../tasks/070-site-identity.sh" --lib-only
 set +e +u
+# OpenELIS's SITEYEARNUM lab number is exactly 13 characters with a 5-character
+# site code; a shorter code makes every sample save fail
+assert_eq "lab_site_code pads site 3 to 00003" "$(lab_site_code 3)" "00003"
+assert_eq "lab_site_code keeps a five-digit site" "$(lab_site_code 12345)" "12345"
+assert_eq "lab_site_code reads 08 as eight, not octal" "$(lab_site_code 08)" "00008"
+for bad in "" 0 3a 100000; do lab_site_code "$bad" >/dev/null 2>&1 && { printf '  FAIL lab_site_code accepted %q\n' "$bad"; fails=$((fails+1)); }; done
+printf '  ok   lab_site_code refuses an empty, zero, non-numeric or six-digit site number\n'
 assert_eq "appjson_prefix reads the value" "$(appjson_prefix "$TMP/clinic/extracted/bahmni_config/openmrs/apps/registration/app.json")" "ABC"
 out="$(env -i PATH="$PATH" HOME="$HOME" DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1)"
 assert_contains "dry run with no BAHMNI_CONFIG_DIR reads the extracted tree" "$out" "ABC -> AZR"
 assert_contains "dry run prints the idgen hand-step" "$out" "identifierSource"
+assert_contains "dry run writes OpenELIS's site code padded to five digits" "$out" "siteNumber=00007"
 # node-local tree (task 045): a missing app.json is a STOP in a real run, a plain "would" in a dry run
 mkdir -p "$TMP/c2"; printf 'BAHMNI_CONFIG_DIR=%s\n' "$TMP/c2/extracted/bahmni_config" > "$TMP/c2/.env"
 run2(){ env -i PATH="$PATH" HOME="$HOME" DRY="$1" INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/c2" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1; }
