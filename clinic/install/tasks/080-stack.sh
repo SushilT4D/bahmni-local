@@ -6,7 +6,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
-[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park odoo-connect markers; start odoo-connect; on seed, wait until patient search finds a restored patient"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park the odoo-connect and OpenELIS feed bookmarks; start odoo-connect; on seed, wait until patient search finds a restored patient"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 # BEFORE sourcing .env: compose gives an exported shell variable precedence over
 # the file, so a stale export here would hide the repaired value from `up`.
@@ -102,51 +102,10 @@ except Exception:
     sys.exit(1)
 PY2
 }
-# the markers are only safe to park while odoo-connect is down
-[ "$(ct inspect --format '{{.State.Running}}' "$OC" 2>/dev/null || printf false)" = false ] || fail "odoo-connect is running before its markers are parked (it would replay every past event)"
-feed(){ # NAME : sets FEED_CODE (HTTP status) and FEED_BODY
-  local out
-  out="$(ct exec "$OM" curl -s -w '\n%{http_code}' -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "http://localhost:8080/openmrs/ws/atomfeed/$1/recent" 2>/dev/null || true)"
-  FEED_CODE="${out##*$'\n'}"; FEED_BODY="${out%$'\n'*}"
-}
-# odoo-connect keeps its feed positions in the odoo database itself (staging,
-# five feeds), now colocated on the shared bahmni-postgres instance --
-# the Odoo app's own tables live in that same database, not a separate odoodb.
-# mk runs psql there, using the same postgres superuser role tasks 050/060 use
-# (not a container-env POSTGRES_USER, which bahmni-postgres does not set for
-# this role), with the feed/entry/page as psql variables so no value is ever
-# interpolated into SQL text.
-mk(){ ct exec -i "$OD" sh -c 'psql -U postgres -d odoo -v ON_ERROR_STOP=1 -q -At -v f="$1" -v e="$2" -v p="$3"' _ "${1:-}" "${2:-}" "${3:-}"; }
-[ "$(printf "select count(*) from information_schema.tables where table_name='markers'" | mk)" = 1 ] || fail "no markers table in bahmni-postgres's odoo database; odoo-connect 1.0.0 keeps its feed positions there on every lab node, so this Postgres image is not the fleet's"
-# Every feed odoo-connect reads: the five each lab node's table carries, plus any
-# other row already in this node's table -- a stale row for a feed we did not
-# list is exactly as dangerous as a stale patient row.
-present="$(printf 'select feed_uri from markers' | mk | sed -nE 's#.*/atomfeed/([a-z]+)/recent$#\1#p' | tr '\n' ' ')"
-for f in $(printf 'patient encounter lab saleable drug %s\n' "$present" | tr ' ' '\n' | grep -v '^$' | sort -u); do
-  # /session answering does not prove every module is up: give the atomfeed
-  # module up to 10 more minutes before calling the credentials wrong. A feed
-  # that never reads is a STOP, not a skip: an unparked marker replays every
-  # past event (a bare grep in the $(...) below once aborted the task before
-  # the empty-feed guard could even run).
-  for i in $(seq 1 40); do feed "$f"; [ "${FEED_CODE:-}" = 200 ] && break; sleep 15; done
-  [ "${FEED_CODE:-}" = 200 ] || fail "feed $f answered HTTP ${FEED_CODE:-none} for OPENMRS_ATOMFEED_USER=${OPENMRS_ATOMFEED_USER}: wrong atomfeed credentials, or the atomfeed module never came up (${COMPOSE_CMD} logs openmrs). The markers must be parked before odoo-connect starts."
-  # the via link carries type= between rel= and href= (manpur: the old regex never matched);
-  # entries are oldest-first, so the LAST id is the head (verified against Rawach's live marker)
-  page="$(printf '%s' "$FEED_BODY" | grep -oE 'rel="via"[^>]*href="[^"]+"' | grep -oE 'https?://[^"]+' | head -1 | sed 's#localhost:8080#openmrs:8080#' || true)"
-  entry="$(printf '%s' "$FEED_BODY" | grep -oE '<id>tag:atomfeed.ict4h.org:[^<]+' | tail -1 | sed 's/<id>//' || true)"
-  if [ -z "$page" ] || [ -z "$entry" ]; then warn "feed $f is empty (HTTP 200, no entries); marker left unset"; continue; fi
-  uri="http://openmrs:8080/openmrs/ws/atomfeed/${f}/recent"
-  # markers has no unique key on feed_uri (Rawach's DDL), so ON CONFLICT cannot
-  # work there: update the row if present, insert it if not, then read it back.
-  # Only the three columns every odoo-connect table has: the Odoo 16 table (its
-  # own liquibase DDL) carries no create_date/write_date, the Odoo 10 one did.
-  mk "$uri" "$entry" "$page" <<'SQL'
-UPDATE markers SET last_read_entry_id=:'e', feed_uri_for_last_read_entry=:'p' WHERE feed_uri=:'f';
-INSERT INTO markers (feed_uri, last_read_entry_id, feed_uri_for_last_read_entry) SELECT :'f', :'e', :'p' WHERE NOT EXISTS (SELECT 1 FROM markers WHERE feed_uri=:'f');
-SQL
-  got="$(printf "select last_read_entry_id from markers where feed_uri=:'f'" | mk "$uri")"
-  [ "$got" = "$entry" ] && ok "marker $f -> page ${page##*/}, entry ${entry##*:}" || fail "marker $f did not take: the table holds '${got}', wanted '${entry}'"
-done
+# odoo-connect (stopped above) and OpenELIS keep their feed bookmarks in the
+# seed's copies of the hub's databases: park both at this node's own feeds
+# (scripts/park-feed-markers.sh; an empty feed has its bookmark removed).
+bash scripts/park-feed-markers.sh || fail "the feed bookmarks were not parked (reason above); odoo-connect is not started"
 ok_odoo=0; for i in $(seq 1 12); do odoo_login_ok && { ok_odoo=1; break; }; sleep 10; done
 [ "$ok_odoo" = 1 ] && ok "Odoo accepts ODOO_ATOMFEED_USER" \
   || fail "Odoo refuses the Odoo feed user's password in clinic/.env (or Odoo is not answering on :${ODOO_PORT:-8069}): the hub's credential may have changed after install. Call the operator"
