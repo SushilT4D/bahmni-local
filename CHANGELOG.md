@@ -3,6 +3,25 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## The hub's staff come down to a clinic that keeps its own OpenMRS database
+
+- A staff member is created and changed at the hub only. A clinic that keeps
+  its own OpenMRS database takes the hub's logins, role grants, user settings,
+  providers and the people behind them only for rows the hub wrote: key at or
+  above the hub's floor and ending in 0 (`hub-written` in the clinic's down
+  list). Older rows share ids with the clinic's own history and never come
+  down, so a hub edit to an older user stays at the hub.
+- Roles, their privileges and their parents come down as changes, with no
+  delete. A login, a provider or a person is never deleted at the clinic; a
+  revoked role grant and a removed setting are.
+- The user property names that hold one node's own state
+  (`sync/user-property-node-local.conf`) never come down.
+- Before the receivers start, `clinic/scripts/clinic-minted-staff.sh` must find
+  no row of the clinic in the hub's way; a clinic it fails stays as it is. The
+  hub's existing rows are loaded once with `--load`.
+- `users` carries password hashes: its receiver is generated only for a clinic
+  whose link to the hub is TLS with plaintext refused and a login of its own.
+
 ## The lab test catalogue comes down from the hub
 
 - A lab test is created or changed at the hub only, and comes down to every

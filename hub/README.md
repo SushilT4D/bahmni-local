@@ -95,6 +95,17 @@ published only for a key at or above the table's floor (its base in
 updates, deletes and tombstones are treated alike, and the source's first
 snapshot reads only those rows. A clinic does the same in the other direction.
 
+A clinic that keeps its own OpenMRS database takes the hub's staff (`users`,
+`user_role`, `user_property`, `provider`, `person`, `person_name`, and changes
+to the roles) only for rows the hub wrote, filtered at its own receivers: below
+the hub's floor its rows and the hub's share ids. The floors of `person` and
+`person_name` are their bases in `sync/local/tables.conf`; those of `users` and
+`provider` are this hub's, recorded once in `hub/openmrs-staff-floors.local`
+(never committed) from the output of
+`clinic/scripts/clinic-minted-staff.sh --derive-floors`, run against this hub's
+OpenMRS MySQL. That file feeds `--hub-query` and `--hub-dump`, which the
+clinic's check and its one-time load read.
+
 PostgreSQL lets one session at a time hold an origin, which is why each clinic
 has its own and why those sinks keep `tasks.max` and the pool at one. A sink
 that does not claim an origin writes rows the hub publishes to every clinic.
