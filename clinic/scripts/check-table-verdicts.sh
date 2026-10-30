@@ -3,8 +3,9 @@
 #
 #   hub/tables.conf          an unmarked row, or one marked `changes`, must
 #                            have verdict DOWN, a row marked `relay` must have
-#                            verdict relay;
-#   sync/local/tables.conf   every row must have verdict UP or relay, and
+#                            verdict relay, a row marked `hub-rows` verdict
+#                            SHARED;
+#   sync/local/tables.conf   every row must have verdict UP, relay or SHARED, and
 #                            the file must pass sync/local/tables-conf.sh's
 #                            reader, which every script that reads it uses;
 #   UP_NEVER_TABLES          the tables that reader never lets a clinic
@@ -34,8 +35,8 @@ verdicts="$(awk '
   {
     t = $1; v = $2
     if (t !~ /^[a-z_][a-z0-9_]*$/) { printf "bad table name \"%s\" (line %d)\n", t, NR > "/dev/stderr"; bad = 1; next }
-    if (v !~ /^(DOWN|relay|UP|RESEED|OUT|pending)$/) { printf "%s: unknown verdict \"%s\" (line %d)\n", t, v, NR > "/dev/stderr"; bad = 1; next }
-    if (v == "pending" && $3 !~ /^(DOWN|relay|UP|RESEED|OUT)$/) { printf "%s: pending needs the proposed verdict after it (line %d)\n", t, NR > "/dev/stderr"; bad = 1; next }
+    if (v !~ /^(DOWN|relay|SHARED|UP|RESEED|OUT|pending)$/) { printf "%s: unknown verdict \"%s\" (line %d)\n", t, v, NR > "/dev/stderr"; bad = 1; next }
+    if (v == "pending" && $3 !~ /^(DOWN|relay|SHARED|UP|RESEED|OUT)$/) { printf "%s: pending needs the proposed verdict after it (line %d)\n", t, NR > "/dev/stderr"; bad = 1; next }
     if (v != "pending" && NF > 2) { printf "%s: only a pending verdict takes a third field (line %d)\n", t, NR > "/dev/stderr"; bad = 1; next }
     if (t in seen) { printf "%s: listed twice (lines %d and %d)\n", t, seen[t], NR > "/dev/stderr"; bad = 1; next }
     seen[t] = NR; print t, v
@@ -47,7 +48,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# hub/tables.conf: table:pk[,pk2...][:relay|:changes|:clinic=<column>]
+# hub/tables.conf: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -57,6 +58,9 @@ while IFS= read -r line || [ -n "$line" ]; do
   v="$(verdict_of "$t")"; n=$((n+1))
   if [ -z "$v" ]; then bad "hub/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf"
   elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "hub/tables.conf marks ${t} relay, but its verdict is ${v}"
+  elif [ "$role" = hub-rows ]; then
+    # written at the hub and at the clinics, each its own rows; the hub sends down only its own
+    [ "$v" = SHARED ] || bad "hub/tables.conf marks ${t} hub-rows, but its verdict is ${v}: only a table the hub and the clinics both write (SHARED) is sent down as the hub's own rows"
   elif [ "$role" = changes ]; then
     # the hub's own table, sent as changes only: the same verdict as an unmarked row
     [ "$v" = DOWN ] || bad "hub/tables.conf marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
@@ -80,9 +84,9 @@ while read -r t _; do
   [ -n "$t" ] || continue
   v="$(verdict_of "$t")"; m=$((m+1))
   case "$v" in
-    UP|relay) ;;
+    UP|relay|SHARED) ;;
     '') bad "sync/local/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf" ;;
-    *) bad "sync/local/tables.conf captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP or relay)" ;;
+    *) bad "sync/local/tables.conf captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP, relay or SHARED)" ;;
   esac
 done <<EOF
 $recs

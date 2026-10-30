@@ -41,7 +41,7 @@ for t in concept_datatype care_setting address_hierarchy_entry address_hierarchy
   [ "$(vof "$t")" = RESEED ] || bad "$t should be RESEED: '$(vof "$t")'"
 done
 ok_ "the changeset-written and address-hierarchy tables are RESEED"
-for t in person person_name; do [ "$(vof "$t")" = relay ] || bad "$t should be relay"; done
+for t in person person_name; do [ "$(vof "$t")" = SHARED ] || bad "$t should be SHARED"; done
 
 # --- the down list refuses what the hub does not solely write -----------------------------
 refuse_down(){ # ROW EXPECT-SUBSTRING DESCRIPTION
@@ -56,9 +56,10 @@ refuse_down 'fhir_concept_source:fhir_concept_source_id' 'lists fhir_concept_sou
 refuse_down 'obs:obs_id' 'lists obs for a down sink, but its verdict is UP' "a clinical table in the down list fails"
 refuse_down 'no_such_table:id' 'lists no_such_table, which has no verdict' "a table with no verdict fails"
 refuse_down 'concept:concept_id:relay' 'marks concept relay, but its verdict is DOWN' "a DOWN table marked relay fails"
-copy; sed 's/^person:person_id:relay$/person:person_id/' "$RP/hub/tables.conf" > "$TMP/r/hub/tables.conf"
+copy; sed 's/^person:person_id:hub-rows$/person:person_id/' "$RP/hub/tables.conf" > "$TMP/r/hub/tables.conf"
 out="$(check)"; rc=$?
-[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'lists person for a down sink, but its verdict is relay' && ok_ "a relayed table listed as hub-written fails" || bad "unmarked person: rc=$rc out=$out"
+[ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'lists person for a down sink, but its verdict is SHARED' && ok_ "a shared table listed as hub-written (no hub-rows mark) fails" || bad "unmarked person: rc=$rc out=$out"
+refuse_down 'concept:concept_id:hub-rows' 'marks concept hub-rows, but its verdict is DOWN' "a DOWN table marked hub-rows fails"
 
 # --- the clinic's capture list refuses a hub-written table -------------------------------------
 copy; printf 'concept:concept_id\n' >> "$TMP/r/sync/local/tables.conf"

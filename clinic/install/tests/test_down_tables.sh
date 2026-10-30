@@ -30,7 +30,7 @@ grep -qE '^[[:space:]]*form(_resource)?:' "$RP/sync/local/tables.conf" && bad "a
 # --- the hub's capture ---------------------------------------------------------
 inc="$(bash "$C/clinic/scripts/generate-table-config.sh" cloud | sed -n 's/^TABLE_INCLUDE_LIST=//p')"
 case ",${inc}," in *,openmrs.form,*openmrs.form_resource,*) ok_ "the hub's include list carries openmrs.form, then openmrs.form_resource" ;; *) bad "include list: ${inc}" ;; esac
-case ",${inc}," in *,openmrs.person,*) bad "the hub's include list carries a relayed table: ${inc}" ;; *) ok_ "relayed tables stay out of the hub's include list" ;; esac
+case ",${inc}," in *,openmrs.person,*) ok_ "the hub's include list carries person (its own rows, filtered at the source)" ;; *) bad "the hub's include list lacks person: ${inc}" ;; esac
 out="$(REPO_DIR="$C" HUB_DIR="$C/hub" DEBEZIUM_DB_PASSWORD=x bash "$C/hub/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" 2>&1)"; rc=$?
 got="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$TMP/src.json" 2>/dev/null)"
 [ "$rc" -eq 0 ] && [ "$got" = "$inc" ] && ok_ "the hub's source connector renders with both tables in table.include.list" || bad "hub source render: rc=$rc got=${got} out=${out}"

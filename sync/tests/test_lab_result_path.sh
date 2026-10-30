@@ -21,7 +21,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 # --- the readers ------------------------------------------------------------------
 inc="$(bash "$R/clinic/scripts/generate-table-config.sh" cloud | sed -n 's/^TABLE_INCLUDE_LIST=//p')"
 case ",$inc," in *,openmrs.encounter,*openmrs.obs,*) ok_ "the hub source's table list carries encounter and obs" ;; *) bad "hub table list: $inc" ;; esac
-case ",$inc," in *,openmrs.person,*) bad "the hub source publishes person without --include-relay" ;; *) ok_ "the relay rows still need --include-relay" ;; esac
+case ",$inc," in *,openmrs.person,*openmrs.person_name,*) ok_ "the hub source's table list carries person and person_name (the hub's own rows, behind their filter)" ;; *) bad "hub table list without person/person_name: $inc" ;; esac
 bash "$R/clinic/scripts/check-table-verdicts.sh" >/dev/null 2>&1 && ok_ "the table verdicts accept the routed rows (both are UP: the clinics write them)" || bad "check-table-verdicts: $(bash "$R/clinic/scripts/check-table-verdicts.sh" 2>&1 | tail -2)"
 lists="$(REPO_DIR="$R" bash -c '. "$0/clinic/install/lib.sh"; echo "DOWN $(down_tables | tr "\n" " ")"; echo "MASTER $(master_down_tables | tr "\n" " ")"' "$R")"
 printf '%s\n' "$lists" | grep '^DOWN' | grep -q ' obs ' && ok_ "the down tables (sink grants) include obs" || bad "down tables: $lists"
@@ -41,16 +41,32 @@ out="$(gen_hub "$T/r")"; rc=$?
 copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id/' "$T/r/hub/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "never publishes \['obs'\]" && ok_ "obs without the role is refused" || bad "obs without role: rc=$rc $out"
+copy; sed -i.bak 's/^person:person_id:230000$/person:person_id/' "$T/r/sync/local/tables.conf"
+out="$(gen_hub "$T/r")"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q "person is marked hub-rows, and its floor in sync/local/tables.conf (person:person_id:<floor>) is missing" && ok_ "a hub-rows table without a floor refuses the source" || bad "no person floor: rc=$rc $out"
+copy; sed -i.bak 's/^person:person_id:230000$/person:person_id:230005/' "$T/r/sync/local/tables.conf"
+out="$(gen_hub "$T/r")"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q "is 230005, not a multiple of 10" && ok_ "a floor off the residue grid refuses the source" || bad "odd person floor: rc=$rc $out"
+copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id/' "$T/r/hub/tables.conf"
+out="$(gen_hub "$T/r")"; rc=$?
+[ "$rc" != 0 ] && printf '%s' "$out" | grep -q "appear in BOTH direction files: \['person'\]" && ok_ "person without its hub-rows mark is refused: every clinic's people would go to every clinic" || bad "unmarked person: rc=$rc $out"
+copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id:relay/' "$T/r/hub/tables.conf"
+out="$(gen_hub "$T/r")"; rc=$?
+inc_r="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$T/src.json" 2>/dev/null)"
+[ "$rc" = 0 ] && case ",$inc_r," in *,openmrs.person,*) false ;; *) true ;; esac && ok_ "a relay mark is not published by the hub" || bad "relay person: rc=$rc inc=$inc_r $out"
 gen_hub "$R" >/dev/null 2>&1
-python3 - "$T/src.json" "$R/hub/tables.conf" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows (and the changes-only concept tables), every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
+python3 - "$T/src.json" "$R/hub/tables.conf" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows (and the changes-only concept tables), person and person_name on their floor filter, every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
 import json, sys
 c = json.load(open(sys.argv[1]))['config']
 changes = {"openmrs." + l.split("#")[0].strip().split(":")[0] for l in open(sys.argv[2]) if l.split("#")[0].strip().endswith(":changes")}
 want = {"openmrs.encounter", "openmrs.obs"} | changes
-assert set(c.get("snapshot.select.statement.overrides", "").split(",")) == want
+own = {"openmrs.person": "person_id", "openmrs.person_name": "person_name_id"}
+assert set(c.get("snapshot.select.statement.overrides", "").split(",")) == want | set(own)
 for t in want:
     assert c["snapshot.select.statement.overrides." + t].endswith("WHERE 1 = 0"), t
-assert not [k for k in c if k.startswith("snapshot.select.statement.overrides.") and k[len("snapshot.select.statement.overrides."):] not in want]
+for t, pk in own.items():
+    assert c["snapshot.select.statement.overrides." + t].endswith(f"WHERE `{pk}` >= 230000 AND `{pk}` % 10 = 0"), t
+assert not [k for k in c if k.startswith("snapshot.select.statement.overrides.") and k[len("snapshot.select.statement.overrides."):] not in want | set(own)]
 EOF
 python3 - "$T/src.json" > "$T/hub.cfg" <<'EOF'
 import json, sys
@@ -87,6 +103,14 @@ bahmni-cloud.openmrs.obs	obs_id	9000030	t	order_id	441564	dropped	a tombstone (n
 bahmni-cloud.openmrs.encounter	encounter_id	530000	c	visit_id	625004	kept	the hub's lab-result encounter in clinic 4's visit
 bahmni-cloud.openmrs.encounter	encounter_id	530004	u	visit_id	625004	dropped	an encounter clinic 4 sent up
 bahmni-cloud.openmrs.users	user_id	50	u	person_id	50	kept	a master table passes unchanged
+bahmni-cloud.openmrs.person	person_id	240790	c	creator	1	kept	a person the hub created (above the floor, ending in 0)
+bahmni-cloud.openmrs.person	person_id	240793	c	creator	1	dropped	a person clinic 3 sent up
+bahmni-cloud.openmrs.person	person_id	120000	u	creator	1	dropped	a hub edit to a person older than the floor (on every residue below it)
+bahmni-cloud.openmrs.person	person_id	240800	d	creator	1	kept	the delete of a person the hub created
+bahmni-cloud.openmrs.person	person_id	240800	t	creator	1	kept	its tombstone, judged on the key, so the clinic's row goes too
+bahmni-cloud.openmrs.person	person_id	240804	t	creator	1	dropped	the tombstone of clinic 4's person
+bahmni-cloud.openmrs.person_name	person_name_id	231350	c	creator	1	kept	the name of a person the hub created
+bahmni-cloud.openmrs.person_name	person_name_id	231353	u	creator	1	dropped	a hub edit to a name clinic 3 wrote
 EOF
 cat > "$T/sink.cases" <<'EOF'
 remote.bahmni-cloud.openmrs.obs	obs_id	9000000	c	order_id	441563	kept	clinic 3 keeps the result of its own order, whatever the patient's id
