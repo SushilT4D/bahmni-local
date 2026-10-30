@@ -6,7 +6,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
-[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park the odoo-connect and OpenELIS feed bookmarks; start odoo-connect; on seed, wait until patient search finds a restored patient"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park the odoo-connect and OpenELIS feed bookmarks; start OpenMRS's lab-result reader; start odoo-connect; on seed, wait until patient search finds a restored patient"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 # BEFORE sourcing .env: compose gives an exported shell variable precedence over
 # the file, so a stale export here would hide the repaired value from `up`.
@@ -106,6 +106,10 @@ PY2
 # seed's copies of the hub's databases: park both at this node's own feeds
 # (scripts/park-feed-markers.sh; an empty feed has its bookmark removed).
 bash scripts/park-feed-markers.sh || fail "the feed bookmarks were not parked (reason above); odoo-connect is not started"
+# OpenMRS's reader of OpenELIS's results is defined but not started at boot:
+# park its bookmark at this node's OpenELIS feed and start it (restarts
+# OpenMRS while odoo-connect is still stopped).
+bash scripts/start-lab-result-reader.sh || fail "OpenMRS's lab-result reader was not started (reason above); odoo-connect is not started"
 ok_odoo=0; for i in $(seq 1 12); do odoo_login_ok && { ok_odoo=1; break; }; sleep 10; done
 [ "$ok_odoo" = 1 ] && ok "Odoo accepts ODOO_ATOMFEED_USER" \
   || fail "Odoo refuses the Odoo feed user's password in clinic/.env (or Odoo is not answering on :${ODOO_PORT:-8069}): the hub's credential may have changed after install. Call the operator"
