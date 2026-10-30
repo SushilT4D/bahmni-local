@@ -36,7 +36,9 @@ CREATE OR REPLACE FUNCTION pg_temp.clinlims_rows_top(seq text) RETURNS bigint LA
    WHERE c.table_schema = 'clinlims' AND c.column_name = 'id'
      AND c.data_type IN ('smallint', 'integer', 'bigint', 'numeric')
      AND (c.table_name::text || '_seq' = seq
-          OR pg_get_serial_sequence(format('clinlims.%I', c.table_name), 'id') = format('clinlims.%I', seq)
+          -- pg_get_serial_sequence raises on a table without an id column, and the
+          -- planner may call it before the column test above: CASE keeps the order
+          OR CASE WHEN c.column_name = 'id' THEN pg_get_serial_sequence(format('clinlims.%I', c.table_name), 'id') END = format('clinlims.%I', seq)
           OR (c.table_name::text, seq) IN (VALUES
 -- openelis-sequence-names:begin
             ('external_reference', 'external_reference_id_seq'),

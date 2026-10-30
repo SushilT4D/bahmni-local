@@ -30,6 +30,14 @@ names(){ sed -n '/openelis-sequence-names:begin/,/openelis-sequence-names:end/p'
   && ok_ "the clinic striding, the hub striding and the hub's sequence read carry one list of the sequences OpenELIS names otherwise ($(names "$CL" | grep -c "_seq'\|idseq'") entries)" \
   || bad "the lists of sequences OpenELIS names otherwise differ between $(basename "$CL"), hub $(basename "$HB") and $(basename "$DS")"
 
+# pg_get_serial_sequence raises on a table without an id column, and on a large
+# schema the planner may call it before the column test: every call sits in a
+# CASE on the column name
+for f in "$CL" "$HB"; do
+  n="$(grep -v '^ *--' "$f" | grep -c "pg_get_serial_sequence")"; g="$(grep -v '^ *--' "$f" | grep -c "CASE WHEN c.column_name = 'id' THEN pg_get_serial_sequence")"
+  [ "$n" -ge 1 ] && [ "$n" = "$g" ] && ok_ "$(basename "$(dirname "$(dirname "$f")")")/openelis: each pg_get_serial_sequence call is guarded by a CASE on the column" || bad "$f: $g of $n pg_get_serial_sequence calls guarded by a CASE on the column"
+done
+
 docker_answers(){
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 & local p=$! i=0
