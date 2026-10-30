@@ -84,7 +84,7 @@ fi
 derived(){ echo $(( ($1 / 10 + 1) * 10 )); }
 progress(){ # clinic replication origins that show progress, as a count
   local p
-  p="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" 2>&1)" \
+  p="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" < /dev/null 2>&1)" \
     || die "the replication origins could not be read; nothing was written: $p"
   printf '%s' "$p"
 }

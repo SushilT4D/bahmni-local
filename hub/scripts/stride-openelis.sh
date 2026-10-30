@@ -33,7 +33,10 @@ die(){ printf 'stride-openelis.sh: %s\n' "$*" >&2; exit 1; }
 # Another node's striding (a sequence stepping by something other than 1 or 10,
 # or by 10 off a multiple of 10) is refused before anything is recorded or
 # strided. apply-sequence-striding.sql refuses the same sequences itself.
-bad="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select coalesce(string_agg(format('%s (steps by %s from %s)', sequencename, increment_by, coalesce(last_value, start_value)), ', ' order by sequencename), '') from pg_sequences where schemaname = 'clinlims' and (increment_by not in (1, 10) or (increment_by = 10 and coalesce(last_value, start_value) % 10 <> 0))" 2>&1)" \
+# Each last value is read from the sequence itself: pg_sequences shows none for
+# a sequence restarted and not used since, and its start value says nothing
+# about where the striding left it.
+bad="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select coalesce(string_agg(format('%s (steps by %s from %s)', s.sequencename, s.increment_by, x.lv), ', ' order by s.sequencename), '') from pg_sequences s cross join lateral (select (xpath('/row/lv/text()', query_to_xml(format('select last_value as lv from %I.%I', s.schemaname, s.sequencename), false, true, '')))[1]::text::bigint as lv) x where s.schemaname = 'clinlims' and (s.increment_by not in (1, 10) or (s.increment_by = 10 and x.lv % 10 <> 0))" < /dev/null 2>&1)" \
   || die "the OpenELIS sequences could not be read; nothing was written: $(printf '%s\n' "$bad" | sed -n 's/^.*ERROR: *//p' | head -1)"
 [ -z "$bad" ] || die "not the hub's striding (residue 0): ${bad}; nothing was written or strided"
 

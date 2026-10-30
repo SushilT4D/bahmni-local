@@ -281,6 +281,15 @@ out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL
 out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'floors kept' && printf '%s' "$out" | grep -q 'strided 0 sequence' && [ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = 180 ] \
   && ok_ "a second stride keeps the floors and moves nothing" || bad "second stride: rc=$rc $out"
+# a sequence the stride restarted and nothing has used since: pg_sequences shows
+# no last value for it, and its start value (45) is not where the stride left it
+$PSQL -q -c "CREATE SEQUENCE clinlims.unused_seq START WITH 45" -c "SELECT nextval('clinlims.unused_seq')" >/dev/null
+out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out2="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc2=$?
+[ "$rc" = 0 ] && [ "$rc2" = 0 ] && printf '%s' "$out2" | grep -q 'strided 0 sequence' \
+  && [ "$($PSQL -Atc "select increment_by || ':' || coalesce(last_value::text, 'unused') from pg_sequences where sequencename = 'unused_seq'")" = "10:unused" ] \
+  && ok_ "a sequence the stride restarted and nothing used since (start value 45) does not stop the next stride" || bad "restarted and unused: rc=$rc rc2=$rc2 $out2"
+$PSQL -q -c "DROP SEQUENCE clinlims.unused_seq" >/dev/null
 $PSQL -q -c "CREATE SEQUENCE clinlims.clinic_seq INCREMENT BY 10 START WITH 13" -c "SELECT nextval('clinlims.clinic_seq')" >/dev/null
 out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$T/fl3" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "not the hub's striding (residue 0): clinic_seq" && [ ! -e "$T/fl3" ] \
