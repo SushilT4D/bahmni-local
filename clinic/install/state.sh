@@ -532,7 +532,8 @@ node_fk_verdict(){
 # sequence. So the floor of each table a routed row points at is recorded from
 # the sequence BEFORE the stride, as the striding step computes its restart:
 #     floor = (last_value / 10 + 1) * 10
-# and the first id this clinic mints is floor + residue. It is written once,
+# and the first id this clinic mints is floor + residue, or higher where the
+# table holds rows above its sequence (the stride starts above them). It is written once,
 # as CLINLIMS_FLOOR_<TABLE> in .install-state: a re-run after the clinic has
 # minted ids reads a higher last_value, and a floor moved up would drop this
 # clinic's earlier rows, so an existing value is kept.

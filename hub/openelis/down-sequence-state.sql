@@ -5,9 +5,11 @@
 -- One line per table, in the order passed:
 --   <table>|<restart>|<next>|<increment>
 -- <restart> is where striding the hub's OpenELIS ids (residue 0) restarts the
--- sequence if it runs now: ((last_value / 10) + 1) * 10, last_value read from
--- the sequence itself, as the hub's OpenELIS striding reads it. <next> is the id
--- the sequence would issue next.
+-- sequence if it runs now: ((greatest(last_value, largest id) / 10) + 1) * 10,
+-- last_value read from the sequence itself and the largest id taken over the
+-- table and every other table OpenELIS numbers from the same sequence, as the
+-- hub's OpenELIS striding reads them. <next> is the id the sequence would issue
+-- next.
 --
 -- With -v detail=1 each line also carries what the table holds:
 --   <table>|<restart>|<next>|<increment>|<max id>|<max id not ending in 0>|id
@@ -15,9 +17,11 @@
 -- as the sequence: rows on another residue than 0 above a floor would not
 -- pass the publication's filter.
 --
--- The sequence is the id column's own, else clinlims.<table>_seq, else the name
--- OpenELIS gives it where that differs (sampletype_test and sampletype_panel
--- take ids from sample_type_test_seq and sample_type_panel_seq). A table with
+-- The sequence is the id column's own, else the one OpenELIS's mappings name
+-- where that is not clinlims.<table>_seq (the list in `names` below; the same
+-- list is in hub/openelis/apply-sequence-striding.sql and
+-- clinic/openelis/apply-sequence-striding.sql, and a test fails when they
+-- differ), else clinlims.<table>_seq. A table with
 -- an id and no sequence at all (OpenELIS never issues ids for it) reads
 -- <restart> and <next> as the first multiple of 10 above its largest id and
 -- <increment> as 0. A table with no id column (a link table, keyed otherwise)
@@ -50,7 +54,25 @@ BEGIN
   END LOOP;
 END $do$;
 
-WITH t AS (
+WITH names(t, seq) AS (VALUES
+-- openelis-sequence-names:begin
+            ('external_reference', 'external_reference_id_seq'),
+            ('hl7_transmission_sequence', 'messagecontrolidseq'),
+            ('lab_order_type', 'lab_order_item_seq'),
+            ('patient_relations', 'patient_relation_seq'),
+            ('project_organization', 'project_org_seq'),
+            ('qa_observation_type', 'qa_observation_seq'),
+            ('report_external_export', 'report_queue_seq'),
+            ('sample_organization', 'sample_org_seq'),
+            ('sample_projects', 'sample_proj_seq'),
+            ('sample_source', 'sample_source_id_seq'),
+            ('sampletype_panel', 'sample_type_panel_seq'),
+            ('sampletype_test', 'sample_type_test_seq'),
+            ('source_of_sample', 'src_of_sample_seq'),
+            ('system_role_module', 'system_user_module_seq'),
+            ('test_code_type', 'hl7_encoding_type_seq')
+-- openelis-sequence-names:end
+), t AS (
   SELECT u.n, u.name, to_regclass(format('clinlims.%I', u.name)) AS rel
     FROM unnest(string_to_array(current_setting('myvars.tables'), ',')) WITH ORDINALITY AS u(name, n)
 ), i AS (
@@ -61,28 +83,37 @@ WITH t AS (
          CASE WHEN i.hasid THEN coalesce(
            pg_get_serial_sequence(format('clinlims.%I', i.name), 'id'),
            (SELECT format('clinlims.%I', c.seq)
-              FROM (VALUES (1, i.name || '_seq'),
-                           (2, CASE i.name WHEN 'sampletype_test' THEN 'sample_type_test_seq'
-                                           WHEN 'sampletype_panel' THEN 'sample_type_panel_seq' END)) AS c(k, seq)
-             WHERE c.seq IS NOT NULL AND to_regclass(format('clinlims.%I', c.seq)) IS NOT NULL
+              FROM (SELECT 1 AS k, nm.seq FROM names nm WHERE nm.t = i.name
+                    UNION ALL SELECT 2, i.name || '_seq') AS c
+             WHERE to_regclass(format('clinlims.%I', c.seq)) IS NOT NULL
              ORDER BY c.k LIMIT 1)) END AS seq
     FROM i
 ), x AS (
   SELECT s.*,
          CASE WHEN s.hasid THEN query_to_xml(format('SELECT coalesce(max(id), 0) AS mx, coalesce(max(id) FILTER (WHERE id %% 10 <> 0), 0) AS mxnz FROM clinlims.%I', s.name), false, true, '') END AS rx,
          CASE WHEN s.seq IS NOT NULL THEN query_to_xml(format('SELECT last_value AS lv, is_called AS ic FROM %s', s.seq), false, true, '') END AS sx,
-         (SELECT q.seqincrement FROM pg_sequence q WHERE q.seqrelid = s.seq::regclass) AS inc
+         (SELECT q.seqincrement FROM pg_sequence q WHERE q.seqrelid = s.seq::regclass) AS inc,
+         -- the largest id of every table OpenELIS numbers from this sequence
+         CASE WHEN s.seq IS NOT NULL THEN (
+           SELECT coalesce(max((xpath('/row/m/text()', query_to_xml(format('SELECT max(id) AS m FROM clinlims.%I', c.table_name), false, true, '')))[1]::text::numeric), 0)::bigint
+             FROM information_schema.columns c
+            WHERE c.table_schema = 'clinlims' AND c.column_name = 'id'
+              AND c.data_type IN ('smallint', 'integer', 'bigint', 'numeric')
+              AND (c.table_name::text = s.name
+                   OR c.table_name::text || '_seq' = (SELECT q.relname FROM pg_class q WHERE q.oid = s.seq::regclass)
+                   OR (c.table_name::text, (SELECT q.relname::text FROM pg_class q WHERE q.oid = s.seq::regclass)) IN (SELECT nm.t, nm.seq FROM names nm))) END AS top
     FROM s
 ), v AS (
   SELECT x.n, x.name, x.hasid, x.seq, x.inc,
          coalesce((xpath('/row/mx/text()', x.rx))[1]::text::bigint, 0) AS mx,
          coalesce((xpath('/row/mxnz/text()', x.rx))[1]::text::bigint, 0) AS mxnz,
          (xpath('/row/lv/text()', x.sx))[1]::text::bigint AS v_last,
-         (xpath('/row/ic/text()', x.sx))[1]::text::boolean AS ic
+         (xpath('/row/ic/text()', x.sx))[1]::text::boolean AS ic,
+         coalesce(x.top, 0) AS v_top
     FROM x
 ), r AS (
   SELECT v.n, v.name, v.hasid, v.mx, v.mxnz,
-         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 ELSE ((coalesce(v_last, 0) / 10) + 1) * 10 END AS restart,
+         CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 ELSE ((greatest(coalesce(v_last, 0), v_top) / 10) + 1) * 10 END AS restart,
          CASE WHEN NOT v.hasid THEN 0 WHEN v.seq IS NULL THEN ((v.mx / 10) + 1) * 10 WHEN v.ic THEN coalesce(v_last, 0) + v.inc ELSE coalesce(v_last, 0) END AS nxt,
          CASE WHEN v.seq IS NULL THEN 0 ELSE v.inc END AS inc
     FROM v

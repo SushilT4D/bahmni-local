@@ -13,7 +13,7 @@ begin_task "60 · striding + replication origins (residue ${RESIDUE})"
 if [ "${DRY}" = 1 ]; then
   . "${INSTALL_DIR}/state.sh"
   ft="$(clinlims_floor_tables 2>&1)" || ft="<the down list could not be read: ${ft}>"
-  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims + odoo sequences; apply-replication-origin.sql on odoo and openelis"
+  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
   exit 0
 fi
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
@@ -85,19 +85,12 @@ while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
 # clinlims-floors:end
-ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -q <<SQL
-DO \$\$
-DECLARE r record; lv bigint; ns bigint; res int := ${RESIDUE}; n int := 0;
-BEGIN
-  FOR r IN SELECT schemaname s, sequencename q FROM pg_sequences WHERE schemaname='clinlims' LOOP
-    EXECUTE format('SELECT last_value FROM %I.%I', r.s, r.q) INTO lv;
-    ns := ((COALESCE(lv,0) / 10) + 1) * 10 + res;
-    EXECUTE format('ALTER SEQUENCE %I.%I INCREMENT BY 10 RESTART WITH %s', r.s, r.q, ns);
-    n := n + 1;
-  END LOOP;
-  RAISE NOTICE 'strided % clinlims sequences', n;
-END \$\$;
-SQL
+# Each OpenELIS sequence restarts above the largest id of the tables it numbers
+# (openelis/apply-sequence-striding.sql), and the script fails naming any that
+# is not, after it strides.
+o="$(ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -v residue="${RESIDUE}" -qAt -f /dev/stdin < openelis/apply-sequence-striding.sql 2>&1)" \
+  || fail "the OpenELIS sequences could not be strided above their rows: $(printf '%s\n' "$o" | sed -n 's/^.*ERROR: *//p' | head -1)"
+ok "$(printf '%s\n' "$o" | grep '^clinlims sequences step 10' | tail -1)"
 # Same table list the publication and MirrorMaker whitelist use (sync/subsystems.conf's
 # odoo: rows, the :all aggregate row excluded, trimmed and validated by subsystem_tables)
 # -- one source of truth, passed to the SQL as a comma-separated psql variable rather

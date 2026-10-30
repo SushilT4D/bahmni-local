@@ -39,7 +39,7 @@ repository, and attaches to that stack's Docker network through
   hub's OpenELIS ids, just before it strides:
   `scripts/stride-openelis.sh -- <psql command>` (residue 0, from
   `openelis/apply-sequence-striding.sql`; a second run keeps the floors and
-  moves nothing). On a hub strided before a table joined the down list,
+  moves only a sequence that would issue an id at or below its rows). On a hub strided before a table joined the down list,
   `scripts/record-clinlims-down-floors.sh --derive -- <psql command>` prints
   that table's floor read from its rows, and `--from-file <file>` adds it to
   the floors file, leaving the floors it already holds as they are.

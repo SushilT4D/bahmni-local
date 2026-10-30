@@ -12,7 +12,8 @@
 # changes it: it refuses, before striding, when a filtered table's sequence
 # would restart (or already issues) below its recorded floor, which means the
 # database went back, or when a filtered table has no recorded floor. Sequences
-# already stepping by 10 are left as they are, so a re-run moves nothing.
+# already stepping by 10 are left as they are, unless one would issue an id at
+# or below the largest id of its tables: a re-run lifts that one above them.
 #
 # A first recording is allowed only on a first striding, and only while no
 # clinic's replication origin shows progress (record-clinlims-down-floors.sh

@@ -17,8 +17,8 @@
 # Without --from-file or --derive it is run immediately BEFORE the hub's
 # OpenELIS ids are strided, and records where each floor must lie: for the lab
 # accounts, which clinics also write and send up, where the stride will restart
-# the sequence, ((last_value / 10) + 1) * 10, the hub's OpenELIS striding's own
-# restart; for a catalogue table, which only the hub writes, that or the first
+# the sequence, ((greatest(last_value, largest id) / 10) + 1) * 10, the hub's
+# OpenELIS striding's own restart; for a catalogue table, which only the hub writes, that or the first
 # multiple of 10 above the largest id the table holds, whichever is higher (some
 # catalogue sequences stand below the rows they hold; a floor below a row the
 # hub owns would stop that row's changes from going down). Refused, writing

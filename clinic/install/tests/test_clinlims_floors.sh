@@ -71,7 +71,7 @@ cond="$(env -i PATH="$PATH" CLINIC_DIR="$CLINIC_DIR" REPO_DIR="$R" bash "$R/clin
 
 # --- task 060 ----------------------------------------------------------------------
 T60="${HERE}/../tasks/060-striding.sh"
-nrec="$(grep -n 'record_clinlims_floors elis_seq' "$T60" | cut -d: -f1)"; nstr="$(grep -n 'ALTER SEQUENCE %I.%I INCREMENT BY 10' "$T60" | cut -d: -f1)"
+nrec="$(grep -n 'record_clinlims_floors elis_seq' "$T60" | cut -d: -f1)"; nstr="$(grep -n '< openelis/apply-sequence-striding.sql' "$T60" | cut -d: -f1)"
 [ -n "$nrec" ] && [ -n "$nstr" ] && [ "$nrec" -lt "$nstr" ] && grep -q 'v="$(record_clinlims_floors elis_seq)" || fail "$v"' "$T60" \
   && ok_ "060 records the floors before it strides the OpenELIS sequences, and stops on a refusal" || bad "060 order: record at ${nrec:-none}, stride at ${nstr:-none}"
 [ "$(ls "${HERE}/../tasks" | grep -n '^060-' | cut -d: -f1)" -lt "$(ls "${HERE}/../tasks" | grep -n '^090-' | cut -d: -f1)" ] && ok_ "060 runs before 090, which registers the OpenELIS down sink" || bad "task order"
@@ -108,13 +108,7 @@ live(){ clinlims_seq_sql "$1" | P; }
 [ "$(live analysis)" = 'clinlims.analysis_seq|1203' ] && [ "$(live sample)" = 'clinlims.sample_seq|790' ] && [ -z "$(live sample_item 2>&1)" ] \
   && ok_ "postgres:16: the read names each sequence and its last value, a set-but-unused one too; a table without one gives no line" || bad "live read: [$(live analysis)] [$(live sample)] [$(live sample_item 2>&1)]"
 rm -f "$SF"; out="$(record_clinlims_floors live)"; rc=$?
-P -q >/dev/null <<'SQL'
-DO $$ DECLARE r record; lv bigint; BEGIN
-  FOR r IN SELECT schemaname s, sequencename q FROM pg_sequences WHERE schemaname='clinlims' LOOP
-    EXECUTE format('SELECT last_value FROM %I.%I', r.s, r.q) INTO lv;
-    EXECUTE format('ALTER SEQUENCE %I.%I INCREMENT BY 10 RESTART WITH %s', r.s, r.q, ((COALESCE(lv,0) / 10) + 1) * 10 + 3);
-  END LOOP; END $$;
-SQL
+P -q -v residue=3 -f /dev/stdin < "$R/clinic/openelis/apply-sequence-striding.sql" >/dev/null
 a="$(P -c "select nextval('clinlims.analysis_seq')")"; s="$(P -c "select nextval('clinlims.sample_seq')")"
 [ "$rc" = 0 ] && [ "$a" = $(( $(stamp_get CLINLIMS_FLOOR_ANALYSIS) + 3 )) ] && [ "$s" = $(( $(stamp_get CLINLIMS_FLOOR_SAMPLE) + 3 )) ] \
   && ok_ "postgres:16: after 060's stride (residue 3) the first ids are floor + 3: analysis $a, sample $s" || bad "live floors: rc=$rc $out; first ids analysis $a sample $s; $(cat "$SF")"

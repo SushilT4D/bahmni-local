@@ -54,8 +54,8 @@ CATALOGUE="$(sed -n 's/^DOWN_CLINLIMS_CATALOGUE=" *\(.*[^ ]\) *"$/\1/p' "$R/sync
 grep -vE "^clinlims:(${CATALOGUE})\$" "$R/sync/hub-down.conf" > "$BASE"; cp "$BASE" "$C/sync/hub-down.conf"
 
 # --- one restart rule: where the floors say a sequence restarts is where the stride restarts it
-rule='((coalesce(v_last, 0) / 10) + 1) * 10'
-for f in hub/openelis/down-sequence-state.sql hub/openelis/apply-sequence-striding.sql; do
+rule='((greatest(coalesce(v_last, 0), v_top) / 10) + 1) * 10'
+for f in hub/openelis/down-sequence-state.sql hub/openelis/apply-sequence-striding.sql clinic/openelis/apply-sequence-striding.sql; do
   tr 'A-Z' 'a-z' < "$R/$f" | grep -qF "$rule" && ok_ "$f restarts a sequence at $rule" || bad "$f does not restart a sequence at $rule"
 done
 
