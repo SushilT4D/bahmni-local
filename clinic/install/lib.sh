@@ -669,8 +669,8 @@ pin_get(){
 }
 # image_value KEY INPUT : prints the value to store, or fails. A *_TAG key takes a
 # tag. The others take a full image reference (it has a / or a :), or a bare tag,
-# which replaces the default's tag: BAHMNI_WEB_IMAGE=bhs-0.0.34 becomes
-# infoiplitin/bahmni-iplit-web:bhs-0.0.34.
+# which replaces the default's tag: BAHMNI_WEB_IMAGE=bhs-9.9.9 becomes
+# infoiplitin/bahmni-iplit-web:bhs-9.9.9.
 image_value(){
   local k="$1" v="$2" base
   is_image_key "$k" || fail "${k} is not an application image a node can choose; those are: ${IMAGE_KEYS}"

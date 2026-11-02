@@ -3,6 +3,26 @@
 Decisions that change how a node is laid out. Newest first; `git log` on this
 file gives the date of each.
 
+## The UI image is bhs-0.0.34
+
+- `BAHMNI_WEB_IMAGE` defaults to `infoiplitin/bahmni-iplit-web:bhs-0.0.34`
+  (`sync/versions.env`, `clinic/.env.example`). The config image
+  (`bhs-0.0.20`) and OpenMRS (`iplit-1.2.0-1200-03`) are unchanged.
+- The legacy screens of this UI open the patient dashboard and save
+  encounters through the stock `bahmnicore/bahmniencounter` controller.
+  `bhs-0.0.30` sent those calls to `bahmnicore/distro/bahmniencounter`, where
+  IPLIT's OpenMRS module serves only `/findWith` and `/createDrugOrder`, so
+  every patient dashboard answered 404 on a node whose proxy does not rewrite
+  that path.
+- This UI's micro-frontend still posts an encounter save that edits
+  observations to the bare distro path, which the module does not serve. The
+  clinic proxy therefore keeps its encounter rewrite; it also covers a clinic
+  that takes the new pin before re-extracting its UI tree. The proxy's other
+  stopgaps are unchanged.
+- The hub's own application stack moves to the new UI first. Each clinic then
+  runs `clinic/scripts/extract-ui-config.sh`. The program-state mapper that
+  script rewrites occurs once in each bundle of this UI that carries one.
+
 ## The hub's staff come down to a clinic that keeps its own OpenMRS database
 
 - A staff member is created and changed at the hub only. A clinic that keeps

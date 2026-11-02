@@ -67,8 +67,8 @@ Two ways to choose, like the hub secrets:
   tag; the others take a full image reference, or a bare tag that keeps the image
   name:
 
-      BAHMNI_WEB_IMAGE=bhs-0.0.34
-      OPENELIS_IMAGE_TAG=1.1.0-111
+      BAHMNI_WEB_IMAGE=bhs-9.9.9
+      OPENELIS_IMAGE_TAG=1.0.0-99
 
 - **The terminal.** With `--clinic` and no `--versions`, the installer asks
   `keep the defaults? [Y/n]`; answering `n` shows each image with its default, and

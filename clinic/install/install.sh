@@ -12,7 +12,7 @@
 #   clinic/install/install.sh --clinics | --list
 # --secrets: the operator's hub secrets file (the four hub credentials).
 # --versions: application image versions to run instead of the defaults in
-#   sync/versions.env, as KEY=value lines (e.g. BAHMNI_WEB_IMAGE=bhs-0.0.34; a bare
+#   sync/versions.env, as KEY=value lines (e.g. BAHMNI_WEB_IMAGE=bhs-9.9.9; a bare
 #   tag keeps the image name). Without it, --clinic asks on the terminal.
 # --baseline: three dumps to run on until the seed, instead of the pinned baseline images.
 # --clinic composes the twelve answers from sync/fleet/<slug>.env, the residue

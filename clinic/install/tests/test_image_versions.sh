@@ -19,7 +19,7 @@ OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1.2.0-1200-03   # app
 ODOO_IMAGE_NAME=bahmni/odoo-16:1.0.0
 ODOO_CONNECT_IMAGE_TAG=1.0.0
 OPENELIS_IMAGE_TAG=1.1.0-111                     # app
-BAHMNI_WEB_IMAGE=infoiplitin/bahmni-iplit-web:bhs-0.0.30
+BAHMNI_WEB_IMAGE=infoiplitin/bahmni-iplit-web:bhs-1.0.0
 BAHMNI_CONFIG_IMAGE=infoiplitin/clinic-config-indiadistro:bhs-0.0.20
 IMPLEMENTER_INTERFACE_IMAGE_TAG=1.1.0-74
 PATIENT_DOCUMENTS_TAG=1.1.0-32
@@ -40,7 +40,7 @@ assert_eq "pin_get strips the comment" "$(pin_get OPENELIS_IMAGE_TAG)" "1.1.0-11
 
 # image_value
 assert_eq "a tag key takes a tag" "$(image_value OPENELIS_IMAGE_TAG 1.0.0-99)" "1.0.0-99"
-assert_eq "a bare tag keeps the image name" "$(image_value BAHMNI_WEB_IMAGE bhs-0.0.34)" "infoiplitin/bahmni-iplit-web:bhs-0.0.34"
+assert_eq "a bare tag keeps the image name" "$(image_value BAHMNI_WEB_IMAGE bhs-9.9.9)" "infoiplitin/bahmni-iplit-web:bhs-9.9.9"
 assert_eq "a full reference is kept" "$(image_value BAHMNI_WEB_IMAGE acme/web:2)" "acme/web:2"
 d="sha256:$(printf '%064d' 0)"
 assert_eq "a digest reference is kept" "$(image_value OPENMRS_IMAGE_NAME "infoiplitin/openmrs@${d}")" "infoiplitin/openmrs@${d}"
@@ -53,9 +53,9 @@ assert_eq "a digest reference is kept" "$(image_value OPENMRS_IMAGE_NAME "infoip
 
 # image_choices_load: a --versions file
 f="$TMP/choices.env"
-printf '# chosen for this node\nBAHMNI_WEB_IMAGE=bhs-0.0.34\n  OPENELIS_IMAGE_TAG="1.0.0-99"   # trailing comment\n\n' > "$f"
+printf '# chosen for this node\nBAHMNI_WEB_IMAGE=bhs-9.9.9\n  OPENELIS_IMAGE_TAG="1.0.0-99"   # trailing comment\n\n' > "$f"
 ( set -a; . "$VERSIONS_FILE"; set +a; image_choices_load "$f"; printf '%s %s %s\n' "$BAHMNI_WEB_IMAGE" "$OPENELIS_IMAGE_TAG" "$PATIENT_DOCUMENTS_TAG" ) > "$TMP/out" 2>&1
-assert_eq "a --versions file sets what it names and nothing else" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-0.0.34 1.0.0-99 1.1.0-32"
+assert_eq "a --versions file sets what it names and nothing else" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-9.9.9 1.0.0-99 1.1.0-32"
 printf 'KAFKA_IMAGE=confluentinc/cp-kafka:7.6.0\n' > "$TMP/bad1.env"
 ( image_choices_load "$TMP/bad1.env" ) >/dev/null 2>&1; assert_rc "a --versions file naming the sync layer is refused" $? 1
 printf 'BAHMNI_WEB_IMAGE\n' > "$TMP/bad2.env"
@@ -65,7 +65,7 @@ printf 'BAHMNI_WEB_IMAGE\n' > "$TMP/bad2.env"
 # image_choices_write: only what differs from the default is recorded
 a="$TMP/answers.env"; : > "$a"
 ( set -a; . "$VERSIONS_FILE"; set +a; image_choices_load "$f"; image_choices_write "$a" )
-assert_eq "the answers file records the chosen web image" "$(env_get "$a" BAHMNI_WEB_IMAGE)" "infoiplitin/bahmni-iplit-web:bhs-0.0.34"
+assert_eq "the answers file records the chosen web image" "$(env_get "$a" BAHMNI_WEB_IMAGE)" "infoiplitin/bahmni-iplit-web:bhs-9.9.9"
 assert_eq "the answers file records the chosen OpenELIS tag" "$(env_get "$a" OPENELIS_IMAGE_TAG)" "1.0.0-99"
 assert_eq "an unchanged image is not recorded" "$(grep -c '^PATIENT_DOCUMENTS_TAG=' "$a")" "0"
 
@@ -78,13 +78,13 @@ assert_eq "the node's application image wins; its sync-layer value does not" "$(
 # versions_put writes the defaults, then the chosen application images
 e="$TMP/rendered.env"; printf 'X=1\n' > "$e"
 ( set -a; . "$VERSIONS_FILE"; set +a; image_choices_load "$f"; versions_put "$e" )
-assert_eq "rendered env: chosen web image" "$(env_get "$e" BAHMNI_WEB_IMAGE)" "infoiplitin/bahmni-iplit-web:bhs-0.0.34"
+assert_eq "rendered env: chosen web image" "$(env_get "$e" BAHMNI_WEB_IMAGE)" "infoiplitin/bahmni-iplit-web:bhs-9.9.9"
 assert_eq "rendered env: default for what was not chosen" "$(env_get "$e" PATIENT_DOCUMENTS_TAG)" "1.1.0-32"
 assert_eq "rendered env: sync layer from the pin file" "$(env_get "$e" KAFKA_IMAGE)" "confluentinc/cp-kafka:8.3.2"
 
 # image_choices_report: names what differs; warns only for a schema-changing app
 ( set -a; . "$VERSIONS_FILE"; set +a; BAHMNI_WEB_IMAGE=acme/web:2; image_choices_report ) > "$TMP/r1" 2>&1
-grep -q 'image BAHMNI_WEB_IMAGE=acme/web:2 (default infoiplitin/bahmni-iplit-web:bhs-0.0.30)' "$TMP/r1" && printf '  ok   report names the changed UI image\n' || { printf '  FAIL report: %s\n' "$(cat "$TMP/r1")"; fails=$((fails+1)); }
+grep -q 'image BAHMNI_WEB_IMAGE=acme/web:2 (default infoiplitin/bahmni-iplit-web:bhs-1.0.0)' "$TMP/r1" && printf '  ok   report names the changed UI image\n' || { printf '  FAIL report: %s\n' "$(cat "$TMP/r1")"; fails=$((fails+1)); }
 grep -q WARN "$TMP/r1" && { printf '  FAIL a UI image change warns about lockstep\n'; fails=$((fails+1)); } || printf '  ok   a UI image change does not warn\n'
 ( set -a; . "$VERSIONS_FILE"; set +a; OPENMRS_IMAGE_NAME=infoiplitin/openmrs:other; image_choices_report ) > "$TMP/r2" 2>&1
 grep -q 'WARN OPENMRS_IMAGE_NAME: .*the hub must run the same version' "$TMP/r2" && printf '  ok   an OpenMRS change warns about lockstep\n' || { printf '  FAIL no lockstep warning: %s\n' "$(cat "$TMP/r2")"; fails=$((fails+1)); }
@@ -93,10 +93,10 @@ grep -q 'the defaults in sync/versions.env' "$TMP/r3" && printf '  ok   report s
 
 # image_choose on a terminal: "n", then a bare tag for the web image, Enter for the rest
 ( set -a; . "$VERSIONS_FILE"; set +a; export INSTALL_INTERACTIVE=1
-  printf 'n\n\n\n\n\n%s\n\n\n\n\n' bhs-0.0.34 | { image_choose 2>/dev/null; printf '%s %s\n' "$BAHMNI_WEB_IMAGE" "$OPENMRS_IMAGE_NAME"; } ) > "$TMP/out"
-assert_eq "prompt: a bare tag changes one image, Enter keeps the others" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-0.0.34 infoiplitin/openmrs:iplit-1.2.0-1200-03"
+  printf 'n\n\n\n\n\n%s\n\n\n\n\n' bhs-9.9.9 | { image_choose 2>/dev/null; printf '%s %s\n' "$BAHMNI_WEB_IMAGE" "$OPENMRS_IMAGE_NAME"; } ) > "$TMP/out"
+assert_eq "prompt: a bare tag changes one image, Enter keeps the others" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-9.9.9 infoiplitin/openmrs:iplit-1.2.0-1200-03"
 ( set -a; . "$VERSIONS_FILE"; set +a; export INSTALL_INTERACTIVE=1
   printf '\n' | { image_choose 2>/dev/null; printf '%s\n' "$BAHMNI_WEB_IMAGE"; } ) > "$TMP/out"
-assert_eq "prompt: Enter at the first question keeps every default" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-0.0.30"
+assert_eq "prompt: Enter at the first question keeps every default" "$(cat "$TMP/out")" "infoiplitin/bahmni-iplit-web:bhs-1.0.0"
 
 printf '%s failure(s)\n' "$fails"; exit $((fails>0))
