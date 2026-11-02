@@ -48,6 +48,12 @@
 # whose file is missing, and pointers of retired or unpublished forms outside
 # the forms folder, are warnings.
 #
+# The config package's stock demo forms (demo-forms.conf) are retired, never
+# deleted, on a node whose OpenMRS holds them: a clinic that keeps its own
+# database across an upgrade from a stack that loaded every Initializer domain.
+# Only those uuids are touched, and only on this node: clinics do not send form
+# rows up (sync/local/tables.conf).
+#
 # Exit codes, for a schedule: 1 a check refused (act on the FAIL line), 3 the
 # forms repo could not be reached (the forms already here keep working), 4
 # another run holds the lock.
@@ -158,8 +164,9 @@ forms_upstream_verdict(){
   return 1
 }
 
-# forms_sql QUERY : runs one SELECT against this node's openmrs database,
-# rows on stdout, tab-separated, no header.
+# forms_sql QUERY : runs QUERY against this node's openmrs database, rows on
+# stdout, tab-separated, no header. Every query is a SELECT except the stock
+# demo forms' retirement (forms_retire_demo_sql).
 forms_sql(){
   [ -n "${CT:-}" ] || setup_compose
   printf '%s' "$1" | ct exec -i "${COMPOSE_PROJECT_NAME:?}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N openmrs'
@@ -175,6 +182,60 @@ forms_known_concepts(){
 forms_known_forms(){
   if [ -n "${FORMS_KNOWN_FORMS_FILE:-}" ]; then cp "${FORMS_KNOWN_FORMS_FILE}" "$1"; return; fi
   forms_sql 'select uuid from form where published=1 and retired=0' > "$1" 2>/dev/null
+}
+
+# The stock demo forms: the list, the reason recorded on each, and the user
+# recorded as retiring them (1, the admin user every OpenMRS database has).
+FORMS_DEMO_LIST="${FORMS_DEMO_LIST:-${INSTALL_DIR}/demo-forms.conf}"
+FORMS_DEMO_REASON="stock demo form from the config package, not used by this clinic"
+FORMS_DEMO_RETIRED_BY=1
+
+# forms_demo_uuids [FILE] : the uuids FILE (default FORMS_DEMO_LIST) lists, one
+# per line, comments dropped. A line that is not exactly one lowercase uuid is
+# refused, named, and nothing is printed, so only uuids reach the SQL built
+# from the list. A list with no uuid is refused too: the SQL needs at least one.
+forms_demo_uuids(){
+  local f="${1:-${FORMS_DEMO_LIST}}" out
+  [ -f "$f" ] || { printf 'no list of the stock demo forms at %s\n' "$f"; return 1; }
+  out="$(awk '{ line = $0; sub(/#.*/, "") } NF {
+      u = $1; x = u; n = gsub(/-/, "", x)
+      if (NF != 1 || length(u) != 36 || n != 4 || x !~ /^[0-9a-f]+$/ || substr(u, 9, 1) != "-" || substr(u, 14, 1) != "-" || substr(u, 19, 1) != "-" || substr(u, 24, 1) != "-") {
+        printf "%s line %d is not one form uuid: %s\n", FILENAME, FNR, line; bad = 1; exit
+      }
+      out = out u "\n" }
+    END { if (bad) exit 1; printf "%s", out }' "$f")" || { printf '%s\n' "$out"; return 1; }
+  [ -n "$out" ] || { printf '%s lists no form uuid; it names the stock demo forms to retire, one uuid per line\n' "$f"; return 1; }
+  printf '%s\n' "$out"
+}
+
+# forms_retire_demo_sql UUID... : the statement that retires those forms where
+# they are not retired yet, then three counts, one per line: the forms it
+# retired, the forms of the list this node holds, and those of them still not
+# retired (0 when it worked). It changes rows only by uuid IN (the list), and
+# deletes nothing.
+forms_retire_demo_sql(){
+  local in="" u
+  for u in "$@"; do in="${in}${in:+, }'${u}'"; done
+  printf "update form set retired = 1, retired_by = %s, date_retired = now(), retire_reason = '%s' where retired = 0 and uuid in (%s); select row_count(); select count(*) from form where uuid in (%s); select count(*) from form where retired = 0 and uuid in (%s);\n" \
+    "${FORMS_DEMO_RETIRED_BY}" "${FORMS_DEMO_REASON}" "$in" "$in" "$in"
+}
+
+# forms_retire_demo : retires, on this node, every stock demo form it holds
+# that is not retired yet, and says how many: 0 on a node that never loaded
+# them, and on every run after the first. Fails unless every listed form this
+# node holds reads back retired. Safe to re-run.
+forms_retire_demo(){
+  local uuids out n held left listed
+  uuids="$(forms_demo_uuids)" || fail "$uuids"
+  listed="$(printf '%s\n' "$uuids" | grep -c .)"
+  # unquoted on purpose: one argument per uuid, each checked by forms_demo_uuids
+  out="$(forms_sql "$(forms_retire_demo_sql $uuids)")" || fail "could not retire the stock demo forms in openmrs in ${COMPOSE_PROJECT_NAME:-?}-bahmni-mysql-1"
+  n="$(printf '%s\n' "$out" | sed -n 1p)"; held="$(printf '%s\n' "$out" | sed -n 2p)"; left="$(printf '%s\n' "$out" | sed -n 3p)"
+  case "${n}:${held}:${left}" in
+    *[!0-9:]*|:*|*:|*::*) fail "retiring the stock demo forms: openmrs answered '$(printf '%s' "$out" | tr '\n' ' ')', not three counts" ;;
+  esac
+  [ "$left" = 0 ] || fail "retiring the stock demo forms: ${left} of the ${held} this node holds still read back not retired after the update (${n} retired now)"
+  ok "stock demo forms: ${n} retired now; this node holds ${held} of the ${listed} in demo-forms.conf, all read back retired, none deleted"
 }
 
 # forms_concept_warn TREE : runs the concept check on TREE, a copy of the

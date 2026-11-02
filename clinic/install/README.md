@@ -292,6 +292,18 @@ hub (or its previous content published again as a new version); the retired
 flag comes down by sync, and the file stays in the forms repo for the
 observations saved with it.
 
+**The config package's demo forms.** A stack that let the Initializer load
+every domain created the config package's stock demo forms on its clinic, and
+a clinic that keeps its own OpenMRS database across an upgrade still has them
+in its form lists. Its upgrade runs `forms_retire_demo` (`forms.sh`) before
+the forms checks: it retires them where the node holds them unretired, and
+prints how many (0 on a node that never loaded them, and on every later run). Only the uuids `clinic/install/demo-forms.conf`
+lists are touched, by `uuid IN (...)`; nothing is deleted. The list is
+explicit: the package's `referral_letter.json` carries the uuid of the hub's
+own Referral letter, which stays, and the forms folder holds these forms'
+files too, so neither can decide. Clinics do not send form rows up, so the
+retirement stays on the clinic.
+
 **The hub is the source.** Forms are published on the hub, exported to the
 forms repo, and only then pulled by clinics. The hub keeps its forms folder
 across upgrades, captures `form` and `form_resource`, and is the only node
