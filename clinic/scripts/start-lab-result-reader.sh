@@ -11,7 +11,8 @@
 # restored from a copy names another node's feed. In order:
 #   1. reads the newest entry of this node's OpenELIS patient feed, as the
 #      reader reads it (OpenELIS login, then the session cookie), from inside
-#      the OpenMRS container with the reader's own settings;
+#      the OpenMRS container with the reader's own settings, retried while
+#      OpenELIS boots (OPENELIS_BOOT_TIMEOUT_S, default 300 s);
 #   2. parks the reader's bookmark there, so the results already in OpenELIS are
 #      not replayed into OpenMRS;
 #   3. sets exactly one "OpenElis Patient Atom Feed Task" (the lowest id; the
@@ -55,11 +56,21 @@ my(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot
 FEED="http://openelis:8052/openelis/ws/feed/patient/recent"
 
 # 1. the newest entry of this node's OpenELIS patient feed (the reader's
-# credentials stay inside the OpenMRS container, read from its own settings)
-body="$(ct exec "$OM" sh -c 'F=/openmrs/data/bahmnicore.properties; U=$(sed -n "s/^openelis.user=//p" $F); P=$(sed -n "s/^openelis.password=//p" $F); [ -n "$U" ] && [ -n "$P" ] || { echo "NO-SETTINGS"; exit 0; }; S=$(curl -s -i --data-urlencode "loginName=$U" --data-urlencode "password=$P" http://openelis:8052/openelis/ValidateLogin.do | sed -n "s/^Set-Cookie: JSESSIONID=\([^;]*\).*/\1/p" | head -1); [ -n "$S" ] || { echo "NO-SESSION"; exit 0; }; curl -s -H "Cookie: JSESSIONID=$S" -w "\nHTTP %{http_code}" "$1"' _ "$FEED" < /dev/null 2>/dev/null || true)"
+# credentials stay inside the OpenMRS container, read from its own settings).
+# Task 080 parks OpenELIS's bookmarks just before this, which stops OpenELIS and
+# starts it again, so the login and the feed are retried on a named budget
+# (OPENELIS_BOOT_TIMEOUT_S, default 300 s, every 10 s) while it boots.
+read_feed(){ ct exec "$OM" sh -c 'F=/openmrs/data/bahmnicore.properties; U=$(sed -n "s/^openelis.user=//p" $F); P=$(sed -n "s/^openelis.password=//p" $F); [ -n "$U" ] && [ -n "$P" ] || { echo "NO-SETTINGS"; exit 0; }; S=$(curl -s -i --data-urlencode "loginName=$U" --data-urlencode "password=$P" http://openelis:8052/openelis/ValidateLogin.do | sed -n "s/^Set-Cookie: JSESSIONID=\([^;]*\).*/\1/p" | head -1); [ -n "$S" ] || { echo "NO-SESSION"; exit 0; }; curl -s -H "Cookie: JSESSIONID=$S" -w "\nHTTP %{http_code}" "$1"' _ "$FEED" < /dev/null 2>/dev/null || true; }
+budget="${OPENELIS_BOOT_TIMEOUT_S:-300}"; s="$(date +%s)"
+while :; do
+  body="$(read_feed)"
+  case "$body" in NO-SETTINGS*|*"HTTP 200") break ;; esac
+  [ $(( $(date +%s) - s )) -lt "$budget" ] || break
+  sleep 10
+done
 case "$body" in
   NO-SETTINGS*) fail "OpenMRS's /openmrs/data/bahmnicore.properties has no openelis.user or openelis.password: the reader could not log in to OpenELIS" ;;
-  NO-SESSION*) fail "OpenELIS gave no session to OpenMRS's openelis.user: the reader's OpenELIS login is refused, or OpenELIS is not up" ;;
+  NO-SESSION*|'') fail "OpenELIS gave no session to OpenMRS's openelis.user in ${budget}s (OPENELIS_BOOT_TIMEOUT_S): the reader's OpenELIS login is refused, or OpenELIS is not up" ;;
 esac
 code="${body##*HTTP }"; [ "$code" = 200 ] || fail "OpenELIS's patient feed answered HTTP ${code:-none} to the reader's login; nothing was changed"
 page="$(printf '%s' "$body" | grep -oE 'rel="via"[^>]*href="[^"]+"' | grep -oE 'https?://[^"]+' | head -1 || true)"

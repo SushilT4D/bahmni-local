@@ -27,7 +27,11 @@ for v in "http://openelis:8052/openelis/ws/feed/patient/4'; DROP TABLE markers; 
   printf '%s' "$v" | grep -qE "$re_page|$re_entry" && bad "an unexpected value passes: $v"
 done
 ok_ "a well-formed page and entry pass, anything carrying a quote does not"
-grep -q 'READER_RUN_TIMEOUT_S' "$S" && grep -q 'OPENMRS_RESTART_TIMEOUT_S' "$S" && ok_ "both waits have a named budget" || bad "a wait without a named budget"
+grep -q 'READER_RUN_TIMEOUT_S' "$S" && grep -q 'OPENMRS_RESTART_TIMEOUT_S' "$S" && grep -q 'OPENELIS_BOOT_TIMEOUT_S' "$S" && ok_ "every wait has a named budget" || bad "a wait without a named budget"
+# the parking in 080 restarts OpenELIS just before the reader logs in: the login
+# and the feed are retried while OpenELIS boots, never tried once
+grep -q 'body="$(read_feed)"' "$S" && grep -qF 'NO-SETTINGS*|*"HTTP 200") break' "$S" \
+  && ok_ "the OpenELIS login and feed are retried until the feed answers 200 or the budget runs out" || bad "the OpenELIS login is tried once"
 np="$(grep -n 'bash scripts/park-feed-markers.sh' "$T80" | head -1 | cut -d: -f1)"; nr="$(grep -n 'bash scripts/start-lab-result-reader.sh' "$T80" | head -1 | cut -d: -f1)"
 no="$(grep -n 'up -d odoo-connect' "$T80" | head -1 | cut -d: -f1)"
 [ -n "$np" ] && [ -n "$nr" ] && [ -n "$no" ] && [ "$np" -lt "$nr" ] && [ "$nr" -lt "$no" ] \
