@@ -1,4 +1,4 @@
-# hub/
+# cloud/
 
 The hub's sync layer as its own compose project: one Kafka node holding both
 KRaft roles, Kafka Connect, and kafka-ui on request. It runs beside the hub's
@@ -26,7 +26,7 @@ repository, and attaches to that stack's Docker network through
 - **Publication** `dbz_odoo_owned` over exactly the down list,
   `sync/hub-down.conf`, built by `scripts/apply-down-publication.sh`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
-  with this hub's floors in `hub/odoo-down-floors.local` (below).
+  with this hub's floors in `cloud/odoo-down-floors.local` (below).
 - **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
   built by `scripts/apply-clinlims-down-publication.sh`: `result`, `analysis`
   and `sample` with no row filter (those rows keep the clinic's ids, and the
@@ -34,7 +34,7 @@ repository, and attaches to that stack's Docker network through
   lab accounts, `system_user`, and the lab test catalogue (tests, panels,
   sample types, departments, result options and every table they point to)
   with `(id < <floor> OR id % 10 = 0)` on this hub's floors in
-  `hub/clinlims-down-floors.local`, the catalogue's two link tables without an
+  `cloud/clinlims-down-floors.local`, the catalogue's two link tables without an
   `id` unfiltered. The floors are recorded once, by the run that strides the
   hub's OpenELIS ids, just before it strides:
   `scripts/stride-openelis.sh -- <psql command>` (residue 0, from
@@ -72,7 +72,7 @@ even when the hub edits them: below a table's floor the rows predate striding
 and are the hub's; above it the hub mints residue 0. A floor is the value the
 table's sequence restarted at when the hub's Odoo ids were strided, and it is
 recorded by that same run: `scripts/stride-odoo.sh -- <psql command>` strides
-and writes `hub/odoo-down-floors.local` (one `<table> <floor>` line per table
+and writes `cloud/odoo-down-floors.local` (one `<table> <floor>` line per table
 with an `id`; never committed). A re-run strides again and leaves the file as
 it is, refusing if a sequence would restart below its floor. Floors are never
 read back from the sequences later: once the hub has issued ids they no longer
@@ -100,7 +100,7 @@ A clinic that keeps its own OpenMRS database takes the hub's staff (`users`,
 to the roles) only for rows the hub wrote, filtered at its own receivers: below
 the hub's floor its rows and the hub's share ids. The floors of `person` and
 `person_name` are their bases in `sync/local/tables.conf`; those of `users` and
-`provider` are this hub's, recorded once in `hub/openmrs-staff-floors.local`
+`provider` are this hub's, recorded once in `cloud/openmrs-staff-floors.local`
 (never committed) from the output of
 `clinic/scripts/clinic-minted-staff.sh --derive-floors`, run against this hub's
 OpenMRS MySQL. That file feeds `--hub-query` and `--hub-dump`, which the
@@ -112,17 +112,17 @@ that does not claim an origin writes rows the hub publishes to every clinic.
 
 ## Files this directory needs that are not tracked
 
-- `hub/.env`, mode 600. Every key is listed and described in `.env.example`.
+- `cloud/.env`, mode 600. Every key is listed and described in `.env.example`.
   Image names come from `sync/versions.env`; change a version there.
 - The three Groovy scripting jars in `clinic/config/kafka-connect/ext/`
   (`bash clinic/config/kafka-connect/ext/fetch-scripting-jars.sh`). The hub's
   Connect mounts them into its MySQL connector, whose row filter sends down
-  only the lab-result rows the hub wrote itself (`hub/tables.conf`, `clinic=`
+  only the lab-result rows the hub wrote itself (`cloud/tables.conf`, `clinic=`
   rows). Without them that connector fails at configuration.
-- `hub/kafka_server_jaas.conf`, mode 600: a `KafkaServer` section for the
+- `cloud/kafka_server_jaas.conf`, mode 600: a `KafkaServer` section for the
   `PLAIN` mechanism with two users, `admin` (`KAFKA_ADMIN_PASSWORD`) and the
   one clinics log in as (`REMOTE_KAFKA_PASSWORD`).
-- `hub/tls/`, mode 700, when the clinic listener is `SASL_SSL` (the default):
+- `cloud/tls/`, mode 700, when the clinic listener is `SASL_SSL` (the default):
   the keystore (`kafka.keystore.p12`: the hub's private key and its
   certificate, whose name must cover `REMOTE_KAFKA_HOST`), `keystore_creds`
   holding the keystore password, and `key_creds` holding the key password

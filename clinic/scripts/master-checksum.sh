@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Print a row count and a content checksum for every table hub/tables.conf
+# Print a row count and a content checksum for every table cloud/tables.conf
 # lists, from one OpenMRS MySQL. Run it on the hub and on a clinic seeded from
 # that hub and compare the two outputs line by line: a table whose line differs
 # holds different rows.
 #
 #   clinic/scripts/master-checksum.sh [--reseed] [--container NAME] [--database DB]
 #
-# --reseed      also the tables hub/table-verdicts.conf marks RESEED (delivered
+# --reseed      also the tables cloud/table-verdicts.conf marks RESEED (delivered
 #               by the seed only), whose checksum must stay equal to the hub's
 # --container   the MySQL container (default <COMPOSE_PROJECT_NAME>-bahmni-mysql-1,
 #               COMPOSE_PROJECT_NAME from clinic/.env); needed on the hub
 # --database    the OpenMRS schema (default openmrs)
 #
 # The checksum covers every column of every row, read from
-# information_schema.COLUMNS, except the columns hub/checksum-exclusions.conf
+# information_schema.COLUMNS, except the columns cloud/checksum-exclusions.conf
 # lists: a row edited in place keeps its id and uuid but changes the checksum.
 # Each column is hashed with its length and a NULL marker, so a NULL never
 # collides with an empty string or with a value moved to the next column, and
@@ -46,9 +46,9 @@ while [ $# -gt 0 ]; do
 done
 printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || fail "bad database name: $DB"
 
-tables="$(master_down_tables)" || fail "could not read hub/tables.conf"
+tables="$(master_down_tables)" || fail "could not read cloud/tables.conf"
 if [ "$RESEED" = 1 ]; then
-  V="${REPO_DIR}/hub/table-verdicts.conf"
+  V="${REPO_DIR}/cloud/table-verdicts.conf"
   [ -f "$V" ] || fail "no ${V}"
   tables="${tables}
 $(awk '{ sub(/#.*/, "") } $2 == "RESEED" { print $1 }' "$V")"
@@ -56,7 +56,7 @@ fi
 tables="$(printf '%s\n' "$tables" | grep -E '^[a-z_][a-z0-9_]*$' | sort -u)"
 [ -n "$tables" ] || fail "no tables to checksum"
 
-X="${REPO_DIR}/hub/checksum-exclusions.conf"
+X="${REPO_DIR}/cloud/checksum-exclusions.conf"
 [ -f "$X" ] || fail "no ${X}: the list of excluded columns is required, even when it is empty"
 excl="$(awk '{ sub(/#.*/, "") } NF { print $1 }' "$X")"
 for e in $excl; do

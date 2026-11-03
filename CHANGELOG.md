@@ -46,7 +46,7 @@ file gives the date of each.
 
 - A lab test is created or changed at the hub only, and comes down to every
   clinic as changes: its OpenMRS concept rows (the ten concept tables
-  `hub/tables.conf` marks `changes`; the hub's source reads none of their
+  `cloud/tables.conf` marks `changes`; the hub's source reads none of their
   existing rows, every clinic already holds them) and its OpenELIS catalogue
   rows (on the one ordered OpenELIS stream, `sync/hub-down.conf`). A clinic's
   concept sinks never apply a delete; the hub retires a test rather than
@@ -82,7 +82,7 @@ file gives the date of each.
   the same id, uuid and version on every node, which is what a saved
   observation's form name and version refer to. A node takes the hub's form
   rows as its baseline with its seed; sync carries later changes. The clinic's
-  sink user is granted every table `hub/tables.conf` lists.
+  sink user is granted every table `cloud/tables.conf` lists.
 - A form's files come from the operator's private forms repo, exported from
   the hub: cloned into `clinic/forms` with a per-clinic read-only deploy key,
   fast-forward only, one run at a time, and mounted read-only at

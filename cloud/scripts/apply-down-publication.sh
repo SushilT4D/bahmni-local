@@ -4,7 +4,7 @@
 # Converges the hub's Odoo down publication, dbz_odoo_owned, to exactly the down
 # list (sync/hub-down.conf through sync/hub-down.sh), each table with an `id`
 # filtered with (id < <floor> OR id % 10 = 0) from FLOORS-FILE (the hub's
-# hub/odoo-down-floors.local), plus public.dbz_heartbeat. hub/odoo/
+# cloud/odoo-down-floors.local), plus public.dbz_heartbeat. cloud/odoo/
 # apply-down-publication.sql does the work and refuses, naming the table, a
 # missing floor, a missing table, or a replica identity that does not cover
 # `id`. Prints "<table> <row filter>" per published table on success.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Lab results entered at the hub reach the clinic that placed the order, and
-# nothing else moves with them (hub/tables.conf, `clinic=` rows).
+# nothing else moves with them (cloud/tables.conf, `clinic=` rows).
 #
-#   - the readers of hub/tables.conf accept the role: the hub source captures
+#   - the readers of cloud/tables.conf accept the role: the hub source captures
 #     encounter and obs, the clinic gets their sinks and grants, the master-data
 #     checksum leaves them out, the verdict check passes;
 #   - the hub's source still refuses orders and drug_order, and refuses obs
@@ -35,17 +35,17 @@ printf '%s\n' "$lists" | grep '^DOWN' | grep -q ' obs ' && ok_ "the down tables 
 printf '%s\n' "$lists" | grep '^MASTER' | grep -qE ' (obs|encounter) ' && bad "the master-data checksum would compare encounter or obs: $lists" || ok_ "the master-data checksum leaves encounter and obs out"
 
 # --- the hub source ----------------------------------------------------------------
-gen_hub(){ DEBEZIUM_DB_PASSWORD=x REPO_DIR="$1" HUB_DIR="$1/hub" bash "$1/hub/scripts/generate-cloud-source-connector.sh" "$T/src.json" 2>&1; }
+gen_hub(){ DEBEZIUM_DB_PASSWORD=x REPO_DIR="$1" HUB_DIR="$1/cloud" bash "$1/cloud/scripts/generate-cloud-source-connector.sh" "$T/src.json" 2>&1; }
 out="$(gen_hub "$R")"; rc=$?
 [ "$rc" = 0 ] && ok_ "the hub source renders" || bad "hub source: rc=$rc $out"
-copy(){ rm -rf "$T/r"; mkdir -p "$T/r"; (cd "$R" && tar cf - hub clinic/scripts sync) | (cd "$T/r" && tar xf -); }
-copy; printf 'orders:order_id:clinic=order_id\n' >> "$T/r/hub/tables.conf"
+copy(){ rm -rf "$T/r"; mkdir -p "$T/r"; (cd "$R" && tar cf - cloud clinic/scripts sync) | (cd "$T/r" && tar xf -); }
+copy; printf 'orders:order_id:clinic=order_id\n' >> "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "only encounter and obs carry the hub's lab results" && [ ! -s "$T/src.json.x" ] && ok_ "orders is refused, even with the role" || bad "orders with role: rc=$rc $out"
-copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id:clinic=person_id/' "$T/r/hub/tables.conf"
+copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id:clinic=person_id/' "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "obs goes to a clinic by order_id" && ok_ "obs routed by any column but order_id is refused" || bad "obs by person_id: rc=$rc $out"
-copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id/' "$T/r/hub/tables.conf"
+copy; sed -i.bak 's/^obs:obs_id:clinic=order_id$/obs:obs_id/' "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "never publishes \['obs'\]" && ok_ "obs without the role is refused" || bad "obs without role: rc=$rc $out"
 copy; sed -i.bak 's/^person:person_id:230000$/person:person_id/' "$T/r/sync/local/tables.conf"
@@ -54,15 +54,15 @@ out="$(gen_hub "$T/r")"; rc=$?
 copy; sed -i.bak 's/^person:person_id:230000$/person:person_id:230005/' "$T/r/sync/local/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "is 230005, not a multiple of 10" && ok_ "a floor off the residue grid refuses the source" || bad "odd person floor: rc=$rc $out"
-copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id/' "$T/r/hub/tables.conf"
+copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id/' "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "appear in BOTH direction files: \['person'\]" && ok_ "person without its hub-rows mark is refused: every clinic's people would go to every clinic" || bad "unmarked person: rc=$rc $out"
-copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id:relay/' "$T/r/hub/tables.conf"
+copy; sed -i.bak 's/^person:person_id:hub-rows$/person:person_id:relay/' "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 inc_r="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$T/src.json" 2>/dev/null)"
 [ "$rc" = 0 ] && case ",$inc_r," in *,openmrs.person,*) false ;; *) true ;; esac && ok_ "a relay mark is not published by the hub" || bad "relay person: rc=$rc inc=$inc_r $out"
 gen_hub "$R" >/dev/null 2>&1
-python3 - "$T/src.json" "$R/hub/tables.conf" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows (and the changes-only concept tables), person and person_name on their floor filter, every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
+python3 - "$T/src.json" "$R/cloud/tables.conf" <<'EOF' && ok_ "the hub source snapshots encounter and obs with no rows (and the changes-only concept tables), person and person_name on their floor filter, every other table whole" || bad "snapshot overrides: $(grep -o '"snapshot.select[^,]*' "$T/src.json" | tr '\n' ' ')"
 import json, sys
 c = json.load(open(sys.argv[1]))['config']
 changes = {"openmrs." + l.split("#")[0].strip().split(":")[0] for l in open(sys.argv[2]) if l.split("#")[0].strip().endswith(":changes")}

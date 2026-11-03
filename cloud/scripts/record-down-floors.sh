@@ -5,7 +5,7 @@
 # were strided, for a hub whose striding ran before stride-odoo.sh recorded
 # them itself. FILE holds "<table> <floor>" lines: each down table with an id
 # (sync/hub-down.conf) and the value its sequence restarted at. OUT defaults to
-# hub/odoo-down-floors.local and is never rewritten.
+# cloud/odoo-down-floors.local and is never rewritten.
 #
 # Floors are never read from the sequences now: once a hub has issued ids, or
 # been strided again, its sequences no longer show where they restarted. The
@@ -29,7 +29,7 @@ die(){ printf 'record-down-floors.sh: %s\n' "$*" >&2; exit 1; }
 [ -e "$OUT" ] && die "$OUT already exists: it holds this hub's floors and is never rewritten"
 floors="$(bash "$HERE/down-floors.sh" "$SRC")" || die "$SRC cannot be read as floors (reason above); nothing was written"
 down="$(bash "$R/sync/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was written"
-state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/hub/odoo/down-sequence-state.sql" 2>&1)" \
+state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/odoo/down-sequence-state.sql" 2>&1)" \
   || die "the down sequences could not be read; nothing was written: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 idtabs=" $(printf '%s\n' "$state" | cut -d'|' -f1 | tr '\n' ' ') "
 while read -r t f; do

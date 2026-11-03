@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Check both sync table lists against hub/table-verdicts.conf:
+# Check both sync table lists against cloud/table-verdicts.conf:
 #
-#   hub/tables.conf          an unmarked row, or one marked `changes`, must
+#   cloud/tables.conf          an unmarked row, or one marked `changes`, must
 #                            have verdict DOWN, a row marked `relay` must have
 #                            verdict relay, a row marked `hub-rows` verdict
 #                            SHARED;
@@ -25,7 +25,7 @@
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="${1:-$(cd "${HERE}/../.." && pwd)}"
-V="${R}/hub/table-verdicts.conf"; DOWN="${R}/hub/tables.conf"; UP="${R}/sync/local/tables.conf"
+V="${R}/cloud/table-verdicts.conf"; DOWN="${R}/cloud/tables.conf"; UP="${R}/sync/local/tables.conf"
 for f in "$V" "$DOWN" "$UP"; do [ -f "$f" ] || { echo "  FAIL no such file: $f" >&2; exit 2; }; done
 
 # the verdict file, as "table verdict" lines; malformed lines are fatal
@@ -48,7 +48,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# hub/tables.conf: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
+# cloud/tables.conf: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -56,20 +56,20 @@ while IFS= read -r line || [ -n "$line" ]; do
   t="${line%%:*}"; role=""
   case "$line" in *:*:*) role="${line##*:}" ;; esac
   v="$(verdict_of "$t")"; n=$((n+1))
-  if [ -z "$v" ]; then bad "hub/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf"
-  elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "hub/tables.conf marks ${t} relay, but its verdict is ${v}"
+  if [ -z "$v" ]; then bad "cloud/tables.conf lists ${t}, which has no verdict in cloud/table-verdicts.conf"
+  elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "cloud/tables.conf marks ${t} relay, but its verdict is ${v}"
   elif [ "$role" = hub-rows ]; then
     # written at the hub and at the clinics, each its own rows; the hub sends down only its own
-    [ "$v" = SHARED ] || bad "hub/tables.conf marks ${t} hub-rows, but its verdict is ${v}: only a table the hub and the clinics both write (SHARED) is sent down as the hub's own rows"
+    [ "$v" = SHARED ] || bad "cloud/tables.conf marks ${t} hub-rows, but its verdict is ${v}: only a table the hub and the clinics both write (SHARED) is sent down as the hub's own rows"
   elif [ "$role" = changes ]; then
     # the hub's own table, sent as changes only: the same verdict as an unmarked row
-    [ "$v" = DOWN ] || bad "hub/tables.conf marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
+    [ "$v" = DOWN ] || bad "cloud/tables.conf marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   elif case "$role" in clinic=*) true ;; *) false ;; esac; then
     # a clinic's table; the hub sends down only its own rows, each kept by the clinic its column names
-    [ "$v" = UP ] || bad "hub/tables.conf marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic"
-    printf '%s' "${role#clinic=}" | grep -qE '^[a-z_][a-z0-9_]*$' || bad "hub/tables.conf: ${t} names a bad routing column '${role#clinic=}'"
-  elif [ -n "$role" ]; then bad "hub/tables.conf: ${t} has an unknown role '${role}'"
-  else [ "$v" = DOWN ] || bad "hub/tables.conf lists ${t} for a down sink, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
+    [ "$v" = UP ] || bad "cloud/tables.conf marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic"
+    printf '%s' "${role#clinic=}" | grep -qE '^[a-z_][a-z0-9_]*$' || bad "cloud/tables.conf: ${t} names a bad routing column '${role#clinic=}'"
+  elif [ -n "$role" ]; then bad "cloud/tables.conf: ${t} has an unknown role '${role}'"
+  else [ "$v" = DOWN ] || bad "cloud/tables.conf lists ${t} for a down sink, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   fi
 done < "$DOWN"
 
@@ -85,7 +85,7 @@ while read -r t _; do
   v="$(verdict_of "$t")"; m=$((m+1))
   case "$v" in
     UP|relay|SHARED) ;;
-    '') bad "sync/local/tables.conf lists ${t}, which has no verdict in hub/table-verdicts.conf" ;;
+    '') bad "sync/local/tables.conf lists ${t}, which has no verdict in cloud/table-verdicts.conf" ;;
     *) bad "sync/local/tables.conf captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP, relay or SHARED)" ;;
   esac
 done <<EOF
@@ -99,10 +99,10 @@ for t in ${UP_NEVER_TABLES}; do
   v="$(verdict_of "$t")"
   case "$v" in
     DOWN|OUT) ;;
-    '') bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, which has no verdict in hub/table-verdicts.conf (it must be DOWN or OUT)" ;;
+    '') bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, which has no verdict in cloud/table-verdicts.conf (it must be DOWN or OUT)" ;;
     *) bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, but its verdict is ${v}: a table no clinic captures is DOWN or OUT" ;;
   esac
 done
 
 [ "$fails" -eq 0 ] || exit 1
-printf '  ok   %s hub/tables.conf row(s), %s sync/local/tables.conf row(s) and the %s never-captured table(s) agree with hub/table-verdicts.conf\n' "$n" "$m" "$(printf '%s\n' ${UP_NEVER_TABLES} | grep -c .)"
+printf '  ok   %s cloud/tables.conf row(s), %s sync/local/tables.conf row(s) and the %s never-captured table(s) agree with cloud/table-verdicts.conf\n' "$n" "$m" "$(printf '%s\n' ${UP_NEVER_TABLES} | grep -c .)"

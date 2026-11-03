@@ -33,14 +33,14 @@ T="$(mktemp -d)"
 cleanup(){ [ -n "$PGC" ] && docker rm -f -v "$PGC" >/dev/null 2>&1; rm -rf "$T"; }
 trap cleanup EXIT
 # a copy of the files the renderers read, so a planted line never touches the repo
-C="$T/repo"; mkdir -p "$C/sync/local" "$C/hub/connectors" "$C/hub/scripts" "$C/hub/odoo" "$C/clinic/scripts" "$C/clinic/config/mirrormaker"
+C="$T/repo"; mkdir -p "$C/sync/local" "$C/cloud/connectors" "$C/cloud/scripts" "$C/cloud/odoo" "$C/clinic/scripts" "$C/clinic/config/mirrormaker"
 cp "$R/sync/hub-down.sh" "$R/sync/hub-down.conf" "$R/sync/subsystems.conf" "$C/sync/"
 cp "$R/sync/local/tables.conf" "$R/sync/local/tables-conf.sh" "$C/sync/local/"
-cp "$R/hub/tables.conf" "$C/hub/"
-cp "$R/hub/connectors/odoo-cloud-source.json" "$R/hub/connectors/register-odoo.sh" "$R/hub/connectors/_render_connector.py" "$C/hub/connectors/"
+cp "$R/cloud/tables.conf" "$C/cloud/"
+cp "$R/cloud/connectors/odoo-cloud-source.json" "$R/cloud/connectors/register-odoo.sh" "$R/cloud/connectors/_render_connector.py" "$C/cloud/connectors/"
 mkdir -p "$C/clinic/odoo"
-cp "$R/hub/scripts/down-floors.sh" "$R/hub/scripts/record-down-floors.sh" "$R/hub/scripts/apply-down-publication.sh" "$R/hub/scripts/stride-odoo.sh" "$C/hub/scripts/"
-cp "$R/hub/odoo/apply-down-publication.sql" "$R/hub/odoo/down-sequence-state.sql" "$C/hub/odoo/"
+cp "$R/cloud/scripts/down-floors.sh" "$R/cloud/scripts/record-down-floors.sh" "$R/cloud/scripts/apply-down-publication.sh" "$R/cloud/scripts/stride-odoo.sh" "$C/cloud/scripts/"
+cp "$R/cloud/odoo/apply-down-publication.sql" "$R/cloud/odoo/down-sequence-state.sql" "$C/cloud/odoo/"
 cp "$R/clinic/odoo/apply-odoo-sequence-striding.sql" "$R/clinic/odoo/apply-master-sequence-striding.sql" "$C/clinic/odoo/"
 cp "$R/clinic/scripts/setup-mirrormaker.sh" "$C/clinic/scripts/"
 cp "$R/clinic/config/mirrormaker/mm2.properties.template" "$C/clinic/config/mirrormaker/"
@@ -81,15 +81,15 @@ cat > "$T/bin/curl" <<'SH'
 cat > "$FAKE_BODY"; echo PUT >> "$FAKE_BODY.log"; printf '\n201'
 SH
 chmod +x "$T/bin/curl"
-printf 'ODOO_DB_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\n' > "$C/hub/.env"
-reg(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/hub/connectors/register-odoo.sh" odoo-cloud-source 2>&1)"; rrc=$?; }
+printf 'ODOO_DB_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\n' > "$C/cloud/.env"
+reg(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/cloud/connectors/register-odoo.sh" odoo-cloud-source 2>&1)"; rrc=$?; }
 reg
 inc="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); print(" ".join(t.split(".",1)[1] for t in c["table.include.list"].split(",")))' "$T/body" 2>/dev/null)"
 agg="$(python3 -c 'import json,re,sys; c=json.load(open(sys.argv[1])); print(" ".join(re.search(r"\(([^()]*)\)\$$", c["transforms.agg.regex"]).group(1).split("|")))' "$T/body" 2>/dev/null)"
 [ "$rrc" = 0 ] && [ "$inc" = "$WANT dbz_heartbeat" ] && ok_ "the rendered hub source captures exactly the down list and its heartbeat table" || bad "rendered table.include.list: rc=$rrc [$inc] $rout"
 [ "$agg" = "$WANT" ] && ok_ "the rendered hub source's aggregate regex is exactly the down list" || bad "rendered aggregate regex: [$agg]"
 for t in $UP_ONLY; do has "$inc $agg" "$t" && bad "the rendered hub source carries up-only $t"; done
-python3 - "$C/hub/connectors/odoo-cloud-source.json" <<'PY'
+python3 - "$C/cloud/connectors/odoo-cloud-source.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); c = d['config']
 c['table.include.list'] = c['table.include.list'] + ',public.res_partner'
@@ -98,7 +98,7 @@ PY
 reg
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'table.include.list differs from the down list (not down tables: res_partner' && [ ! -s "$T/body.log" ] \
   && ok_ "a template that adds res_partner to the hub source is refused, and nothing is registered" || bad "edited template: rc=$rrc $rout"
-cp "$R/hub/connectors/odoo-cloud-source.json" "$C/hub/connectors/"
+cp "$R/cloud/connectors/odoo-cloud-source.json" "$C/cloud/connectors/"
 plant "odoo:sale_order"; { cat "$R/sync/hub-down.conf"; echo odoo:sale_order; } > "$C/sync/hub-down.conf"
 reg
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'nothing was registered' && [ ! -s "$T/body.log" ] \
@@ -136,14 +136,14 @@ fi
 # --- the floors file ------------------------------------------------------------------
 F="$T/floors"
 printf 'product_template 4520\nuom_uom 40\n' > "$F"
-[ "$(bash "$C/hub/scripts/down-floors.sh" "$F" | words)" = "product_template 4520 uom_uom 40" ] && ok_ "a floors file reads back as written" || bad "floors read: $(bash "$C/hub/scripts/down-floors.sh" "$F" 2>&1)"
-fl(){ printf '%s\n' "$1" > "$F"; fout="$(bash "$C/hub/scripts/down-floors.sh" "$F" 2>&1)"; frc=$?; }
+[ "$(bash "$C/cloud/scripts/down-floors.sh" "$F" | words)" = "product_template 4520 uom_uom 40" ] && ok_ "a floors file reads back as written" || bad "floors read: $(bash "$C/cloud/scripts/down-floors.sh" "$F" 2>&1)"
+fl(){ printf '%s\n' "$1" > "$F"; fout="$(bash "$C/cloud/scripts/down-floors.sh" "$F" 2>&1)"; frc=$?; }
 fl 'res_partner 100'; [ "$frc" != 0 ] && printf '%s' "$fout" | grep -q 'res_partner is not a table the hub sends down' && ok_ "a floor for an up-only table is refused" || bad "floor for res_partner: $fout"
 fl 'uom_uom 45';      [ "$frc" != 0 ] && printf '%s' "$fout" | grep -q 'not a multiple of 10' && ok_ "a floor off residue 0 is refused" || bad "floor 45: $fout"
 fl 'uom_uom';         [ "$frc" != 0 ] && printf '%s' "$fout" | grep -q "is not '<table> <floor>'" && ok_ "a line without a floor is refused" || bad "no floor: $fout"
 fl 'uom_uom 040';     [ "$frc" != 0 ] && printf '%s' "$fout" | grep -q 'without leading zeros' && ok_ "a floor with a leading zero is refused" || bad "floor 040: $fout"
 fl 'uom_uom 0';       [ "$frc" != 0 ] && ok_ "a floor of 0 is refused" || bad "floor 0: $fout"
-bash "$C/hub/scripts/down-floors.sh" "$T/none" >/dev/null 2>&1 && bad "a missing floors file read as empty" || ok_ "a missing floors file is refused"
+bash "$C/cloud/scripts/down-floors.sh" "$T/none" >/dev/null 2>&1 && bad "a missing floors file read as empty" || ok_ "a missing floors file is refused"
 
 # --- a real PostgreSQL 16 --------------------------------------------------------------
 docker_answers(){
@@ -179,7 +179,7 @@ docker exec "$PGC" createdb -U postgres odoo
 pubtables(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from pg_publication_tables where pubname = 'dbz_odoo_owned'" | LC_ALL=C sort | words; }
 seqinc(){ $PSQL -Atc "select increment_by from pg_sequences where sequencename = '$1_id_seq'"; }
 FL="$T/hub-floors.local"
-stride(){ sout="$(bash "$C/hub/scripts/stride-odoo.sh" --floors "$FL" -- $PSQL 2>&1)"; src=$?; }
+stride(){ sout="$(bash "$C/cloud/scripts/stride-odoo.sh" --floors "$FL" -- $PSQL 2>&1)"; src=$?; }
 W8="product_template 40 product_product 40 product_category 40 uom_uom 40 res_country_state 1010 state_district 40 district_subdistrict 40 village_village 40 stock_location 40 stock_warehouse 40 stock_picking_type 40 stock_route 40 stock_rule 40 procurement_group 40 stock_lot 40 stock_warehouse_orderpoint 40 stock_picking 40 stock_move 40 stock_move_line 40"
 
 # a clinic's rows have reached this hub: no first recording, nothing strided
@@ -209,21 +209,21 @@ stride
 mv "$T/fl.kept" "$FL"
 
 # --from-file: the values captured when the hub was strided, checked against it
-rm -f "$T/rec"; printf '%s\n' $W8 | paste -d' ' - - > "$T/from"; rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
+rm -f "$T/rec"; printf '%s\n' $W8 | paste -d' ' - - > "$T/from"; rout="$(bash "$C/cloud/scripts/record-down-floors.sh" --from-file "$T/from" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" = 0 ] && [ "$(cat "$T/rec" | words)" = "$W8" ] && ok_ "--from-file records the captured values once they check against the sequences" || bad "from-file: rc=$rrc $rout"
-rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
+rout="$(bash "$C/cloud/scripts/record-down-floors.sh" --from-file "$T/from" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'already exists' && ok_ "--from-file never rewrites a floors file" || bad "from-file rewrite: rc=$rrc $rout"
 rm -f "$T/rec"; sed 's/^product_template 40$/product_template 9990/' "$T/from" > "$T/from2"
-rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
+rout="$(bash "$C/cloud/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'the floor given for product_template, 9990, is above the id its sequence issues next' && [ ! -e "$T/rec" ] \
   && ok_ "--from-file refuses a floor above where its sequence stands" || bad "from-file too high: rc=$rrc $rout"
 grep -v '^uom_uom ' "$T/from" > "$T/from2"
-rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
+rout="$(bash "$C/cloud/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'gives no floor for uom_uom' && [ ! -e "$T/rec" ] && ok_ "--from-file refuses a missing table" || bad "from-file missing: rc=$rrc $rout"
 { cat "$T/from"; echo 'product_taxes_rel 10'; } > "$T/from2"
-rout="$(bash "$C/hub/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
+rout="$(bash "$C/cloud/scripts/record-down-floors.sh" --from-file "$T/from2" --out "$T/rec" -- $PSQL 2>&1)"; rrc=$?
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'floor for product_taxes_rel, which has no id column' && ok_ "--from-file refuses a floor for a link table" || bad "from-file link: rc=$rrc $rout"
-bash "$C/hub/scripts/record-down-floors.sh" --out "$T/rec" -- $PSQL >/dev/null 2>&1 && bad "floors were recorded without --from-file" || ok_ "floors cannot be recorded without --from-file (never read back from the sequences)"
+bash "$C/cloud/scripts/record-down-floors.sh" --out "$T/rec" -- $PSQL >/dev/null 2>&1 && bad "floors were recorded without --from-file" || ok_ "floors cannot be recorded without --from-file (never read back from the sequences)"
 
 # the database went back below a floor: refused before anything is strided
 $PSQL -q -v ON_ERROR_STOP=1 -c "DELETE FROM uom_uom WHERE id >= 10; SELECT setval('uom_uom_id_seq', 1, false);" >/dev/null
@@ -240,10 +240,10 @@ cp "$T/fl8" "$FL"
 # the publication
 before="$(pubtables)"
 printf 'product_template 40\nproduct_product 40\n' > "$T/short"
-out="$(bash "$C/hub/scripts/apply-down-publication.sh" "$T/short" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-down-publication.sh" "$T/short" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'no floor recorded for product_category' && [ "$(pubtables)" = "$before" ] \
   && ok_ "a missing floor is refused, naming the table, and the publication is untouched" || bad "missing floor: rc=$rc $out"
-out="$(bash "$C/hub/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 got="$(pubtables)"
 f(){ printf '%s:((id < %s) OR ((id %% 10) = 0))' "$1" "$2"; }
 want="$( { printf '%s\n' dbz_heartbeat:- "$(f district_subdistrict 40)" "$(f product_category 40)" product_supplier_taxes_rel:- product_taxes_rel:- "$(f product_product 40)" "$(f product_template 40)" "$(f res_country_state 1010)" "$(f state_district 40)" stock_route_product:- "$(f uom_uom 40)" "$(f village_village 40)"; for t in $TRANSFER; do f "$t" 40; echo; done; } | LC_ALL=C sort | words)"
@@ -273,7 +273,7 @@ $PSQL -q -c "SELECT pg_drop_replication_slot('t_down')" >/dev/null
 # a table with an id whose replica identity does not cover it
 $PSQL -q -v ON_ERROR_STOP=1 -c "ALTER TABLE uom_uom DROP CONSTRAINT uom_uom_pkey" >/dev/null
 before="$(pubtables)"
-out="$(bash "$C/hub/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'uom_uom: its replica identity (relreplident d) does not cover id' && [ "$(pubtables)" = "$before" ] \
   && ok_ "a filtered table whose replica identity does not cover id is refused before the publication changes" || bad "replica identity: rc=$rc $out"
 exit $((fails > 0))

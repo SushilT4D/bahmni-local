@@ -2,8 +2,8 @@
 # The physical foreign keys on obs, orders, drug_order and test_order in the hub's
 # OpenMRS schema, read from information_schema. Read-only.
 #
-#   hub/scripts/check-clinical-fks.sh --container NAME [--database DB]
-#   hub/scripts/check-clinical-fks.sh --from FILE
+#   cloud/scripts/check-clinical-fks.sh --container NAME [--database DB]
+#   cloud/scripts/check-clinical-fks.sh --from FILE
 #
 # Two checks:
 #   OUT  No foreign key may point OUT of obs, orders, drug_order or test_order
@@ -13,13 +13,13 @@
 #        and its parent follows. One FK out to a clinic-written parent turns
 #        that ordinary early arrival into a stopped sink, and fails the check,
 #        named. An FK out to a table only the hub writes (verdict DOWN in
-#        hub/table-verdicts.conf) or that only changesets and the seed write
+#        cloud/table-verdicts.conf) or that only changesets and the seed write
 #        (RESEED) is allowed and named: its rows are at the hub before any
 #        clinic can name one. A table with no verdict counts as clinic-written.
 #        A module upgrade can add an FK, so run this before and after every
 #        hub upgrade, and before any up sink for these tables is registered.
 #   IN   The FKs pointing INTO the four tables are compared with
-#        hub/clinical-fks-in.conf. These do not stop a sink on an early
+#        cloud/clinical-fks-in.conf. These do not stop a sink on an early
 #        arrival, but each makes a clinic's delete of a referenced row fail
 #        the sink. A difference is reported, added or gone.
 #

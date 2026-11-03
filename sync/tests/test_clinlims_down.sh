@@ -44,7 +44,7 @@ cleanup(){ [ -n "$PGC" ] && docker rm -f -v "$PGC" >/dev/null 2>&1; rm -rf "$T";
 trap cleanup EXIT
 words(){ tr '\n' ' ' | sed 's/ $//'; }
 C="$T/repo"; mkdir -p "$C"
-(cd "$R" && tar cf - sync hub/connectors hub/scripts hub/openelis clinic/connectors clinic/scripts clinic/install/tasks) | (cd "$C" && tar xf -)
+(cd "$R" && tar cf - sync cloud/connectors cloud/scripts cloud/openelis clinic/connectors clinic/scripts clinic/install/tasks) | (cd "$C" && tar xf -)
 # The lab test catalogue rides the same stream to every clinic; it has its own
 # test (sync/tests/test_lab_catalogue_down.sh). Here the down list is read
 # without it, so the lab rows and the lab accounts are tested on their own.
@@ -55,7 +55,7 @@ grep -vE "^clinlims:(${CATALOGUE})\$" "$R/sync/hub-down.conf" > "$BASE"; cp "$BA
 
 # --- one restart rule: where the floors say a sequence restarts is where the stride restarts it
 rule='((greatest(coalesce(v_last, 0), v_top) / 10) + 1) * 10'
-for f in hub/openelis/down-sequence-state.sql hub/openelis/apply-sequence-striding.sql clinic/openelis/apply-sequence-striding.sql; do
+for f in cloud/openelis/down-sequence-state.sql cloud/openelis/apply-sequence-striding.sql clinic/openelis/apply-sequence-striding.sql; do
   tr 'A-Z' 'a-z' < "$R/$f" | grep -qF "$rule" && ok_ "$f restarts a sequence at $rule" || bad "$f does not restart a sequence at $rule"
 done
 
@@ -101,8 +101,8 @@ cat > "$T/bin/curl" <<'SH'
 cat > "$FAKE_BODY"; echo PUT >> "$FAKE_BODY.log"; printf '\n201'
 SH
 chmod +x "$T/bin/curl"
-printf 'CLINLIMS_SOURCE_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\nBASE_ELIS_CONTAINER=hub-elisdb\n' > "$C/hub/.env"
-reg_hub(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/hub/connectors/register-odoo.sh" clinlims-cloud-source 2>&1)"; rrc=$?; }
+printf 'CLINLIMS_SOURCE_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\nBASE_ELIS_CONTAINER=hub-elisdb\n' > "$C/cloud/.env"
+reg_hub(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/cloud/connectors/register-odoo.sh" clinlims-cloud-source 2>&1)"; rrc=$?; }
 reg_hub
 cfg(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], "<absent>"))' "$T/body" "$1" 2>/dev/null; }
 [ "$rrc" = 0 ] && [ "$(cfg table.include.list)" = "clinlims.system_user,clinlims.result,clinlims.analysis,clinlims.sample,clinlims.dbz_heartbeat" ] \
@@ -113,7 +113,7 @@ cfg(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.a
   && ok_ "it decodes with origin=none, sends nothing written before it started, and reads dbz_clinlims_owned through slot dbz_clinlims_down" || bad "hub source settings: $(cfg slot.stream.params)|$(cfg snapshot.mode)|$(cfg publication.name)|$(cfg slot.name)|$(cfg publication.autocreate.mode)"
 case "$(cfg heartbeat.action.query)|$(cfg heartbeat.interval.ms)" in *clinlims.dbz_heartbeat*"|60000") ok_ "it heartbeats into clinlims.dbz_heartbeat every minute" ;; *) bad "hub source heartbeat: $(cfg heartbeat.action.query)|$(cfg heartbeat.interval.ms)" ;; esac
 [ "$(cfg database.hostname)|$(cfg database.dbname)|$(cfg database.user)" = "hub-elisdb|openelis|clinlims" ] && ok_ "it reads the hub's openelis database as clinlims" || bad "hub source database: $(cfg database.hostname)|$(cfg database.dbname)|$(cfg database.user)"
-python3 - "$C/hub/connectors/clinlims-cloud-source.json" <<'PY'
+python3 - "$C/cloud/connectors/clinlims-cloud-source.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); c = d['config']
 c['table.include.list'] = c['table.include.list'] + ',clinlims.sample_item'
@@ -122,7 +122,7 @@ PY
 reg_hub
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'table.include.list differs from the down list (not down tables: sample_item' && [ ! -s "$T/body.log" ] \
   && ok_ "a template that adds sample_item to the hub's OpenELIS source is refused, and nothing is registered" || bad "edited hub template: rc=$rrc $rout"
-cp "$R/hub/connectors/clinlims-cloud-source.json" "$C/hub/connectors/"
+cp "$R/cloud/connectors/clinlims-cloud-source.json" "$C/cloud/connectors/"
 { cat "$BASE"; echo 'clinlims:sample_item:clinic=id'; } > "$C/sync/hub-down.conf"; reg_hub
 [ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'nothing was registered' && [ ! -s "$T/body.log" ] && ok_ "a down list the reader refuses stops the hub source's registration" || bad "refused list at registration: rc=$rrc $rout"
 cp "$BASE" "$C/sync/hub-down.conf"
@@ -269,42 +269,42 @@ CREATE PUBLICATION dbz_clinlims_owned FOR TABLE clinlims.sample_item;
 SQL
 pubrows(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from pg_publication_tables where pubname = 'dbz_clinlims_owned'" | LC_ALL=C sort | words; }
 FL="$T/clinlims-floors.local"
-out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'no floors file at' && ok_ "the publication is refused while the hub's OpenELIS floors are not recorded" || bad "publication without floors: rc=$rc $out"
 # the floors: recorded by the hub's OpenELIS stride itself, just before it strides
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$FL" 2>/dev/null | words)" = "system_user 170" ] && printf '%s' "$out" | grep -q 'sequences step 10: 1 of 1' \
   && ok_ "the stride records system_user's floor where it restarts it (last value 163 -> 170), then strides every sequence" || bad "stride with floors: rc=$rc $out"
-out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/record-clinlims-down-floors.sh" --out "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'already exists' && ok_ "the floors file is never rewritten" || bad "rewrite: rc=$rc $out"
 [ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = "$(cut -d' ' -f2 "$FL")" ] && ok_ "the hub's stride restarts system_user at the recorded floor" || bad "stride restart differs from the floor"
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'floors kept' && printf '%s' "$out" | grep -q 'strided 0 sequence' && [ "$($PSQL -Atc "select nextval('clinlims.system_user_seq')")" = 180 ] \
   && ok_ "a second stride keeps the floors and moves nothing" || bad "second stride: rc=$rc $out"
 # a sequence the stride restarted and nothing has used since: pg_sequences shows
 # no last value for it, and its start value (45) is not where the stride left it
 $PSQL -q -c "CREATE SEQUENCE clinlims.unused_seq START WITH 45" -c "SELECT nextval('clinlims.unused_seq')" >/dev/null
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
-out2="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc2=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out2="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc2=$?
 [ "$rc" = 0 ] && [ "$rc2" = 0 ] && printf '%s' "$out2" | grep -q 'strided 0 sequence' \
   && [ "$($PSQL -Atc "select increment_by || ':' || coalesce(last_value::text, 'unused') from pg_sequences where sequencename = 'unused_seq'")" = "10:unused" ] \
   && ok_ "a sequence the stride restarted and nothing used since (start value 45) does not stop the next stride" || bad "restarted and unused: rc=$rc rc2=$rc2 $out2"
 $PSQL -q -c "DROP SEQUENCE clinlims.unused_seq" >/dev/null
 $PSQL -q -c "CREATE SEQUENCE clinlims.clinic_seq INCREMENT BY 10 START WITH 13" -c "SELECT nextval('clinlims.clinic_seq')" >/dev/null
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$T/fl3" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$T/fl3" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "not the hub's striding (residue 0): clinic_seq" && [ ! -e "$T/fl3" ] \
   && ok_ "on a first stride, a sequence on another node's residue is refused before any floor is recorded" || bad "another node's residue, first stride: rc=$rc $out"
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "not the hub's striding (residue 0): clinic_seq" && [ "$($PSQL -Atc "select increment_by || ':' || last_value from pg_sequences where sequencename = 'clinic_seq'")" = "10:13" ] \
   && ok_ "a sequence on another node's residue is refused, and nothing changes" || bad "another node's residue: rc=$rc $out"
 $PSQL -q -c "DROP SEQUENCE clinlims.clinic_seq" >/dev/null
-out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/record-clinlims-down-floors.sh" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'were strided before: system_user (steps by 10)' && [ ! -e "$T/fl2" ] && ok_ "on a hub strided before, a first recording is refused, naming --from-file" || bad "strided before: rc=$rc $out"
-printf 'system_user 9990\n' > "$T/src"; out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+printf 'system_user 9990\n' > "$T/src"; out="$(bash "$C/cloud/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'is above the id its sequence issues next' && [ ! -e "$T/fl2" ] && ok_ "--from-file refuses a floor above the sequence" || bad "from-file too high: rc=$rc $out"
-printf 'system_user 170\n' > "$T/src"; out="$(bash "$C/hub/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
+printf 'system_user 170\n' > "$T/src"; out="$(bash "$C/cloud/scripts/record-clinlims-down-floors.sh" --from-file "$T/src" --out "$T/fl2" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(cat "$T/fl2")" = "system_user 170" ] && ok_ "--from-file records values that check out against the strided sequence" || bad "from-file: rc=$rc $out"
-out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(pubrows)" = "analysis:- dbz_heartbeat:- result:- sample:- system_user:((id < (170)::numeric) OR ((id % (10)::numeric) = (0)::numeric))" ] \
   && ok_ "dbz_clinlims_owned: result, analysis, sample unfiltered, system_user on the hub's floor, the heartbeat; sample_item, held before, is gone" || bad "publication: rc=$rc [$(pubrows)] $out"
 [ "$($PSQL -Atc "select pubinsert::text || pubupdate::text || pubdelete::text || pubtruncate::text from pg_publication where pubname = 'dbz_clinlims_owned'")" = truetruetruefalse ] \
@@ -326,7 +326,7 @@ msgs="$($PSQL -Atc "select string_agg(chr(get_byte(data, 0)), '' order by lsn) f
 $PSQL -q -c "SELECT pg_drop_replication_slot('t_elis')" >/dev/null
 $PSQL -q -v ON_ERROR_STOP=1 -c "ALTER TABLE clinlims.result DROP CONSTRAINT result_pkey" >/dev/null
 before="$(pubrows)"
-out="$(bash "$C/hub/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/apply-clinlims-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'clinlims.result has no replica identity' && [ "$(pubrows)" = "$before" ] \
   && ok_ "a down table without a replica identity is refused before the publication changes" || bad "replica identity: rc=$rc $out"
 exit $((fails > 0))

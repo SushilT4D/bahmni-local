@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The OpenELIS sequence striding, clinic (clinic/openelis/apply-sequence-striding.sql,
 # task 060 and the upgrade's numbering step) and hub
-# (hub/openelis/apply-sequence-striding.sql, hub/scripts/stride-openelis.sh),
+# (cloud/openelis/apply-sequence-striding.sql, cloud/scripts/stride-openelis.sh),
 # against a real PostgreSQL:
 #   - a sequence restarts above the largest id of every table OpenELIS numbers
 #     from it: a catalogue sequence standing below its rows, a sequence whose
@@ -12,12 +12,12 @@
 #   - the hub's run lifts an already-strided sequence standing at or below its
 #     rows, keeps one clear of them, strides an unstrided one, and refuses
 #     another node's striding, changing nothing;
-#   - hub/openelis/down-sequence-state.sql reports, for each down table, the
+#   - cloud/openelis/down-sequence-state.sql reports, for each down table, the
 #     restart the hub's run then gives its sequence;
 #   - the three files carry the same list of sequences OpenELIS names otherwise.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "${HERE}/../../.." && pwd)"
-CL="$R/clinic/openelis/apply-sequence-striding.sql"; HB="$R/hub/openelis/apply-sequence-striding.sql"; DS="$R/hub/openelis/down-sequence-state.sql"
+CL="$R/clinic/openelis/apply-sequence-striding.sql"; HB="$R/cloud/openelis/apply-sequence-striding.sql"; DS="$R/cloud/openelis/down-sequence-state.sql"
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }

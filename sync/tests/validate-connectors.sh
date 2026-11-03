@@ -4,7 +4,7 @@
 set -euo pipefail
 URL="${1:?connect url}"; REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fails=0
 render(){ sed -E 's/\$\{[A-Z_]+\}/placeholder/g; s/\$\{[A-Z_]+:-[^}]*\}/placeholder/g' "$1"; }
-for f in "$REPO"/clinic/connectors/*.json "$REPO"/hub/connectors/*.json "$REPO"/hub/connectors/*.template; do
+for f in "$REPO"/clinic/connectors/*.json "$REPO"/cloud/connectors/*.json "$REPO"/cloud/connectors/*.template; do
   [ -f "$f" ] || continue
   cls="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("config") or d)["connector.class"])' < <(render "$f") 2>/dev/null || true)"
   [ -n "$cls" ] || { printf '  skip %s (no connector.class)\n' "${f#$REPO/}"; continue; }

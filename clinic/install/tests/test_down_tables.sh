@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hub/tables.conf is the one list of what travels hub -> clinic. Each reader is
+# cloud/tables.conf is the one list of what travels hub -> clinic. Each reader is
 # run on a copy of the repo files it needs (no node's .env is read): the hub's
 # capture list, the clinic's down sinks and MirrorMaker's down topics all carry
 # the observation form tables, and the sinks for them are configured exactly
@@ -11,18 +11,18 @@ ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"
-for f in hub/tables.conf sync/local/tables.conf sync/local/tables-conf.sh sync/subsystems.conf sync/hub-down.conf sync/hub-down.sh \
+for f in cloud/tables.conf sync/local/tables.conf sync/local/tables-conf.sh sync/subsystems.conf sync/hub-down.conf sync/hub-down.sh \
          clinic/scripts/generate-table-config.sh clinic/scripts/generate-local-sink-connectors.sh clinic/scripts/setup-mirrormaker.sh \
          clinic/config/mirrormaker/mm2.properties.template \
          sync/local/connectors/mysql-local-sink-connector.json.template \
-         hub/scripts/generate-cloud-source-connector.sh hub/connectors/mysql-cloud-source-connector.json.template; do
+         cloud/scripts/generate-cloud-source-connector.sh cloud/connectors/mysql-cloud-source-connector.json.template; do
   mkdir -p "$C/$(dirname "$f")"; cp "$RP/$f" "$C/$f" || bad "fixture: copy $f"
 done
 
 # --- the file ----------------------------------------------------------------
-lines="$(grep -vE '^[[:space:]]*(#|$)' "$RP/hub/tables.conf")"
-printf '%s\n' "$lines" | grep -qx 'form:form_id' && ok_ "hub/tables.conf lists form:form_id" || bad "hub/tables.conf has no form:form_id line"
-printf '%s\n' "$lines" | grep -qx 'form_resource:form_resource_id' && ok_ "hub/tables.conf lists form_resource:form_resource_id (no role: the hub authors it)" || bad "hub/tables.conf has no form_resource:form_resource_id line"
+lines="$(grep -vE '^[[:space:]]*(#|$)' "$RP/cloud/tables.conf")"
+printf '%s\n' "$lines" | grep -qx 'form:form_id' && ok_ "cloud/tables.conf lists form:form_id" || bad "cloud/tables.conf has no form:form_id line"
+printf '%s\n' "$lines" | grep -qx 'form_resource:form_resource_id' && ok_ "cloud/tables.conf lists form_resource:form_resource_id (no role: the hub authors it)" || bad "cloud/tables.conf has no form_resource:form_resource_id line"
 nf="$(printf '%s\n' "$lines" | grep -n '^form:' | cut -d: -f1)"; nr="$(printf '%s\n' "$lines" | grep -n '^form_resource:' | cut -d: -f1)"
 [ -n "$nf" ] && [ -n "$nr" ] && [ "$nf" -lt "$nr" ] && ok_ "form is listed before form_resource" || bad "form (line ${nf:-none}) is not before form_resource (line ${nr:-none})"
 grep -qE '^[[:space:]]*form(_resource)?:' "$RP/sync/local/tables.conf" && bad "a form table is also in the clinic's capture list" || ok_ "neither form table is in the clinic's own capture list"
@@ -31,7 +31,7 @@ grep -qE '^[[:space:]]*form(_resource)?:' "$RP/sync/local/tables.conf" && bad "a
 inc="$(bash "$C/clinic/scripts/generate-table-config.sh" cloud | sed -n 's/^TABLE_INCLUDE_LIST=//p')"
 case ",${inc}," in *,openmrs.form,*openmrs.form_resource,*) ok_ "the hub's include list carries openmrs.form, then openmrs.form_resource" ;; *) bad "include list: ${inc}" ;; esac
 case ",${inc}," in *,openmrs.person,*) ok_ "the hub's include list carries person (its own rows, filtered at the source)" ;; *) bad "the hub's include list lacks person: ${inc}" ;; esac
-out="$(REPO_DIR="$C" HUB_DIR="$C/hub" DEBEZIUM_DB_PASSWORD=x bash "$C/hub/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" 2>&1)"; rc=$?
+out="$(REPO_DIR="$C" HUB_DIR="$C/cloud" DEBEZIUM_DB_PASSWORD=x bash "$C/cloud/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" 2>&1)"; rc=$?
 got="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$TMP/src.json" 2>/dev/null)"
 [ "$rc" -eq 0 ] && [ "$got" = "$inc" ] && ok_ "the hub's source connector renders with both tables in table.include.list" || bad "hub source render: rc=$rc got=${got} out=${out}"
 
@@ -65,11 +65,11 @@ grep -q '"topics": "remote.bahmni-cloud.openmrs.form"' "$TMP/sinks/mysql-local-s
 # clinic's schema never created or altered by the sink, and its writes kept out
 # of the clinic's binlog so they are not captured and sent back up.
 nsinks=0
-for t in $(grep -vE '^[[:space:]]*(#|$)' "$RP/hub/tables.conf" | cut -d: -f1); do
+for t in $(grep -vE '^[[:space:]]*(#|$)' "$RP/cloud/tables.conf" | cut -d: -f1); do
   f="$TMP/sinks/mysql-local-sink-${t}.json"
   [ -f "$f" ] || { bad "no down sink generated for ${t}"; continue; }
   nsinks=$((nsinks+1))
-  del=true; grep -qE "^${t}:[^:]+:changes([[:space:]]|\$)" "$RP/hub/tables.conf" && del=false
+  del=true; grep -qE "^${t}:[^:]+:changes([[:space:]]|\$)" "$RP/cloud/tables.conf" && del=false
   d="$(python3 - "$f" "$del" <<'PY' 2>&1
 import json, sys
 c = json.load(open(sys.argv[1]))["config"]

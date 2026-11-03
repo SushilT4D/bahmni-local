@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # down-floors.sh FILE [clinlims] : prints FILE's "<table> <floor>" lines,
 # validated, one per line. FILE is a hub's own record of its down-table floors
-# (hub/odoo-down-floors.local, written once by stride-odoo.sh in the run that
-# strides the hub's Odoo ids; with clinlims, hub/clinlims-down-floors.local,
+# (cloud/odoo-down-floors.local, written once by stride-odoo.sh in the run that
+# strides the hub's Odoo ids; with clinlims, cloud/clinlims-down-floors.local,
 # written once by record-clinlims-down-floors.sh before the hub's OpenELIS ids
 # are strided; never committed, because each hub has its own).
 #
@@ -17,9 +17,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 F="${1:?usage: down-floors.sh <floors file> [clinlims]}"; SUBSYS="${2:-odoo}"
 die(){ printf 'down-floors.sh: %s\n' "$*" >&2; exit 1; }
 case "$SUBSYS" in
-  odoo) [ -f "$F" ] || die "no floors file at $F: the hub's floors are recorded by the run that strides its Odoo ids (hub/scripts/stride-odoo.sh)"
+  odoo) [ -f "$F" ] || die "no floors file at $F: the hub's floors are recorded by the run that strides its Odoo ids (cloud/scripts/stride-odoo.sh)"
         down="$(bash "$HERE/../../sync/hub-down.sh" odoo)" || die "the down list could not be read (reason above)" ;;
-  clinlims) [ -f "$F" ] || die "no floors file at $F: the hub's OpenELIS floors are recorded just before its OpenELIS ids are strided (hub/scripts/record-clinlims-down-floors.sh)"
+  clinlims) [ -f "$F" ] || die "no floors file at $F: the hub's OpenELIS floors are recorded just before its OpenELIS ids are strided (cloud/scripts/record-clinlims-down-floors.sh)"
         down="$(bash "$HERE/../../sync/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above)" ;;
   *) die "unknown subsystem '$SUBSYS' (odoo or clinlims)" ;;
 esac

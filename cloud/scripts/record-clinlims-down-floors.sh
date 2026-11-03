@@ -3,7 +3,7 @@
 #
 # Records the hub's floor of each OpenELIS down table its publication filters
 # (sync/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
-# catalogue) in OUT, default hub/clinlims-down-floors.local, one
+# catalogue) in OUT, default cloud/clinlims-down-floors.local, one
 # "<table> <floor>" line each. The publication sends such a table's rows below
 # the floor (the hub's, from before its ids were strided) or ending in 0 (the
 # hub's since), and nothing a clinic minted. A table without an id column (a
@@ -45,10 +45,10 @@
 # first multiple of 10 above its largest id.
 #
 # PSQL-COMMAND reaches the hub's openelis database as a superuser, for example:
-#   hub/scripts/record-clinlims-down-floors.sh -- docker exec -i <openelis-db-container> psql -U postgres -d openelis
+#   cloud/scripts/record-clinlims-down-floors.sh -- docker exec -i <openelis-db-container> psql -U postgres -d openelis
 # On a hub strided before:
-#   hub/scripts/record-clinlims-down-floors.sh --derive -- <psql command...> > /tmp/floors &&
-#   hub/scripts/record-clinlims-down-floors.sh --from-file /tmp/floors -- <psql command...>
+#   cloud/scripts/record-clinlims-down-floors.sh --derive -- <psql command...> > /tmp/floors &&
+#   cloud/scripts/record-clinlims-down-floors.sh --from-file /tmp/floors -- <psql command...>
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$HERE/../.."
 OUT="$HERE/../clinlims-down-floors.local"; SRC=""; DERIVE=0
@@ -74,7 +74,7 @@ if [ -e "$OUT" ]; then
   held="$(bash "$HERE/down-floors.sh" "$OUT" clinlims)" || die "$OUT cannot be read as OpenELIS floors (reason above); nothing was written"
 fi
 held_floor(){ printf '%s\n' "$held" | awk -v t="$1" '$1 == t { print $2 }'; }
-state="$("$@" -v ON_ERROR_STOP=1 -qAt -v detail=1 -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/hub/openelis/down-sequence-state.sql" 2>&1)" \
+state="$("$@" -v ON_ERROR_STOP=1 -qAt -v detail=1 -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/openelis/down-sequence-state.sql" 2>&1)" \
   || die "the OpenELIS sequences could not be read; nothing was written: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 # the id tables OUT does not hold yet
 need="$(printf '%s\n' "$state" | awk -F'|' 'NF == 7 && $7 == "id" { print $1 }' | while read -r t; do [ -n "$(held_floor "$t")" ] || echo "$t"; done)"

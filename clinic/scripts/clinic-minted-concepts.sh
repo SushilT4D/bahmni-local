@@ -6,7 +6,7 @@
 #   clinic/scripts/clinic-minted-concepts.sh --hub-query
 #   clinic/scripts/clinic-minted-concepts.sh --hub-ids FILE [--rekey] [--container NAME] [--database DB]
 #
-# The tables are the rows hub/tables.conf marks `changes` (the concept
+# The tables are the rows cloud/tables.conf marks `changes` (the concept
 # dictionary): the hub writes them and sends changes only, so a clinic must
 # already hold the hub's rows under the hub's ids. Three kinds of clinic row
 # break that, and each would stop or corrupt a down sink:
@@ -87,10 +87,10 @@ printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || die2 "bad database na
 # concept_numeric rows extend a concept row under the concept's own id and
 # carry no uuid of their own.
 NO_UUID=" concept_numeric "
-SPECS="$(awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }' "${REPO_DIR}/hub/tables.conf")"
-[ -n "$SPECS" ] || die2 "hub/tables.conf marks no table \`changes\`: there is no concept table to check"
+SPECS="$(awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }' "${REPO_DIR}/cloud/tables.conf")"
+[ -n "$SPECS" ] || die2 "cloud/tables.conf marks no table \`changes\`: there is no concept table to check"
 while read -r t pk; do
-  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "hub/tables.conf: '$t:$pk:changes' needs a single-column key"
+  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "cloud/tables.conf: '$t:$pk:changes' needs a single-column key"
 done <<EOF
 $SPECS
 EOF

@@ -18,7 +18,7 @@
 -- A table that goes to every clinic (system_user, the lab test catalogue)
 -- carries the filter
 --     (id < <floor> OR id % 10 = 0)
--- with this hub's floor (hub/clinlims-down-floors.local): the hub's own rows,
+-- with this hub's floor (cloud/clinlims-down-floors.local): the hub's own rows,
 -- from before its ids were strided and since. A row a clinic minted that the
 -- hub edits stays at the hub. Such a table without an id column (a link table,
 -- keyed by the ids it links) carries no filter: only the hub writes the

@@ -478,7 +478,7 @@ lines_not_in(){
 # clinic writes is refused whatever the hub has: the hub's up sinks write those
 # tables in arrival order, and such a key would stop its sink whenever a row
 # arrives before its parent. A key to a table only the hub writes (DOWN in
-# hub/table-verdicts.conf) or only changesets and the seed write (RESEED) is
+# cloud/table-verdicts.conf) or only changesets and the seed write (RESEED) is
 # not: its rows are at the hub before any clinic names one.
 # Otherwise the two sets (table, column, referenced table and column; the
 # constraint's name aside) must be equal: a clinic with a key the hub lacks ran
@@ -486,7 +486,7 @@ lines_not_in(){
 # The first table that differs is named, with what differs.
 provenance_fk_verdict(){
   local rec="$1" rows="$2" out hub mine t plus minus n hw
-  hw=" $( [ -f "${REPO_DIR}/hub/table-verdicts.conf" ] && awk '{ sub(/#.*/, "") } NF >= 2 && ($2 == "DOWN" || $2 == "RESEED") { print $1 }' "${REPO_DIR}/hub/table-verdicts.conf" | tr '\n' ' ') "
+  hw=" $( [ -f "${REPO_DIR}/cloud/table-verdicts.conf" ] && awk '{ sub(/#.*/, "") } NF >= 2 && ($2 == "DOWN" || $2 == "RESEED") { print $1 }' "${REPO_DIR}/cloud/table-verdicts.conf" | tr '\n' ' ') "
   out="$(printf '%s\n' "$rows" | awk -F'\t' -v hw="$hw" 'NF >= 4 && ($1=="obs" || $1=="orders" || $1=="drug_order" || $1=="test_order") && index(hw, " " $3 " ") == 0 {print $1 "." $2 " -> " $3 "." $4}' | head -3)"
   if [ -n "$out" ]; then
     printf 'this clinic has a foreign key out of a clinical table (%s): the hub would stop taking that table whenever a row arrived before its parent. The schema change that added it must not run at a clinic; call the operator.\n' "$(printf '%s' "$out" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"

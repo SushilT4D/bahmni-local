@@ -6,7 +6,7 @@
 # synced Odoo table, then clinic/odoo/apply-master-sequence-striding.sql. A
 # table's floor is the value its sequence restarts at, read from the striding
 # scripts' own report of each restart, at the moment it happens. FILE defaults
-# to hub/odoo-down-floors.local, one "<table> <floor>" line per down table with
+# to cloud/odoo-down-floors.local, one "<table> <floor>" line per down table with
 # an id (sync/hub-down.conf).
 #
 # The floors are recorded once. When FILE already exists, a re-run strides
@@ -23,7 +23,7 @@
 # record-down-floors.sh --from-file.
 #
 # PSQL-COMMAND reaches the hub's Odoo database as its owner, for example:
-#   hub/scripts/stride-odoo.sh -- docker exec -i <odoo-db-container> psql -U odoo -d odoo
+#   cloud/scripts/stride-odoo.sh -- docker exec -i <odoo-db-container> psql -U odoo -d odoo
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$HERE/../.."
 OUT="$HERE/../odoo-down-floors.local"
@@ -34,7 +34,7 @@ die(){ printf 'stride-odoo.sh: %s\n' "$*" >&2; exit 1; }
 down="$(bash "$R/sync/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was strided"
 synced="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | sed -n 's/^odoo://p' | grep -vx all | paste -sd, -)"
 [ -n "$synced" ] || die "sync/subsystems.conf has no odoo: tables; nothing was strided"
-state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/hub/odoo/down-sequence-state.sql" 2>&1)" \
+state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/odoo/down-sequence-state.sql" 2>&1)" \
   || die "the down sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 idtabs="$(printf '%s\n' "$state" | cut -d'|' -f1)"
 
@@ -54,10 +54,10 @@ else
   # sent before replication origins existed, or from a clinic that has since
   # left, can sit anywhere above them; only the values captured then will do.
   strided="$(printf '%s\n' "$state" | awk -F'|' 'NF == 4 && $4 != 1 { printf "%s%s (steps by %s)", (n++ ? ", " : ""), $1, $4 }')"
-  [ -z "$strided" ] || die "no floors file at $OUT, and this hub's ids were strided before: ${strided}. Its floors are the values its sequences restarted at then; nothing was strided. Record them from those values: hub/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
+  [ -z "$strided" ] || die "no floors file at $OUT, and this hub's ids were strided before: ${strided}. Its floors are the values its sequences restarted at then; nothing was strided. Record them from those values: cloud/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
   p="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" 2>&1)" \
     || die "the replication origins could not be read; nothing was strided: $p"
-  [ "$p" = 0 ] || die "$p clinic replication origin(s) show progress: clinics' rows have reached this hub, so a floor read now could sit above them; nothing was strided. Record the floors captured when the hub was first strided: hub/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
+  [ "$p" = 0 ] || die "$p clinic replication origin(s) show progress: clinics' rows have reached this hub, so a floor read now could sit above them; nothing was strided. Record the floors captured when the hub was first strided: cloud/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
 fi
 
 o1="$("$@" -v ON_ERROR_STOP=1 -q -v residue=0 -v tables="$synced" -f /dev/stdin < "$R/clinic/odoo/apply-odoo-sequence-striding.sql" 2>&1)" \
@@ -74,7 +74,7 @@ fi
 rows=""
 for t in $idtabs; do
   n="$(printf '%s\n' "$o1" "$o2" | sed -nE "s/^.*NOTICE: +${t} : .*-> next=([0-9]+) .*$/\\1/p" | tail -1)"
-  [ -n "$n" ] || die "the striding run reported no restart for $t; the hub was strided but no floors were written. Record them from the restart values above: hub/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
+  [ -n "$n" ] || die "the striding run reported no restart for $t; the hub was strided but no floors were written. Record them from the restart values above: cloud/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
   rows="$rows$t $n
 "
 done

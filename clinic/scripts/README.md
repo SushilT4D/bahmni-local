@@ -33,12 +33,12 @@ when any down sink's table lacks SELECT, INSERT, UPDATE or DELETE.
 
 **Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
 database user SELECT, INSERT, UPDATE and DELETE on every table
-`hub/tables.conf` lists, and reads the grants back. Seed task 050 does the same
+`cloud/tables.conf` lists, and reads the grants back. Seed task 050 does the same
 when it seeds; run this on a node seeded before a table joined that file, then
 regenerate and register the down sinks. `--dry-run` prints the grants.
 
-**Table verdicts** — `check-table-verdicts.sh` holds `hub/tables.conf` and
-`sync/local/tables.conf` to `hub/table-verdicts.conf`, the one record of which
+**Table verdicts** — `check-table-verdicts.sh` holds `cloud/tables.conf` and
+`sync/local/tables.conf` to `cloud/table-verdicts.conf`, the one record of which
 node writes each table: a down row must be a hub-written table (DOWN) or a
 relayed one, a clinic capture row must be one a clinic writes (UP or relay).
 It reads `sync/local/tables.conf` with `sync/local/tables-conf.sh`, the reader
@@ -91,10 +91,10 @@ what is missing, and the installer stops. The
 sink claims replication origin `hub_2` so this clinic's OpenELIS source never
 sends those rows back up.
 
-**Content checksum** — `master-checksum.sh` prints, per table `hub/tables.conf`
-lists (with `--reseed`, also the RESEED tables of `hub/table-verdicts.conf`),
+**Content checksum** — `master-checksum.sh` prints, per table `cloud/tables.conf`
+lists (with `--reseed`, also the RESEED tables of `cloud/table-verdicts.conf`),
 the row count and a checksum over every column of every row except those
-`hub/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
+`cloud/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
 and on a clinic seeded from it and compare the outputs: a row edited in place
 shows even when its id and uuid are unchanged. Read-only.
 
@@ -138,7 +138,7 @@ Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
 4 another run holds `clinic/forms`.
 
 **Concepts minted at this clinic** — `clinic-minted-concepts.sh --hub-ids
-<file>` compares this clinic's concept dictionary (the tables `hub/tables.conf`
+<file>` compares this clinic's concept dictionary (the tables `cloud/tables.conf`
 marks `changes`) with the hub's, read on the hub with `--hub-query`, and lists
 every row this clinic minted for itself: a `twin` (the hub holds its uuid under
 another id), a `collision` (the hub holds its id with another uuid) or a
@@ -193,10 +193,10 @@ forms mount or `clinic/.env` setting; a refused check recreates nothing.
 - Run from `clinic/` (the compose project directory), not from inside `scripts/`.
   Paths resolve relative to `clinic/`, the scripts read `clinic/.env`, and the
   shared sync definitions are `../sync/` (tables, subsystems, templates, the
-  clinics ledger) with the hub tree at `../hub/`.
+  clinics ledger) with the hub tree at `../cloud/`.
 - `.env` is gitignored; `.env.example` enumerates every variable.
 - Rendered connector JSON is gitignored by design — `.gitignore` covers
-  `hub/connectors/mysql-sink-*.json`, `hub/connectors/generated/` and
+  `cloud/connectors/mysql-sink-*.json`, `cloud/connectors/generated/` and
   `sync/local/connectors/generated/`. Templates are tracked, output
   is not: a rendered config carries a live password, so it must never be
   committed. Regenerate rather than copy.

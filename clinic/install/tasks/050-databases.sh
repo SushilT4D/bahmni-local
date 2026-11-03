@@ -166,10 +166,10 @@ printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' 
 if [ "${PHASE:-install}" = seed ]; then
 # sink-grants:begin
 # The sink user writes only the tables the down sinks write: every
-# hub/tables.conf row (lib.sh down_tables), each granted on its own and read
+# cloud/tables.conf row (lib.sh down_tables), each granted on its own and read
 # back, so a table added to that file is granted here and a sink is never
 # refused its first INSERT.
-grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from hub/tables.conf"
+grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from cloud/tables.conf"
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';

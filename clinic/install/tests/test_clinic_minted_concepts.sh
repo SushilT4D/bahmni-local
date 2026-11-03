@@ -28,7 +28,7 @@ trap '[ -n "$CNAME" ] && docker rm -f "$CNAME" >/dev/null 2>&1; [ -n "$ONAME" ] 
 # --- without a database ---------------------------------------------------------------
 q="$(REPO_DIR="$RP" bash "$S" --hub-query 2>&1)"; rc=$?
 n="$(printf '%s\n' "$q" | grep -c "^SELECT 'last-legacy'")"
-[ "$rc" = 0 ] && [ "$n" = "$(grep -c ':changes$' "$RP/hub/tables.conf")" ] && [ "$n" = 10 ] && ok_ "--hub-query reads the ten tables hub/tables.conf marks changes" || bad "hub query: rc=$rc n=$n"
+[ "$rc" = 0 ] && [ "$n" = "$(grep -c ':changes$' "$RP/cloud/tables.conf")" ] && [ "$n" = 10 ] && ok_ "--hub-query reads the ten tables cloud/tables.conf marks changes" || bad "hub query: rc=$rc n=$n"
 printf '%s\n' "$q" | grep -q '^SET SESSION TRANSACTION READ ONLY;$' && ! printf '%s\n' "$q" | grep -qiE '^(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE)' \
   && ok_ "the hub query is one read-only transaction" || bad "hub query writes: $q"
 printf '%s\n' "$q" | grep -q "SELECT 'row', 'concept_numeric', \`concept_id\`, ''" && ok_ "concept_numeric is read by its concept's id, with no uuid of its own" || bad "concept_numeric query"

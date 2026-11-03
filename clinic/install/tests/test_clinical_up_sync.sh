@@ -3,20 +3,20 @@
 # CLINICAL_UP_SYNC=test; the default, off, keeps them at the clinic even though
 # sync/local/tables.conf lists them, so a production clinic installed from this
 # tree sends none. On the hub, a clinic gets sinks for them only when its
-# hub/clinics.<hub>.conf row is marked clinical.
+# cloud/clinics.<hub>.conf row is marked clinical.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/hub"
+C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/cloud"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$RP/sync" "$C/"
-cp -R "$RP/hub/scripts" "$RP/hub/connectors" "$C/hub/"; cp "$RP/hub/tables.conf" "$C/hub/"
+cp -R "$RP/cloud/scripts" "$RP/cloud/connectors" "$C/cloud/"; cp "$RP/cloud/tables.conf" "$C/cloud/"
 { grep -E '^[a-z_]+:' "$RP/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order|test_order):'
   printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\ntest_order:order_id:floor=orders\n'; } > "$C/sync/local/tables.conf"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
-printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
+printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/cloud/.env"
 clinic(){ # CLINICAL_UP_SYNC-LINE : renders the clinic side; results in $TMP/{tc,src,mm,cu} and $TMP/rc.*
   printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\nCOMPOSE_PROJECT_NAME=t\n%s\n' "$1" > "$C/clinic/.env"
   rm -rf "$C/clinic/connectors" "$C/clinic/config/mirrormaker/mm2.properties"
@@ -77,12 +77,12 @@ out="$(pre CLINICAL_UP_SYNC=maybe)"; rc=$?
 out="$(pre)"; rc=$?
 [ "$rc" = 0 ] && case "$out" in *"CLINICAL_UP_SYNC=off: obs, orders, drug_order and test_order stay at this clinic"*) true ;; *) false ;; esac && ok_ "preflight without the key: off, said" || bad "preflight default: rc=$rc $(printf '%s' "$out" | tail -2)"
 # --- the hub ---------------------------------------------------------------------------
-hub(){ printf '%s\n' "$1" > "$TMP/clinics.conf"; rm -f "$C/hub/connectors"/mysql-sink-alpha-*; CLINICS_CONF="$TMP/clinics.conf" bash "$C/hub/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1; echo $? > "$TMP/rc.hs"; }
+hub(){ printf '%s\n' "$1" > "$TMP/clinics.conf"; rm -f "$C/cloud/connectors"/mysql-sink-alpha-*; CLINICS_CONF="$TMP/clinics.conf" bash "$C/cloud/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1; echo $? > "$TMP/rc.hs"; }
 hub 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha'
-[ "$(cat "$TMP/rc.hs")" = 0 ] && [ -f "$C/hub/connectors/mysql-sink-alpha-visit.json" ] && ! ls "$C/hub/connectors"/mysql-sink-alpha-obs.json "$C/hub/connectors"/mysql-sink-alpha-orders.json "$C/hub/connectors"/mysql-sink-alpha-drug_order.json "$C/hub/connectors"/mysql-sink-alpha-test_order.json >/dev/null 2>&1 \
-  && ok_ "hub: a clinic not marked clinical gets no obs, orders, drug_order or test_order sink, its other sinks as before" || bad "hub unmarked: rc=$(cat "$TMP/rc.hs") $(ls "$C/hub/connectors" | tr '\n' ' ')"
+[ "$(cat "$TMP/rc.hs")" = 0 ] && [ -f "$C/cloud/connectors/mysql-sink-alpha-visit.json" ] && ! ls "$C/cloud/connectors"/mysql-sink-alpha-obs.json "$C/cloud/connectors"/mysql-sink-alpha-orders.json "$C/cloud/connectors"/mysql-sink-alpha-drug_order.json "$C/cloud/connectors"/mysql-sink-alpha-test_order.json >/dev/null 2>&1 \
+  && ok_ "hub: a clinic not marked clinical gets no obs, orders, drug_order or test_order sink, its other sinks as before" || bad "hub unmarked: rc=$(cat "$TMP/rc.hs") $(ls "$C/cloud/connectors" | tr '\n' ' ')"
 hub 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha:clinical'
-[ "$(cat "$TMP/rc.hs")" = 0 ] && ls "$C/hub/connectors"/mysql-sink-alpha-obs.json "$C/hub/connectors"/mysql-sink-alpha-orders.json "$C/hub/connectors"/mysql-sink-alpha-drug_order.json "$C/hub/connectors"/mysql-sink-alpha-test_order.json >/dev/null 2>&1 \
+[ "$(cat "$TMP/rc.hs")" = 0 ] && ls "$C/cloud/connectors"/mysql-sink-alpha-obs.json "$C/cloud/connectors"/mysql-sink-alpha-orders.json "$C/cloud/connectors"/mysql-sink-alpha-drug_order.json "$C/cloud/connectors"/mysql-sink-alpha-test_order.json >/dev/null 2>&1 \
   && ok_ "hub: a clinic marked clinical gets the four sinks" || bad "hub marked: rc=$(cat "$TMP/rc.hs") $(tail -2 "$TMP/hs")"
 hub 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha:yes'
 [ "$(cat "$TMP/rc.hs")" != 0 ] && grep -q "the fifth field is 'yes'" "$TMP/hs" && ok_ "hub: any other fifth field is refused" || bad "hub bad flag: rc=$(cat "$TMP/rc.hs") $(tail -2 "$TMP/hs")"

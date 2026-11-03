@@ -40,12 +40,12 @@ got="$(regex_set "$f")"
 # (register-odoo.sh); the rendered config is compared, not the template.
 down="$(bash "$REPO/sync/hub-down.sh" odoo | sort | tr '\n' ' ' | sed 's/ $//')"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-mkdir -p "$T/hub/connectors" "$T/sync" "$T/bin"
-cp "$REPO/hub/connectors/odoo-cloud-source.json" "$REPO/hub/connectors/register-odoo.sh" "$REPO/hub/connectors/_render_connector.py" "$T/hub/connectors/"
+mkdir -p "$T/cloud/connectors" "$T/sync" "$T/bin"
+cp "$REPO/cloud/connectors/odoo-cloud-source.json" "$REPO/cloud/connectors/register-odoo.sh" "$REPO/cloud/connectors/_render_connector.py" "$T/cloud/connectors/"
 cp "$REPO/sync/hub-down.sh" "$REPO/sync/hub-down.conf" "$REPO/sync/subsystems.conf" "$T/sync/"
-printf 'ODOO_DB_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\n' > "$T/hub/.env"
+printf 'ODOO_DB_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\n' > "$T/cloud/.env"
 printf '#!/bin/sh\ncat > "%s/body"; printf "\\n201"\n' "$T" > "$T/bin/curl"; chmod +x "$T/bin/curl"
-PATH="$T/bin:$PATH" NODE=cloud bash "$T/hub/connectors/register-odoo.sh" odoo-cloud-source >/dev/null 2>&1
+PATH="$T/bin:$PATH" NODE=cloud bash "$T/cloud/connectors/register-odoo.sh" odoo-cloud-source >/dev/null 2>&1
 printf '{"config":%s}' "$(cat "$T/body" 2>/dev/null)" > "$T/rendered.json"
 got="$(include_set "$T/rendered.json")"
 [ "$got" = "$down" ] && ok "rendered odoo-cloud-source table.include.list == sync/hub-down.conf" || bad "rendered odoo-cloud-source table.include.list: [$got] != [$down]"

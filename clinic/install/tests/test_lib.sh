@@ -86,7 +86,7 @@ ln -s "$g" "$TMP/link.env"; env_put "$TMP/link.env" C 33
 # to both, so nothing in the value can be reinterpreted by either reader.
 #
 # Round-trips byte-for-byte through BOTH env_get's own parse AND actually
-# `.`-sourcing the file directly (hub/.env and clinic/.env are `.`-sourced by
+# `.`-sourcing the file directly (cloud/.env and clinic/.env are `.`-sourced by
 # every install task, not just read with env_get) -- and, for the injection
 # string specifically, PROVES no side effect occurred, rather than just
 # checking the string value came back unchanged (a value that round-trips

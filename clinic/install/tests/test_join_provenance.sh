@@ -24,7 +24,7 @@ mkdir -p "$CLINIC_DIR"
 . "${HERE}/../lib.sh"; . "${HERE}/../state.sh"
 T="$(printf '\t')"
 TOOL="$(sha256_of "$RP/clinic/scripts/master-checksum.sh")"
-X="$RP/hub/checksum-exclusions.conf"
+X="$RP/cloud/checksum-exclusions.conf"
 record(){ # CONTENT-LINES (table<TAB>rest) -> a provenance record on stdout
   printf 'hub\tdump_taken_at\tfixture\n'
   printf 'tool\tmaster-checksum.sh\t%s\n' "$TOOL"
@@ -74,7 +74,7 @@ out="$(provenance_content_verdict "$R" "$CONTENT" "0000" "$X")"; [ $? = 1 ] && c
 printf 'privilege.uuid\nrole.uuid\n' > "$TMP/x2"
 out="$(provenance_content_verdict "$R" "$CONTENT" "$TOOL" "$TMP/x2")"; [ $? = 1 ] && case "$out" in *"leaves out other columns"*) true ;; *) false ;; esac && ok_ "a different exclusion list is refused" || bad "exclusions: $out"
 # a key out of a clinical table: refused to a table a clinic writes, allowed to
-# one only the hub writes (hub/table-verdicts.conf: concept is DOWN)
+# one only the hub writes (cloud/table-verdicts.conf: concept is DOWN)
 FKR="$TMP/fk.pure"; T9="$(printf '\t')"
 printf 'fk\tset\t1\tx\nfk\ttest_order\tlocation\tconcept\tconcept_id\n' > "$FKR"
 out="$(provenance_fk_verdict "$FKR" "test_order${T9}location${T9}concept${T9}concept_id${T9}test_order_location_fk")" \

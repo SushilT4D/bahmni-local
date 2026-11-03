@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The clinic's sink database user is granted table by table, and the list is
-# hub/tables.conf's: a table added there (the form tables) is granted by seed
+# cloud/tables.conf's: a table added there (the form tables) is granted by seed
 # task 050 and, on a node already seeded, by scripts/grant-down-tables.sh;
 # both read the grants back. MySQL is a fake that logs every statement.
 set -u
@@ -13,18 +13,18 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 lib(){ env -i PATH="$PATH" REPO_DIR="${R:-$RP}" bash -c ". '${HERE}/../lib.sh'; \"\$@\"" _ "$@" 2>&1; }
 
 # --- the list ------------------------------------------------------------------
-want="$(grep -vE '^[[:space:]]*(#|$)' "$RP/hub/tables.conf" | cut -d: -f1)"
+want="$(grep -vE '^[[:space:]]*(#|$)' "$RP/cloud/tables.conf" | cut -d: -f1)"
 got="$(lib down_tables)"
-[ -n "$got" ] && [ "$got" = "$want" ] && ok_ "down_tables is every hub/tables.conf row, in order ($(printf '%s' "$got" | tr '\n' ' '))" || bad "down_tables: '$(printf '%s' "$got" | tr '\n' ' ')' want '$(printf '%s' "$want" | tr '\n' ' ')'"
+[ -n "$got" ] && [ "$got" = "$want" ] && ok_ "down_tables is every cloud/tables.conf row, in order ($(printf '%s' "$got" | tr '\n' ' '))" || bad "down_tables: '$(printf '%s' "$got" | tr '\n' ' ')' want '$(printf '%s' "$want" | tr '\n' ' ')'"
 for t in form form_resource person person_name users; do printf '%s\n' "$got" | grep -qx "$t" || bad "down_tables lacks $t"; done
 sql="$(lib sink_grant_sql)"
 printf '%s\n' "$sql" | grep -qxF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.form TO 'sink'@'%';" \
   && printf '%s\n' "$sql" | grep -qxF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.form_resource TO 'sink'@'%';" \
   && ok_ "the sink user is granted form and form_resource" || bad "grants: $sql"
 [ "$(printf '%s\n' "$sql" | grep -c '^GRANT ')" = "$(printf '%s\n' "$want" | grep -c .)" ] && ok_ "one GRANT per down table" || bad "grant count: $(printf '%s\n' "$sql" | grep -c '^GRANT ')"
-RR="$TMP/r"; mkdir -p "$RR/hub"; { cat "$RP/hub/tables.conf"; printf 'concept_class:concept_class_id   # trailing comment\n'; } > "$RR/hub/tables.conf"
-R="$RR" lib sink_grant_sql | grep -qxF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.concept_class TO 'sink'@'%';" && ok_ "a table added to hub/tables.conf is granted with no other change" || bad "added table not granted: $(R="$RR" lib sink_grant_sql | tail -2)"
-printf 'Bad-Table:id\n' >> "$RR/hub/tables.conf"
+RR="$TMP/r"; mkdir -p "$RR/cloud"; { cat "$RP/cloud/tables.conf"; printf 'concept_class:concept_class_id   # trailing comment\n'; } > "$RR/cloud/tables.conf"
+R="$RR" lib sink_grant_sql | grep -qxF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.concept_class TO 'sink'@'%';" && ok_ "a table added to cloud/tables.conf is granted with no other change" || bad "added table not granted: $(R="$RR" lib sink_grant_sql | tail -2)"
+printf 'Bad-Table:id\n' >> "$RR/cloud/tables.conf"
 out="$(R="$RR" lib sink_grant_sql)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "bad table name 'Bad-Table'" && ok_ "a malformed table name fails, by name" || bad "malformed name: rc=$rc out=$out"
 

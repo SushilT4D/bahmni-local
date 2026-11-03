@@ -139,7 +139,7 @@ compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILE
 # The VALUE is handed to python3 through the ENVIRONMENT (ENV_PUT_VALUE), never
 # as an argv element: argv is world-readable while
 # the process lives (`ps -ef`, /proc/<pid>/cmdline), and every secret this fleet
-# generates -- all of hub/.env's, every clinic answer file's -- is written
+# generates -- all of cloud/.env's, every clinic answer file's -- is written
 # through this one function, so the old `python3 - "$f" "$k" "$v"` form put each
 # of them on the process list of the machine composing the file. Only the FILE
 # and the KEY (neither secret) stay in argv: the python3 substep reads the value
@@ -242,7 +242,7 @@ subsystem_tables(){
     printf '%s\n' "$name"
   done < "$conf"
 }
-# down_tables : the table of every hub/tables.conf row, one per line, in file
+# down_tables : the table of every cloud/tables.conf row, one per line, in file
 # order -- every table the clinic's down sinks write, relayed ones included
 # (clinic/scripts/generate-local-sink-connectors.sh reads the same rows). The
 # sink user's grants come from this list, so a table added there is granted
@@ -250,7 +250,7 @@ subsystem_tables(){
 # clinic/scripts/grant-down-tables.sh on a node seeded before. A name that is
 # not a bare lowercase identifier fails, naming its row.
 down_tables(){
-  local conf="${REPO_DIR}/hub/tables.conf" line name
+  local conf="${REPO_DIR}/cloud/tables.conf" line name
   [ -f "$conf" ] || fail "down_tables: no such file: $conf"
   while IFS= read -r line || [ -n "$line" ]; do
     name="${line%%#*}"
@@ -258,16 +258,16 @@ down_tables(){
     [ -n "$name" ] || continue
     name="${name%%:*}"
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
-      || fail "hub/tables.conf: bad table name '${name}' (row: ${line})"
+      || fail "cloud/tables.conf: bad table name '${name}' (row: ${line})"
     printf '%s\n' "$name"
   done < "$conf"
 }
 # master_down_tables : the down tables that are master data -- every row of
-# hub/tables.conf except those marked `clinic=<column>`. Those carry the hub's
+# cloud/tables.conf except those marked `clinic=<column>`. Those carry the hub's
 # rows for one clinic (lab results), which differ on every node by design, so
 # they are never compared between a clinic and the hub.
 master_down_tables(){
-  local conf="${REPO_DIR}/hub/tables.conf" line name
+  local conf="${REPO_DIR}/cloud/tables.conf" line name
   [ -f "$conf" ] || fail "master_down_tables: no such file: $conf"
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%%#*}"
@@ -276,7 +276,7 @@ master_down_tables(){
     case "$line" in *:*:clinic=*) continue ;; esac
     name="${line%%:*}"
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
-      || fail "hub/tables.conf: bad table name '${name}' (row: ${line})"
+      || fail "cloud/tables.conf: bad table name '${name}' (row: ${line})"
     printf '%s\n' "$name"
   done < "$conf"
 }
@@ -939,15 +939,15 @@ clinlims_down_sink_check(){
 
 # provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
 # run on this clinic's MySQL over exactly the tables the seed's provenance
-# record holds content lines for (the tool checksums the tables a hub/tables.conf
+# record holds content lines for (the tool checksums the tables a cloud/tables.conf
 # lists, so it runs from a scratch copy whose list is the record's).
 provenance_content_lines(){
   local rec="$1" my="$2" d rc=0
-  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/hub"
+  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/cloud"
   cp "${REPO_DIR}/clinic/scripts/master-checksum.sh" "$d/clinic/scripts/"
   cp "${REPO_DIR}/clinic/install/lib.sh" "$d/clinic/install/"
-  cp "${REPO_DIR}/hub/table-verdicts.conf" "${REPO_DIR}/hub/checksum-exclusions.conf" "$d/hub/"
-  awk -F'\t' '$1=="content" {print $2}' "$rec" > "$d/hub/tables.conf"
+  cp "${REPO_DIR}/cloud/table-verdicts.conf" "${REPO_DIR}/cloud/checksum-exclusions.conf" "$d/cloud/"
+  awk -F'\t' '$1=="content" {print $2}' "$rec" > "$d/cloud/tables.conf"
   REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
   rm -rf "$d"; return "$rc"
 }
