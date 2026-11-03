@@ -97,6 +97,11 @@ sys.exit(1 if bad else 0)
 PY
 }
 CL="$(mktemp)"; cat "$R"/hub/clinics.*.conf > "$CL"   # every hub's clinics
+# the up-sink templates are written for ghated and the checks below render them for manpur;
+# a hub file without those clinics still checks them
+for s in ghated manpur; do
+  grep -q "^$s:" "$CL" || printf '%s:mysql-sink-%s-:%s:bahmni-%s:clinical\n' "$s" "$s" "$s" "$s" >> "$CL"
+done
 check_sinks "$C" "$CL" || fails=$((fails+1))
 
 # --- a join renders the ghated template for its own slug ---------------------
