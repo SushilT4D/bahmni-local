@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The hub's up sinks for obs, orders and drug_order, one per clinic in
-# hub/clinics.<hub>.conf, upsert on the table's strided key, stop on an error, apply
+# cloud/clinics.<hub>.conf, upsert on the table's strided key, stop on an error, apply
 # deletes and never change the hub's schema. The validator the generator runs
 # refuses a config that breaks any of that. The other sinks keep their settings.
 set -u
@@ -9,16 +9,16 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-C="$TMP/repo"; mkdir -p "$C/hub" "$C/sync/local"
-cp -R "$R/hub/scripts" "$R/hub/connectors" "$C/hub/"; cp "$R/hub/tables.conf" "$C/hub/"
+C="$TMP/repo"; mkdir -p "$C/cloud" "$C/sync/local"
+cp -R "$R/cloud/scripts" "$R/cloud/connectors" "$C/cloud/"; cp "$R/cloud/tables.conf" "$C/cloud/"
 # every clinic of every hub's clinics file, each marked as sending the clinical tables
-cat "$R"/hub/clinics.*.conf | grep -vE '^[[:space:]]*(#|$)' | sed -E 's/^([^:]+:[^:]+:[^:]+:[^:]+).*/\1:clinical/' > "$C/hub/clinics.t.conf"
+cat "$R"/cloud/clinics.*.conf | grep -vE '^[[:space:]]*(#|$)' | sed -E 's/^([^:]+:[^:]+:[^:]+:[^:]+).*/\1:clinical/' > "$C/cloud/clinics.t.conf"
 cp "$R/sync/local/tables-conf.sh" "$C/sync/local/"
-printf 'HUB_NAME=t\nREMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\n' > "$C/hub/.env"
+printf 'HUB_NAME=t\nREMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\n' > "$C/cloud/.env"
 { grep -vE '^[[:space:]]*(#|$)' "$R/sync/local/tables.conf" | grep -vE '^(obs|orders|drug_order):'
   printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n'; } > "$C/sync/local/tables.conf"
 
-out="$(bash "$C/hub/scripts/generate-sink-connectors.sh" 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/generate-sink-connectors.sh" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "the generator renders and validates every sink" || bad "generator rc=$rc: $(printf '%s' "$out" | tail -5)"
 
 check(){ # FILE TABLE KEY -> one line per wrong setting
@@ -45,21 +45,21 @@ $line
 EOF
   nclin=$((nclin+1))
   for tk in obs:obs_id orders:order_id drug_order:order_id; do
-    t="${tk%%:*}"; k="${tk#*:}"; f="$C/hub/connectors/${prefix}${t}.json"
+    t="${tk%%:*}"; k="${tk#*:}"; f="$C/cloud/connectors/${prefix}${t}.json"
     if [ ! -f "$f" ]; then bad "${clinic}: no sink ${prefix}${t}"; continue; fi
     d="$(check "$f" "$t" "$k")"
     [ -z "$d" ] && ok_ "${clinic}: ${prefix}${t} upserts on ${k}, errors none, deletes on, schema evolution none" || bad "${clinic} ${t}: $(printf '%s' "$d" | tr '\n' ';')"
   done
-  f="$C/hub/connectors/${prefix}encounter.json"
+  f="$C/cloud/connectors/${prefix}encounter.json"
   python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; sys.exit(not (c.get("auto.create")=="true" and c.get("auto.evolve")=="true" and "schema.evolution" not in c))' "$f" 2>/dev/null \
     && ok_ "${clinic}: the encounter sink keeps auto.create/auto.evolve and no schema.evolution" || bad "${clinic}: the encounter sink changed"
-done < "$C/hub/clinics.t.conf"
-[ "$nclin" -ge 1 ] && ok_ "${nclin} clinic(s) of the hubs' clinics files checked" || bad "no clinic in any hub/clinics.<hub>.conf"
+done < "$C/cloud/clinics.t.conf"
+[ "$nclin" -ge 1 ] && ok_ "${nclin} clinic(s) of the hubs' clinics files checked" || bad "no clinic in any cloud/clinics.<hub>.conf"
 
 # the validator refuses each way a clinical sink can be wrong
-V="$C/hub/scripts/validate-sink-config.py"; K="$C/hub/connectors/known-good.json"
-first="$(sed -n 's/^\([^#:][^:]*\):\([^:]*\):.*/\2/p' "$C/hub/clinics.t.conf" | head -1)"
-src="$C/hub/connectors/${first}obs.json"
+V="$C/cloud/scripts/validate-sink-config.py"; K="$C/cloud/connectors/known-good.json"
+first="$(sed -n 's/^\([^#:][^:]*\):\([^:]*\):.*/\2/p' "$C/cloud/clinics.t.conf" | head -1)"
+src="$C/cloud/connectors/${first}obs.json"
 python3 "$V" "$src" --known-good "$K" --profile clinical >/dev/null 2>&1 && ok_ "validator: the rendered obs sink passes" || bad "validator rejects the rendered obs sink"
 mutate(){ # KEY VALUE|-  -> a copy of the obs sink with KEY set (or removed with -)
   python3 - "$src" "$TMP/m.json" "$1" "$2" <<'PY'
@@ -77,5 +77,5 @@ for kv in errors.tolerance=all primary.key.mode=record_value primary.key.fields=
   [ $? -ne 0 ] && ok_ "validator refuses a clinical sink with ${kv}" || bad "validator accepts a clinical sink with ${kv}"
 done
 python3 "$V" "$src" --known-good "$K" >/dev/null 2>&1 && bad "validator accepts the obs sink under the default profile" || ok_ "validator refuses obs under the default profile"
-python3 "$V" "$C/hub/connectors/${first}encounter.json" --known-good "$K" --profile clinical >/dev/null 2>&1 && bad "validator accepts the clinical profile for encounter" || ok_ "validator refuses the clinical profile for a non-clinical table"
+python3 "$V" "$C/cloud/connectors/${first}encounter.json" --known-good "$K" --profile clinical >/dev/null 2>&1 && bad "validator accepts the clinical profile for encounter" || ok_ "validator refuses the clinical profile for a non-clinical table"
 exit $((fails > 0))

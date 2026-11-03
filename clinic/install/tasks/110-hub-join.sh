@@ -30,8 +30,8 @@ cat <<EOF
       SEED_MANIFEST=<the seed folder>/manifest.env install-clinic.sh join ${CLINIC_SLUG}
 
   which does, in order:
-    1. appends to hub/clinics.<hub>.conf:   ${CLINIC_SLUG}:mysql-sink-${CLINIC_SLUG}-:${LOCAL_CLUSTER_ALIAS}:${MYSQL_SERVER_NAME}$( [ "${CLINICAL_UP_SYNC:-off}" = test ] && printf ':clinical' )
-       and this node's id floors from the seed to hub/clinic-floors.<hub>.conf; commits and pushes; the hub fast-forwards
+    1. appends to cloud/clinics.<hub>.conf:   ${CLINIC_SLUG}:mysql-sink-${CLINIC_SLUG}-:${LOCAL_CLUSTER_ALIAS}:${MYSQL_SERVER_NAME}$( [ "${CLINICAL_UP_SYNC:-off}" = test ] && printf ':clinical' )
+       and this node's id floors from the seed to cloud/clinic-floors.<hub>.conf; commits and pushes; the hub fast-forwards
     2. on the hub: registers exactly this node's sinks (its MySQL up-sinks, odoo-${CLINIC_SLUG}-sink-all,
        clinlims-${CLINIC_SLUG}-sink-all) and proves a marker written here is read there
 

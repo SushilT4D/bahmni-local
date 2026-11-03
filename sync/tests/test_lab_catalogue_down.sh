@@ -38,7 +38,7 @@ words(){ tr '\n' ' ' | sed 's/ $//'; }
 CAT="scriptlet label method test_formats test_trailer type_of_test_result org_mls_lab_type organization organization_type organization_organization_type dictionary_category dictionary unit_of_measure test_section type_of_sample analyte test test_result test_analyte result_limits panel panel_item sampletype_test sampletype_panel"
 NEVER="event_records event_records_queue markers failed_events site_information login_user"
 C="$T/repo"; mkdir -p "$C"
-(cd "$R" && tar cf - sync hub/connectors hub/scripts hub/openelis clinic/connectors clinic/scripts clinic/config/mirrormaker clinic/install/tasks) | (cd "$C" && tar xf -)
+(cd "$R" && tar cf - sync cloud/connectors cloud/scripts cloud/openelis clinic/connectors clinic/scripts clinic/config/mirrormaker clinic/install/tasks) | (cd "$C" && tar xf -)
 
 # --- the down list's reader ----------------------------------------------------------
 [ "$(bash "$C/sync/hub-down.sh" clinlims | words)" = "system_user result analysis sample $CAT" ] \
@@ -66,8 +66,8 @@ cat > "$T/bin/curl" <<'SH'
 cat > "$FAKE_BODY"; echo PUT >> "$FAKE_BODY.log"; printf '\n201'
 SH
 chmod +x "$T/bin/curl"
-printf 'CLINLIMS_SOURCE_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\nBASE_ELIS_CONTAINER=hub-elisdb\n' > "$C/hub/.env"
-rm -f "$T/body"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/hub/connectors/register-odoo.sh" clinlims-cloud-source 2>&1)"; rrc=$?
+printf 'CLINLIMS_SOURCE_PASSWORD=x\nREMOTE_SERVER_NAME=bahmni-cloud\nBASE_ELIS_CONTAINER=hub-elisdb\n' > "$C/cloud/.env"
+rm -f "$T/body"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=cloud bash "$C/cloud/connectors/register-odoo.sh" clinlims-cloud-source 2>&1)"; rrc=$?
 cfg(){ python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2], "<absent>"))' "$T/body" "$1" 2>/dev/null; }
 inc="$(cfg table.include.list | tr ',' '\n' | sed 's/^clinlims\.//' | words)"; agg="$(cfg transforms.agg.regex | sed -E 's/^.*\(([^()]*)\)\$$/\1/' | tr '|' ' ')"
 [ "$rrc" = 0 ] && [ "$inc" = "system_user result analysis sample $CAT dbz_heartbeat" ] && ok_ "the hub's OpenELIS source captures the catalogue with the lab rows and its heartbeat" || bad "hub source include list: rc=$rrc [$inc] $rout"
@@ -191,7 +191,7 @@ PSQL="docker exec -i $PGC psql -U postgres -d openelis"
   echo 'CREATE TABLE clinlims.dbz_heartbeat (id int PRIMARY KEY, ts timestamptz);'
 } > "$T/schema.sql"
 $PSQL -q -v ON_ERROR_STOP=1 < "$T/schema.sql" >/dev/null 2>"$T/schema.err" || bad "fixture schema refused: $(head -3 "$T/schema.err")"
-REC="$C/hub/scripts/record-clinlims-down-floors.sh"
+REC="$C/cloud/scripts/record-clinlims-down-floors.sh"
 # before the stride
 FL="$T/before.local"; out="$(bash "$REC" --out "$FL" -- $PSQL 2>&1)"; rc=$?
 fl(){ awk -v t="$1" '$1 == t { print $2 }' "$2"; }
@@ -205,10 +205,10 @@ fl(){ awk -v t="$1" '$1 == t { print $2 }' "$2"; }
 # lab-accounts floor its sequence would issue below is refused, changing nothing; a
 # catalogue floor standing above its sequence (analyte) is no reason to refuse
 sed 's/^system_user .*/system_user 9990/' "$FL" > "$T/high.local"
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$T/high.local" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$T/high.local" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'clinlims.system_user would issue .* below its recorded floor 9990' && [ "$($PSQL -Atc "select increment_by from pg_sequences where sequencename = 'analyte_seq'")" = 1 ] \
   && ok_ "the stride refuses a lab-accounts floor its sequence would issue below (clinics write those rows), striding nothing" || bad "stride, accounts below floor: rc=$rc $out"
-out="$(bash "$C/hub/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
+out="$(bash "$C/cloud/scripts/stride-openelis.sh" --floors "$FL" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'floors kept' && [ "$(grep -c . "$FL")" = 23 ] && [ "$($PSQL -Atc "select count(*) filter (where increment_by = 10) = count(*) from pg_sequences where schemaname = 'clinlims'")" = t ] \
   && ok_ "the stride keeps the 23 recorded floors and strides every sequence, though analyte's floor (280) stands above its sequence" || bad "stride with recorded floors: rc=$rc $out"
 # a hub strided before the catalogue joined the list: only the lab accounts were recorded
@@ -247,7 +247,7 @@ printf 'system_user 170\n' > "$T/up.local"
 out="$(bash "$REC" --derive --out "$T/up.local" -- $PSQL 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | grep -c .)" = 22 ] && ok_ "with that progress, the catalogue floors are still derived: no clinic writes the catalogue" || bad "derive catalogue with progress: rc=$rc $out"
 # the publication
-P="$C/hub/scripts/apply-clinlims-down-publication.sh"
+P="$C/cloud/scripts/apply-clinlims-down-publication.sh"
 out="$(bash "$P" "$FL" -- $PSQL 2>&1)"; rc=$?
 rows="$($PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') from pg_publication_tables where pubname = 'dbz_clinlims_owned'" | LC_ALL=C sort)"
 want="$( { for t in system_user $CAT; do case "$t" in (organization_organization_type|org_mls_lab_type) echo "$t:-" ;; (*) printf '%s:((id < (%s)::numeric) OR ((id %% (10)::numeric) = (0)::numeric))\n' "$t" "$(fl "$t" "$FL")" ;; esac; done; printf '%s\n' result:- analysis:- sample:- dbz_heartbeat:-; } | LC_ALL=C sort)"

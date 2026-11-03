@@ -7,7 +7,7 @@ MirrorMaker run from `clinic/docker-compose.yml`, and the clinic installer
 
 | Path | Read by | What it says |
 |---|---|---|
-| `tables.conf` | `clinic/scripts/generate-table-config.sh`, `generate-connectors.sh`, `configure-pk-offsets.sh`, `setup-mirrormaker.sh`; the hub's `generate-cloud-source-connector.sh` and `generate-sink-connectors.sh` | The OpenMRS tables a clinic captures and sends to the hub (clinic → hub). The hub's own list (hub → clinic) is `hub/tables.conf`. |
+| `tables.conf` | `clinic/scripts/generate-table-config.sh`, `generate-connectors.sh`, `configure-pk-offsets.sh`, `setup-mirrormaker.sh`; the hub's `generate-cloud-source-connector.sh` and `generate-sink-connectors.sh` | The OpenMRS tables a clinic captures and sends to the hub (clinic → hub). The hub's own list (hub → clinic) is `cloud/tables.conf`. |
 | `connectors/` | `clinic/scripts/generate-connectors.sh`, `generate-local-sink-connectors.sh` | Templates for the Debezium MySQL source and the clinic's local JDBC sinks. Rendered output goes to `connectors/generated/` (git-ignored). |
 | `mirrormaker-config/mm2.properties.template` | `clinic/scripts/setup-mirrormaker.sh` | MirrorMaker 2 settings for the clinic → hub copy. Rendered to `mm2.properties` (git-ignored). |
 
@@ -18,7 +18,7 @@ clinic installer's sync phase; the generators read it from here.
 `CLINICAL_UP_SYNC=test` (an install answer, kept in `clinic/.env`; the default
 is `off`). At any other clinic every clinic-side reader leaves them out,
 whatever `tables.conf` lists (`up_tables_for_clinic` in `tables-conf.sh`). The
-hub renders their sinks only for a clinic whose `hub/clinics.<hub>.conf` row ends in
+hub renders their sinks only for a clinic whose `cloud/clinics.<hub>.conf` row ends in
 `:clinical`.
 
 The source connector also captures its signal table, `openmrs.debezium_signal`,

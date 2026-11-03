@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Grant this clinic's sink database user what the down sinks need on every
-# table hub/tables.conf lists: SELECT, INSERT, UPDATE and DELETE, table by
+# table cloud/tables.conf lists: SELECT, INSERT, UPDATE and DELETE, table by
 # table, then read the grants back. Seed task 050 does the same on a node it
 # seeds; this is for a node seeded before a table joined that file, whose new
 # down sink would otherwise be refused its first INSERT. Safe to re-run.
@@ -18,7 +18,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
-# hub/tables.conf is read from the checkout this script is in
+# cloud/tables.conf is read from the checkout this script is in
 REPO_DIR="${REPO_DIR:-$(cd "${HERE}/../.." && pwd)}"; export REPO_DIR
 . "${HERE}/../install/lib.sh"
 usage(){ sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 begin_task "grant the sink user the down tables$( [ "$DRYRUN" = 1 ] && printf ' (dry run: nothing changes)')"
-sql="$(sink_grant_sql)" || fail "could not build the grants from hub/tables.conf"
+sql="$(sink_grant_sql)" || fail "could not build the grants from cloud/tables.conf"
 if [ "$DRYRUN" = 1 ]; then
   printf '%s\n' "$sql" | sed 's/^/    /'
   log "dry run: nothing changed."
@@ -50,7 +50,7 @@ users="$(printf "select count(*) from mysql.user where User='sink' and Host='%%'
 have="$(printf "select table_name from information_schema.tables where table_schema='openmrs'\n" | mysql_root)"
 absent=""
 for t in $(down_tables); do printf '%s\n' "$have" | grep -qx "$t" || absent="${absent} ${t}"; done
-[ -z "$absent" ] || fail "openmrs in ${MY} has no table:${absent}. hub/tables.conf names a table this database lacks; nothing was granted"
+[ -z "$absent" ] || fail "openmrs in ${MY} has no table:${absent}. cloud/tables.conf names a table this database lacks; nothing was granted"
 printf '%s\nFLUSH PRIVILEGES;\n' "$sql" | mysql_root || fail "the grants failed in ${MY}"
 missing="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | mysql_root | sink_grants_missing)" || fail "could not read back the sink user's grants"
 [ -z "$missing" ] || fail "after granting, the sink user still lacks SELECT, INSERT, UPDATE or DELETE on: $(printf '%s' "$missing" | tr '\n' ' ')"

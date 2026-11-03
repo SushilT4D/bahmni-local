@@ -2,7 +2,7 @@
 # generate-cloud-source-connector.sh — render the DOWN-direction Debezium source that
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
-# table.include.list comes from hub/tables.conf via generate-table-config.sh,
+# table.include.list comes from cloud/tables.conf via generate-table-config.sh,
 # so the whitelist can never drift from the declared ownership split.
 set -euo pipefail
 # The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
@@ -15,17 +15,17 @@ umask 077
 #   ROOT     the REPO checkout -- clinic/scripts/generate-table-config.sh and
 #            sync/local/tables.conf, which are repo files wherever the hub tree
 #            happens to live;
-#   HUB_ROOT the HUB directory -- the template, hub/.env and the default output.
+#   HUB_ROOT the HUB directory -- the template, cloud/.env and the default output.
 # Both fall back to this script's own location.
 ROOT="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-HUB_ROOT="${HUB_DIR:-${ROOT}/hub}"
+HUB_ROOT="${HUB_DIR:-${ROOT}/cloud}"
 TEMPLATE="${HUB_ROOT}/connectors/mysql-cloud-source-connector.json.template"
 OUT="${1:-${HUB_ROOT}/connectors/generated/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
-# Env: repo root first, then hub/.env (which wins).
-# The sync layer is deployed from hub/, so DEBEZIUM_DB_PASSWORD and the
-# other hub-side values live in hub/.env, not at the repo root.
+# Env: repo root first, then cloud/.env (which wins).
+# The sync layer is deployed from cloud/, so DEBEZIUM_DB_PASSWORD and the
+# other hub-side values live in cloud/.env, not at the repo root.
 # shellcheck disable=SC1091
 for envf in "${ROOT}/.env" "${HUB_ROOT}/.env"; do
   [[ -f "$envf" ]] && set -a && source "$envf" && set +a
@@ -76,7 +76,7 @@ if not inc or '*' in inc:
 # the refusal holds even before the clinic's own list carries the table.
 root = os.environ['ROOT']
 
-# Rows marked `clinic=<column>` in hub/tables.conf: tables the clinics write, of
+# Rows marked `clinic=<column>` in cloud/tables.conf: tables the clinics write, of
 # which the hub publishes only the rows it wrote itself (lab results entered at
 # the hub); each clinic keeps those whose <column> names a row it wrote. Each
 # gets a row filter below; without it such a table would carry every clinic's
@@ -94,27 +94,27 @@ changes = set()
 # publishes only the hub's: key at or above the table's floor, ending in 0. The
 # floor is the table's base in sync/local/tables.conf, read below.
 hubrows = {}
-with open(os.path.join(root, 'hub', 'tables.conf')) as fh:
+with open(os.path.join(root, 'cloud', 'tables.conf')) as fh:
     for line in fh:
         line = line.split('#', 1)[0].strip()
         parts = line.split(':')
         if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes', 'hub-rows') or parts[2].startswith('clinic=')):
-            sys.exit(f"hub/tables.conf: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
+            sys.exit(f"cloud/tables.conf: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
         if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
             plain.add(parts[0])
         if line and len(parts) == 3 and parts[2] == 'changes':
             changes.add(parts[0])
         if line and len(parts) == 3 and parts[2] == 'hub-rows':
             if ',' in parts[1]:
-                sys.exit(f"hub/tables.conf: {line}: a hub-rows table is filtered on its key, which must be a single column")
+                sys.exit(f"cloud/tables.conf: {line}: a hub-rows table is filtered on its key, which must be a single column")
             hubrows[parts[0]] = parts[1]
         if len(parts) == 3 and parts[2].startswith('clinic='):
             col = parts[2][len('clinic='):]
             if parts[0] not in ROUTE:
-                sys.exit(f"hub/tables.conf: {line}: only encounter and obs carry the hub's lab results to a clinic; "
+                sys.exit(f"cloud/tables.conf: {line}: only encounter and obs carry the hub's lab results to a clinic; "
                          "no other table may be published under clinic=")
             if col != ROUTE[parts[0]] or ',' in parts[1]:
-                sys.exit(f"hub/tables.conf: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
+                sys.exit(f"cloud/tables.conf: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
                          f"({parts[0]}:<key>:clinic={ROUTE[parts[0]]}), on a single-column key")
             routed[parts[0]] = (parts[1], col)
 
@@ -125,7 +125,7 @@ never = sorted(({'orders', 'drug_order', 'test_order'} & {t.split('.')[-1] for t
 if never:
     sys.exit(
         f"REFUSING to generate: the hub never publishes {never}: they are written at\n"
-        "  the clinics and reach the hub through its up sinks. Remove them from hub/tables.conf.")
+        "  the clinics and reach the hub through its up sinks. Remove them from cloud/tables.conf.")
 
 up = set()
 base = {}
@@ -157,7 +157,7 @@ if clash:
         "  (clinic-owned per sync/local/tables.conf, and cloud-owned per this one)\n"
         "\n"
         "  A table the clinics write is published by the hub only under a mark in\n"
-        "  hub/tables.conf that gives it a row filter: `hub-rows` (the hub's own rows of a\n"
+        "  cloud/tables.conf that gives it a row filter: `hub-rows` (the hub's own rows of a\n"
         "  table both sides write, at or above its floor and ending in 0) or\n"
         "  `clinic=<column>` (the hub's lab results for one clinic). `relay` is not\n"
         "  published here at all: a hub that passed every clinic's rows on would send each\n"

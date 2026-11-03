@@ -103,51 +103,51 @@ clinic/install/.bin/
 # clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
 cloud/connectors/clinlims-*.json
 
-# hub/: the sync layer's own compose project, split out of cloud/.
+# cloud/: the cloud (hub) sync layer as its own compose project.
 # Same secret classes as the cloud/connectors/* rules above -- the env file,
 # the JAAS SASL password, and every connector JSON a generator writes with a
 # live password already substituted. Templates are exempt by name: the six
 # hand-authored connector JSONs below carry only ${VAR} placeholders,
 # substituted by register-odoo.sh at registration time, not at
 # rest -- so they stay tracked.
-hub/.env
-hub/kafka_server_jaas.conf
+cloud/.env
+cloud/kafka_server_jaas.conf
 # the hub's TLS keystore and its two password files
-hub/tls/
-hub/connectors/mysql-sink-*.json
-hub/connectors/odoo-*-sink-all.json
-hub/connectors/clinlims-*-sink-all.json
-hub/connectors/mysql-cloud-source-connector.json
+cloud/tls/
+cloud/connectors/mysql-sink-*.json
+cloud/connectors/odoo-*-sink-all.json
+cloud/connectors/clinlims-*-sink-all.json
+cloud/connectors/mysql-cloud-source-connector.json
 # generate-cloud-source-connector.sh's default OUT path (mirrors the
 # cloud/connectors/generated/ rule above, same reason: rendered, password-
 # substituted output, never meant to be committed).
-hub/connectors/generated/
-!hub/connectors/odoo-cloud-source.json
-!hub/connectors/clinlims-cloud-source.json
-!hub/connectors/odoo-cloud-sink-all.json
-!hub/connectors/clinlims-cloud-sink-all.json
-!hub/connectors/odoo-ghated-sink-all.json
-!hub/connectors/clinlims-ghated-sink-all.json
+cloud/connectors/generated/
+!cloud/connectors/odoo-cloud-source.json
+!cloud/connectors/clinlims-cloud-source.json
+!cloud/connectors/odoo-cloud-sink-all.json
+!cloud/connectors/clinlims-cloud-sink-all.json
+!cloud/connectors/odoo-ghated-sink-all.json
+!cloud/connectors/clinlims-ghated-sink-all.json
 
-# hub/ scratch files. Every one of these is a
-# mktemp'd name created UNDER hub/ -- by lib.sh's own probes (the SASL client
+# cloud/ scratch files. Every one of these is a
+# mktemp'd name created UNDER cloud/ -- by lib.sh's own probes (the SASL client
 # properties file and the kafka-ui login body/cookie jar, each mode 600 and
 # each holding a live password for the seconds it exists), by task 080's
 # render directory, and by the live smokes. They are all removed by their own
 # EXIT traps; these patterns exist for the run that is killed outright, so a
 # leftover can never be committed by accident and never makes task 090's
 # git-clean check read as a dirty hub tree. (The smokes themselves no longer
-# write into the real hub/ at all -- they run against a temp COPY of it, via
+# write into the real cloud/ at all -- they run against a temp COPY of it, via
 # the HUB_DIR override -- but lib.sh's probes still do during a real install.)
-hub/.sasl-check.*
-hub/.kafka-ui-login*
-hub/.kafka-ui-cookies*
-hub/.task080.*
-hub/.env-backup.*
-hub/.jaas-backup.*
-hub/.src-*
-hub/.broker-boot-*
-hub/.versions.*
+cloud/.sasl-check.*
+cloud/.kafka-ui-login*
+cloud/.kafka-ui-cookies*
+cloud/.task080.*
+cloud/.env-backup.*
+cloud/.jaas-backup.*
+cloud/.src-*
+cloud/.broker-boot-*
+cloud/.versions.*
 # IPLIT's UI and config, copied out of the pinned images per node (clinic/scripts/extract-ui-config.sh)
 clinic/extracted/
 clinic/extracted.prev/
@@ -188,19 +188,18 @@ clinic/files/
 clinic/config/mysql/
 clinic/.install-state
 # this hub's down-table floors, recorded once by the run that strides its Odoo
-# ids (hub/scripts/stride-odoo.sh), and its OpenELIS ones, recorded once before
-# its OpenELIS ids are strided (hub/scripts/record-clinlims-down-floors.sh);
+# ids (cloud/scripts/stride-odoo.sh), and its OpenELIS ones, recorded once before
+# its OpenELIS ids are strided (cloud/scripts/record-clinlims-down-floors.sh);
 # each hub has its own
-hub/odoo-down-floors.local
-hub/clinlims-down-floors.local
+cloud/odoo-down-floors.local
+cloud/clinlims-down-floors.local
 # this hub's floors for users and provider, where its own rows begin, recorded
 # once (clinic/scripts/clinic-minted-staff.sh --derive-floors); each hub has its own
-hub/openmrs-staff-floors.local
+cloud/openmrs-staff-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
 # the restore's definer users, removed after use; left behind if the restore stops
 clinic/.openmrs-definers.sql
 
 # Kept on disk for local use, not part of the repository.
-cloud/
-hub/install/
+cloud/install/

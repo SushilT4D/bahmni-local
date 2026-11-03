@@ -1,6 +1,6 @@
 -- Strides the hub's OpenELIS ids (residue 0): every clinlims sequence steps by
 -- 10 and restarts at ((greatest(last_value, largest id) / 10) + 1) * 10, the
--- restart hub/openelis/down-sequence-state.sql reports, so a floor recorded
+-- restart cloud/openelis/down-sequence-state.sql reports, so a floor recorded
 -- just before this run is exactly where its sequence restarts.
 --
 -- The largest id is taken over every table OpenELIS numbers from that
@@ -14,7 +14,7 @@
 -- tables: then it restarts above them, on the same rule. So a second run moves
 -- nothing that is already clear of its rows. A sequence stepping by 10 from any
 -- other value is another node's striding, not the hub's: refused, naming it,
--- before anything changes (hub/scripts/stride-openelis.sh asks the same
+-- before anything changes (cloud/scripts/stride-openelis.sh asks the same
 -- question before it records any floor).
 --
 -- Last, every sequence is checked: step 10, a multiple of 10, and its next id
@@ -29,7 +29,7 @@
 -- The largest id of the tables OpenELIS numbers from sequence SEQ (0 when they
 -- are empty). OpenELIS takes a table's ids from clinlims.<table>_seq, except for
 -- the tables listed here, whose sequences its mappings name otherwise (two
--- tables can share one). The same list is in hub/openelis/down-sequence-state.sql
+-- tables can share one). The same list is in cloud/openelis/down-sequence-state.sql
 -- and clinic/openelis/apply-sequence-striding.sql; a test fails when they differ.
 CREATE OR REPLACE FUNCTION pg_temp.clinlims_rows_top(seq text) RETURNS bigint LANGUAGE sql STABLE AS $f$
   SELECT coalesce(max((xpath('/row/m/text()', query_to_xml(format('SELECT max(id) AS m FROM clinlims.%I', c.table_name), false, true, '')))[1]::text::numeric), 0)::bigint

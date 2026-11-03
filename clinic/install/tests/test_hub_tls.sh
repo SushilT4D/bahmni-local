@@ -7,13 +7,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 C="$(cd "${HERE}/../.." && pwd)"; R="$(cd "$C/.." && pwd)"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
-H="$R/hub/docker-compose.yml"
+H="$R/cloud/docker-compose.yml"
 
 # hub
 grep -q '${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://${REMOTE_KAFKA_HOST' "$H" && ok_ "hub: clinic listener defaults to SASL_SSL" || bad "hub: clinic listener is not SASL_SSL by default"
-grep -q './tls:/etc/kafka/secrets:ro' "$H" && ok_ "hub: keystore read from hub/tls" || bad "hub: hub/tls is not mounted at /etc/kafka/secrets"
+grep -q './tls:/etc/kafka/secrets:ro' "$H" && ok_ "hub: keystore read from cloud/tls" || bad "hub: cloud/tls is not mounted at /etc/kafka/secrets"
 grep -qE 'KAFKA_SSL_(KEYSTORE|KEY|TRUSTSTORE)_PASSWORD' "$H" && bad "hub: a TLS password is in the environment" || ok_ "hub: no TLS password in the environment"
-( cd "$R" && git check-ignore -q hub/tls/kafka.keystore.p12 ) && ok_ "hub/tls is gitignored" || bad "hub/tls is not gitignored"
+( cd "$R" && git check-ignore -q cloud/tls/kafka.keystore.p12 ) && ok_ "cloud/tls is gitignored" || bad "cloud/tls is not gitignored"
 
 # clinic MirrorMaker: render start-mm2.sh with the paths moved into a temp dir
 printf 'clusters = local, remote\n' > "$TMP/mm2.properties"

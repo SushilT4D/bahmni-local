@@ -4,7 +4,7 @@
 # and a message saying masters are made at the hub, while reads and every
 # patient-flow write pass. First the proxy's own path patterns are run (with
 # nginx's first-match map semantics) over a list of master write paths, a list
-# of patient-flow paths, and every DOWN table of hub/table-verdicts.conf; then,
+# of patient-flow paths, and every DOWN table of cloud/table-verdicts.conf; then,
 # when a container runtime and the proxy's nginx image are already on this
 # machine, the configuration is parsed by that nginx and served against a stub
 # upstream, and real requests are sent. PROXY_CONF tests another copy of the
@@ -12,7 +12,7 @@
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
 C="${PROXY_CONF:-${RP}/clinic/proxy/bahmni-nginx.openelis.conf}"
-V="${RP}/hub/table-verdicts.conf"
+V="${RP}/cloud/table-verdicts.conf"
 MSG='Master data is maintained at the hub; this change is refused at this clinic'
 U=7c4e5b2a-0d6f-4b5e-9d1a-3f2e1c0b9a87
 fails=0

@@ -1,7 +1,7 @@
 #!/bin/bash
 # generate-local-sink-connectors.sh — render the DOWN-direction (cloud → clinic) sinks.
 #
-# One connector per cloud-owned table from hub/tables.conf. These run ON THE
+# One connector per cloud-owned table from cloud/tables.conf. These run ON THE
 # CLINIC and write into the clinic's OpenMRS DB.
 #
 # Deliberate choices, each one closing a defect a generator can have:
@@ -18,7 +18,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-${ROOT}/../sync/local/connectors/generated}"
 TEMPLATE="${ROOT}/../sync/local/connectors/mysql-local-sink-connector.json.template"
-TABLES_CONF="${TABLES_CONF:-${ROOT}/../hub/tables.conf}"
+TABLES_CONF="${TABLES_CONF:-${ROOT}/../cloud/tables.conf}"
 # The clinic's OWN capture list. Read only to refuse overlap — see the ownership guard below.
 UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/local/tables.conf}"
 
@@ -93,7 +93,7 @@ declare -a ROUTE_BASES=()
 route_table(){ case "$1" in visit_id) echo visit ;; order_id) echo orders ;; *) return 1 ;; esac; }
 route_base(){ # COLUMN -> the base of the table it points at
     local t b k
-    t="$(route_table "$1")" || { echo "hub/tables.conf routes by '$1'; a clinic can route only by visit_id or order_id" >&2; return 1; }
+    t="$(route_table "$1")" || { echo "cloud/tables.conf routes by '$1'; a clinic can route only by visit_id or order_id" >&2; return 1; }
     b="$(grep -E "^[[:space:]]*${t}:[^:]+:" "$UP_TABLES_CONF" | head -1 | awk '{print $1}' | cut -d: -f3)"
     if [[ "$b" == seed ]]; then
         k="FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
@@ -116,7 +116,7 @@ done
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
-# A `hub-written` row (a clinic's down list, never hub/tables.conf) carries the
+# A `hub-written` row (a clinic's down list, never cloud/tables.conf) carries the
 # hub's staff to a clinic that keeps its own OpenMRS database: the logins,
 # roles, providers and people the hub created. Below the hub's floor such a
 # clinic's rows and the hub's are two histories that share ids, so this clinic
@@ -205,7 +205,7 @@ for i in "${!HW_COLS[@]}"; do
 done
 
 # Ownership guard — the mirror image of the one in
-# hub/scripts/generate-sink-connectors.sh, which refuses to give a
+# cloud/scripts/generate-sink-connectors.sh, which refuses to give a
 # CLOUD-owned table an up-direction sink. Same rule, other direction: a table the
 # CLINIC authors must never get a down-direction sink.
 #
@@ -313,7 +313,7 @@ if hw:
         os.environ['CHANGES'] = '1'
 
 if os.environ.get('CHANGES') == '1':
-    # a `changes` table (hub/tables.conf): inserts and updates are applied,
+    # a `changes` table (cloud/tables.conf): inserts and updates are applied,
     # never a delete. The hub retires such a row rather than deleting it, and a
     # delete here would fail on, or orphan, the clinic's own rows that point to
     # it. Tombstones carry no row and are dropped with the deletes.

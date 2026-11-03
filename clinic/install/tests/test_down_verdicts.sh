@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# hub/table-verdicts.conf decides which tables may travel in which direction,
+# cloud/table-verdicts.conf decides which tables may travel in which direction,
 # and clinic/scripts/check-table-verdicts.sh holds both table lists to it. The
 # repo's own lists pass; a copy with a clinic-written, seed-only, unratified or
 # unknown table added to the down list fails and names it, and so does a copy
 # that captures a hub-written table at the clinic.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
-S="${RP}/clinic/scripts/check-table-verdicts.sh"; V="${RP}/hub/table-verdicts.conf"
+S="${RP}/clinic/scripts/check-table-verdicts.sh"; V="${RP}/cloud/table-verdicts.conf"
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
@@ -14,8 +14,8 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 [ -f "$S" ] && [ -f "$V" ] || { bad "missing $S or $V"; exit 1; }
 
 copy(){ # fresh copy of the three files under $TMP/r
-  rm -rf "$TMP/r"; mkdir -p "$TMP/r/hub" "$TMP/r/sync/local"
-  cp "$RP/hub/tables.conf" "$RP/hub/table-verdicts.conf" "$TMP/r/hub/"; cp "$RP/sync/local/tables.conf" "$TMP/r/sync/local/"
+  rm -rf "$TMP/r"; mkdir -p "$TMP/r/cloud" "$TMP/r/sync/local"
+  cp "$RP/cloud/tables.conf" "$RP/cloud/table-verdicts.conf" "$TMP/r/cloud/"; cp "$RP/sync/local/tables.conf" "$TMP/r/sync/local/"
 }
 check(){ bash "$S" "$TMP/r" 2>&1; }
 copy_unclinical(){ # copy, with the clinical lines taken out of the capture list, so a case can add its own
@@ -45,7 +45,7 @@ for t in person person_name; do [ "$(vof "$t")" = SHARED ] || bad "$t should be 
 
 # --- the down list refuses what the hub does not solely write -----------------------------
 refuse_down(){ # ROW EXPECT-SUBSTRING DESCRIPTION
-  copy; printf '%s\n' "$1" >> "$TMP/r/hub/tables.conf"
+  copy; printf '%s\n' "$1" >> "$TMP/r/cloud/tables.conf"
   out="$(check)"; rc=$?
   [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF "$2" && ok_ "$3" || bad "$3: rc=$rc out=$out"
 }
@@ -56,7 +56,7 @@ refuse_down 'fhir_concept_source:fhir_concept_source_id' 'lists fhir_concept_sou
 refuse_down 'obs:obs_id' 'lists obs for a down sink, but its verdict is UP' "a clinical table in the down list fails"
 refuse_down 'no_such_table:id' 'lists no_such_table, which has no verdict' "a table with no verdict fails"
 refuse_down 'concept:concept_id:relay' 'marks concept relay, but its verdict is DOWN' "a DOWN table marked relay fails"
-copy; sed 's/^person:person_id:hub-rows$/person:person_id/' "$RP/hub/tables.conf" > "$TMP/r/hub/tables.conf"
+copy; sed 's/^person:person_id:hub-rows$/person:person_id/' "$RP/cloud/tables.conf" > "$TMP/r/cloud/tables.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'lists person for a down sink, but its verdict is SHARED' && ok_ "a shared table listed as hub-written (no hub-rows mark) fails" || bad "unmarked person: rc=$rc out=$out"
 refuse_down 'concept:concept_id:hub-rows' 'marks concept hub-rows, but its verdict is DOWN' "a DOWN table marked hub-rows fails"
@@ -92,7 +92,7 @@ for t in ${UP_NEVER_TABLES}; do
   case "$(vof "$t")" in DOWN|OUT) ok_ "${t}: never captured at a clinic, and its verdict is $(vof "$t")" ;; *) bad "${t} is never captured at a clinic but its verdict is '$(vof "$t")'" ;; esac
 done
 nv(){ # TABLE NEW-VERDICT-LINE|DELETE : the verdict file with TABLE's line replaced or removed
-  copy; awk -v t="$1" -v n="$2" '{ c = $0; sub(/#.*/, "", c); split(c, f, " ") } f[1] == t { if (n != "DELETE") print n; next } { print }' "$V" > "$TMP/r/hub/table-verdicts.conf"
+  copy; awk -v t="$1" -v n="$2" '{ c = $0; sub(/#.*/, "", c); split(c, f, " ") } f[1] == t { if (n != "DELETE") print n; next } { print }' "$V" > "$TMP/r/cloud/table-verdicts.conf"
 }
 nv global_property 'global_property UP'
 out="$(check)"; rc=$?
@@ -105,13 +105,13 @@ out="$(check)"; rc=$?
 [ "$rc" -eq 1 ] && printf '%s' "$out" | grep -qF 'never lets a clinic capture users, which has no verdict' && ok_ "a never-captured table with no verdict fails" || bad "users without a verdict: rc=$rc out=$out"
 
 # --- the verdict file itself ---------------------------------------------------------------------
-copy; printf 'concept DOWN\n' >> "$TMP/r/hub/table-verdicts.conf"
+copy; printf 'concept DOWN\n' >> "$TMP/r/cloud/table-verdicts.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'concept: listed twice' && ok_ "a table given two verdicts is refused" || bad "duplicate verdict: rc=$rc out=$out"
-copy; printf 'some_table MAYBE\n' >> "$TMP/r/hub/table-verdicts.conf"
+copy; printf 'some_table MAYBE\n' >> "$TMP/r/cloud/table-verdicts.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'unknown verdict "MAYBE"' && ok_ "an unknown verdict is refused" || bad "unknown verdict: rc=$rc out=$out"
-copy; printf 'some_table pending\n' >> "$TMP/r/hub/table-verdicts.conf"
+copy; printf 'some_table pending\n' >> "$TMP/r/cloud/table-verdicts.conf"
 out="$(check)"; rc=$?
 [ "$rc" -eq 2 ] && printf '%s' "$out" | grep -qF 'pending needs the proposed verdict' && ok_ "a pending verdict without its proposal is refused" || bad "bare pending: rc=$rc out=$out"
 exit "$fails"

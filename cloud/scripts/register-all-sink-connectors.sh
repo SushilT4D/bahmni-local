@@ -42,7 +42,7 @@ if [ -n "${clinical_sinks}" ]; then
     bash "${SCRIPT_DIR}/check-clinical-fks.sh" --container "${HUB_MYSQL_CONTAINER}" || fk_rc=$?
     case "${fk_rc}" in
         0) ;;
-        2) echo "Note: the foreign keys into the clinical tables differ from hub/clinical-fks-in.conf (listed above); a clinic's delete of a row they reference will stop that sink." ;;
+        2) echo "Note: the foreign keys into the clinical tables differ from cloud/clinical-fks-in.conf (listed above); a clinic's delete of a row they reference will stop that sink." ;;
         *) echo "Error: check-clinical-fks.sh failed (exit ${fk_rc}, reason above): the clinical sinks would stop on a row that arrives before its parent. Nothing was registered."; exit 1 ;;
     esac
 fi

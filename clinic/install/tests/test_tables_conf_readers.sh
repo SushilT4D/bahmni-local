@@ -14,11 +14,11 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/hub"
+C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/cloud"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$RP/sync" "$C/"
-cp -R "$RP/hub/scripts" "$RP/hub/connectors" "$C/hub/"; cp "$RP/hub/tables.conf" "$C/hub/"
+cp -R "$RP/cloud/scripts" "$RP/cloud/connectors" "$C/cloud/"; cp "$RP/cloud/tables.conf" "$C/cloud/"
 printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nCLINICAL_UP_SYNC=test\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
-printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
+printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/cloud/.env"
 printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha:clinical\n' > "$TMP/clinics.conf"
 printf 'alpha:3\n' > "$TMP/ledger"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
@@ -54,7 +54,7 @@ drug_order:order_id:floor=orders'
 # render FIXTURE-TEXT : runs every reader on the fixture; each result in $TMP/out.<reader>, its exit status in $TMP/rc.<reader>
 render(){
   printf '%s\n' "$1" > "$C/sync/local/tables.conf"
-  rm -rf "$C/clinic/connectors" "$C/hub/connectors"/mysql-sink-alpha-* "$C/clinic/config/mirrormaker/mm2.properties"
+  rm -rf "$C/clinic/connectors" "$C/cloud/connectors"/mysql-sink-alpha-* "$C/clinic/config/mirrormaker/mm2.properties"
   bash "$C/clinic/scripts/generate-table-config.sh" local > "$TMP/out.tc" 2>&1; echo $? > "$TMP/rc.tc"
   SEED_MANIFEST="${MANIFEST-$TMP/manifest.env}" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/out.gc" 2>&1; echo $? > "$TMP/rc.gc"
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$C/clinic/connectors/mysql-local-source-connector.json" > "$TMP/inc.gc" 2>/dev/null
@@ -65,11 +65,11 @@ render(){
   PATH="$TMP/bin:$PATH" ENV_FILE="$C/clinic/.env" CLINICS_FILE="$TMP/ledger" TABLES_FILE="$C/sync/local/tables.conf" MYSQL_CONTAINER=fake \
     SEED_MANIFEST="${MANIFEST-$TMP/manifest.env}" bash "$C/clinic/scripts/configure-pk-offsets.sh" --dry-run > "$TMP/out.pk" 2>&1; echo $? > "$TMP/rc.pk"
   grep -o 'ALTER TABLE .*;' "$TMP/out.pk" > "$TMP/alter.pk"
-  CLINICS_CONF="$TMP/clinics.conf" bash "$C/hub/scripts/generate-sink-connectors.sh" > "$TMP/out.hs" 2>&1; echo $? > "$TMP/rc.hs"
-  for f in "$C/hub/connectors"/mysql-sink-alpha-*.json; do
+  CLINICS_CONF="$TMP/clinics.conf" bash "$C/cloud/scripts/generate-sink-connectors.sh" > "$TMP/out.hs" 2>&1; echo $? > "$TMP/rc.hs"
+  for f in "$C/cloud/connectors"/mysql-sink-alpha-*.json; do
     [ -f "$f" ] && python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; print(c["topics"].split(".")[-1], c["primary.key.fields"])' "$f"
   done | sort > "$TMP/sinks.hs"
-  REPO_DIR="$C" HUB_DIR="$C/hub" bash "$C/hub/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" > "$TMP/out.cs" 2>&1; echo $? > "$TMP/rc.cs"
+  REPO_DIR="$C" HUB_DIR="$C/cloud" bash "$C/cloud/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" > "$TMP/out.cs" 2>&1; echo $? > "$TMP/rc.cs"
 }
 rc(){ cat "$TMP/rc.$1"; }
 
@@ -140,7 +140,7 @@ for r in tc gc pk hs; do
   [ "$(rc $r)" != 0 ] && grep -q 'drug_order:order_id has no floor source' "$TMP/out.$r" && ok_ "reader $r refuses drug_order with no floor source" || bad "reader $r: rc=$(rc $r) $(tail -2 "$TMP/out.$r")"
 done
 [ -f "$TMP/rc.mm" ] && { [ "$(rc mm)" != 0 ] && ok_ "MirrorMaker refuses it too, rather than mirroring nothing" || bad "MirrorMaker rendered a refused list: $(cat "$TMP/top.mm")"; }
-ls "$C/hub/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && bad "the hub generator wrote sinks for a refused list" || ok_ "the hub generator writes nothing for a refused list"
+ls "$C/cloud/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && bad "the hub generator wrote sinks for a refused list" || ok_ "the hub generator writes nothing for a refused list"
 
 # --- other lines no reader may skip ---------------------------------------------
 . "$RP/sync/local/tables-conf.sh"

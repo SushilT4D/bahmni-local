@@ -21,7 +21,7 @@ grep -qE "string_to_array\(current_setting\('myvars.tables'\)" "$STRIDE" && ok "
 # literal table names would misrepresent what actually executed -- see each
 # file's own header). This test script's OWN source line below also contains
 # the literal strings it searches for, so it excludes itself too.
-old_name_files="$(grep -rlE "account_invoice|product_uom\b" "$REPO/sync" "$REPO/clinic/odoo" "$REPO/clinic/scripts" "$REPO/clinic/install" "$REPO/clinic/connectors" "$REPO/hub/connectors" "$REPO/hub/scripts" "$REPO/hub/odoo" 2>/dev/null || true)"
+old_name_files="$(grep -rlE "account_invoice|product_uom\b" "$REPO/sync" "$REPO/clinic/odoo" "$REPO/clinic/scripts" "$REPO/clinic/install" "$REPO/clinic/connectors" "$REPO/cloud/connectors" "$REPO/cloud/scripts" "$REPO/cloud/odoo" 2>/dev/null || true)"
 hits=""
 for f in $old_name_files; do
   case "$f" in */test_odoo16_tables.sh) continue ;; esac

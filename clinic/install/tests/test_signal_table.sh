@@ -9,7 +9,7 @@
 #   - it is in the source connector's include list, which names it as its
 #     signal collection, and the check refuses a registered connector without it;
 #   - it travels nowhere: no up topic in MirrorMaker's list, no hub sink, no
-#     line in hub/tables.conf, and a sync/local/tables.conf line for it is refused.
+#     line in cloud/tables.conf, and a sync/local/tables.conf line for it is refused.
 # With docker and the pinned MySQL image, the DDL and the read-back run on a
 # throwaway server; without them that part is skipped.
 set -u
@@ -52,15 +52,15 @@ out="$(printf '%s\n' "$good" | sed 's/varchar(2048)/text/' | signal_table_verdic
 out="$(printf '%s\n' "$good" | grep -v INSERT | signal_table_verdict)"; [ $? = 1 ] && case "$out" in *INSERT*) true ;; *) false ;; esac && ok_ "read-back: a connector user that cannot insert there is refused" || bad "no INSERT: $out"
 
 # --- in the include list, nowhere else --------------------------------------------
-C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/hub"
+C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/cloud"
 cp -R "$RP/clinic/scripts" "$C/clinic/"; cp -R "$RP/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$RP/sync" "$C/"
-cp -R "$RP/hub/scripts" "$RP/hub/connectors" "$C/hub/"; cp "$RP/hub/tables.conf" "$C/hub/"
+cp -R "$RP/cloud/scripts" "$RP/cloud/connectors" "$C/cloud/"; cp "$RP/cloud/tables.conf" "$C/cloud/"
 printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
-printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/hub/.env"
+printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/cloud/.env"
 printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
 printf 'visit:visit_id:625000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\nidgen_seq_id_gen:id\n' > "$C/sync/local/tables.conf"
-hub_tables_before="$(cat "$C/hub/tables.conf")"
+hub_tables_before="$(cat "$C/cloud/tables.conf")"
 bash "$C/clinic/scripts/generate-table-config.sh" local > "$TMP/tc" 2>&1 || bad "generate-table-config refused: $(tail -2 "$TMP/tc")"
 SEED_MANIFEST="$TMP/manifest.env" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/gc" 2>&1 || bad "generate-connectors refused: $(tail -2 "$TMP/gc")"
 inc="$(sed -n 's/^TABLE_INCLUDE_LIST=//p' "$TMP/tc")"
@@ -88,10 +88,10 @@ if command -v envsubst >/dev/null 2>&1; then
   bash "$C/clinic/scripts/setup-mirrormaker.sh" > "$TMP/mm" 2>&1 || bad "setup-mirrormaker refused: $(tail -2 "$TMP/mm")"
   grep -E -- '->remote\.topics' "$C/clinic/config/mirrormaker/mm2.properties" | grep -q 'signal' && bad "MirrorMaker sends the signal table's topic up" || ok_ "MirrorMaker: no up topic for the signal table"
 fi
-CLINICS_CONF="$TMP/clinics.conf" bash "$C/hub/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1 || bad "hub sink generator refused: $(tail -2 "$TMP/hs")"
-ls "$C/hub/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && ok_ "hub sinks rendered: $(ls "$C/hub/connectors"/mysql-sink-alpha-* | wc -l | tr -d ' ')" || bad "no hub sinks rendered"
-grep -l 'debezium_signal' "$C/hub/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && bad "a hub sink names the signal table" || ok_ "no hub sink for the signal table"
-[ "$(cat "$C/hub/tables.conf")" = "$hub_tables_before" ] && ! grep -q 'debezium_signal' "$RP/hub/tables.conf" && ok_ "hub/tables.conf has no line for it" || bad "hub/tables.conf names the signal table"
+CLINICS_CONF="$TMP/clinics.conf" bash "$C/cloud/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1 || bad "hub sink generator refused: $(tail -2 "$TMP/hs")"
+ls "$C/cloud/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && ok_ "hub sinks rendered: $(ls "$C/cloud/connectors"/mysql-sink-alpha-* | wc -l | tr -d ' ')" || bad "no hub sinks rendered"
+grep -l 'debezium_signal' "$C/cloud/connectors"/mysql-sink-alpha-* >/dev/null 2>&1 && bad "a hub sink names the signal table" || ok_ "no hub sink for the signal table"
+[ "$(cat "$C/cloud/tables.conf")" = "$hub_tables_before" ] && ! grep -q 'debezium_signal' "$RP/cloud/tables.conf" && ok_ "cloud/tables.conf has no line for it" || bad "cloud/tables.conf names the signal table"
 . "$RP/sync/local/tables-conf.sh"
 printf 'visit:visit_id:625000\ndebezium_signal:id\n' > "$TMP/sig.conf"
 out="$(up_tables_read "$TMP/sig.conf" 2>&1)"; [ $? = 1 ] && case "$out" in *"signal table"*) true ;; *) false ;; esac && ok_ "a sync/local/tables.conf line for it is refused" || bad "a tables.conf line for the signal table was accepted: $out"

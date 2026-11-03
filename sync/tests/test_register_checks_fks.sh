@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hub/scripts/register-all-sink-connectors.sh runs check-clinical-fks.sh before
+# cloud/scripts/register-all-sink-connectors.sh runs check-clinical-fks.sh before
 # it registers any sink for obs, orders, drug_order or test_order, and registers nothing
 # when a foreign key points out of one of them. Kafka Connect and the hub's
 # MySQL are stood in for.
@@ -9,11 +9,11 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-C="$TMP/hub"; mkdir -p "$C/connectors" "$TMP/bin"
-cp -R "$R/hub/scripts" "$C/"; cp "$R/hub/clinical-fks-in.conf" "$R/hub/table-verdicts.conf" "$C/"
+C="$TMP/cloud"; mkdir -p "$C/connectors" "$TMP/bin"
+cp -R "$R/cloud/scripts" "$C/"; cp "$R/cloud/clinical-fks-in.conf" "$R/cloud/table-verdicts.conf" "$C/"
 sink(){ printf '{"name": "%s", "config": {"topics": "alpha.bahmni-alpha.openmrs.%s"}}\n' "$1" "$2" > "$C/connectors/$1.json"; }
 # the hub's keys, as information_schema would print them
-awk '{ sub(/#.*/, "") } NF == 4 { printf "%s\t%s\t%s\t%s\t%s_fk\n", $1, $2, $3, $4, $1 }' "$R/hub/clinical-fks-in.conf" > "$TMP/fks.clean"
+awk '{ sub(/#.*/, "") } NF == 4 { printf "%s\t%s\t%s\t%s\t%s_fk\n", $1, $2, $3, $4, $1 }' "$R/cloud/clinical-fks-in.conf" > "$TMP/fks.clean"
 { cat "$TMP/fks.clean"; printf 'obs\tencounter_id\tencounter\tencounter_id\tobs_encounter\n'; } > "$TMP/fks.out"
 cat > "$TMP/bin/docker" <<SH
 #!/bin/sh

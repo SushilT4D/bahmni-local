@@ -139,7 +139,7 @@ Forms are published only on the hub, in the form builder. A clinic does not
 author them:
 
 - **Rows by sync.** `form` and `form_resource` are hub tables
-  (`hub/tables.conf`). A clinic gets the hub's rows with its seed and every
+  (`cloud/tables.conf`). A clinic gets the hub's rows with its seed and every
   later change through the down sync, so a form has the same id, uuid and
   version on every node. That matters because a saved observation names its
   form by name and version.
@@ -405,7 +405,7 @@ reaches OpenMRS's port or the database without the proxy; the hub-to-clinic
 checksum (`clinic/scripts/master-checksum.sh`) shows a row changed that way.
 `clinic/install/tests/test_proxy_master_writes.sh` holds the path list, the
 patient-flow list and a write path for every DOWN table of
-`hub/table-verdicts.conf`; with a container runtime it also serves the
+`cloud/table-verdicts.conf`; with a container runtime it also serves the
 configuration from the proxy's nginx image against a stub upstream and sends
 the requests.
 

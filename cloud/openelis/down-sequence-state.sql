@@ -19,7 +19,7 @@
 --
 -- The sequence is the id column's own, else the one OpenELIS's mappings name
 -- where that is not clinlims.<table>_seq (the list in `names` below; the same
--- list is in hub/openelis/apply-sequence-striding.sql and
+-- list is in cloud/openelis/apply-sequence-striding.sql and
 -- clinic/openelis/apply-sequence-striding.sql, and a test fails when they
 -- differ), else clinlims.<table>_seq. A table with
 -- an id and no sequence at all (OpenELIS never issues ids for it) reads

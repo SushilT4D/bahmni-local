@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Each direction's capture list keeps out the tables the other side writes.
 #   - The hub's source never publishes orders, drug_order or test_order, nor obs except its
-#     own lab-result rows, for the clinic each names (hub/tables.conf, clinic=):
+#     own lab-result rows, for the clinic each names (cloud/tables.conf, clinic=):
 #     clinics write them and the hub receives them through its up sinks. The
 #     generator refuses an unmarked row for any of them, by name, whether or
 #     not the clinic's own list carries it yet.
@@ -15,16 +15,16 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-C="$TMP/repo"; mkdir -p "$C/clinic" "$C/hub" "$C/sync/local"
-cp -R "$R/clinic/scripts" "$C/clinic/"; cp -R "$R/hub/scripts" "$R/hub/connectors" "$C/hub/"
+C="$TMP/repo"; mkdir -p "$C/clinic" "$C/cloud" "$C/sync/local"
+cp -R "$R/clinic/scripts" "$C/clinic/"; cp -R "$R/cloud/scripts" "$R/cloud/connectors" "$C/cloud/"
 cp "$R/sync/local/tables.conf" "$R/sync/local/tables-conf.sh" "$C/sync/local/"
-hub_src(){ REPO_DIR="$C" HUB_DIR="$C/hub" DEBEZIUM_DB_PASSWORD=x bash "$C/hub/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" 2>&1; }
+hub_src(){ REPO_DIR="$C" HUB_DIR="$C/cloud" DEBEZIUM_DB_PASSWORD=x bash "$C/cloud/scripts/generate-cloud-source-connector.sh" "$TMP/src.json" 2>&1; }
 
 # --- the lists as committed ----------------------------------------------------
-cp "$R/hub/tables.conf" "$C/hub/tables.conf"
+cp "$R/cloud/tables.conf" "$C/cloud/tables.conf"
 out="$(hub_src)"; rc=$?
 inc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"]["table.include.list"])' "$TMP/src.json" 2>/dev/null)"
-[ "$rc" -eq 0 ] && ok_ "the hub's source renders from hub/tables.conf" || bad "hub source: rc=$rc $out"
+[ "$rc" -eq 0 ] && ok_ "the hub's source renders from cloud/tables.conf" || bad "hub source: rc=$rc $out"
 for t in orders drug_order test_order; do
   case ",${inc}," in *",openmrs.${t},"*) bad "the hub publishes ${t}: ${inc}" ;; *) ok_ "the hub does not publish ${t}" ;; esac
 done
@@ -41,14 +41,14 @@ for t in users user_property global_property; do
   case ",${up}," in *",openmrs.${t},"*) bad "the clinic captures ${t}: ${up}" ;; *) ok_ "the clinic does not capture ${t}" ;; esac
 done
 
-# --- a clinical table planted in hub/tables.conf --------------------------------
+# --- a clinical table planted in cloud/tables.conf --------------------------------
 for line in obs:obs_id orders:order_id drug_order:order_id test_order:order_id; do
-  { cat "$R/hub/tables.conf"; printf '%s\n' "$line"; } > "$C/hub/tables.conf"
+  { cat "$R/cloud/tables.conf"; printf '%s\n' "$line"; } > "$C/cloud/tables.conf"
   rm -f "$TMP/src.json"; out="$(hub_src)"; rc=$?
   [ "$rc" -ne 0 ] && [ ! -f "$TMP/src.json" ] && printf '%s' "$out" | grep -q "never publishes.*'${line%%:*}'" \
-    && ok_ "the hub's generator refuses ${line%%:*} in hub/tables.conf and writes nothing" || bad "planted ${line}: rc=$rc $(printf '%s' "$out" | tail -2)"
+    && ok_ "the hub's generator refuses ${line%%:*} in cloud/tables.conf and writes nothing" || bad "planted ${line}: rc=$rc $(printf '%s' "$out" | tail -2)"
 done
-cp "$R/hub/tables.conf" "$C/hub/tables.conf"
+cp "$R/cloud/tables.conf" "$C/cloud/tables.conf"
 
 # --- a hub-written or node-local table planted in the clinic's list --------------
 for line in users:user_id user_property:user_id,property global_property:property; do

@@ -13,5 +13,5 @@ while IFS= read -r f; do
   eff="${min:-5}"
   if [ "$eff" -le "$max" ] && [ "$eff" -ge 1 ]; then printf '  ok   %s (min %s%s, max %s)\n' "${f#$ROOT/}" "$eff" "${min:+}" "$max"
   else printf '  FAIL %s: min_size %s%s > max_size %s (or < 1)\n' "${f#$ROOT/}" "$eff" "$([ -z "$min" ] && printf ' [the default]')" "$max"; fails=$((fails+1)); fi
-done < <(grep -rlE '"connection\.pool\.max_size"' "$ROOT/sync" "$ROOT/clinic/connectors" "$ROOT/hub/connectors" "$ROOT/hub/scripts" 2>/dev/null | grep -v '/tests/' | sort)
+done < <(grep -rlE '"connection\.pool\.max_size"' "$ROOT/sync" "$ROOT/clinic/connectors" "$ROOT/cloud/connectors" "$ROOT/cloud/scripts" 2>/dev/null | grep -v '/tests/' | sort)
 exit "$fails"

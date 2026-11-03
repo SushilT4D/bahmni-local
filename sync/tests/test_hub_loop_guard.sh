@@ -11,7 +11,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0
 ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
-C="$R/hub/connectors"
+C="$R/cloud/connectors"
 cfg(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get(sys.argv[2], ""))' "$1" "$2"; }
 
 # --- the source: decode only what was written at the hub --------------------
@@ -96,7 +96,7 @@ if n < 2:
 sys.exit(1 if bad else 0)
 PY
 }
-CL="$(mktemp)"; cat "$R"/hub/clinics.*.conf > "$CL"   # every hub's clinics
+CL="$(mktemp)"; cat "$R"/cloud/clinics.*.conf > "$CL"   # every hub's clinics
 # the up-sink templates are written for ghated and the checks below render them for manpur;
 # a hub file without those clinics still checks them
 for s in ghated manpur; do
@@ -131,7 +131,7 @@ out="$(check_sinks "$T/neg" "$CL")"; rc=$?
   && ok_ "a sink with no claim, and a sink claiming another clinic's origin, both fail" || bad "the check passes a sink without its own claim: rc=$rc $out"
 
 # --- the README states the rule now in force -----------------------------------
-grep -q 'relays everything' "$R/hub/README.md" && bad "hub/README.md still says the hub relays everything" || ok_ "hub/README.md no longer says the hub relays everything"
-grep -q 'origin=none' "$R/hub/README.md" && grep -q 'clinic_<slug>_odoo' "$R/hub/README.md" \
-  && ok_ "hub/README.md names origin=none and the per-clinic origins" || bad "hub/README.md does not describe the origin guard"
+grep -q 'relays everything' "$R/cloud/README.md" && bad "cloud/README.md still says the hub relays everything" || ok_ "cloud/README.md no longer says the hub relays everything"
+grep -q 'origin=none' "$R/cloud/README.md" && grep -q 'clinic_<slug>_odoo' "$R/cloud/README.md" \
+  && ok_ "cloud/README.md names origin=none and the per-clinic origins" || bad "cloud/README.md does not describe the origin guard"
 exit "$fails"

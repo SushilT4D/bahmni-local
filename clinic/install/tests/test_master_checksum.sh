@@ -14,14 +14,14 @@ bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; CNAME=""
 trap '[ -n "$CNAME" ] && docker rm -f "$CNAME" >/dev/null 2>&1; rm -rf "$TMP"' EXIT
 [ -f "$S" ] || { bad "no $S"; exit 1; }
-[ -f "$RP/hub/checksum-exclusions.conf" ] && ok_ "the excluded columns are listed in hub/checksum-exclusions.conf" || bad "no hub/checksum-exclusions.conf"
-[ "$(awk '{ sub(/#.*/, "") } NF { print $1 }' "$RP/hub/checksum-exclusions.conf")" = privilege.uuid ] \
-  && ok_ "the one excluded column is privilege.uuid" || bad "exclusions: $(awk '{ sub(/#.*/, "") } NF' "$RP/hub/checksum-exclusions.conf")"
+[ -f "$RP/cloud/checksum-exclusions.conf" ] && ok_ "the excluded columns are listed in cloud/checksum-exclusions.conf" || bad "no cloud/checksum-exclusions.conf"
+[ "$(awk '{ sub(/#.*/, "") } NF { print $1 }' "$RP/cloud/checksum-exclusions.conf")" = privilege.uuid ] \
+  && ok_ "the one excluded column is privilege.uuid" || bad "exclusions: $(awk '{ sub(/#.*/, "") } NF' "$RP/cloud/checksum-exclusions.conf")"
 
 # --- a fake MySQL: columns from a fixture, every statement logged ---------------------
-R="$TMP/r"; mkdir -p "$R/hub" "$TMP/bin" "$TMP/node"
-cp "$RP/hub/table-verdicts.conf" "$RP/hub/checksum-exclusions.conf" "$R/hub/"
-printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/hub/tables.conf"
+R="$TMP/r"; mkdir -p "$R/cloud" "$TMP/bin" "$TMP/node"
+cp "$RP/cloud/table-verdicts.conf" "$RP/cloud/checksum-exclusions.conf" "$R/cloud/"
+printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/cloud/tables.conf"
 printf 'COMPOSE_PROJECT_NAME=bahmni-t\n' > "$TMP/node/.env"
 TAB="$(printf '\t')"
 cat > "$TMP/cols" <<EOF
@@ -69,13 +69,13 @@ grep -q "concept_datatype" "$TMP/log" && bad "a RESEED table was read without --
 tz="$(grep -n "^SET SESSION time_zone = '+00:00';\$" "$TMP/log" | head -1 | cut -d: -f1)"; tx="$(grep -n '^START TRANSACTION' "$TMP/log" | head -1 | cut -d: -f1)"
 [ -n "$tz" ] && [ -n "$tx" ] && [ "$tz" -lt "$tx" ] && ok_ "the session reads in UTC, set before the snapshot is taken" || bad "no UTC session time zone before the transaction: $(grep -v '^ct ' "$TMP/log" | head -3 | tr '\n' '|')"
 : > "$TMP/log"; mc --reseed >/dev/null
-grep -q "^SELECT 'concept_datatype'," "$TMP/log" && grep -q "'care_setting'" "$TMP/log" && ok_ "--reseed adds the tables hub/table-verdicts.conf marks RESEED" || bad "--reseed: $(grep -c . "$TMP/log")"
-printf 'form.xslt\n' >> "$R/hub/checksum-exclusions.conf"; : > "$TMP/log"; mc >/dev/null
+grep -q "^SELECT 'concept_datatype'," "$TMP/log" && grep -q "'care_setting'" "$TMP/log" && ok_ "--reseed adds the tables cloud/table-verdicts.conf marks RESEED" || bad "--reseed: $(grep -c . "$TMP/log")"
+printf 'form.xslt\n' >> "$R/cloud/checksum-exclusions.conf"; : > "$TMP/log"; mc >/dev/null
 q="$(grep "^SELECT 'form'," "$TMP/log")"
-! printf '%s' "$q" | grep -qF '`xslt`' && printf '%s' "$q" | grep -qF '`name`' && ok_ "a column is excluded by a line in hub/checksum-exclusions.conf, and only then" || bad "exclusion not read: $q"
-printf 'not a column\n' >> "$R/hub/checksum-exclusions.conf"; out="$(mc)"; rc=$?
+! printf '%s' "$q" | grep -qF '`xslt`' && printf '%s' "$q" | grep -qF '`name`' && ok_ "a column is excluded by a line in cloud/checksum-exclusions.conf, and only then" || bad "exclusion not read: $q"
+printf 'not a column\n' >> "$R/cloud/checksum-exclusions.conf"; out="$(mc)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "is not <table>.<column>" && ok_ "a malformed exclusion is refused" || bad "malformed exclusion: rc=$rc $out"
-cp "$RP/hub/checksum-exclusions.conf" "$R/hub/"
+cp "$RP/cloud/checksum-exclusions.conf" "$R/cloud/"
 out="$(env PATH="$PATH" REPO_DIR="$R" CLINIC_DIR="$TMP/node" CT="$TMP/bin/fakect" FAKE_LOG="$TMP/log" FAKE_COLS="$TMP/cols" bash "$S" --container hub-db 2>&1)"
 grep -q '^ct exec -i hub-db ' "$TMP/log" && ok_ "--container names another MySQL (the hub's)" || bad "--container: $out"
 
@@ -102,7 +102,7 @@ INSERT INTO form VALUES (454, 'Vitals', '1', 1, NULL, 'u-454'), (457, 'History',
 INSERT INTO form_resource VALUES (1, 454, 'Vitals', '/home/bahmni/clinical_forms/a.json', 'r-1');
 INSERT INTO privilege VALUES ('Get Concepts', 'Able to get concepts', 'p-1');
 SQL
-printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/hub/tables.conf"
+printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/cloud/tables.conf"
 real(){ env PATH="$PATH" REPO_DIR="$R" CLINIC_DIR="$TMP/node" CT=docker bash "$S" --container "$CNAME" 2>&1; }
 idsum(){ echo "SELECT COALESCE(SUM(CAST(CONV(LEFT(MD5(CONCAT(form_id, ':', uuid)), 16), 16, 10) AS UNSIGNED)), 0) FROM form;" | sq; }
 a="$(real)"; rc=$?; ia="$(idsum)"

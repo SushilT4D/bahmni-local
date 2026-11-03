@@ -7,7 +7,7 @@
 #   - rows: form (name, version, uuid, published, retired) and form_resource,
 #     whose pointer row names the form's file as
 #     /home/bahmni/clinical_forms/<uuid>.json. The hub is the only node that
-#     publishes forms; the rows reach a clinic by sync (hub/tables.conf) or
+#     publishes forms; the rows reach a clinic by sync (cloud/tables.conf) or
 #     with the seed. A clinic does not create them: its Initializer does not
 #     load forms (initializer.sh), its stack does not run the form builder, and
 #     its forms folder is read-only.

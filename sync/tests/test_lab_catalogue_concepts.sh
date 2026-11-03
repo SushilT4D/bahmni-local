@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# The concept dictionary comes down from the hub as changes only (hub/tables.conf
+# The concept dictionary comes down from the hub as changes only (cloud/tables.conf
 # rows marked `changes`): the OpenMRS half of the lab test catalogue.
 #
-#   - the readers of hub/tables.conf accept the role: the hub source and the
+#   - the readers of cloud/tables.conf accept the role: the hub source and the
 #     clinic sinks take the ten tables, the sink grants and the master-data
 #     checksum include them, the verdict check passes; a `changes` row whose
 #     verdict is not the hub's own (DOWN) and an unknown role are refused;
@@ -25,10 +25,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && p
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 TEN="concept_class concept_reference_source concept concept_name concept_description concept_numeric concept_answer concept_set concept_reference_term concept_reference_map"
-got="$(sed -e 's/#.*//' "$R/hub/tables.conf" | awk -F: 'NF == 3 && $3 == "changes" { print $1 }' | tr '\n' ' ' | sed 's/ $//')"
-[ "$got" = "$TEN" ] && ok_ "hub/tables.conf marks the ten concept tables changes, parents first" || bad "changes rows: [$got]"
+got="$(sed -e 's/#.*//' "$R/cloud/tables.conf" | awk -F: 'NF == 3 && $3 == "changes" { print $1 }' | tr '\n' ' ' | sed 's/ $//')"
+[ "$got" = "$TEN" ] && ok_ "cloud/tables.conf marks the ten concept tables changes, parents first" || bad "changes rows: [$got]"
 for t in concept_complex concept_attribute concept_attribute_type concept_reference_term_map concept_datatype concept_map_type concept_name_tag concept_name_tag_map; do
-  grep -qE "^${t}:" "$R/hub/tables.conf" && bad "hub/tables.conf carries $t, which is not in this set"
+  grep -qE "^${t}:" "$R/cloud/tables.conf" && bad "cloud/tables.conf carries $t, which is not in this set"
 done
 ok_ "nothing outside the ten (concept_complex, attributes, term maps, datatypes, map types, name tags) comes down"
 
@@ -41,12 +41,12 @@ lists="$(REPO_DIR="$R" bash -c '. "$0/clinic/install/lib.sh"; echo "DOWN $(down_
 miss=""; for t in $TEN; do printf '%s\n' "$lists" | grep '^DOWN' | grep -q " $t " || miss="$miss $t"; printf '%s\n' "$lists" | grep -qxF "GRANT SELECT, INSERT, UPDATE, DELETE ON openmrs.$t TO 'sink'@'%';" || miss="$miss grant:$t"; done
 [ -z "$miss" ] && ok_ "the down tables and the sink user's grants include the ten" || bad "down tables / grants lack:$miss"
 printf '%s\n' "$lists" | grep '^MASTER' | grep -q ' concept_name ' && ok_ "the master-data checksum compares them" || bad "master tables: $lists"
-copy(){ rm -rf "$T/r"; mkdir -p "$T/r"; (cd "$R" && tar cf - hub clinic/scripts clinic/install/lib.sh clinic/install/state.sh sync) | (cd "$T/r" && tar xf -); }
-copy; awk '$1 == "concept_name" { $2 = "UP"; print; next } { print }' "$R/hub/table-verdicts.conf" > "$T/r/hub/table-verdicts.conf"
+copy(){ rm -rf "$T/r"; mkdir -p "$T/r"; (cd "$R" && tar cf - cloud clinic/scripts clinic/install/lib.sh clinic/install/state.sh sync) | (cd "$T/r" && tar xf -); }
+copy; awk '$1 == "concept_name" { $2 = "UP"; print; next } { print }' "$R/cloud/table-verdicts.conf" > "$T/r/cloud/table-verdicts.conf"
 out="$(bash "$T/r/clinic/scripts/check-table-verdicts.sh" "$T/r" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'marks concept_name changes, but its verdict is UP' && ok_ "a changes row whose verdict is not DOWN is refused" || bad "changes row with UP verdict: rc=$rc $out"
-gen_hub(){ DEBEZIUM_DB_PASSWORD=x REPO_DIR="$1" HUB_DIR="$1/hub" bash "$1/hub/scripts/generate-cloud-source-connector.sh" "$T/src.json" 2>&1; }
-copy; sed -i.bak 's/^concept_set:concept_set_id:changes$/concept_set:concept_set_id:snapshot/' "$T/r/hub/tables.conf"
+gen_hub(){ DEBEZIUM_DB_PASSWORD=x REPO_DIR="$1" HUB_DIR="$1/cloud" bash "$1/cloud/scripts/generate-cloud-source-connector.sh" "$T/src.json" 2>&1; }
+copy; sed -i.bak 's/^concept_set:concept_set_id:changes$/concept_set:concept_set_id:snapshot/' "$T/r/cloud/tables.conf"
 out="$(gen_hub "$T/r")"; rc=$?
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "unknown role 'snapshot'" && ok_ "an unknown role is refused by the hub source generator" || bad "unknown role: rc=$rc $out"
 
@@ -91,7 +91,7 @@ for t in ("users", "role", "form"):
     assert c["delete.enabled"] == "true" and "noDeletes" not in c["transforms"], t
 EOF
 # the old-stack clinic's list: the lab results and the ten concept tables
-{ printf 'encounter:encounter_id:clinic=visit_id\nobs:obs_id:clinic=order_id\n'; grep -E ':changes$' "$R/hub/tables.conf"; } > "$T/old-stack.conf"
+{ printf 'encounter:encounter_id:clinic=visit_id\nobs:obs_id:clinic=order_id\n'; grep -E ':changes$' "$R/cloud/tables.conf"; } > "$T/old-stack.conf"
 ( cd "$R/clinic" && TABLES_CONF="$T/old-stack.conf" LOCAL_MYSQL_PASSWORD=x RESIDUE=3 FLOOR_ORDERS=441560 bash scripts/generate-local-sink-connectors.sh "$T/old" >/dev/null 2>&1 ) || bad "the old-stack list did not render"
 want="$(for t in encounter obs $TEN; do echo "mysql-local-sink-$t.json"; done | sort | tr '\n' ' ')"
 [ "$(ls "$T/old" 2>/dev/null | sort | tr '\n' ' ')" = "$want" ] && ok_ "the old-stack clinic's list renders exactly twelve sinks: encounter, obs and the ten concept tables" || bad "old-stack sinks: $(ls "$T/old" 2>/dev/null | tr '\n' ' ')"

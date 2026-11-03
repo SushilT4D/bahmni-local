@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from sync/local/tables.conf or hub/tables.conf.
+# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from sync/local/tables.conf or cloud/tables.conf.
 #
 # Usage:
 #   ./scripts/generate-table-config.sh local
@@ -15,7 +15,7 @@ usage() {
 Usage: $(basename "$0") <local|cloud>
 
   local   Read sync/local/tables.conf      (clinic → cloud CDC)
-  cloud   Read hub/tables.conf             (cloud → clinic)
+  cloud   Read cloud/tables.conf             (cloud → clinic)
 
   --include-relay   Also emit tables marked `:relay` -- clinic-owned tables the
                     hub relays. A CLINIC needs these, because they
@@ -35,10 +35,10 @@ case "${SIDE}" in
   *) usage; echo "Error: unknown side '${SIDE}' (use local or cloud)" >&2; exit 1 ;;
 esac
 
-# Stage 4: this script lives in clinic/scripts/, the hub tree is hub/
+# Stage 4: this script lives in clinic/scripts/, the hub tree is cloud/
 # and the shared sync definitions are sync/ -- all siblings of PROJECT_DIR (clinic/).
 case "${SIDE}" in
-  cloud) TABLES_CONF="${PROJECT_DIR}/../hub/tables.conf" ;;
+  cloud) TABLES_CONF="${PROJECT_DIR}/../cloud/tables.conf" ;;
   *)     TABLES_CONF="${PROJECT_DIR}/../sync/${SIDE}/tables.conf" ;;
 esac
 [[ -f "${TABLES_CONF}" ]] || { echo "Error: ${TABLES_CONF} not found"; exit 1; }
@@ -107,7 +107,7 @@ else
     # The other role is `clinic=<column>`: a table the clinics write, of which
     # the hub publishes only its own rows (lab results), each kept by the clinic
     # <column> names; the hub's source and the clinic's sink filter them
-    # (hub/tables.conf).
+    # (cloud/tables.conf).
     if [[ "$line" =~ ^([^:]+):([^:]+)(:([A-Za-z0-9_]+|hub-rows|clinic=[a-z_][a-z0-9_]*))?$ ]]; then
       table="${BASH_REMATCH[1]}"
       pk="${BASH_REMATCH[2]}"
