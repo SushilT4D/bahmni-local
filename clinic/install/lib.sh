@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Shared helpers for clinic/install. The shape (begin_task / ok / skip / fail, one
-# task per file, --force-free idempotence) follows initialize/lib.sh on
-# main; the content is this fleet's: derived identity, the residue ledger, the
-# .env quoting contract, docker/podman behind one wrapper.
+# Shared helpers for clinic/install: begin_task / ok / skip / fail, one task per
+# file, --force-free idempotence; derived identity, the residue ledger, the .env
+# quoting contract, docker/podman behind one wrapper.
 #
 # bash 3.2 compatible on purpose: macOS ships 3.2. No associative arrays, no
 # mapfile, no ${var,,}.

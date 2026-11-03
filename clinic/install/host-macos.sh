@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # macOS host layer: Homebrew, podman, the podman machine, DOCKER_HOST for
 # docker-compose, a LaunchAgent that starts the machine at login, dnsmasq for
-# the clinic LAN name, and ports 80/443 for the proxy. Shape from
-# initialize/01,02,03,08,11 on main. Rootless podman.
+# the clinic LAN name, and ports 80/443 for the proxy. Rootless podman.
 
 # podman_machine_size HOST_MIB HOST_CPUS : sets MACHINE_MIB / MACHINE_CPUS for
 # a NEW machine (never called to resize an existing one -- see host_macos

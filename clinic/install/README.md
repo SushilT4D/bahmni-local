@@ -125,7 +125,6 @@ Tests: `bash clinic/install/tests/run.sh` (no runtime needed). On Darwin this
 runs the whole suite a second time under `/bin/bash` -- macOS's own stock
 bash 3.2, not whatever `bash` resolves to on `PATH` -- so a script that
 accidentally needs bash 4+ is caught here, not on a clinic Mac.
-Shape credit: the `initialize/` tree on `main`.
 
 ## Forms
 
