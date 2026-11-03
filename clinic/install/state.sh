@@ -1,0 +1,595 @@
+#!/usr/bin/env bash
+# Machine state between the two sittings, and the rules the seed sitting
+# checks before it replaces a single database. Pure functions: no runtime is
+# touched here, so every rule is tested without one. bash 3.2 compatible.
+STATE_FILE="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
+
+stamp_get(){ if [ -f "${STATE_FILE}" ]; then env_get "${STATE_FILE}" "$1"; fi; }
+stamp_put(){ # KEY VALUE
+  [ -f "${STATE_FILE}" ] || { : > "${STATE_FILE}"; chmod 644 "${STATE_FILE}"; }
+  env_put "${STATE_FILE}" "$1" "$2"
+}
+
+# install_gate_verdict STATE ONLY : install never runs over a seeded machine.
+# A resume (--from) skips the fresh-install check in task 000 and would stamp
+# the machine INSTALLED again, re-opening it to a seed that drops live data.
+# The one exception is re-running the host layer alone (--only 010), which
+# re-points the name service after the machine moved and touches no data.
+install_gate_verdict(){
+  case "${1:-}" in
+    SEEDED|SEEDING)
+      [ "${2:-}" = 010 ] && { printf 'ok\n'; return 0; }
+      if [ "$1" = SEEDED ]; then printf 'this machine is already seeded; install.sh would put it back to the baseline state. Only --only 010 (the name service) may run on it.\n'
+      else printf 'this machine is being seeded; install.sh would put it back to the baseline state. Finish or rerun the seed (seed.sh) instead.\n'; fi
+      return 1 ;;
+    *) printf 'ok\n' ;;
+  esac
+}
+
+# stamp_gate_verdict STATE [SYNC_STARTED] : the seed sitting runs once, after
+# install. SEEDING is allowed: an earlier seed stopped part-way and its
+# databases hold nothing anyone entered, so it is redone from the start --
+# unless it got as far as the sync layer, whose replication slots and
+# connector positions a database drop would leave pointing at nothing.
+stamp_gate_verdict(){
+  case "${1:-}" in
+    SEEDING)
+      if [ "${2:-0}" = 1 ]; then printf 'this seed stopped after the sync layer had started; redoing it needs the operator (replication state must be cleared first). Call the operator.\n'; return 1; fi
+      printf 'ok\n' ;;
+    INSTALLED) printf 'ok\n' ;;
+    SEEDED) printf 'this machine is already seeded; a clinic is seeded once. Call the operator.\n'; return 1 ;;
+    *) printf 'this machine is not installed yet (no install state found); the operator runs install.sh first. Call the operator.\n'; return 1 ;;
+  esac
+}
+
+# seed_resume_verdict STATE FROM ONLY : --from and --only skip tasks, the gate
+# (005) among them, so they may only resume a seed that already passed it and
+# stopped part-way (SEEDING).
+seed_resume_verdict(){
+  if [ -z "${2:-}" ] && [ -z "${3:-}" ]; then printf 'ok\n'; return 0; fi
+  [ "${1:-}" = SEEDING ] && { printf 'ok\n'; return 0; }
+  printf -- '--from and --only only resume a seed that stopped part-way; this machine is %s. Run seed.sh --seed <folder> without them.\n' "${1:-not installed}"
+  return 1
+}
+
+# resume_redoes_drop FROM ONLY : does this run reach task 050, which drops the
+# databases? Only such a run is dangerous once the sync layer has started.
+resume_redoes_drop(){
+  local n="${2:-${1:-}}"
+  [ -z "$n" ] && return 0
+  [ "$((10#$n))" -le 50 ]
+}
+
+sha256_of(){ # FILE
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# seed_manifest_verdict DIR NOW_EPOCH MAX_DAYS
+# The hub keeps a limited window of changes; a clinic learns what the hub
+# wrote after the dump only from that window, so an old dump silently loses
+# the gap. The age comes from the manifest, never from file times, which a
+# copy rewrites.
+seed_manifest_verdict(){
+  local dir="$1" now="$2" max="$3" m="$1/manifest.env" taken epoch age f key want got
+  [ -f "$m" ] || { printf 'the seed folder has no manifest.env; ask the operator for a fresh seed folder.\n'; return 1; }
+  taken="$(env_get "$m" SEED_TAKEN_AT)"
+  epoch="$(python3 -c 'import sys,datetime; print(int(datetime.datetime.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()))' "$taken" 2>/dev/null)" \
+    || { printf 'manifest.env has no readable SEED_TAKEN_AT (%s); ask the operator for a fresh seed folder.\n' "${taken:-empty}"; return 1; }
+  if [ "$epoch" -gt $((now + 86400)) ]; then
+    printf 'the dump is dated in the future (%s); check this machine'"'"'s date and time, then call the operator.\n' "$taken"; return 1
+  fi
+  age=$(( (now - epoch) / 86400 ))
+  if [ "$age" -gt "$max" ]; then
+    printf 'the dump is %s days old (taken %s); the limit is %s days because the hub keeps only a week of changes. Ask the operator for a fresh dump.\n' "$age" "$taken" "$max"; return 1
+  fi
+  for f in openmrs odoo openelis; do
+    [ -s "$dir/$f.sql.gz" ] || { printf '%s.sql.gz is missing from the seed folder; ask the operator for a fresh copy.\n' "$f"; return 1; }
+    key="SHA256_$(printf '%s' "$f" | tr a-z A-Z)"; want="$(env_get "$m" "$key")"; got="$(sha256_of "$dir/$f.sql.gz")"
+    if [ -z "$want" ] || [ "$want" != "$got" ]; then
+      printf '%s.sql.gz does not match its checksum (damaged or replaced in the copy); ask the operator for a fresh copy.\n' "$f"; return 1
+    fi
+  done
+  printf 'ok %s\n' "$taken"
+}
+
+# seed_floor_tables TABLES_CONF : the tables whose floor sync/local/tables.conf
+# takes from the seed (table:pk:seed), one per line. A list the reader refuses
+# fails, with the reader's reason on stderr.
+seed_floor_tables(){
+  type up_tables_read >/dev/null 2>&1 || . "${INSTALL_DIR}/../../sync/local/tables-conf.sh"
+  local recs
+  recs="$(up_tables_read "$1")" || return 1
+  printf '%s\n' "$recs" | awk '$3=="seed" {print $1}'
+}
+
+# The clinical tables whose id counter the seed lifts above the manifest's
+# floor whenever the manifest carries one (FLOOR_OBS, FLOOR_ORDERS), whether
+# or not sync/local/tables.conf lists them. A clinic writes obs and orders from
+# its first consultation. With the counter the dump restored, those ids fall
+# below the floor, among ids the hub's own rows use, so once the tables are
+# synced the hub could not tell the clinic's rows from its own, and a row
+# could carry an id the hub already has. drug_order's and test_order's key is
+# orders.order_id, so neither has a counter of its own.
+SEED_COUNTER_TABLES="obs orders"
+
+floor_key(){ printf 'FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
+seed_counter_pk(){ case "$1" in obs) printf 'obs_id' ;; orders) printf 'order_id' ;; *) return 1 ;; esac; }
+
+# seed_floor_residue_sql TABLE FLOOR : counts the seeded rows at or above the
+# floor that are not on the hub's residue 0.
+seed_floor_residue_sql(){
+  local pk; pk="$(seed_counter_pk "$1")" || return 1
+  printf 'select count(*) from openmrs.`%s` where `%s` >= %s and `%s` %% 10 <> 0;\n' "$1" "$pk" "$2" "$pk"
+}
+# seed_floor_residue_verdict TABLE FLOOR COUNT : at or above the floor, a
+# residue names the node that wrote the row, and every row the seed carries
+# there must be the hub's (residue 0). A row on a clinic's residue would pass
+# that clinic's capture filter, so its edits would be published as the
+# clinic's own and overwrite the hub's row; the hub writes above the floor
+# while the dump runs, so this is read, not assumed.
+seed_floor_residue_verdict(){
+  local t="$1" fl="$2" n="$3"
+  case "$n" in ''|*[!0-9]*) printf 'could not count the %s rows at or above the floor %s (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$fl" "$n"; return 1 ;; esac
+  if [ "$n" -gt 0 ]; then
+    printf 'the seed holds %s %s row(s) at or above the floor %s that are not on the hub'"'"'s residue 0: a clinic on that residue would publish its edits to them as its own. This seed cannot be used; ask the operator for a fresh seed folder.\n' "$n" "$t" "$fl"; return 1
+  fi
+  printf 'ok %s: every seeded row at or above the floor %s is the hub'"'"'s (residue 0)\n' "$t" "$fl"
+}
+
+# seed_floors_verdict MANIFEST TABLES_CONF
+# Each table whose floor comes from the seed needs FLOOR_<TABLE> in the
+# manifest: the id below which every row is the hub's, measured on the hub when
+# the dump was cut. A clinic strides the table to start above it, and the sync
+# layer tells this clinic's rows from the hub's by it, so a seed without it
+# cannot be used. The SEED_COUNTER_TABLES floors are required whether or not
+# the list takes those tables from the seed: the striding step lifts their
+# counters by them, and a seed cut without them (an older seed) is refused.
+# Every floor is a multiple of 10, so floor + residue is on the residue.
+# Prints "ok" and the floors (TABLE=FLOOR ...), or the refusal.
+seed_floors_verdict(){
+  local m="$1" conf="$2" ts t key v got=""
+  ts="$(seed_floor_tables "$conf" 2>&1)" || { printf 'the clinic table list cannot be read: %s\n' "$ts"; return 1; }
+  for t in $ts $SEED_COUNTER_TABLES; do
+    case " ${got} " in *" ${t}="*) continue ;; esac
+    key="$(floor_key "$t")"
+    v="$(env_get "$m" "$key")"
+    case "$v" in
+      ''|*[!0-9]*) printf 'manifest.env carries no %s floor (%s): this seed was cut without measuring where the hub'"'"'s %s ids end, so this clinic cannot start its own above them. Ask the operator for a fresh seed folder.\n' "$t" "$key" "$t"; return 1 ;;
+    esac
+    if [ "$v" -le 0 ] || [ $((v % 10)) -ne 0 ]; then
+      printf 'manifest.env %s=%s is not a positive multiple of 10, so floor + residue would not be on this clinic'"'"'s residue. Ask the operator for a fresh seed folder.\n' "$key" "$v"; return 1
+    fi
+    got="${got} ${t}=${v}"
+  done
+  printf 'ok%s\n' "$got"
+}
+
+# seed_counter_plan TABLE AUTO_INCREMENT FLOOR RESIDUE : what the striding step
+# does with a SEED_COUNTER_TABLES counter. The first id this clinic may write is
+# the first id on its residue at or above the floor (floor 5000000, residue 3:
+# 5000003). "set FIRST" when the counter is below it (the dump restored the
+# hub's max + 1 from below the floor); "keep" when it is at or above FIRST,
+# whatever its last digit: MySQL, striding 10 apart on this residue, issues the
+# next id on this residue at or above the counter (the counter_floor_verdict
+# arithmetic). Such a counter is normal: the hub measures the floor before it
+# dumps and keeps writing its own rows, on its own residue, above the floor
+# during the dump; and after a restart MySQL derives the counter from the
+# largest id, so it need not be on this residue. Moving it back would never be
+# right: a rerun after this clinic wrote rows must not reissue their ids.
+seed_counter_plan(){
+  local t="$1" ai="$2" fl="$3" r="$4" first
+  case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
+  case "$r" in [1-9]) ;; *) printf 'residue %s is not a clinic residue (1 to 9)\n' "${r:-none}"; return 1 ;; esac
+  first=$(( fl + (r - fl % 10 + 10) % 10 ))
+  if [ "$ai" -lt "$first" ]; then printf 'set %s\n' "$first"; else printf 'keep\n'; fi
+}
+
+# counter_floor_verdict TABLE AUTO_INCREMENT FLOOR RESIDUE
+# With auto_increment_increment 10 and offset RESIDUE, the next id MySQL issues
+# is the smallest value at or above AUTO_INCREMENT that is RESIDUE mod 10. It
+# must be at or above FLOOR + RESIDUE: below the floor, ids belong to the hub's
+# legacy rows, and a row written there could carry an id the hub already has.
+counter_floor_verdict(){
+  local t="$1" ai="$2" fl="$3" r="$4" next
+  case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t"; return 1 ;; esac
+  next=$(( ai + (r - ai % 10 + 10) % 10 ))
+  if [ "$next" -lt $((fl + r)) ]; then
+    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
+    return 1
+  fi
+  printf 'ok %s next id %s, at or above floor %s + residue %s\n' "$t" "$next" "$fl" "$r"
+}
+
+# counter_floor_verdicts TABLES_CONF RESIDUE READER : counter_floor_verdict for
+# every table whose floor comes from the seed, against the floor this machine
+# recorded at the seed gate: each table the list takes from the seed, and each
+# SEED_COUNTER_TABLES table with a recorded floor, listed or not. READER TABLE
+# prints that table's AUTO_INCREMENT. Prints one "ok ..." line per table, or
+# the first refusal and returns 1. A table list that cannot be read is a
+# refusal: checking no table is never a pass, because a broken list would
+# otherwise skip every counter.
+counter_floor_verdicts(){
+  local conf="$1" r="$2" reader="$3" ts t v out=""
+  ts="$(seed_floor_tables "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so no id counter was checked: %s\n' "${ts:-no reason given}"; return 1; }
+  ts="$(printf '%s' "$ts" | tr '\n' ' ')"
+  for t in $SEED_COUNTER_TABLES; do
+    case " ${ts} " in *" ${t} "*) continue ;; esac
+    [ -z "$(stamp_get "$(floor_key "$t")")" ] || ts="${ts} ${t}"
+  done
+  [ -n "${ts// /}" ] || { printf 'ok no table in sync/local/tables.conf takes its floor from the seed, and no obs or orders floor is recorded: no id counter to check\n'; return 0; }
+  for t in $ts; do
+    v="$(counter_floor_verdict "$t" "$("$reader" "$t")" "$(stamp_get "$(floor_key "$t")")" "$r")" || { printf '%s\n' "$v"; return 1; }
+    out="${out}${v}
+"
+  done
+  printf '%s' "$out"
+}
+
+# mysql_stride_verdict "INCREMENT OFFSET" RESIDUE : MySQL must issue ids 10
+# apart on this clinic's residue; with any other pair a new row lands on
+# another node's residue whatever its counter says.
+mysql_stride_verdict(){
+  case "$1" in
+    "10 $2") printf 'ok MySQL issues ids 10 apart on residue %s\n' "$2" ;;
+    '') printf 'could not read MySQL'"'"'s id increment and offset; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1 ;;
+    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$1" "$2"; return 1 ;;
+  esac
+}
+
+# node_counters_verdict STATE TABLES_CONF RESIDUE READER : the id counter check
+# for a machine whose install state is STATE. READER TABLE prints the table's
+# AUTO_INCREMENT; READER --stride prints MySQL's "increment offset". On a
+# seeded machine every floored counter must still be at or above its floor and
+# MySQL must stride on this residue: a restored database or a reset counter
+# would hand out ids that rows written elsewhere already carry. Any other
+# machine has no floors yet (the seed gate records them and the striding step
+# checks the counters itself), so it prints "skip" and the reason.
+node_counters_verdict(){
+  local st="${1:-}" conf="$2" r="$3" reader="$4" v
+  case "$st" in
+    SEEDED) ;;
+    SEEDING) printf 'skip id counters not checked: this machine is part-way through its seed, whose striding step checks them\n'; return 0 ;;
+    *) printf 'skip id counters not checked: this machine is not seeded yet, so it has no id floors\n'; return 0 ;;
+  esac
+  v="$(mysql_stride_verdict "$("$reader" --stride)" "$r")" || { printf '%s\n' "$v"; return 1; }
+  counter_floor_verdicts "$conf" "$r" "$reader" || return 1
+  printf '%s\n' "$v"
+}
+
+# Order numbers. OpenMRS issues ORD-<k> from the global property
+# order.nextOrderNumberSeed, which is node-local and not synced, and every
+# seeded node starts with the value the seed carries. Two nodes issuing from
+# the same value would write the same order number for different orders, and
+# the orders table does not refuse a duplicate. So each node issues from its
+# own range: a clinic of residue r from r x 10,000,000 + 1 to
+# (r + 1) x 10,000,000 - 1, the hub below 10,000,000, where every number issued
+# before clinics wrote orders already lies.
+ORDER_RANGE_WIDTH=10000000
+ORDER_RANGE_MARGIN=1000000
+
+# order_seed_range RESIDUE : prints "FIRST LAST", the order numbers this clinic
+# may issue. A residue outside 1..9 has no clinic range.
+order_seed_range(){
+  case "${1:-}" in [1-9]) ;; *) printf 'residue %s has no order-number range: a clinic is residue 1 to 9, and below 10,000,000 is the hub'"'"'s.\n' "${1:-none}"; return 1 ;; esac
+  printf '%s %s\n' $(( $1 * ORDER_RANGE_WIDTH + 1 )) $(( ($1 + 1) * ORDER_RANGE_WIDTH - 1 ))
+}
+
+# order_seed_owner VALUE : whose range VALUE lies in, in words.
+order_seed_owner(){
+  if [ "$1" -lt "${ORDER_RANGE_WIDTH}" ]; then printf 'the hub'"'"'s range (below 10,000,000)'
+  elif [ "$1" -lt $(( 10 * ORDER_RANGE_WIDTH )) ]; then printf 'the range of the clinic with residue %s' $(( $1 / ORDER_RANGE_WIDTH ))
+  else printf 'no node'"'"'s range (above 99,999,999)'; fi
+}
+
+# order_seed_plan VALUE RESIDUE : what task 060 does with the seed's value.
+# "keep" when it is already in this clinic's range (a rerun after orders were
+# issued must not move it back); "set FIRST" when it is the hub's value the
+# seed carries, or absent (OpenMRS would otherwise start at 1, in the hub's
+# range); refused when it is in another clinic's range or not a number, which
+# only a database copied from another clinic, or edited, can hold.
+order_seed_plan(){
+  local v="$1" r="$2" rg lo hi
+  rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
+  lo="${rg% *}"; hi="${rg#* }"
+  case "$v" in
+    '') printf 'set %s\n' "$lo"; return 0 ;;
+    *[!0-9]*) printf 'order.nextOrderNumberSeed is '"'"'%s'"'"', not a number, so the next order number this clinic issues cannot be known. Call the operator.\n' "$v"; return 1 ;;
+  esac
+  if [ "$v" -ge "$lo" ] && [ "$v" -le "$hi" ]; then printf 'keep\n'; return 0; fi
+  if [ "$v" -lt "${ORDER_RANGE_WIDTH}" ]; then printf 'set %s\n' "$lo"; return 0; fi
+  printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): this database carries another node'"'"'s order counter, and numbers issued from it would duplicate that node'"'"'s. Call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+  return 1
+}
+
+# order_seed_sql FIRST : the statement that sets the property, creating the row
+# when the seed lacks it (global_property.uuid is NOT NULL).
+order_seed_sql(){
+  printf "INSERT INTO global_property (property, property_value, description, uuid) VALUES ('order.nextOrderNumberSeed', '%s', 'The next order number to seed the order number generator', UUID()) ON DUPLICATE KEY UPDATE property_value = '%s';\n" "$1" "$1"
+}
+
+# order_seed_verdict VALUE RESIDUE : the value read back must be in this
+# clinic's range. Within 1,000,000 of the top it still passes, with a warning
+# on stderr: the range is nearly used up, and past its top the numbers would be
+# the next clinic's.
+order_seed_verdict(){
+  local v="$1" r="$2" rg lo hi
+  rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
+  lo="${rg% *}"; hi="${rg#* }"
+  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v"; return 1 ;; esac
+  if [ "$v" -lt "$lo" ] || [ "$v" -gt "$hi" ]; then
+    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+    return 1
+  fi
+  if [ $(( hi - v )) -lt "${ORDER_RANGE_MARGIN}" ]; then
+    printf 'order.nextOrderNumberSeed is %s, within 1,000,000 of the top of this clinic'"'"'s range (%s): past it, numbers are the next clinic'"'"'s. Call the operator.\n' "$v" "$hi" >&2
+  fi
+  printf 'ok order.nextOrderNumberSeed %s, in this clinic'"'"'s range %s to %s\n' "$v" "$lo" "$hi"
+}
+
+# early_data_verdict OMRS_NEW ODOO_NEW ELIS_NEW DISCARD
+# Counts are rows created after install (above the marks install recorded).
+# Nothing entered before seeding survives it, so the seed refuses rather than
+# silently discarding someone's work, unless told to.
+early_data_verdict(){
+  local o="$1" d="$2" e="$3" discard="$4" what n
+  # a count that could not be read is not zero: fail closed
+  for n in "$o" "$d" "$e"; do
+    case "$n" in ''|*[!0-9]*) printf 'could not count the records entered before seeding (a database is not answering yet); wait a few minutes and run the same command again. If it persists, call the operator.\n'; return 1 ;; esac
+  done
+  what="OpenMRS people: ${o}, Odoo customers: ${d}, OpenELIS samples: ${e}"
+  if [ "$o" = 0 ] && [ "$d" = 0 ] && [ "$e" = 0 ]; then printf 'ok\n'; return 0; fi
+  if [ "$discard" = 1 ]; then printf 'discard %s\n' "$what"; return 0; fi
+  printf 'records were entered on this machine before seeding (%s); seeding replaces them. If they are only tests, run again with --discard-baseline-data. Otherwise call the operator.\n' "$what"
+  return 1
+}
+
+# lan_name_verdict RESOLVED CURRENT_IP NAME : staff reach the stack by NAME, so
+# it must resolve to the address this machine has now (a machine moved to a new
+# network, or onto another interface, keeps an answer that points elsewhere).
+lan_name_verdict(){
+  local got="$1" ip="$2" name="$3"
+  [ -n "$got" ] || { printf '%s does not resolve on this machine (asked at %s): the name service is not answering on this network. Call the operator; they re-point it with: clinic/install/install.sh --clinic <slug> --only 010\n' "$name" "${ip:-no address}"; return 1; }
+  [ "$got" = "$ip" ] || { printf '%s resolves to %s, but this machine is %s: it was moved to another network or interface since install. Call the operator; they re-point the name service with: clinic/install/install.sh --clinic <slug> --only 010\n' "$name" "$got" "$ip"; return 1; }
+  printf 'ok\n'
+}
+
+# seed_shape_verdict DIR : the dumps come from the pinned OpenMRS and Odoo
+# versions, and the hub had partitioned its address and customer-attribute
+# ids before it was dumped (a seed taken earlier would hand this clinic ids
+# the hub also uses, and a clinic-minted village row can stop a sink).
+# Streamed straight from the gz, never unpacked to disk.
+seed_shape_verdict(){
+  local dir="$1" f out tfound inc t q
+  for f in openmrs.sql.gz odoo.sql.gz openelis.sql.gz; do
+    [ -s "$dir/$f" ] || { printf 'seed file missing or empty: %s\n' "$dir/$f"; return 1; }
+    gzip -t "$dir/$f" 2>/dev/null || { printf 'seed file is not valid gzip: %s\n' "$dir/$f"; return 1; }
+  done
+  # `{ gzip ... || true; }`: grep -m1 closes the pipe at its first match, gzip
+  # then dies of SIGPIPE, and pipefail would report the whole pipeline failed
+  { gzip -dc "$dir/openmrs.sql.gz" 2>/dev/null || true; } | grep -qm1 '20251223-drop-default-value-from-column' \
+    || { printf 'seed openmrs.sql.gz is not an iplit-1.2.0 dump (changeset 20251223-drop-default-value-from-column absent); the hub must be on %s before it is dumped\n' "${OPENMRS_IMAGE_NAME:-the pinned OpenMRS}"; return 1; }
+  { gzip -dc "$dir/odoo.sql.gz" 2>/dev/null || true; } | grep -qm1 -E 'CREATE TABLE (public\.)?uom_uom\b' \
+    || { printf 'seed odoo.sql.gz is not an Odoo 16 dump (no uom_uom)\n'; return 1; }
+  # pg_dump names a serial id's sequence either as CREATE SEQUENCE ... INCREMENT BY n
+  # or inside a multi-line ADD GENERATED ... AS IDENTITY ( ... INCREMENT BY n ... ):
+  # take the first INCREMENT BY within the lines after the first line naming it
+  out="$({ gzip -dc "$dir/odoo.sql.gz" 2>/dev/null || true; } | awk '
+    function chk(tbl) { if ($0 ~ ("CREATE TABLE (public\\.)?" tbl "[[:space:](]")) print "TABLE_FOUND=" tbl }
+    { chk("village_village"); chk("res_partner_attributes") }
+    index($0, "village_village_id_seq") > 0 && w1 == 0 { w1 = 9 }
+    w1 > 0 { if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=village_village_id_seq=" n; w1 = -1 } else w1-- }
+    index($0, "res_partner_attributes_id_seq") > 0 && w2 == 0 { w2 = 9 }
+    w2 > 0 { if (match($0, /INCREMENT BY [0-9]+/)) { n = substr($0, RSTART, RLENGTH); sub(/INCREMENT BY /, "", n); print "INC=res_partner_attributes_id_seq=" n; w2 = -1 } else w2-- }
+  ')"
+  for t in village_village res_partner_attributes; do
+    q="${t}_id_seq"
+    tfound="$(printf '%s\n' "$out" | grep -c "^TABLE_FOUND=${t}\$" || true)"
+    inc="$(printf '%s\n' "$out" | grep "^INC=${q}=" | head -1 | cut -d= -f3 || true)"
+    [ "${tfound:-0}" -ge 1 ] || { printf 'seed odoo.sql.gz has no %s table -- wrong-shape seed (this table'"'"'s ids are partitioned across the fleet); ask the operator for a fresh seed\n' "$t"; return 1; }
+    [ "$inc" = 10 ] || { printf 'seed odoo.sql.gz: %s is not INCREMENT BY 10 (found %s) -- this seed was dumped before the hub partitioned its address and customer-attribute ids; a clinic built from it would hand out %s ids the hub also uses; ask the operator for a fresh seed\n' "$q" "${inc:-none}" "$t"; return 1; }
+  done
+  printf 'ok seed shape: openmrs iplit-1.2.0, odoo 16; village_village, res_partner_attributes sequences step 10\n'
+}
+
+# The seed's provenance record (provenance.tsv, named by PROVENANCE in the
+# manifest and bound to it by SHA256_PROVENANCE): what the hub's master tables
+# and foreign keys held when the dumps were cut, read on the hub before and
+# after them. Tab-separated; the lines read here:
+#   tool     master-checksum.sh <sha256 of the script that computed the content lines>
+#   exclude  <table>.<column> left out of every content checksum
+#   content  <table> <rows> <checksum> <columns>   (clinic/scripts/master-checksum.sh's line)
+#   fk       set <count> <sha256>  |  fk <table> <column> <referenced table> <referenced column> <constraint>
+# The seed gate checks it and keeps a copy on the machine (PROVENANCE_COPY),
+# so the join and every later check compare against the seed this machine was
+# built from, after the seed folder is gone.
+PROVENANCE_COPY="${PROVENANCE_COPY:-${CLINIC_DIR}/.seed-provenance.tsv}"
+
+# seed_provenance_verdict DIR : the record is named, present, unaltered, and
+# carries what the later checks compare: the content checksums, the tool that
+# computed them, and the foreign key set. Prints "ok ..." or the refusal.
+seed_provenance_verdict(){
+  local dir="$1" m="$1/manifest.env" p want got n k
+  p="$(env_get "$m" PROVENANCE)"
+  [ -n "$p" ] || { printf 'manifest.env names no provenance record (PROVENANCE): this seed was cut without recording what the hub'"'"'s master tables held, so this clinic could never show it was built from the hub it joins. Ask the operator for a fresh seed folder.\n'; return 1; }
+  case "$p" in */*|.*) printf 'manifest.env PROVENANCE=%s is not a file in the seed folder. Ask the operator for a fresh seed folder.\n' "$p"; return 1 ;; esac
+  [ -s "$dir/$p" ] || { printf '%s is missing from the seed folder; ask the operator for a fresh copy.\n' "$p"; return 1; }
+  want="$(env_get "$m" SHA256_PROVENANCE)"; got="$(sha256_of "$dir/$p")"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    printf '%s does not match its checksum (damaged or replaced in the copy); ask the operator for a fresh copy.\n' "$p"; return 1
+  fi
+  n="$(awk -F'\t' '$1=="content"' "$dir/$p" | grep -c . || true)"
+  [ "$n" -gt 0 ] || { printf '%s records no master table content, so nothing could be compared at join. Ask the operator for a fresh seed folder.\n' "$p"; return 1; }
+  awk -F'\t' '$1=="tool" && $2=="master-checksum.sh" && $3!="" {f=1} END {exit !f}' "$dir/$p" \
+    || { printf '%s does not say which checksum tool computed it. Ask the operator for a fresh seed folder.\n' "$p"; return 1; }
+  k="$(awk -F'\t' '$1=="fk" && $2=="set" {print $3}' "$dir/$p" | head -1)"
+  case "$k" in ''|*[!0-9]*) printf '%s records no foreign key set, so this clinic'"'"'s schema could not be compared with the hub'"'"'s. Ask the operator for a fresh seed folder.\n' "$p"; return 1 ;; esac
+  printf 'ok %s master tables, %s foreign keys\n' "$n" "$k"
+}
+
+# provenance_content_verdict RECORD CLINIC_LINES TOOL_SHA EXCLUSIONS_FILE
+# CLINIC_LINES is master-checksum.sh's output on this clinic for the record's
+# tables, TOOL_SHA the sha256 of this checkout's master-checksum.sh. Every
+# table's line must equal the record's: a clinic seeded from another dump, or
+# whose master rows changed after the seed, differs, and the first differing
+# table (in name order) is named. A different tool or exclusion list is
+# refused first: the lines would differ for that reason alone.
+provenance_content_verdict(){
+  local rec="$1" lines="$2" sha="$3" xf="$4" t want got n=0 a b
+  a="$(awk -F'\t' '$1=="tool" && $2=="master-checksum.sh" {print $3}' "$rec" | head -1)"
+  if [ "$a" != "$sha" ]; then
+    printf 'this checkout'"'"'s clinic/scripts/master-checksum.sh is not the one the seed'"'"'s record was computed with, so their checksums cannot be compared. Check out the commit the seed was cut against, or ask the operator for a seed cut with this one.\n'; return 1
+  fi
+  a="$(awk -F'\t' '$1=="exclude" {print $2}' "$rec" | LC_ALL=C sort | tr '\n' ' ')"
+  b="$(awk '{ sub(/#.*/, "") } NF { print $1 }' "$xf" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')"
+  if [ "$a" != "$b" ]; then
+    printf 'this checkout leaves out other columns from the checksums (%s) than the seed'"'"'s record did (%s), so they cannot be compared. Check out the commit the seed was cut against.\n' "${b:-none}" "${a:-none}"; return 1
+  fi
+  while IFS='	' read -r t want; do
+    [ -n "$t" ] || continue
+    n=$((n+1))
+    got="$(printf '%s\n' "$lines" | awk -F'\t' -v t="$t" '$1==t { sub(/^[^\t]*\t/, ""); print; exit }')"
+    if [ "$got" != "$want" ]; then
+      printf 'this clinic'"'"'s %s is not the %s of the seed it was built from (seed: %s; this clinic: %s). It was seeded from another dump, or its %s rows changed after the seed. A clinic joins only the hub it was seeded from; call the operator.\n' "$t" "$t" "$(printf '%s' "$want" | tr '\t' ' ')" "$(printf '%s' "${got:-no line}" | tr '\t' ' ')" "$t"
+      return 1
+    fi
+  done <<EOF
+$(awk -F'\t' '$1=="content" { sub(/^content\t/, ""); print }' "$rec" | LC_ALL=C sort)
+EOF
+  [ "$n" -gt 0 ] || { printf 'the seed'"'"'s record holds no master table content to compare\n'; return 1; }
+  printf 'ok %s master tables equal to the seed this clinic was built from\n' "$n"
+}
+
+# The foreign keys of this clinic's openmrs schema, as information_schema
+# lists them: table, column, referenced table, referenced column, constraint.
+CLINIC_FK_READ_SQL="select table_name, column_name, referenced_table_name, referenced_column_name, constraint_name from information_schema.key_column_usage where table_schema='openmrs' and referenced_table_name is not null order by 1, 2;"
+
+# lines_not_in A B : the lines of B that are not lines of A, in B's order. A
+# pipe, not process substitution: a /dev/fd that closes before the reader
+# opens it reads as empty, and the difference would be lost now and then.
+lines_not_in(){
+  { printf '%s\n' "$1"; printf '\001\n'; printf '%s\n' "$2"; } | awk '$0 == "\001" { s = 1; next } !s { a[$0] = 1; next } $0 != "" && !($0 in a) { print }'
+}
+
+# provenance_fk_verdict RECORD CLINIC_FK_ROWS : this clinic's foreign keys
+# against the hub's, as the seed's provenance record holds them; the hub is the
+# reference. A key out of obs, orders, drug_order or test_order to a table a
+# clinic writes is refused whatever the hub has: the hub's up sinks write those
+# tables in arrival order, and such a key would stop its sink whenever a row
+# arrives before its parent. A key to a table only the hub writes (DOWN in
+# hub/table-verdicts.conf) or only changesets and the seed write (RESEED) is
+# not: its rows are at the hub before any clinic names one.
+# Otherwise the two sets (table, column, referenced table and column; the
+# constraint's name aside) must be equal: a clinic with a key the hub lacks ran
+# a schema change ahead of the hub, and one lacking a hub key is behind it.
+# The first table that differs is named, with what differs.
+provenance_fk_verdict(){
+  local rec="$1" rows="$2" out hub mine t plus minus n hw
+  hw=" $( [ -f "${REPO_DIR}/hub/table-verdicts.conf" ] && awk '{ sub(/#.*/, "") } NF >= 2 && ($2 == "DOWN" || $2 == "RESEED") { print $1 }' "${REPO_DIR}/hub/table-verdicts.conf" | tr '\n' ' ') "
+  out="$(printf '%s\n' "$rows" | awk -F'\t' -v hw="$hw" 'NF >= 4 && ($1=="obs" || $1=="orders" || $1=="drug_order" || $1=="test_order") && index(hw, " " $3 " ") == 0 {print $1 "." $2 " -> " $3 "." $4}' | head -3)"
+  if [ -n "$out" ]; then
+    printf 'this clinic has a foreign key out of a clinical table (%s): the hub would stop taking that table whenever a row arrived before its parent. The schema change that added it must not run at a clinic; call the operator.\n' "$(printf '%s' "$out" | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+    return 1
+  fi
+  awk -F'\t' '$1=="fk" && $2=="set" {f=1} END {exit !f}' "$rec" 2>/dev/null \
+    || { printf 'the seed'"'"'s provenance record holds no foreign key set, so this clinic'"'"'s schema cannot be compared with the hub'"'"'s. Call the operator.\n'; return 1; }
+  hub="$(awk -F'\t' '$1=="fk" && $2!="set" && NF >= 5 {print $2 "\t" $3 "\t" $4 "\t" $5}' "$rec" | LC_ALL=C sort -u)"
+  mine="$(printf '%s\n' "$rows" | awk -F'\t' 'NF >= 4 {print $1 "\t" $2 "\t" $3 "\t" $4}' | LC_ALL=C sort -u)"
+  if [ "$hub" != "$mine" ]; then
+    t="$( { lines_not_in "$hub" "$mine"; lines_not_in "$mine" "$hub"; } | cut -f1 | grep . | LC_ALL=C sort | head -1)"
+    plus="$(lines_not_in "$hub" "$mine" | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+    minus="$(lines_not_in "$mine" "$hub" | awk -F'\t' -v t="$t" '$1==t {print $1 "." $2 " -> " $3 "." $4}' | tr '\n' ';' | sed 's/;$//; s/;/; /g')"
+    printf 'this clinic'"'"'s foreign keys on %s differ from the hub'"'"'s (%s%s%s). The hub is the reference: a clinic with a key the hub lacks ran a schema change ahead of it, one without a hub key is behind it. Call the operator.\n' "$t" "${plus:+only at this clinic: ${plus}}" "${plus:+${minus:+; }}" "${minus:+only at the hub: ${minus}}"
+    return 1
+  fi
+  n="$(printf '%s\n' "$mine" | grep -c . || true)"
+  printf 'ok %s foreign keys, the same as the hub'"'"'s when the seed was cut; none out of obs, orders, drug_order or test_order to a table a clinic writes\n' "$n"
+}
+
+# node_fk_verdict STATE RECORD READER : provenance_fk_verdict on a machine in
+# service (SEEDED), its rows from READER (prints CLINIC_FK_READ_SQL's rows);
+# "skip ..." on any other machine, which holds no record of the hub's keys yet.
+node_fk_verdict(){
+  local rows
+  case "${1:-}" in
+    SEEDED) ;;
+    *) printf 'skip foreign keys not compared with the hub'"'"'s: this machine is not seeded yet, so it holds no record of them\n'; return 0 ;;
+  esac
+  [ -s "$2" ] || { printf 'this machine is seeded but keeps no seed provenance record (%s), so its foreign keys cannot be compared with the hub'"'"'s. Call the operator.\n' "$2"; return 1; }
+  rows="$("$3")" && [ -n "$rows" ] || { printf 'could not read this clinic'"'"'s foreign keys from MySQL; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1; }
+  provenance_fk_verdict "$2" "$rows"
+}
+
+# --- OpenELIS floors: where this clinic's own ids of a table begin ------------
+# The hub sends every clinic the OpenELIS rows its lab users wrote
+# (sync/hub-down.conf); each clinic keeps a row only when its routing column
+# names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh). The
+# clinic's OpenELIS source, in turn, publishes a lab account or signature only
+# when this clinic minted it (UP_CLINLIMS_OWN_ROWS).
+# Every id of a table the seed restored is the hub's, on any residue; this
+# clinic's own ids start where the striding step restarts that table's
+# sequence. So the floor of each table a routed row points at is recorded from
+# the sequence BEFORE the stride, as the striding step computes its restart:
+#     floor = (last_value / 10 + 1) * 10
+# and the first id this clinic mints is floor + residue, or higher where the
+# table holds rows above its sequence (the stride starts above them). It is written once,
+# as CLINLIMS_FLOOR_<TABLE> in .install-state: a re-run after the clinic has
+# minted ids reads a higher last_value, and a floor moved up would drop this
+# clinic's earlier rows, so an existing value is kept.
+
+# clinlims_floor_tables : the tables whose floor a routed OpenELIS down row is
+# compared with (sync/hub-down.sh --routes clinlims, third field), then the
+# tables the clinic's OpenELIS source publishes only above the clinic's floor
+# (UP_CLINLIMS_OWN_ROWS, sync/local/tables-conf.sh), once each.
+clinlims_floor_tables(){
+  local r
+  r="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || return 1
+  [ -n "${UP_CLINLIMS_OWN_ROWS+x}" ] || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  { printf '%s\n' "$r" | awk 'NF == 3 { print $3 }'; printf '%s\n' ${UP_CLINLIMS_OWN_ROWS}; } | awk 'NF && !seen[$1]++ { print $1 }'
+}
+clinlims_floor_key(){ printf 'CLINLIMS_FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
+# clinlims_seq_sql TABLE : psql input printing one line "<sequence>|<last_value>"
+# for TABLE's id sequence: the column's own (pg_get_serial_sequence), else the
+# clinlims.<table>_seq OpenELIS assigns ids from; no line when neither exists.
+# last_value is read from the sequence itself, as the striding step reads it
+# (pg_sequences shows NULL for a sequence whose value was set but not yet used).
+clinlims_seq_sql(){
+  printf "with s as (select coalesce(case when to_regclass('clinlims.%s') is not null then pg_get_serial_sequence('clinlims.%s', 'id') end, (select quote_ident(schemaname) || '.' || quote_ident(sequencename) from pg_sequences where schemaname = 'clinlims' and sequencename = '%s_seq')) as n) select format('select %%L || ''|'' || last_value::text from %%s', n, n) from s where n is not null \\gexec\n" "$1" "$1" "$1"
+}
+# clinlims_floor_plan TABLE RECORDED READ : what the striding step does with
+# TABLE's floor. RECORDED is the value already in .install-state (empty: none);
+# READ is clinlims_seq_sql's answer. Prints "keep FLOOR" or "set FLOOR", or the
+# refusal (status 1).
+clinlims_floor_plan(){
+  local t="$1" rec="$2" read="$3" seq lv
+  if [ -n "$rec" ]; then
+    case "$rec" in *[!0-9]*|0*) printf '.install-state has %s=%s, not a whole number above 0; it is never rewritten, so call the operator.\n' "$(clinlims_floor_key "$t")" "$rec"; return 1 ;; esac
+    [ $(( rec % 10 )) = 0 ] || { printf '.install-state has %s=%s, not a multiple of 10; it is never rewritten, so call the operator.\n' "$(clinlims_floor_key "$t")" "$rec"; return 1; }
+    printf 'keep %s\n' "$rec"; return 0
+  fi
+  case "$read" in
+    *'|'*) seq="${read%%|*}"; lv="${read#*|}" ;;
+    *) printf 'no id sequence found for clinlims.%s (neither its id column'"'"'s own nor clinlims.%s_seq), so where this clinic'"'"'s %s ids begin cannot be recorded and lab results entered at the hub could not be kept here. Nothing was strided; call the operator.\n' "$t" "$t" "$t"; return 1 ;;
+  esac
+  case "$lv" in '') lv=0 ;; *[!0-9]*) printf 'the last value of %s reads '"'"'%s'"'"', not a number; nothing was strided.\n' "$seq" "$lv"; return 1 ;; esac
+  printf 'set %s\n' $(( (lv / 10 + 1) * 10 ))
+}
+# record_clinlims_floors READER : for each floor table, keeps a recorded floor
+# or records one from READER TABLE (a command printing clinlims_seq_sql's
+# answer from the clinic's OpenELIS database, read before the stride). Prints
+# "ok <KEY>=<floor> (recorded|kept)" per table; on the first refusal prints it
+# and returns 1, having recorded nothing for that table or any after it.
+record_clinlims_floors(){
+  local reader="$1" tables t key rec got plan
+  tables="$(clinlims_floor_tables)" || { printf 'the hub'"'"'s down list could not be read (reason above), so the OpenELIS floors could not be recorded; nothing was strided.\n'; return 1; }
+  for t in $tables; do
+    key="$(clinlims_floor_key "$t")"; rec="$(stamp_get "$key")"; got=""
+    if [ -z "$rec" ]; then got="$("$reader" "$t")" || { printf 'could not read the id sequence of clinlims.%s; the database is not answering. Nothing was strided; run the same command again.\n' "$t"; return 1; }; fi
+    plan="$(clinlims_floor_plan "$t" "$rec" "$(printf '%s\n' "$got" | grep . | tail -1)")" || { printf '%s\n' "$plan"; return 1; }
+    case "$plan" in
+      keep*) printf 'ok %s=%s (kept: recorded before, never moved)\n' "$key" "${plan#keep }" ;;
+      set*) stamp_put "$key" "${plan#set }"; printf 'ok %s=%s (recorded from the sequence before the stride)\n' "$key" "${plan#set }" ;;
+    esac
+  done
+}

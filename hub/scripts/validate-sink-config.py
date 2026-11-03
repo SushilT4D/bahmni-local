@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""Validate one generated up-direction JDBC sink config.
+
+Two layers of check:
+
+1. The five hand-written rules that were previously inlined in
+   generate-sink-connectors.sh. They catch the specific ways this generator has
+   produced dead configs before (bash eating a literal $1, a doubled topic
+   prefix, the silent-drop errors.tolerance=all, a missing restart-on-errors flag).
+
+2. NEW: a diff against `known-good.json`, the committed record of a sink that
+   actually works. `known-good.json` is a FLOOR, not a ceiling: every key it
+   declares must be present, and every key whose value is table- and
+   environment-independent must match exactly. Extra keys in the generated
+   config are fine - that is how later hardening (restart/retry, pool
+   settings, errors.tolerance) was added without invalidating the shape.
+
+   This is the executable half of an invariant that had only ever been a
+   comment. `generate-sink-connectors.sh` said "SHAPE IS AUTHORITATIVE: keep
+   this heredoc matching known-good.json" - and on 2026-08-27 the heredoc was
+   found to have diverged from it in six ways and been emitting configs that
+   could never have worked. A comment cannot prevent that; a diff can.
+
+Lives in a FILE rather than a `python3 -c "..."` string on purpose. The
+generator's heredoc is unquoted, so bash expands $ and collapses backslashes
+inside it, and that has already caused three separate silent bugs. Source code
+that must contain $, backslashes and quotes does not belong in that blast
+radius.
+
+3. The clinical profile (`--profile clinical`), for the sinks of the clinical
+   tables in CLINICAL_KEYS: the upsert is keyed on the table's own strided key,
+   errors stop the task, deletes apply, and the sink never changes the hub's
+   schema (schema.evolution=none, no auto.create/auto.evolve). A sink for one
+   of those tables under the default profile is refused, and so is a clinical
+   profile for any other table.
+
+Usage:
+    validate-sink-config.py <config.json> [--known-good <path>]
+                                          [--database-name <name>]
+                                          [--profile default|clinical]
+                                          [--skip-generator-rules]
+
+`--skip-generator-rules` runs only the known-good shape diff, for pointing at a
+config that did not come from this generator - e.g. a live connector dumped
+from `GET /connectors/<name>/config`, which is wrapped differently and has no
+obligation to carry the generator's own comment keys.
+
+Exit status: 0 valid, 1 invalid (reasons on stderr), 2 usage/IO error.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+
+# Keys whose value legitimately differs per deployment, so `known-good.json`'s
+# value is an example rather than a requirement. Presence is still required.
+ENVIRONMENT_KEYS = {
+    "connection.url",
+    "connection.username",
+    "connection.password",
+    # embeds MYSQL_SERVER_NAME / database name, which vary per clinic
+    "transforms.dropPrefix.regex",
+    # the hub serves several clinics, so the topic carries the
+    # clinic's MirrorMaker alias and server name; generator_rules() checks its
+    # SHAPE instead.
+    "topics",
+}
+
+_PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
+
+# The clinical tables and the key each sink upserts on: the strided integer PK
+# the clinic's record key carries. drug_order's and test_order's key is
+# orders.order_id.
+CLINICAL_KEYS = {"obs": "obs_id", "orders": "order_id", "drug_order": "order_id", "test_order": "order_id"}
+# known-good.json describes the default profile; under the clinical profile
+# these keys must be absent rather than equal to it.
+CLINICAL_ABSENT = ("auto.create", "auto.evolve")
+
+
+def _config(doc, path):
+    """Accept either a full connector document ({"name":..,"config":{..}}) or a
+    bare config mapping, which is what the Connect REST API returns."""
+    if not isinstance(doc, dict):
+        sys.exit(f"{path}: expected a JSON object, got {type(doc).__name__}")
+    cfg = doc.get("config", doc)
+    if not isinstance(cfg, dict):
+        sys.exit(f"{path}: 'config' is not an object")
+    # `//`-prefixed keys are this repo's JSON comment convention, never settings.
+    return {k: v for k, v in cfg.items() if not k.startswith("//")}
+
+
+def _load(path):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        sys.exit(f"not found: {path}")
+    except json.JSONDecodeError as e:
+        sys.exit(f"{path}: invalid JSON: {e}")
+
+
+def generator_rules(cfg, database_name):
+    """The checks that were inlined in generate-sink-connectors.sh. Preserved
+    verbatim in meaning, including their original messages."""
+    errs = []
+    topics = cfg.get("topics", "")
+    if database_name and topics.count(database_name) > 1:
+        errs.append(f"doubled topic prefix: {topics}")
+    if not cfg.get("transforms.dropPrefix.replacement"):
+        errs.append("empty RegexRouter replacement (bare $1 was expanded by bash)")
+    if cfg.get("errors.tolerance") == "all":
+        errs.append("errors.tolerance=all silently drops records")
+    if cfg.get("connection.restart.on.errors") != "true":
+        errs.append("missing connection.restart.on.errors (a closed idle connection would kill the task for good)")
+    if not cfg.get("primary.key.fields"):
+        errs.append("empty primary.key.fields")
+
+    # The sync-key rule is stated here rather than left to the known-good diff
+    # so the failure names the invariant instead of reporting a shape mismatch.
+    # The sync key must be collision-free BY CONSTRUCTION: under v1 that is the
+    # strided integer PK carried in the Kafka record KEY. record_value keys the
+    # upsert on a value field, which striding does not protect. This generator
+    # once emitted record_value while every live sink ran record_key.
+    pkm = cfg.get("primary.key.mode")
+    if pkm != "record_key":
+        errs.append(
+            f"primary.key.mode is {pkm!r}, must be 'record_key' "
+            "(the strided integer PK, not a value field)"
+        )
+
+    # A per-clinic sink must carry a clinic-distinguishing topic. Two clinics
+    # sharing one connector name is how the hub lost clinic 2's configs: the
+    # second registration PUT over the first.
+    topics = cfg.get("topics", "")
+    if topics and topics.count(".") < 3:
+        errs.append(
+            f"topics {topics!r} is not <mm_prefix>.<server_name>.<database>.<table> "
+            "-- a sink that does not name its clinic cannot be one of several"
+        )
+    return errs
+
+
+def _table(cfg):
+    return str(cfg.get("table.name.format.default", "")).split(".")[-1]
+
+
+def profile_rules(cfg, profile):
+    """The clinical tables' sinks, stated setting by setting so a failure names
+    what is wrong rather than reporting a shape mismatch."""
+    errs = []
+    table = _table(cfg)
+    if profile != "clinical":
+        if table in CLINICAL_KEYS:
+            errs.append(f"{table} is a clinical table: its sink must use the clinical profile")
+        return errs
+    if table not in CLINICAL_KEYS:
+        return [f"the clinical profile is for {sorted(CLINICAL_KEYS)}, not {table!r}"]
+    want = {
+        "errors.tolerance": "none",
+        "insert.mode": "upsert",
+        "primary.key.mode": "record_key",
+        "primary.key.fields": CLINICAL_KEYS[table],
+        "delete.enabled": "true",
+        "schema.evolution": "none",
+    }
+    for key, value in want.items():
+        if cfg.get(key) != value:
+            errs.append(f"clinical sink {table}: {key} is {cfg.get(key)!r}, must be {value!r}")
+    for key in CLINICAL_ABSENT:
+        if key in cfg:
+            errs.append(f"clinical sink {table}: {key} must be absent (the sink never changes the hub's schema)")
+    return errs
+
+
+def known_good_diff(cfg, good):
+    """Every key known-good declares must be present; every table- and
+    environment-independent value must match. Extra keys are allowed."""
+    errs = []
+    for key, expected in sorted(good.items()):
+        if key not in cfg:
+            errs.append(f"missing key required by known-good.json: {key}")
+            continue
+        actual = cfg[key]
+        if key in ENVIRONMENT_KEYS:
+            if not str(actual).strip():
+                errs.append(f"{key} is empty (deployment-specific, but required)")
+            continue
+        if _PLACEHOLDER.search(str(expected)):
+            # known-good carries ${TABLE} / ${PRIMARY_KEY} here: the generated
+            # value is per-table, so only require that something was filled in
+            # and that no placeholder survived substitution.
+            if not str(actual).strip():
+                errs.append(f"{key} is empty (known-good expects a value here)")
+            elif _PLACEHOLDER.search(str(actual)):
+                errs.append(f"{key} still contains an unsubstituted placeholder: {actual!r}")
+            continue
+        if actual != expected:
+            errs.append(
+                f"{key} diverges from known-good.json: "
+                f"generated={actual!r} known-good={expected!r}"
+            )
+    return errs
+
+
+def main():
+    p = argparse.ArgumentParser(add_help=True)
+    p.add_argument("config")
+    p.add_argument("--known-good")
+    p.add_argument("--database-name", default="")
+    p.add_argument("--skip-generator-rules", action="store_true")
+    p.add_argument("--profile", choices=("default", "clinical"), default="default")
+    args = p.parse_args()
+
+    cfg = _config(_load(args.config), args.config)
+
+    known_good = args.known_good
+    if known_good is None:
+        default = os.path.join(
+            os.path.dirname(os.path.abspath(args.config)), "known-good.json"
+        )
+        known_good = default if os.path.exists(default) else None
+
+    errs = []
+    if not args.skip_generator_rules:
+        errs += generator_rules(cfg, args.database_name)
+
+    errs += profile_rules(cfg, args.profile)
+
+    if known_good:
+        good = _config(_load(known_good), known_good)
+        if args.profile == "clinical":
+            good = {k: v for k, v in good.items() if k not in CLINICAL_ABSENT}
+        errs += known_good_diff(cfg, good)
+    else:
+        # Never pass silently just because the reference is missing - that is
+        # the same "absent check reads as a passing check" trap this file exists
+        # to close.
+        errs.append(
+            "known-good.json not found next to the config and --known-good not "
+            "given: the shape diff did NOT run"
+        )
+
+    if errs:
+        sys.stderr.write(
+            f"INVALID CONFIG {args.config}:\n  - " + "\n  - ".join(errs) + "\n"
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

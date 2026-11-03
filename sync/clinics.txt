@@ -1,0 +1,53 @@
+# Fleet-wide residue ledger.  clinic_id:offset
+#
+# The increment (10) is set by clinic/docker-compose.yml's
+# --auto-increment-increment; this file sets only the per-node OFFSET.
+# scripts/configure-pk-offsets.sh looks up the row whose key equals this
+# node's BHS_LOCATION (case-insensitive, first match wins).
+#
+# ALLOCATION IS FLEET-WIDE AND MUST BE UNIQUE PER NODE.  The offset is the
+# strided residue that makes every row's origin computable from its own
+# primary key, which is what per-row single-writer ownership and a
+# collision-free sync key rest on.  Two nodes sharing an offset
+# mint colliding primary keys and there is no way to tell the rows apart
+# afterwards.  Never reuse or reassign a residue on a node that has already
+# written rows.
+#
+#   cloud    : 10   (residue 0)
+#   manpur   : 1
+#   bedawal  : 2
+#   ghated   : 3    - lab clinic 2
+#   rawach   : 4    - lab clinic 1
+#   bagdunda : 5
+#   kojawada : 6
+#   azure    : 7    - TEST clinic on an Azure VM, not a BHS clinic
+#   morwal   : UNALLOCATED - 12,882 patients, cannot sync until assigned
+#
+# 8 and 9 are free.  Counting Morwal, 9 of 10 are spoken for while azure lives.
+# Per-clinic non-secret identity (MRN prefix, site number) is in sync/fleet/<slug>.env;
+# the hub endpoint in sync/hub.env; the installer composes its answers from them.
+manpur:1
+bedawal:2
+ghated:3
+rawach:4
+bagdunda:5
+kojawada:6
+cloud:10
+
+# --- Lab aliases -----------------------------------------------------------
+# The two lab nodes still carry the original lab codes in BHS_LOCATION rather
+# than their clinic slug, and BHS_LOCATION is NOT free to change: it derives
+# the MirrorMaker consumer group ids (mirrormaker-consumer-group-${BHS_LOCATION},
+# mirrormaker-cluster-*, mirrormaker-down-consumer-*), so renaming it would move
+# MM2 to a fresh consumer group and re-read or skip from a different offset.
+# These rows therefore map the codes in use onto the same residues above.
+#
+# NOTE: the value below must match the node's LIVE auto_increment_offset.
+# A row that disagrees with it (say "h1:1" for a node running offset 4) would
+# make configure-pk-offsets.sh restride the node onto another clinic's
+# residue -- silently breaking per-row ownership for every row written afterwards.
+h1:4
+# h2 was the ghated node's lab code; that node is retired and ghated installs under its slug,
+# so residue 3 has one row above. The installer refuses a residue held by two rows.
+#h2:3
+azure:7

@@ -1,0 +1,27 @@
+# macOS only, and only for a clinic that keeps a MySQL database created in a
+# host directory (a clinic upgraded in place from a stack that bind-mounted
+# its MySQL data from the host).
+#
+# MySQL records, when a database is created, whether table names are
+# case-sensitive (lower_case_table_names), and never lets it change. A database
+# created in a macOS directory, which is case-insensitive, records 2. The data
+# volume of docker-compose.macos.yml lives on the podman machine's own,
+# case-sensitive disk, where MySQL runs with 0, and refuses to open that
+# database ("Different lower_case_table_names settings for server and data
+# dictionary"). Copying the files elsewhere does not help, and a dump and
+# reload would lose the binary log the clinic's sync restarts from.
+#
+# This file keeps such a database in its host directory, MYSQL_HOST_DATA_DIR,
+# where MySQL detects the case-insensitive file system and opens it with 2 by
+# itself. PostgreSQL stays on its machine-disk volume (docker-compose.macos.yml):
+# it must not run on a host directory.
+#
+# Selected by listing it after docker-compose.macos.yml in clinic/.env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.macos.yml:docker-compose.macos-mysql-host-dir.yml
+#   MYSQL_HOST_DATA_DIR=<the host directory holding the database>
+services:
+  bahmni-mysql:
+    volumes: !override
+      - '${MYSQL_HOST_DATA_DIR:?MYSQL_HOST_DATA_DIR names the host directory of a database created there}:/var/lib/mysql'
+      - '${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums'
+      - '${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro'

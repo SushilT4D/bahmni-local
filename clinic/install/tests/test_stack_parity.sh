@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# The clinic stack against IPLIT's staging: the UI and
+# config come from the pinned IPLIT images through clinic/extracted/, one config
+# tree feeds the proxy, OpenMRS and OpenELIS, and the settings staging carries
+# for this OpenMRS 1.2.0 / Odoo 16 pairing are present.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; CL="${HERE}/../.."; RP="${CL}/.."
+fails=0
+ok_(){ printf '  ok   %s\n' "$1"; }
+bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
+has(){ grep -vE '^[[:space:]]*#' "$1" | grep -qE -- "$2"; }
+svc(){ # FILE SERVICE : that service's block, comments dropped
+  awk -v s="  $2:" '$0==s{p=1;next} p&&/^  [A-Za-z]/{exit} p' "$1" | grep -vE '^[[:space:]]*#'; }
+Y="$CL/docker-compose.yml"
+
+# pins
+for k in BAHMNI_WEB_IMAGE BAHMNI_CONFIG_IMAGE; do grep -qE "^$k=infoiplitin/[a-z-]+:[A-Za-z0-9._-]+" "$RP/sync/versions.env" && ok_ "sync/versions.env pins $k" || bad "sync/versions.env does not pin $k to an infoiplitin image"; done
+grep -E '^BAHMNI_(WEB|CONFIG)_IMAGE=' "$RP/sync/versions.env" | grep -q ':latest' && bad "a UI/config pin is :latest" || ok_ "neither pin is :latest"
+
+# wiring: one extracted tree, three consumers
+svc "$Y" proxy   | grep -q 'BAHMNI_UI_DIR'     && ok_ "proxy serves the UI from BAHMNI_UI_DIR" || bad "proxy does not mount BAHMNI_UI_DIR"
+svc "$Y" proxy   | grep -q 'BAHMNI_CONFIG_DIR' && ok_ "proxy serves the config from BAHMNI_CONFIG_DIR" || bad "proxy does not mount BAHMNI_CONFIG_DIR"
+svc "$Y" openmrs | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openmrs reads BAHMNI_CONFIG_DIR" || bad "openmrs does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
+svc "$Y" openmrs | grep -qF 'source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations"' && svc "$Y" openmrs | grep -qF 'target: /var/www/bahmni_config/openmrs/apps/forms/translations' && ok_ "openmrs reads form translations from the forms folder's translations/, where the form module looks" || bad "openmrs does not mount clinical_forms/translations at the form module's translations directory"
+# the form builder is not offered at a clinic: no profile the clinic starts
+# carries it, and the proxy starts without it (its name resolved per request)
+ii="$(svc "$Y" implementer-interface | grep 'profiles:')"
+[ "$(printf '%s' "$ii" | tr -d ' ')" = 'profiles:["implementer-interface"]' ] && ok_ "implementer-interface is only in its own profile, not local or emr" || bad "implementer-interface profiles: $ii"
+grep -q -- '--profile implementer-interface' "$HERE/../tasks/080-stack.sh" && bad "080 starts the implementer-interface profile" || ok_ "080 does not start the form builder"
+# both the conf compose mounts and the one the proxy image bakes in
+for conf in bahmni-nginx.openelis.conf bahmni-nginx.conf; do
+  blk="$(awk '/location \/implementer-interface/{p=1} p{print} p&&/}/{exit}' "$CL/proxy/$conf" | grep -vE '^[[:space:]]*#')"
+  printf '%s' "$blk" | grep -qF 'proxy_pass http://$implementer_interface_host;' && ! printf '%s' "$blk" | grep -qF 'proxy_pass http://implementer-interface' \
+    && ok_ "proxy/$conf resolves implementer-interface per request, so the proxy starts without it" || bad "proxy/$conf names implementer-interface literally (the proxy would not start without it): $blk"
+done
+if command -v docker >/dev/null 2>&1; then
+  { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
+    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
+  } | sort -u | awk '/PATH$|DIR$|BACKUP$/{print $0"=/p"; next} {print $0"=1"}' > "${TMPDIR:-/tmp}/parity.vars.$$"
+  svcs="$(cd "$CL" && env CONTAINER_DATA_PATH=/n docker compose --env-file "${TMPDIR:-/tmp}/parity.vars.$$" --profile local --profile emr --profile openelis --profile debezium config --services 2>/dev/null)"
+  rm -f "${TMPDIR:-/tmp}/parity.vars.$$"
+  printf '%s\n' "$svcs" | grep -qx openmrs && ! printf '%s\n' "$svcs" | grep -qx implementer-interface && ok_ "rendered: the clinic's profiles start openmrs and not implementer-interface" || bad "rendered services: $(printf '%s' "$svcs" | tr '\n' ' ')"
+fi
+svc "$Y" openmrs | grep -qF '${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro' && ok_ "openmrs has the UI's blank-user.png for patients without a photo" || bad "openmrs does not mount blank-user.png at /etc/bahmni/blank-user.png"
+ls "$CL/bahmni_home/clinical_forms/translations/"*.json >/dev/null 2>&1 && ok_ "clinical_forms/translations exists in the checkout, so the bind source is always there" || bad "clinical_forms/translations is missing from the checkout"
+svc "$Y" openelis | grep -q 'BAHMNI_CONFIG_DIR.*:/etc/bahmni_config' && ok_ "openelis reads BAHMNI_CONFIG_DIR" || bad "openelis does not mount BAHMNI_CONFIG_DIR at /etc/bahmni_config"
+{ svc "$Y" proxy; svc "$Y" openmrs; svc "$Y" openelis; } | grep -qE 'CONTAINER_DATA_PATH[^:]*/(htdocs/bahmni|bahmni_config)|\./bahmni-config' && bad "a consumer still mounts a committed tree" || ok_ "no consumer mounts a committed tree"
+svc "$Y" bahmni-config | grep -q 'BAHMNI_CONFIG_IMAGE' && ok_ "bahmni-config service runs the pinned image, not default-config:latest" || bad "bahmni-config service is not on BAHMNI_CONFIG_IMAGE"
+for k in BAHMNI_UI_DIR BAHMNI_CONFIG_DIR; do grep -qE "^$k=" "$CL/.env.example" && ok_ ".env.example carries $k" || bad ".env.example lacks $k"; done
+grep -qE '^/?clinic/extracted(\.prev)?/?|^extracted' "$RP/.gitignore" "$CL/.gitignore" 2>/dev/null && ok_ "extracted/ is gitignored" || bad "extracted/ is not gitignored"
+has "$HERE/../tasks/020-env.sh" 'put BAHMNI_UI_DIR' && has "$HERE/../tasks/020-env.sh" 'put BAHMNI_CONFIG_DIR' && ok_ "020 renders both paths" || bad "020 does not render BAHMNI_UI_DIR / BAHMNI_CONFIG_DIR"
+[ -f "$HERE/../tasks/045-ui-config.sh" ] && has "$HERE/../tasks/045-ui-config.sh" 'extract-ui-config.sh' && ok_ "task 045 runs the extraction" || bad "no task 045 running scripts/extract-ui-config.sh"
+
+# settings staging carries
+svc "$Y" odoo-connect | grep -qE 'IS_ODOO_16:.*true' && ok_ "odoo-connect has IS_ODOO_16=true" || bad "odoo-connect lacks IS_ODOO_16=true"
+svc "$Y" openmrs | grep -q 'OMRS_DB_DRIVER_CLASS' && ok_ "openmrs passes OMRS_DB_DRIVER_CLASS" || bad "openmrs lacks OMRS_DB_DRIVER_CLASS"
+svc "$Y" openmrs | grep -q 'LUCENE_SEARCH_INDEXING_STRATEGY' && ok_ "openmrs passes LUCENE_SEARCH_INDEXING_STRATEGY" || bad "openmrs lacks LUCENE_SEARCH_INDEXING_STRATEGY"
+grep -qE '^OMRS_DB_DRIVER_CLASS=com\.mysql\.cj\.jdbc\.Driver' "$CL/.env.example" && grep -qE '^LUCENE_SEARCH_INDEXING_STRATEGY=manual' "$CL/.env.example" && ok_ ".env.example carries staging's two values" || bad ".env.example lacks the driver class / lucene strategy"
+svc "$Y" openmrs | grep -qE 'hibernate_(show|format)_sql:.*"true"' && bad "openmrs still prints every SQL statement" || ok_ "openmrs SQL printing is off"
+
+# the proxy's health must mean "a browser gets the UI": IPv4, TLS, the login page
+svc "$Y" proxy | grep -q 'https://127.0.0.1/bahmni/home/index.html' && ok_ "proxy healthcheck asks for the login page over IPv4/TLS" || bad "proxy has no meaningful healthcheck (the image's wget http://localhost can never pass)"
+grep -c 'echo "\$body" >&2' "$CL/connectors/register-odoo.sh" | grep -qx 0 && ok_ "register-odoo.sh never prints an unmasked render" || bad "register-odoo.sh echoes \$body unmasked on a render failure"
+
+# login stopgap: strip the UI's trailing comma before OpenMRS sees it
+for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma" || bad "$f has no trailing-comma rewrite"; done
+
+# landing page: the Odoo tile must use THIS node's own port, not IPLIT's
+# erp-<host> DNS convention (a name that does not resolve)
+has "$CL/proxy/htdocs/index.html" 'app\.linkHost' && ok_ "index.html's getAppLink opens linkHost" || bad "index.html has no linkHost branch in getAppLink"
+has "$CL/proxy/htdocs/index.html" 'linkPort' && bad "index.html still has a linkPort branch" || ok_ "index.html has no linkPort branch"
+has "$CL/docker-compose.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/index\.html:ro" && ok_ "compose mounts proxy/htdocs/index.html so an edit needs no image rebuild" || bad "docker-compose.yml does not mount proxy/htdocs/index.html"
+
+# exit checks: an Odoo that only answers HTTP 500 must fail the install, not
+# just the marker round-trip further down the same task
+has "$HERE/../tasks/100-exit-checks.sh" '/web/login' && has "$HERE/../tasks/100-exit-checks.sh" 'odoo\.\$\{N\}' && ok_ "100 checks Odoo's /web/login before the XML-RPC marker" || bad "100 does not check Odoo's /web/login"
+S80="${HERE}/../tasks/080-stack.sh"
+grep -q 'PHASE:-install}" = install' "$S80" && ok_ "080 stops after OpenMRS at install" || bad "080 has no install-sitting exit"
+grep -q 'https://localhost/openmrs/ws/rest/v1/session' "$S80" && ok_ "080 waits on 443" || bad "080 still waits on a non-default port"
+grep -q 'odoo_login_ok' "$S80" && ok_ "080 checks the Odoo atomfeed login before odoo-connect" || bad "no Odoo credential check"
+# the OpenELIS feed account lives in OpenELIS (OpenMRS and odoo-connect log in
+# to OpenELIS with it): asking OpenMRS about it refuses a correct password
+grep -q 'omrs_login "${OPENELIS_ATOMFEED_USER}"' "$S80" && bad "080 asks OpenMRS about the OpenELIS feed account" || ok_ "080 does not ask OpenMRS about the OpenELIS feed account"
+exit "$fails"

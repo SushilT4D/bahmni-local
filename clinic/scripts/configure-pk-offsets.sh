@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+# Configure MySQL AUTO_INCREMENT spacing for this clinic.
+#
+# For Rawach (offset 4, base_id 500000, INCREMENT 10):
+#   SET PERSIST auto_increment_increment = 10
+#   SET PERSIST auto_increment_offset    = 4
+#   ALTER TABLE <t> AUTO_INCREMENT = 500004
+# Next ids on those tables: 500004, 500014, 500024, ...
+#
+# A table whose floor comes from the seed (tables.conf `table:pk:seed`) takes
+# it from SEED_MANIFEST's FLOOR_<TABLE>; with no such value the script stops
+# rather than stride the table from a guess. A table that reads another
+# table's floor (`table:pk:floor=<other>`) has no counter of its own and is
+# never altered.
+#
+# Usage:
+#   ./scripts/configure-pk-offsets.sh
+#   ./scripts/configure-pk-offsets.sh --dry-run
+set -euo pipefail
+
+# How far apart ids are across clinics (must be >= max offset in clinics.txt).
+INCREMENT=10
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
+CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
+TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
+SEED_MANIFEST="${SEED_MANIFEST:-}"
+# shellcheck source=../../sync/local/tables-conf.sh
+. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
+# MYSQL_CONTAINER: the exact container name, skipping the lookup below. Compose
+# names containers <project>-<service>-1 (podman-compose: <project>_<service>_1);
+# the installer passes its own.
+MYSQL_CONTAINER="${MYSQL_CONTAINER:-}"
+
+DRY_RUN=false
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      sed -n '2,22p' "$0" | tr -d '#'
+      exit 0
+      ;;
+    --dry-run) DRY_RUN=true ;;
+    *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -t 1 ]]; then
+  C_CYAN=$'\033[36m'; C_GREEN=$'\033[32m'; C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'; C_DIM=$'\033[2m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
+else
+  C_CYAN=""; C_GREEN=""; C_YELLOW=""; C_RED=""; C_DIM=""; C_BOLD=""; C_RESET=""
+fi
+
+info()  { printf '%s==>%s %s\n' "${C_CYAN}" "${C_RESET}" "$*"; }
+ok()    { printf '%s✓%s  %s\n' "${C_GREEN}" "${C_RESET}" "$*"; }
+warn()  { printf '%s⚠%s  %s\n' "${C_YELLOW}" "${C_RESET}" "$*"; }
+fail()  { printf '%s✗%s  %s\n' "${C_RED}" "${C_RESET}" "$*" >&2; exit 1; }
+dim()   { printf '%s    %s%s\n' "${C_DIM}" "$*" "${C_RESET}"; }
+
+env_value() {
+  local key="$1"
+  # Always succeed under set -euo pipefail when the key is absent.
+  grep -E "^${key}=" "${ENV_FILE}" 2>/dev/null | head -1 | cut -d '=' -f 2- | tr -d '"' | tr -d "'" || true
+}
+
+resolve_container() {
+  local service="$1" name
+  if podman ps --format '{{.Names}}' | grep -qx "${service}"; then
+    echo "${service}"
+    return 0
+  fi
+  name="$(podman ps --format '{{.Names}}' | grep -E "(^|/)${service}$|[-_]${service}([-_][0-9]+)?$" | head -1 || true)"
+  [[ -n "$name" ]] || return 1
+  echo "$name"
+}
+
+# No -i: the tables loop reads TABLES_FILE on stdin; podman exec -i would drain it.
+mysql_exec() {
+  podman exec "${MYSQL_CONTAINER}" mysql -N -uroot -p"${ROOT_PASSWORD}" "${DB_NAME}" "$@" </dev/null
+}
+
+mysql_exec_sql() {
+  local sql="$1"
+  if [[ "${DRY_RUN}" == true ]]; then
+    dim "DRY-RUN SQL: ${sql}"
+    return 0
+  fi
+  mysql_exec -e "${sql}"
+}
+
+# Smallest value >= candidate, > max_id, and ≡ offset (mod INCREMENT).
+next_in_series() {
+  local candidate="$1" max_id="$2" offset="$3"
+  local v="${candidate}"
+  if (( max_id >= v )); then
+    v=$(( max_id + 1 ))
+  fi
+  local rem=$(( v % INCREMENT ))
+  if (( rem != offset )); then
+    v=$(( v + (offset - rem + INCREMENT) % INCREMENT ))
+  fi
+  while (( v <= max_id )); do
+    v=$(( v + INCREMENT ))
+  done
+  echo "${v}"
+}
+
+# -----------------------------
+# Load config
+# -----------------------------
+[[ -f "${ENV_FILE}" ]] || fail "Missing ${ENV_FILE}"
+[[ -f "${CLINICS_FILE}" ]] || fail "Missing ${CLINICS_FILE}"
+[[ -f "${TABLES_FILE}" ]] || fail "Missing ${TABLES_FILE}"
+TABLE_RECS="$(up_tables_read "${TABLES_FILE}")" || fail "${TABLES_FILE} cannot be read as the clinic's table list (reason above)"
+command -v podman >/dev/null 2>&1 || fail "podman not found"
+
+BHS_LOCATION="$(env_value BHS_LOCATION)"
+[[ -n "${BHS_LOCATION}" ]] || fail "BHS_LOCATION not set in ${ENV_FILE}"
+[[ "${INCREMENT}" -ge 1 ]] || fail "INCREMENT must be >= 1"
+
+ROOT_PASSWORD="$(env_value MYSQL_ROOT_PASSWORD)"
+DB_NAME="$(env_value OPENMRS_DB_NAME)"
+DB_NAME="${DB_NAME:-openmrs}"
+[[ -n "${ROOT_PASSWORD}" ]] || fail "MYSQL_ROOT_PASSWORD not set in ${ENV_FILE}"
+
+LOCATION_LC="$(printf '%s' "${BHS_LOCATION}" | tr '[:upper:]' '[:lower:]')"
+CLINIC_NAME=""
+OFFSET=""
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${line// }" ]] && continue
+  if [[ "$line" =~ ^([^:]+):([0-9]+)$ ]]; then
+    name="${BASH_REMATCH[1]}"
+    off="${BASH_REMATCH[2]}"
+    name_lc="$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')"
+    if [[ "${name_lc}" == "${LOCATION_LC}" ]]; then
+      CLINIC_NAME="${name}"
+      OFFSET="${off}"
+      break
+    fi
+  else
+    warn "Skipping malformed clinics.txt line: ${line}"
+  fi
+done < "${CLINICS_FILE}"
+
+[[ -n "${OFFSET}" ]] || fail "BHS_LOCATION='${BHS_LOCATION}' not found in ${CLINICS_FILE}"
+[[ "${OFFSET}" -ge 1 && "${OFFSET}" -le "${INCREMENT}" ]] \
+  || fail "offset ${OFFSET} must be between 1 and INCREMENT (${INCREMENT})"
+
+[[ -n "${MYSQL_CONTAINER}" ]] || MYSQL_CONTAINER="$(resolve_container "${MYSQL_SERVICE}" || true)"
+[[ -n "${MYSQL_CONTAINER}" ]] || fail "MySQL container '${MYSQL_SERVICE}' is not running"
+
+printf '%s\n' "${C_BOLD}configure-pk-offsets${C_RESET}"
+dim "clinic   : ${CLINIC_NAME} (BHS_LOCATION=${BHS_LOCATION})"
+dim "offset   : ${OFFSET}"
+dim "increment: ${INCREMENT}"
+dim "database : ${DB_NAME} @ ${MYSQL_CONTAINER}"
+[[ "${DRY_RUN}" == true ]] && warn "DRY-RUN — no changes will be applied"
+
+# -----------------------------
+# Global increment / offset (persisted across restart on MySQL 8 data volume)
+# -----------------------------
+info "Setting GLOBAL auto_increment_increment=${INCREMENT}, auto_increment_offset=${OFFSET}"
+mysql_exec_sql "SET PERSIST auto_increment_increment = ${INCREMENT};"
+mysql_exec_sql "SET PERSIST auto_increment_offset = ${OFFSET};"
+
+if [[ "${DRY_RUN}" != true ]]; then
+  cur_inc="$(mysql_exec -e "SELECT @@GLOBAL.auto_increment_increment;")"
+  cur_off="$(mysql_exec -e "SELECT @@GLOBAL.auto_increment_offset;")"
+  ok "GLOBAL increment=${cur_inc} offset=${cur_off} (SET PERSIST)"
+fi
+
+# -----------------------------
+# Per-table AUTO_INCREMENT = base_id + offset (bumped if data already higher)
+# -----------------------------
+info "Updating AUTO_INCREMENT on tables from ${TABLES_FILE}"
+
+updated=0
+skipped=0
+while read -r table pk kind floor_arg; do
+  [[ -n "${table}" ]] || continue
+
+  case "${kind}" in
+    sync)
+      dim "Sync-only (no PK offset): ${table}"
+      continue ;;
+    floor)
+      # Its key is the other table's key (drug_order.order_id and
+      # test_order.order_id are an orders.order_id): there is no counter here to move.
+      dim "Shares ${floor_arg}'s key (no PK offset of its own): ${table}"
+      continue ;;
+    seed)
+      base_id="$(up_floor_of "${TABLES_FILE}" "${table}" "${SEED_MANIFEST}")" \
+        || fail "${table}: its floor comes from the seed, and SEED_MANIFEST (${SEED_MANIFEST:-unset}) does not carry it"
+      (( base_id % INCREMENT == 0 )) || fail "${table}: the seed floor ${base_id} is not a multiple of ${INCREMENT}, so floor + offset would not be on this clinic's residue"
+      ;;
+    *) base_id="${floor_arg}" ;;
+  esac
+  target=$(( base_id + OFFSET ))
+
+  exists="$(mysql_exec -e "SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema='${DB_NAME}' AND table_name='${table}';" 2>/dev/null || echo 0)"
+  if [[ "${exists}" != "1" ]]; then
+    warn "Table ${table} not found — skip"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  max_id="$(mysql_exec -e "SELECT IFNULL(MAX(\`${pk}\`), 0) FROM \`${table}\`;")"
+  start_id="$(next_in_series "${target}" "${max_id}" "${OFFSET}")"
+
+  if [[ "${start_id}" -ne "${target}" ]]; then
+    warn "${table}: max(${pk})=${max_id} ≥ ${target} — using next in series ${start_id}"
+  fi
+
+  mysql_exec_sql "ALTER TABLE \`${table}\` AUTO_INCREMENT = ${start_id};"
+  ok "${table}: AUTO_INCREMENT → ${start_id}  (base ${base_id} + offset ${OFFSET}; next ids ${start_id}, $((start_id + INCREMENT)), …)"
+  updated=$((updated + 1))
+done <<EOF
+${TABLE_RECS}
+EOF
+
+echo ""
+ok "Done — ${updated} table(s) updated, ${skipped} skipped"
+dim "Globals persist via SET PERSIST (mysqld-auto.cnf in the MySQL data volume)."
+dim "Verify: podman exec ${MYSQL_CONTAINER} mysql -uroot -p… -e 'SELECT @@GLOBAL.auto_increment_increment, @@GLOBAL.auto_increment_offset'"

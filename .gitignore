@@ -9,3 +9,198 @@ certs/
 *.tgz
 *.zip
 *.gz
+
+# moved-aside PG14 datadirs from the PG15 bump
+clinic/data/postgresql.pg14*
+
+# generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
+sync/local/connectors/generated/
+
+# Same rule, CLOUD side. generate-sink-connectors.sh writes
+# mysql-sink-<table>.json straight into cloud/connectors/ - NOT into a
+# generated/ subdir - with connection.password already substituted. On the mini
+# that is 19 files carrying the live sink DB password, in a tracked directory,
+# in a repo whose origin is public. A single `git add -A` there publishes them.
+# The *.json.template and known-good.json files do NOT match this pattern.
+cloud/connectors/mysql-sink-*.json
+cloud/connectors/generated/
+# The hub's OTHER rendered connectors (register-odoo.sh / _render_connector.py
+# write odoo-*.json with live passwords), its untracked htdocs copy, its starter
+# SQL and every *.bak-* the operator leaves behind. Without these rules a hub
+# checkout shows its node-local files as untracked, some of them carrying
+# credentials. Templates and known-good.json stay tracked: ignore rules
+# never apply to tracked files.
+cloud/connectors/odoo-*.json
+cloud/htdocs/
+cloud/openelis-starter.sql
+*.bak-*
+
+# Same rule again, CLINIC side. scripts/generate-connectors.sh renders
+# debezium/local/connectors/mysql-source-connector.template.json into BOTH paths
+# below, and its SUBST_VARS includes ${LOCAL_DEBEZIUM_PASSWORD} -- so the output
+# carries the live Debezium password. A tracked copy of either would leak it on
+# the next `git add`, and a copy hand-edited to hold a placeholder instead could
+# not register. Template is tracked, output is not. Regenerate rather than copy.
+clinic/connectors/mysql-source-connector.json
+clinic/connectors/mysql-local-source-connector.json
+
+# The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
+# /usr/local/bahmni_config. clinic/docker-compose.yml points it here so it can
+# never touch bahmni_config/ again - so this tree is churn the service owns,
+# regenerated on every boot, and must never be committed.
+.local-config-scratch/
+
+# scripting jars for the Filter SMT: fetch with config/kafka-connect/ext/fetch-scripting-jars.sh
+clinic/config/kafka-connect/ext/*.jar
+# Some nodes keep the scripting jars one level up instead of in ext/, so the
+# downloaded jars would otherwise appear as untracked there. Already-tracked files are
+# unaffected by a new ignore rule, so config/kafka-connect/sync-origin-customizer.jar
+# stays tracked -- that one is a BUILD ARTIFACT WE SHIP, not a download.
+clinic/config/kafka-connect/*.jar
+*.pyc
+
+# --- Rendered MirrorMaker config --------------------------------
+# scripts/setup-mirrormaker.sh renders these from the .template files beside
+# them. They are per-node OUTPUT and must never be committed: both copies were
+# tracked until today carrying a real remote broker host and this node's
+# consumer group id, so a fresh clinic cloned another node's identity, and two
+# clinics sharing one MirrorMaker consumer group id split the partitions
+# between them and each sees only half its own changes.
+#
+# ORDERING: config/mirrormaker/mm2.properties is BIND-MOUNTED by
+# docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source
+# that does not exist, so `setup-mirrormaker.sh` must run BEFORE the first
+# `docker compose up` on a new node -- otherwise MirrorMaker starts against an
+# empty directory. (That failure is what the old install-clinic.sh warning was
+# describing when it called this path "an empty DIRECTORY in the tree".)
+# Rendered MirrorMaker config, both paths. setup-mirrormaker.sh produces these
+# from the .template files beside them; they are per-node OUTPUT carrying a real
+# broker host and this node's consumer group ids, so they must never be
+# committed -- a fresh clinic was inheriting another node's identity from them,
+# and two clinics sharing one MirrorMaker consumer group id split the partitions
+# between them and each sees half its own changes.
+#
+# The main path stayed tracked until the template could actually regenerate it.
+# It can now (fixed in d47be8e), and that was VERIFIED ON BOTH NODES before
+# untracking: 55 settings each side on Rawach and on Ghated, none missing, none
+# extra, the single difference being the order of alternatives inside one topics
+# regex, compared as a set and found identical.
+#
+# ORDERING: config/mirrormaker/mm2.properties is BIND-MOUNTED by
+# docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source that
+# does not exist, so setup-mirrormaker.sh must run BEFORE the first
+# `docker compose up` on a new node.
+clinic/config/mirrormaker/mm2.properties
+sync/local/mirrormaker-config/mm2.properties
+
+# clinic installer: composed or hand-written answers and the seed's password file
+# carry live credentials and must never reach this (public) repo.
+clinic-*.env
+secrets.env
+# the installer's podman->docker shim (lib.sh mk_podman_shim); a per-node artifact, never config
+clinic/install/.bin/
+# rendered per-clinic clinlims up-sinks (install-clinic.sh join copies the tracked
+# clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
+cloud/connectors/clinlims-*.json
+
+# hub/: the sync layer's own compose project, split out of cloud/.
+# Same secret classes as the cloud/connectors/* rules above -- the env file,
+# the JAAS SASL password, and every connector JSON a generator writes with a
+# live password already substituted. Templates are exempt by name: the six
+# hand-authored connector JSONs below carry only ${VAR} placeholders,
+# substituted by register-odoo.sh at registration time, not at
+# rest -- so they stay tracked.
+hub/.env
+hub/kafka_server_jaas.conf
+# the hub's TLS keystore and its two password files
+hub/tls/
+hub/connectors/mysql-sink-*.json
+hub/connectors/odoo-*-sink-all.json
+hub/connectors/clinlims-*-sink-all.json
+hub/connectors/mysql-cloud-source-connector.json
+# generate-cloud-source-connector.sh's default OUT path (mirrors the
+# cloud/connectors/generated/ rule above, same reason: rendered, password-
+# substituted output, never meant to be committed).
+hub/connectors/generated/
+!hub/connectors/odoo-cloud-source.json
+!hub/connectors/clinlims-cloud-source.json
+!hub/connectors/odoo-cloud-sink-all.json
+!hub/connectors/clinlims-cloud-sink-all.json
+!hub/connectors/odoo-ghated-sink-all.json
+!hub/connectors/clinlims-ghated-sink-all.json
+
+# hub/ scratch files. Every one of these is a
+# mktemp'd name created UNDER hub/ -- by lib.sh's own probes (the SASL client
+# properties file and the kafka-ui login body/cookie jar, each mode 600 and
+# each holding a live password for the seconds it exists), by task 080's
+# render directory, and by the live smokes. They are all removed by their own
+# EXIT traps; these patterns exist for the run that is killed outright, so a
+# leftover can never be committed by accident and never makes task 090's
+# git-clean check read as a dirty hub tree. (The smokes themselves no longer
+# write into the real hub/ at all -- they run against a temp COPY of it, via
+# the HUB_DIR override -- but lib.sh's probes still do during a real install.)
+hub/.sasl-check.*
+hub/.kafka-ui-login*
+hub/.kafka-ui-cookies*
+hub/.task080.*
+hub/.env-backup.*
+hub/.jaas-backup.*
+hub/.src-*
+hub/.broker-boot-*
+hub/.versions.*
+# IPLIT's UI and config, copied out of the pinned images per node (clinic/scripts/extract-ui-config.sh)
+clinic/extracted/
+clinic/extracted.prev/
+clinic/extracted.new.*/
+
+# The forms' files: a clone of the operator's private forms repo, whose
+# clinical_forms/ OpenMRS mounts read-only (clinic/install/forms.sh).
+# Node-local, and the forms repo is private. .forms.new.* is a clone in progress;
+# .forms.lock is held by the run changing clinic/forms (.forms.lock.stale.* is
+# one being taken over).
+clinic/forms/
+clinic/.forms.new.*/
+clinic/.forms.lock/
+clinic/.forms.lock.stale.*/
+
+# openmrs/build-native.sh's build context (create+cp of the source image's
+# trees, plus Dockerfile.native) -- removed by its own EXIT trap on every
+# path; this rule is for the run that is killed outright.
+clinic/.build-native.*/
+
+# Rendered env files the clinic installer leaves beside clinic/.env. Each holds
+# generated passwords and none is named exactly ".env", so the rule at the top
+# does not cover them (this repository is public).
+clinic/.env.dryrun.*
+clinic/.env.rejected
+clinic/.env.render.*
+# env_put's temporary copy while it replaces clinic/.env; a write killed midway
+# leaves it behind, holding everything clinic/.env holds.
+clinic/.env.tmp.*
+# task 050 writes this when the openmrs restore has finished (a rerun tells a finished restore from an interrupted one by it)
+clinic/.openmrs-restore.done
+
+# Node-local runtime state the installer creates under clinic/: the Odoo
+# config copied out of the image, and the Odoo / PostgreSQL filestores. The
+# node preflight fails on any untracked path, so each must be listed here.
+clinic/config/odoo/
+clinic/files/
+clinic/config/mysql/
+clinic/.install-state
+# this hub's down-table floors, recorded once by the run that strides its Odoo
+# ids (hub/scripts/stride-odoo.sh), and its OpenELIS ones, recorded once before
+# its OpenELIS ids are strided (hub/scripts/record-clinlims-down-floors.sh);
+# each hub has its own
+hub/odoo-down-floors.local
+hub/clinlims-down-floors.local
+# this hub's floors for users and provider, where its own rows begin, recorded
+# once (clinic/scripts/clinic-minted-staff.sh --derive-floors); each hub has its own
+hub/openmrs-staff-floors.local
+# the seed's provenance record, kept by the seed for the join's comparison
+clinic/.seed-provenance.tsv
+# the restore's definer users, removed after use; left behind if the restore stops
+clinic/.openmrs-definers.sql
+
+# Kept on disk for local use, not part of the repository.
+cloud/
+hub/install/

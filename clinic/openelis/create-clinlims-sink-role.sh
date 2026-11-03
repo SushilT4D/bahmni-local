@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Derived from the odoo_sink role script.
+#
+# Creates the clinlims_sink login role. The JDBC sinks MUST connect as a role the
+# OpenELIS application itself never uses: it is the role that claims a replication
+# origin (openelis/apply-replication-origin.sql grants the origin functions to it and
+# to nobody else), which is what stops a replicated write from being republished.
+#
+# PASSWORD HANDLING. The DDL is written to a file inside the container and run with -f,
+# never passed with -c and never interpolated into a logged command. This is not
+# theoretical caution: a generated password once leaked into a PostgreSQL ERROR
+# CONTEXT line, because a failing statement echoes its own text -- including the literal
+# -- back to the client. With -f, the error cites a file and line, not the statement.
+# The value is written once to .env (gitignored) and never printed.
+set -euo pipefail
+
+NODE="${1:?usage: create-clinlims-sink-role.sh <node>   e.g. rawach}"
+CTR="${PG_CONTAINER:-bahmni-local-bahmni-postgres-1}"
+PG_ADMIN="${PG_ADMIN:-postgres}"
+# Some nodes have podman only, not docker.
+CTR_RT="${CTR_RT:-}"
+if [ -z "$CTR_RT" ]; then
+  if command -v docker >/dev/null 2>&1; then CTR_RT=docker
+  elif command -v podman >/dev/null 2>&1; then CTR_RT=podman
+  else echo "no docker or podman on PATH" >&2; exit 2; fi
+fi
+ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
+
+# READ .env BY SOURCING IT, NOT BY CUTTING THE LINE. Bahmni's .env files carry inline
+# comments -- OPENELIS_DB_SERVER=bahmni-postgres       # [OK] -- and `cut -d= -f2-` keeps
+# the padding and the comment as part of the value. On the cloud that produced a 76-char
+# "password" where the real one is 4 chars: the role was created with the polluted string
+# while every consumer sources .env and gets the clean one, so Debezium failed with
+# "password authentication failed for user clinlims_sink" against a role that had just been
+# created successfully. Source it the same way the consumers do.
+# Reuse only a NON-EMPTY value: the .env template ships CLINLIMS_SINK_PASSWORD=""
+# and a bare `grep ^KEY=` took that blank as a password -- PostgreSQL then cleared
+# the role's password.
+[ -f "$ENV_FILE" ] || { echo "  no .env at $ENV_FILE" >&2; exit 1; }
+PW="$(set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a; printf '%s' "${CLINLIMS_SINK_PASSWORD:-}")"
+if [ -n "$PW" ]; then
+  echo "  CLINLIMS_SINK_PASSWORD already present in .env -- reusing, not regenerating"
+else
+  # Bounded input on purpose: `tr </dev/urandom | head -c 32` never lets tr
+  # finish, so head's exit sends it SIGPIPE and under pipefail the assignment
+  # fails with 141 on Linux AND macOS -- every fresh node died here, before the
+  # append. 512 bytes give ~124 [A-Za-z0-9].
+  PW="$(head -c 512 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 32)"
+  [ "${#PW}" -eq 32 ] || { echo "  password generation produced ${#PW} chars, not 32" >&2; exit 1; }
+  if grep -q '^CLINLIMS_SINK_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+    # key present but blank: replace the line in place -- a second line would leave
+    # first-match readers on the blank one; write through cat to keep the file's mode
+    tmp="$(mktemp)"; grep -v '^CLINLIMS_SINK_PASSWORD=' "$ENV_FILE" > "$tmp" || true
+    printf 'CLINLIMS_SINK_PASSWORD=%s\n' "$PW" >> "$tmp"; cat "$tmp" > "$ENV_FILE"; rm -f "$tmp"
+    echo "  CLINLIMS_SINK_PASSWORD was blank in .env -- generated and set (gitignored)"
+  else
+    printf 'CLINLIMS_SINK_PASSWORD=%s\n' "$PW" >> "$ENV_FILE"
+    echo "  generated CLINLIMS_SINK_PASSWORD and appended to .env (gitignored)"
+  fi
+fi
+
+# umask so the DDL file is not world-readable even for the moment it exists
+TMP="$(mktemp)"; chmod 600 "$TMP"
+trap 'rm -f "$TMP"' EXIT
+cat > "$TMP" <<SQL
+DO \$\$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'clinlims_sink') THEN
+    ALTER ROLE clinlims_sink WITH LOGIN PASSWORD '${PW}';
+  ELSE
+    CREATE ROLE clinlims_sink WITH LOGIN PASSWORD '${PW}';
+  END IF;
+END \$\$;
+GRANT USAGE ON SCHEMA clinlims TO clinlims_sink;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA clinlims TO clinlims_sink;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA clinlims TO clinlims_sink;
+ALTER DEFAULT PRIVILEGES IN SCHEMA clinlims
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO clinlims_sink;
+SQL
+
+"$CTR_RT" cp "$TMP" "$CTR":/tmp/.clinlims_sink.sql >/dev/null
+"$CTR_RT" exec "$CTR" chmod 600 /tmp/.clinlims_sink.sql
+# -f, not -c: on failure psql cites the file and line, not the statement text
+"$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -v ON_ERROR_STOP=1 -q -f /tmp/.clinlims_sink.sql
+"$CTR_RT" exec "$CTR" rm -f /tmp/.clinlims_sink.sql
+
+echo "  clinlims_sink role ready on ${CTR} (node ${NODE})"
+"$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -t -A \
+  -c "SELECT '  verified: role=' || rolname || ' canlogin=' || rolcanlogin FROM pg_roles WHERE rolname='clinlims_sink';"
+
+# The OpenELIS down sink writes, as this role, the rows the hub sends down
+# (sync/hub-down.sh clinlims): read each privilege back on each table (a
+# comma list in has_table_privilege is true when ANY one is held), rather than
+# trusting the GRANT above, so a sink is never refused its first write. Re-run
+# this script on a clinic seeded before a table joined that list.
+DOWN="$(bash "$(cd "$(dirname "$0")/../.." && pwd)/sync/hub-down.sh" clinlims)" || { echo "  the hub's down list could not be read (reason above)" >&2; exit 1; }
+lacking=""
+for t in $DOWN; do
+  got="$("$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -t -A -c "SELECT has_table_privilege('clinlims_sink', 'clinlims.${t}', 'SELECT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'INSERT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'UPDATE')")" || got=""
+  [ "$got" = t ] || lacking="${lacking} ${t}(${got:-unreadable})"
+done
+[ -z "$lacking" ] || { echo "  clinlims_sink lacks SELECT, INSERT or UPDATE on the OpenELIS down table(s):${lacking}" >&2; exit 1; }
+echo "  verified: clinlims_sink may SELECT, INSERT, UPDATE the OpenELIS down tables: $(printf '%s' "$DOWN" | tr '\n' ' ')"

@@ -1,0 +1,130 @@
+x-rotate-logs: &rotate
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+
+  kafka:
+    # Clinics dial 9092 (SASL over TLS by default); this host dials kafka:29092; 9093 is never published.
+    image: ${KAFKA_IMAGE:?}
+    restart: unless-stopped
+    hostname: kafka
+    container_name: kafka
+    logging: *rotate
+    ports:
+      - '${KAFKA_SASL_BIND:-0.0.0.0}:9092:9092'
+    environment:
+      KAFKA_HEAP_OPTS: ${HUB_KAFKA_HEAP_OPTS:--Xms512m -Xmx1g}
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}:${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://${REMOTE_KAFKA_HOST:-localhost}:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      # Read from hub/tls/ when the clinic listener is SASL_SSL; the two passwords are files there.
+      KAFKA_SSL_KEYSTORE_FILENAME: ${KAFKA_SSL_KEYSTORE_FILENAME:-kafka.keystore.p12}
+      KAFKA_SSL_KEYSTORE_TYPE: ${KAFKA_SSL_KEYSTORE_TYPE:-PKCS12}
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: key_creds
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_OPTS: >-
+        -Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf:ro
+      - ./tls:/etc/kafka/secrets:ro
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:29092"]
+
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  kafka-connect:
+    image: ${DEBEZIUM_CONNECT_IMAGE:?}
+    restart: unless-stopped
+    hostname: kafka-connect
+    container_name: kafka-connect
+    logging: *rotate
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:8083:8083'
+    environment:
+      HEAP_OPTS: ${HUB_CONNECT_HEAP_OPTS:--Xms256m -Xmx1g}
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: connect-cluster
+      CONFIG_STORAGE_TOPIC: docker-connect-configs
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_TOPIC: docker-connect-offsets
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_TOPIC: docker-connect-status
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: kafka-connect
+      CONNECT_PLUGIN_PATH: /kafka/connect,/usr/share/confluent-hub-components
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: 'false'
+      CONNECT_REST_PORT: 8083
+      CONNECT_REST_ADVERTISED_PORT: 8083
+    volumes:
+      - ./connectors:/kafka/connect/connectors:ro
+      - connect-data:/kafka/connect/data
+      # The OpenMRS source's row filter for lab results (hub/tables.conf
+      # `clinic=` rows) is a Groovy Filter step, which needs these three jars
+      # inside the MySQL connector's plugin directory. They are the clinic's,
+      # fetched by clinic/config/kafka-connect/ext/fetch-scripting-jars.sh.
+      - '../clinic/config/kafka-connect/ext/groovy-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-${GROOVY_VERSION:?}.jar:ro'
+      - '../clinic/config/kafka-connect/ext/groovy-jsr223-${GROOVY_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/groovy-jsr223-${GROOVY_VERSION:?}.jar:ro'
+      - '../clinic/config/kafka-connect/ext/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:/kafka/connect/debezium-connector-mysql/debezium-scripting-${DEBEZIUM_SCRIPTING_VERSION:?}.jar:ro'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-ui:
+    profiles: [ "ui" ]
+    image: ${KAFKA_UI_IMAGE:?}
+    restart: unless-stopped
+    hostname: kafka-ui
+    container_name: kafka-ui
+    logging: *rotate
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:8080:8080'
+    environment:
+      AUTH_TYPE: LOGIN_FORM
+      SPRING_SECURITY_USER_NAME: ${KAFKA_UI_USER:?}
+      SPRING_SECURITY_USER_PASSWORD: ${KAFKA_UI_PASSWORD:?}
+      KAFKA_CLUSTERS_0_NAME: hub
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+
+networks:
+  default:
+    name: ${KAFKA_BASE_NETWORK:?set KAFKA_BASE_NETWORK to the base stack's network}
+    external: true
+volumes:
+  kafka-data:
+  connect-data:

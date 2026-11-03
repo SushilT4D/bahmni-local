@@ -1,0 +1,18 @@
+# Reconstructed: absent upstream, present because the compose mounts it.
+Configuration:
+  Appenders:
+    Console:
+      name: STDOUT
+      target: SYSTEM_OUT
+      PatternLayout:
+        Pattern: "[%d] %p %m (%c)%n"
+  Loggers:
+    Root:
+      level: INFO
+      AppenderRef:
+        - ref: STDOUT
+    Logger:
+      - name: org.apache.kafka.connect.runtime.rest.RestServer
+        level: WARN
+      - name: org.apache.kafka.clients.NetworkClient
+        level: WARN

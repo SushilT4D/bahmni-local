@@ -1,0 +1,58 @@
+{
+  "//": "The committed record of an up-direction sink that ACTUALLY WORKS, and the",
+  "//2": "floor validate-sink-config.py diffs every generated config against. Every",
+  "//3": "key here must be present in a generated config; every value that is not",
+  "//4": "per-table, per-clinic or per-deployment must match exactly.",
+  "//5": "Taken from a sink registered on the LIVE hub (GET /connectors/mysql-sink-person/",
+  "//6": "config), never from a template: a record kept by hand had drifted into",
+  "//7": "enforcing primary.key.mode=record_value and delete.enabled=false while every",
+  "//8": "registered sink ran record_key with deletes on, so a generator emitting the",
+  "//9": "correct config would have been REJECTED by its own validator.",
+  "//10": "${TABLE} and ${PRIMARY_KEY} are per-table; topics and",
+  "//11": "the dropPrefix regex are per-clinic and checked for presence only.",
+  "//12": "hibernate.c3p0.* pool tuning replaced by hibernate.agroal.*",
+  "//13": "(Debezium 3.6.2 dropped c3p0 for Agroal, DBZ-8899), matching",
+  "//14": "generate-sink-connectors.sh's own shape. No origin claim here -- this is",
+  "//15": "a MySQL sink (no PG replication-origin mechanism) and was never wired to",
+  "//16": "the c3p0 customizer.",
+  "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+  "tasks.max": "1",
+
+  "topics": "<mm_prefix>.<server_name>.openmrs.${TABLE}",
+  "transforms": "dropPrefix",
+  "transforms.dropPrefix.type": "org.apache.kafka.connect.transforms.RegexRouter",
+  "transforms.dropPrefix.regex": "<mm_prefix>\\.<server_name>\\.openmrs\\.(.*)",
+  "transforms.dropPrefix.replacement": "$1",
+  "table.name.format.default": "openmrs.${TABLE}",
+
+  "connection.url": "jdbc:mysql://openmrsdb:3306/openmrs?useSSL=FALSE&allowPublicKeyRetrieval=true",
+  "connection.username": "sink",
+  "connection.password": "<per-deployment>",
+
+  "insert.mode": "upsert",
+  "primary.key.mode": "record_key",
+  "primary.key.fields": "${PRIMARY_KEY}",
+  "delete.enabled": "true",
+  "auto.create": "true",
+  "auto.evolve": "true",
+
+  "connection.restart.on.errors": "true",
+  "errors.retry.timeout": "-1",
+  "errors.retry.delay.max.ms": "60000",
+  "flush.max.retries": "10",
+
+  "connection.pool.min_size": "1",
+  "connection.pool.max_size": "2",
+  "connection.pool.timeout": "1800",
+  "hibernate.agroal.validateOnBorrow": "true",
+  "hibernate.agroal.idleValidation_s": "300",
+
+  "errors.tolerance": "none",
+  "errors.log.enable": "true",
+  "errors.log.include.messages": "true",
+
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter.schemas.enable": "true",
+  "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "key.converter.schemas.enable": "true"
+}
