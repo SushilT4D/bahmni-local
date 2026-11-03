@@ -22,7 +22,7 @@ port_in_use(){
   command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1
 }
 # The branch a clinic installs from; preflight refuses another unless EXPECTED_BRANCH names it.
-INSTALL_BRANCH="${INSTALL_BRANCH:-feat/install-seed-split}"
+INSTALL_BRANCH="${INSTALL_BRANCH:-main}"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${INSTALL_DIR}/.." && pwd)}"
 REPO_DIR="${REPO_DIR:-$(cd "${CLINIC_DIR}/.." && pwd)}"
 LEDGER="${LEDGER:-${REPO_DIR}/sync/clinics.txt}"
