@@ -27,7 +27,8 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 UP_ONLY="res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_quant"
 TRANSFER="stock_location stock_warehouse stock_picking_type stock_route stock_rule procurement_group stock_lot stock_warehouse_orderpoint stock_picking stock_move stock_move_line"
-WANT="product_template product_product product_category uom_uom res_country_state state_district district_subdistrict village_village product_taxes_rel product_supplier_taxes_rel stock_route_product $TRANSFER"
+SHOPS="product_pricelist product_pricelist_item order_type sale_shop order_type_shop_map"
+WANT="product_template product_product product_category uom_uom res_country_state state_district district_subdistrict village_village product_taxes_rel product_supplier_taxes_rel stock_route_product $TRANSFER $SHOPS"
 PGC=""
 T="$(mktemp -d)"
 cleanup(){ [ -n "$PGC" ] && docker rm -f -v "$PGC" >/dev/null 2>&1; rm -rf "$T"; }
@@ -49,7 +50,7 @@ has(){ case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }
 
 # --- the list --------------------------------------------------------------------
 got="$(bash "$C/sync/hub-down.sh" odoo | words)"
-[ "$got" = "$WANT" ] && ok_ "sync/hub-down.conf holds exactly the eleven master tables and the central-transfer tables" || bad "the down list reads [$got], want [$WANT]"
+[ "$got" = "$WANT" ] && ok_ "sync/hub-down.conf holds exactly the eleven master tables, the central-transfer tables, and the shop and price-list tables" || bad "the down list reads [$got], want [$WANT]"
 for t in $TRANSFER; do has "$got" "$t" || bad "the down list lacks transfer table $t"; done
 has "$got" stock_quant && bad "stock levels go down" || ok_ "stock levels (stock_quant) stay up-only while transfers go down"
 for t in $UP_ONLY; do has "$got" "$t" && bad "the down list carries up-only $t"; done
@@ -180,7 +181,7 @@ pubtables(){ $PSQL -Atc "select tablename || ':' || coalesce(rowfilter, '-') fro
 seqinc(){ $PSQL -Atc "select increment_by from pg_sequences where sequencename = '$1_id_seq'"; }
 FL="$T/hub-floors.local"
 stride(){ sout="$(bash "$C/cloud/scripts/stride-odoo.sh" --floors "$FL" -- $PSQL 2>&1)"; src=$?; }
-W8="product_template 40 product_product 40 product_category 40 uom_uom 40 res_country_state 1010 state_district 40 district_subdistrict 40 village_village 40 stock_location 40 stock_warehouse 40 stock_picking_type 40 stock_route 40 stock_rule 40 procurement_group 40 stock_lot 40 stock_warehouse_orderpoint 40 stock_picking 40 stock_move 40 stock_move_line 40"
+W8="product_template 40 product_product 40 product_category 40 uom_uom 40 res_country_state 1010 state_district 40 district_subdistrict 40 village_village 40 stock_location 40 stock_warehouse 40 stock_picking_type 40 stock_route 40 stock_rule 40 procurement_group 40 stock_lot 40 stock_warehouse_orderpoint 40 stock_picking 40 stock_move 40 stock_move_line 40 product_pricelist 40 product_pricelist_item 40 order_type 40 sale_shop 40 order_type_shop_map 40"
 
 # a clinic's rows have reached this hub: no first recording, nothing strided
 $PSQL -q -v ON_ERROR_STOP=1 -c "SELECT pg_replication_origin_create('clinic_t_odoo'); SELECT pg_replication_origin_advance('clinic_t_odoo', '0/1000');" >/dev/null
@@ -236,6 +237,13 @@ $PSQL -q -c "SELECT setval('uom_uom_id_seq', 40, false)" >/dev/null
 stride
 [ "$src" != 0 ] && printf '%s' "$sout" | grep -q 'records no floor for village_village' && ok_ "a floors file missing a down table is refused, not completed" || bad "incomplete file: rc=$src $sout"
 cp "$T/fl8" "$FL"
+# a table newly added to the down list: never strided, no floor yet
+grep -v '^sale_shop ' "$FL" > "$T/fl9"; cp "$T/fl9" "$FL"
+$PSQL -q -v ON_ERROR_STOP=1 -c "ALTER SEQUENCE sale_shop_id_seq INCREMENT BY 1; SELECT setval('sale_shop_id_seq', 37);" >/dev/null
+stride
+[ "$src" = 0 ] && [ "$(grep -c '^sale_shop 40$' "$FL")" = 1 ] && [ "$(seqinc sale_shop)" = 10 ] && [ "$(grep -v '^sale_shop ' "$FL" | words)" = "$(cat "$T/fl9" | words)" ] \
+  && ok_ "a down table with no floor whose sequence still steps by 1 is strided and its floor added, every recorded floor unchanged" || bad "new down table: rc=$src [$(cat "$FL" | words)] $sout"
+cp "$T/fl8" "$FL"
 
 # the publication
 before="$(pubtables)"
@@ -246,7 +254,7 @@ out="$(bash "$C/cloud/scripts/apply-down-publication.sh" "$T/short" -- $PSQL 2>&
 out="$(bash "$C/cloud/scripts/apply-down-publication.sh" "$FL" -- $PSQL 2>&1)"; rc=$?
 got="$(pubtables)"
 f(){ printf '%s:((id < %s) OR ((id %% 10) = 0))' "$1" "$2"; }
-want="$( { printf '%s\n' dbz_heartbeat:- "$(f district_subdistrict 40)" "$(f product_category 40)" product_supplier_taxes_rel:- product_taxes_rel:- "$(f product_product 40)" "$(f product_template 40)" "$(f res_country_state 1010)" "$(f state_district 40)" stock_route_product:- "$(f uom_uom 40)" "$(f village_village 40)"; for t in $TRANSFER; do f "$t" 40; echo; done; } | LC_ALL=C sort | words)"
+want="$( { printf '%s\n' dbz_heartbeat:- "$(f district_subdistrict 40)" "$(f product_category 40)" product_supplier_taxes_rel:- product_taxes_rel:- "$(f product_product 40)" "$(f product_template 40)" "$(f res_country_state 1010)" "$(f state_district 40)" stock_route_product:- "$(f uom_uom 40)" "$(f village_village 40)"; for t in $TRANSFER $SHOPS; do f "$t" 40; echo; done; } | LC_ALL=C sort | words)"
 [ "$rc" = 0 ] && [ "$got" = "$want" ] && ok_ "dbz_odoo_owned holds exactly the down list and the heartbeat, each table with an id filtered on its floor" || bad "publication: rc=$rc
     got  $got
     want $want

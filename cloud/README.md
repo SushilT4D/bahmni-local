@@ -56,8 +56,8 @@ the hub.
 
 The clinics send up every table in `sync/subsystems.conf`. The hub sends down
 only `sync/hub-down.conf`: products, categories, units of measure and the
-address tables, plus the three product link tables and the central-transfer
-tables; the OpenELIS `result`, `analysis` and `sample` rows, each routed to
+address tables, plus the three product link tables, the central-transfer
+tables, and shops with their order types and price lists; the OpenELIS `result`, `analysis` and `sample` rows, each routed to
 one clinic; and, to every clinic, the OpenELIS lab accounts and lab test
 catalogue and the OpenMRS concept dictionary (as changes only). Partners,
 sales, invoices, stock levels and every other OpenELIS table stay at the
@@ -80,6 +80,21 @@ show it. A hub strided before this script records its floors from the values
 captured then, with `scripts/record-down-floors.sh --from-file <file>`. The
 publication step refuses, naming the table, when a floor is missing, and
 publishes no TRUNCATE (it ignores row filters).
+
+A table added to `sync/hub-down.conf` later has no floor in the file and a
+sequence that still steps by 1. `scripts/stride-odoo.sh` strides it like the
+rest and adds its floor to the file, leaving every recorded floor as it was.
+That is safe only while no clinic has sent the table up, so the hub takes a
+change to the down list before any clinic does:
+
+1. `scripts/stride-odoo.sh -- <psql command>`: strides the new tables and
+   records their floors;
+2. `scripts/apply-down-publication.sh odoo-down-floors.local -- <psql command>`:
+   the publication now holds them;
+3. `NODE=cloud connectors/register-odoo.sh odoo-cloud-source`: the source
+   captures them;
+4. then each clinic, which strides the new tables and registers its Odoo
+   connectors again.
 
 Within those tables, only the rows written at the hub. A row from a clinic stops here: the up-sinks
 that write a clinic's Odoo and OpenELIS rows into the hub claim that clinic's

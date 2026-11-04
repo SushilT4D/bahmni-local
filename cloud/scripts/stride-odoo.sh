@@ -10,9 +10,14 @@
 # an id (sync/hub-down.conf).
 #
 # The floors are recorded once. When FILE already exists, a re-run strides
-# again (forward only) and never changes it: it refuses, before striding, when a
-# sequence would restart below its recorded floor (the database went back), or
-# when a down table with an id has no recorded floor.
+# again (forward only) and never changes a recorded floor: it refuses, before
+# striding, when a sequence would restart below its recorded floor (the
+# database went back), or when a down table with an id has no recorded floor
+# and its sequence was strided before. A down table with no recorded floor
+# whose sequence still steps by 1 is one newly added to the down list: its ids
+# were never strided, so no clinic has minted any, and its floor is recorded in
+# this run and added to FILE. That holds only while the hub is upgraded before
+# any clinic sends the table up.
 #
 # A first recording is allowed only on a first striding: before the run, every
 # down table's sequence still steps by 1. On a hub strided before, a floor read
@@ -38,12 +43,16 @@ state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste
   || die "the down sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 idtabs="$(printf '%s\n' "$state" | cut -d'|' -f1)"
 
+newtabs=""
 if [ -e "$OUT" ]; then
   floors="$(bash "$HERE/down-floors.sh" "$OUT")" || die "$OUT cannot be read (reason above); nothing was strided"
   while IFS='|' read -r t restart _nxt _inc; do
     [ -n "$t" ] || continue
     f="$(printf '%s\n' "$floors" | awk -v t="$t" '$1 == t { print $2 }')"
-    [ -n "$f" ] || die "$OUT records no floor for $t; nothing was strided. Its floor is the value its sequence restarted at when the hub's ids were first strided: add that line by hand from the striding record"
+    if [ -z "$f" ]; then
+      [ "$_inc" = 1 ] || die "$OUT records no floor for $t; nothing was strided. Its floor is the value its sequence restarted at when the hub's ids were first strided: add that line by hand from the striding record"
+      newtabs="${newtabs:+$newtabs }$t"; continue
+    fi
     [ "$restart" -ge "$f" ] || die "$t would restart at $restart, below its recorded floor $f (the database holds fewer rows than when it was strided); nothing was strided"
   done <<EOF2
 $state
@@ -66,12 +75,13 @@ o2="$("$@" -v ON_ERROR_STOP=1 -qAt -f /dev/stdin < "$R/clinic/odoo/apply-master-
   || { printf '%s\n' "$o1" "$o2" >&2; die "apply-master-sequence-striding.sql failed (above)"; }
 printf '%s\n' "$o1" "$o2" | grep -E 'NOTICE|next=' | sed 's/^/  /'
 
-if [ -e "$OUT" ]; then
+if [ -e "$OUT" ] && [ -z "$newtabs" ]; then
   echo "  floors kept: $OUT is unchanged"
   exit 0
 fi
 # the last restart each table reported wins: the master script runs second
-rows=""
+rows=""; [ -e "$OUT" ] && { rows="$(cat "$OUT")"; [ -z "$rows" ] || rows="$rows
+"; idtabs="$newtabs"; }
 for t in $idtabs; do
   n="$(printf '%s\n' "$o1" "$o2" | sed -nE "s/^.*NOTICE: +${t} : .*-> next=([0-9]+) .*$/\\1/p" | tail -1)"
   [ -n "$n" ] || die "the striding run reported no restart for $t; the hub was strided but no floors were written. Record them from the restart values above: cloud/scripts/record-down-floors.sh --from-file <file> -- <psql command>"

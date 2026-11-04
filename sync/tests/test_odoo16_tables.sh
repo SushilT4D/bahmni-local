@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u; REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; fails=0
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
-want="account_move account_move_line district_subdistrict procurement_group product_category product_product product_supplier_taxes_rel product_taxes_rel product_template res_country_state res_partner res_partner_attributes sale_order sale_order_line state_district stock_location stock_lot stock_move stock_move_line stock_picking stock_picking_type stock_quant stock_route stock_route_product stock_rule stock_warehouse stock_warehouse_orderpoint uom_uom village_village"
+want="account_move account_move_line district_subdistrict order_type order_type_shop_map procurement_group product_category product_pricelist product_pricelist_item product_product product_supplier_taxes_rel product_taxes_rel product_template res_country_state res_partner res_partner_attributes sale_order sale_order_line sale_shop state_district stock_location stock_lot stock_move stock_move_line stock_picking stock_picking_type stock_quant stock_route stock_route_product stock_rule stock_warehouse stock_warehouse_orderpoint uom_uom village_village"
 have="$(grep -E '^odoo:' "$REPO/sync/subsystems.conf" | grep -v ':all$' | cut -d: -f2 | sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$have" = "$want" ] && ok "subsystems.conf carries the Odoo 16 set" || bad "subsystems.conf odoo set is: $have"
 
