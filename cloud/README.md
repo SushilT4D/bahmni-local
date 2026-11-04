@@ -183,7 +183,11 @@ on loopback only; reach them over an SSH tunnel.
   clinic installed with `CLINICAL_UP_SYNC=test`):
   `scripts/generate-sink-connectors.sh <slug>` then
   `scripts/register-all-sink-connectors.sh` for the MySQL sinks, and
-  `connectors/register-odoo.sh` for that clinic's Odoo and OpenELIS sinks.
+  `NODE=<slug> connectors/register-odoo.sh odoo-<slug>-sink-all clinlims-<slug>-sink-all`
+  for that clinic's Odoo and OpenELIS sinks. For a clinic the installer made
+  (topics `<slug>.bahmni-<slug>.*`) the two files are made from the Ghated ones
+  on the first run; a clinic with other topic names needs its two files written
+  by hand, as `odoo-cloud-sink-all.json` is for the clinic on `source.bahmni-local`.
 
 Rendered connector files hold passwords and are gitignored.
 

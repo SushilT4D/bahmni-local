@@ -9,6 +9,26 @@ CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/.env"; set +a
 
+# A clinic's up-sinks, odoo-<slug>-sink-all and clinlims-<slug>-sink-all, are
+# made from the Ghated files with the slug swapped when no file of that name
+# exists. The copy is only right for a clinic whose topics are
+# <slug>.bahmni-<slug>.*, the names the clinic installer gives; a clinic listed
+# in clinics.<HUB_NAME>.conf under other names keeps a file written by hand.
+# The copies are gitignored, mode 600.
+for name in "$@"; do
+  [[ "$name" =~ ^(odoo|clinlims)-([a-z0-9]+)-sink-all$ ]] || continue
+  k="${BASH_REMATCH[1]}"; slug="${BASH_REMATCH[2]}"
+  [ -f "$ROOT/connectors/${name}.json" ] && continue
+  line="$(grep -E "^${slug}:" "$ROOT/clinics.${HUB_NAME:-}.conf" 2>/dev/null | head -1 || true)"
+  if [ -n "$line" ]; then
+    IFS=: read -r _ _ mm server _ <<< "$line"
+    [ "$mm.$server" = "$slug.bahmni-$slug" ] || {
+      echo "  ${name}: clinics.${HUB_NAME}.conf names this clinic's topics ${mm}.${server}.*, not ${slug}.bahmni-${slug}.*; write connectors/${name}.json by hand" >&2; exit 1; }
+  fi
+  (umask 077; sed "s/ghated/${slug}/g" "$ROOT/connectors/${k}-ghated-sink-all.json" > "$ROOT/connectors/${name}.json")
+  echo "  ${name}: made from ${k}-ghated-sink-all.json (topic ${slug}.bahmni-${slug}.${k}.all)"
+done
+
 # The hub's down sources take their table lists and aggregate regexes from the
 # down list (sync/hub-down.conf): HUB_DOWN_ODOO_* for the Odoo source (schema
 # public), HUB_DOWN_CLINLIMS_* for the OpenELIS source (schema clinlims). Read
