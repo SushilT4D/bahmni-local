@@ -593,3 +593,63 @@ record_clinlims_floors(){
     esac
   done
 }
+
+# --- Odoo floors: where this clinic's own ids of a hub table begin -----------
+# The clinic's Odoo source publishes a row of a table the hub sends down only
+# when this clinic minted it (sync/local/tables-conf.sh, UP_ODOO_SHARED_ROWS
+# names the exceptions): id at or above the clinic's floor for the table and on
+# its residue (clinic/scripts/odoo-up-filter.sh). Every row the seed restored
+# is below the floor, whoever wrote it. The floor is the value the striding
+# step restarts the table's sequence at, as the hub records its own
+# (cloud/odoo/down-sequence-state.sql, read before the stride):
+#     floor = (max(largest id, last_value) / 10 + 1) * 10
+# It is written once, as ODOO_FLOOR_<TABLE> in .install-state: a re-run after
+# the clinic has minted ids reads a higher value, and a floor moved up would
+# keep this clinic's earlier rows from going up, so an existing value is kept.
+
+# odoo_floor_tables : the Odoo down tables a clinic publishes only for its own
+# rows (sync/hub-down.sh odoo, less UP_ODOO_SHARED_ROWS), in the down list's
+# order. Link tables are among them; they have no id, and
+# down-sequence-state.sql leaves them out.
+odoo_floor_tables(){
+  local d t
+  d="$(bash "${REPO_DIR}/sync/hub-down.sh" odoo)" || return 1
+  [ -n "${UP_ODOO_SHARED_ROWS+x}" ] || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  for t in $d; do case " ${UP_ODOO_SHARED_ROWS} " in *" $t "*) ;; *) printf '%s\n' "$t" ;; esac; done
+}
+odoo_floor_key(){ printf 'ODOO_FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }
+# record_odoo_floors READER : READER TABLES (a comma-separated list) runs
+# cloud/odoo/down-sequence-state.sql on the clinic's Odoo database before the
+# stride and prints its "<table>|<restart>|<next>|<step>" lines, one per table
+# with an id. For each such table keeps a recorded floor or records the
+# restart. Prints "ok <KEY>=<floor> (recorded|kept)" per table; on a refusal
+# prints it and returns 1, having recorded nothing.
+record_odoo_floors(){
+  local reader="$1" tables got t restart _n _i key rec out="" puts=""
+  tables="$(odoo_floor_tables)" || { printf 'the hub'"'"'s down list could not be read (reason above), so the Odoo floors could not be recorded; nothing was strided.\n'; return 1; }
+  [ -n "$tables" ] || { printf 'the hub'"'"'s down list names no Odoo table this clinic publishes only for its own rows; nothing was strided.\n'; return 1; }
+  got="$("$reader" "$(printf '%s\n' $tables | paste -sd, -)")" || { printf 'could not read the Odoo id sequences (%s); nothing was strided. Run the same command again; if it persists, call the operator.\n' "$(printf '%s\n' "$got" | sed -n 's/^.*ERROR: *//p' | head -1)"; return 1; }
+  [ -n "$(printf '%s\n' "$got" | grep '|')" ] || { printf 'reading the Odoo id sequences returned nothing; nothing was strided. Call the operator.\n'; return 1; }
+  while IFS='|' read -r t restart _n _i; do
+    [ -n "$t" ] || continue
+    case "$restart" in ''|*[!0-9]*) printf 'the restart value of %s reads '"'"'%s'"'"', not a number; nothing was strided.\n' "$t" "$restart"; return 1 ;; esac
+    key="$(odoo_floor_key "$t")"; rec="$(stamp_get "$key")"
+    if [ -n "$rec" ]; then
+      case "$rec" in *[!0-9]*|0*) printf '.install-state has %s=%s, not a whole number above 0; it is never rewritten, so call the operator.\n' "$key" "$rec"; return 1 ;; esac
+      [ $(( rec % 10 )) = 0 ] || { printf '.install-state has %s=%s, not a multiple of 10; it is never rewritten, so call the operator.\n' "$key" "$rec"; return 1; }
+      out="${out}ok ${key}=${rec} (kept: recorded before, never moved)
+"
+    else
+      puts="${puts}${key} ${restart}
+"
+      out="${out}ok ${key}=${restart} (recorded from the sequence before the stride)
+"
+    fi
+  done <<EOF2
+$got
+EOF2
+  while read -r key restart; do [ -z "$key" ] || stamp_put "$key" "$restart"; done <<EOF2
+$puts
+EOF2
+  printf '%s' "$out"
+}

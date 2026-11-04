@@ -89,6 +89,22 @@ for t in ${UP_CLINLIMS_OWN_ROWS}; do
   export "CLINLIMS_UP_CONDITION_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')=$c"
 done
 # clinlims-own-rows:end
+# odoo-filters:begin
+# The Odoo source publishes a row of a table the hub sends down only when this
+# clinic minted it (scripts/odoo-up-filter.sh, on the floors task 060
+# recorded), and the Odoo down sink keeps a stock transfer only when it goes
+# to this clinic's warehouse, ODOO_WAREHOUSE (scripts/odoo-down-filter.sh).
+# Each script prints only the condition when it succeeds, and only the reason
+# when it refuses.
+c="$(bash scripts/odoo-up-filter.sh 2>&1)" || fail "the Odoo source cannot be registered: $(printf '%s\n' "$c" | sed 's/^odoo-up-filter: //' | tail -1)"
+export ODOO_UP_CONDITION="$c"
+ok "Odoo own-rows filter: a change to a hub table goes up only for a row this clinic minted (residue ${RESIDUE})"
+c="$(bash scripts/odoo-down-filter.sh -- "${CT}" exec -i "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" psql -U postgres -d odoo 2>/dev/null)" \
+  || fail "the Odoo down sink cannot be registered: $(bash scripts/odoo-down-filter.sh -- "${CT}" exec -i "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" psql -U postgres -d odoo 2>&1 >/dev/null | sed 's/^odoo-down-filter: //' | tail -1)"
+export ODOO_DOWN_CONDITION="$c"
+if [ -n "${ODOO_WAREHOUSE:-}" ]; then ok "Odoo down filter: keeps the stock transfers going to warehouse ${ODOO_WAREHOUSE}"
+else warn "ODOO_WAREHOUSE is not set: this clinic keeps no stock transfer from the hub. Once its warehouse is made at the hub and has come down, set ODOO_WAREHOUSE in clinic/.env and register the Odoo down sink again (clinic/README.md)."; fi
+# odoo-filters:end
 NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
 # clinlims-down:begin
 # The filter script prints only the condition when it succeeds, and only the

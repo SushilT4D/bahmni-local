@@ -409,6 +409,47 @@ patient-flow list and a write path for every DOWN table of
 configuration from the proxy's nginx image against a stub upstream and sends
 the requests.
 
+## Odoo shops, price lists and transfers
+
+The hub sends its Odoo products, units, addresses, stock structure, shops,
+order types and price lists down to every clinic (`sync/hub-down.conf`). Two
+filters keep each row with one writer:
+
+- **Own rows up.** The clinic's Odoo source publishes a row of one of those
+  tables only when this clinic minted it: id at or above the clinic's floor
+  for the table and on its residue. An edit made here to a hub product, price
+  or shop stays here until the hub next changes that row. Task 060 records the
+  floors (`ODOO_FLOOR_<TABLE>` in `.install-state`) before it strides the Odoo
+  sequences; task 090 writes the condition from them
+  (`clinic/scripts/odoo-up-filter.sh`) and stops without them. The transfer
+  tables are not filtered: the clinic completes a transfer the hub made, and
+  that change goes up.
+- **Transfers down.** The clinic's Odoo down sink keeps a stock transfer (the
+  picking, its moves and its move lines) only when it goes to one of the
+  locations of this clinic's warehouse, named by its short name in the
+  optional answer `ODOO_WAREHOUSE` (`clinic/scripts/odoo-down-filter.sh`).
+  The warehouse is made at the hub and comes down with the stock structure.
+  Without `ODOO_WAREHOUSE` the clinic keeps no transfer and task 090 says so.
+  The warehouse's locations are read when the sink is registered: after a
+  location is added to the warehouse, or once a running clinic's warehouse has
+  come down, set `ODOO_WAREHOUSE` in `clinic/.env` and register the sink
+  again, from `clinic/`:
+
+      ODOO_DOWN_CONDITION="$(bash scripts/odoo-down-filter.sh -- docker exec -i <project>-bahmni-postgres-1 psql -U postgres -d odoo)" \
+        NODE=<slug> bash connectors/register-odoo.sh odoo-clinic-sink-all
+
+A clinic installed before shops and price lists were synced takes them after
+the hub has (`cloud/README.md`): its publication takes the new tables, then the
+striding and sync tasks run again, which stride them, record the Odoo floors
+and register the connectors with both filters:
+
+    docker exec -i <project>-bahmni-postgres-1 psql -U postgres -d odoo -c 'ALTER PUBLICATION dbz_odoo_owned ADD TABLE public.product_pricelist, public.product_pricelist_item, public.order_type, public.sale_shop, public.order_type_shop_map'
+    clinic/install/seed.sh --seed <folder> --from 060
+
+On such a clinic the floors are read from sequences it has already used, so
+they sit above the rows it minted before; a later edit to one of those rows
+stays at the clinic.
+
 ## macOS (Apple Silicon)
 
 The runtime is rootless **podman**, driven through `docker-compose` over

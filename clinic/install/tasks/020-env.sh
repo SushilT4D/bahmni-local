@@ -45,6 +45,8 @@ put CERT_HOSTNAME "${CERT_HOSTNAME}"; put LAN_NAME "${LAN_NAME:-bahmni.clinic}"
 put CLINICAL_UP_SYNC "${CLINICAL_UP_SYNC:-off}"
 # optional: unset leaves docker-compose.yml's clinic default (initializer.sh)
 [ -z "${OPENMRS_INITIALIZER_DOMAINS:-}" ] || put OPENMRS_INITIALIZER_DOMAINS "${OPENMRS_INITIALIZER_DOMAINS}"
+# optional: the short name of this clinic's Odoo warehouse, made at the hub; unset keeps no stock transfer
+[ -z "${ODOO_WAREHOUSE:-}" ] || put ODOO_WAREHOUSE "${ODOO_WAREHOUSE}"
 put DEBEZIUM_SNAPSHOT_MODE no_data
 put KAFKA_CLUSTER_ID "$(kafka_cluster_id)"
 if [ "${PLATFORM}" = macos ]; then put RESTART_POLICY always; else put RESTART_POLICY unless-stopped; fi

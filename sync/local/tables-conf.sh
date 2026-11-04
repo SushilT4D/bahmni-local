@@ -48,6 +48,21 @@ UP_CLINICAL_TABLES="obs orders drug_order test_order"
 # clinic/connectors/clinlims-source-connector.json, in this order, before the
 # step that routes every table into the one ordered topic.
 UP_CLINLIMS_OWN_ROWS="system_user result_signature"
+#
+# The Odoo tables the hub sends down (sync/hub-down.conf) are written at the
+# hub; a clinic's Odoo source publishes a row of one only when this clinic
+# minted it: id at or above the clinic's floor for the table (recorded by
+# installer task 060 before it strides, ODOO_FLOOR_<TABLE>) and on its residue.
+# An edit a clinic makes to a hub product, price or shop stays at the clinic
+# until the hub next changes that row. The exceptions are the transfer tables
+# below: the hub makes a transfer and the clinic it goes to completes it, so
+# that clinic's change to the hub's row must go up. Link tables have no id and
+# are published whole.
+UP_ODOO_SHARED_ROWS="stock_picking stock_move stock_move_line"
+# The Odoo down tables with no id: each row is a pair of ids, so it has no
+# owner of its own and is published whole. Any other down table with no
+# recorded floor stops the Odoo source from being registered.
+UP_ODOO_LINK_TABLES="product_taxes_rel product_supplier_taxes_rel stock_route_product"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
 # bash 3.2 compatible (macOS): no associative arrays.

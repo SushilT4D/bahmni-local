@@ -480,8 +480,11 @@ answers_missing(){ local k; for k in $ANSWER_KEYS; do case " $ANSWER_DEFAULTS" i
 # Answers a clinic may leave out: the forms repo (task 075; empty = the node
 # runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
 # Initializer domain list (task 020 writes it into clinic/.env; empty = the
-# clinic default, initializer.sh). They come from --secrets or the answers file.
-OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"
+# clinic default, initializer.sh) and the short name of the clinic's Odoo
+# warehouse (task 020 writes it into clinic/.env; empty = the clinic keeps no
+# stock transfer from the hub, scripts/odoo-down-filter.sh). They come from
+# --secrets or the answers file.
+OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS ODOO_WAREHOUSE"
 # answers_write FILE : the twelve keys from the current environment, plus each
 # optional one that is set, mode 600.
 answers_write(){

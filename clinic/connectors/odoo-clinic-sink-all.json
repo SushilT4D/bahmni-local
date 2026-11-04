@@ -27,6 +27,11 @@
     "delete.enabled": "true",
     "consumer.override.auto.offset.reset": "earliest",
     "value.converter.schemas.enable": "true",
+    "transforms": "transfersForThisClinic",
+    "transforms.transfersForThisClinic.type": "io.debezium.transforms.Filter",
+    "transforms.transfersForThisClinic.language": "jsr223.groovy",
+    "transforms.transfersForThisClinic.null.handling.mode": "evaluate",
+    "transforms.transfersForThisClinic.condition": "${ODOO_DOWN_CONDITION}",
     "connection.url": "jdbc:postgresql://bahmni-postgres:5432/odoo"
   }
 }

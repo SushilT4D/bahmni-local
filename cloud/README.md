@@ -93,8 +93,17 @@ change to the down list before any clinic does:
    the publication now holds them;
 3. `NODE=cloud connectors/register-odoo.sh odoo-cloud-source`: the source
    captures them;
-4. then each clinic, which strides the new tables and registers its Odoo
-   connectors again.
+4. then each clinic, which strides the new tables, records its own floors and
+   registers its Odoo connectors again (`clinic/install/README.md`, "Odoo
+   shops, price lists and transfers").
+
+Each clinic has its own warehouse at the hub (Inventory > Configuration >
+Warehouses), made before the clinic is seeded or, for a running clinic, before
+it is named in that clinic's answers. A stock transfer from the hub is kept
+only by the clinic whose warehouse it goes to (`clinic/scripts/odoo-down-filter.sh`).
+A shop made at the hub for a clinic names that clinic's warehouse and stock
+location, and a payment term and analytic account every node has from its
+seed: those two tables are not synced.
 
 Within those tables, only the rows written at the hub. A row from a clinic stops here: the up-sinks
 that write a clinic's Odoo and OpenELIS rows into the hub claim that clinic's

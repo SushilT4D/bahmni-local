@@ -13,7 +13,7 @@ begin_task "60 · striding + replication origins (residue ${RESIDUE})"
 if [ "${DRY}" = 1 ]; then
   . "${INSTALL_DIR}/state.sh"
   ft="$(clinlims_floor_tables 2>&1)" || ft="<the down list could not be read: ${ft}>"
-  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
+  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); record ODOO_FLOOR_<table> for each Odoo table the hub sends down, the same way; stride clinlims sequences above their rows (openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
   exit 0
 fi
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"
@@ -97,6 +97,17 @@ ok "$(printf '%s\n' "$o" | grep '^clinlims sequences step 10' | tail -1)"
 # than duplicated as a second hard-coded array.
 ODOO_TABLES="$(subsystem_tables odoo | tr '\n' ',' | sed 's/,$//')"
 [ -n "${ODOO_TABLES}" ] || fail "no odoo: rows found in ${REPO_DIR}/sync/subsystems.conf"
+# odoo-floors:begin
+# Before the Odoo sequences are strided: where this clinic's own ids of each
+# table the hub sends down begin (state.sh record_odoo_floors), recorded once.
+# The Odoo source's own-rows filter (scripts/odoo-up-filter.sh, task 090)
+# reads them from .install-state.
+odoo_seq_state(){ ct exec -i "$PG" psql -U postgres -d odoo -v ON_ERROR_STOP=1 -qAt -v tables="$1" -f /dev/stdin < "${REPO_DIR}/cloud/odoo/down-sequence-state.sql" 2>&1; }
+v="$(record_odoo_floors odoo_seq_state)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
+# odoo-floors:end
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < odoo/apply-odoo-sequence-striding.sql
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < odoo/apply-master-sequence-striding.sql
 bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) from pg_sequences where (schemaname='clinlims') and (increment_by<>10 or last_value %% 10 <> ${RESIDUE}) limit 3" | ct exec -i "$PG" psql -U postgres -d openelis -At | tr '\n' ' ')"
