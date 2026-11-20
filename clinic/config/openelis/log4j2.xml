@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Replaces the image's WEB-INF/classes/log4j2.xml, which log4j2 rejects at startup:
+  its RollingFile appender has no filePattern and its Root is not nested in Loggers.
+  Logs go to stdout so `docker logs` / `podman logs` show them. The image's SMTP appender
+  is omitted: its recipient and sender are unfilled placeholders.
+-->
+<Configuration>
+    <Appenders>
+        <Console name="console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%d %-5p [ELIS][%c{1}] %m%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <Root level="WARN">
+            <AppenderRef ref="console"/>
+        </Root>
+    </Loggers>
+</Configuration>
