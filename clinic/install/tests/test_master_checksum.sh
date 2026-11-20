@@ -19,9 +19,10 @@ trap '[ -n "$CNAME" ] && docker rm -f "$CNAME" >/dev/null 2>&1; rm -rf "$TMP"' E
   && ok_ "the one excluded column is privilege.uuid" || bad "exclusions: $(awk '{ sub(/#.*/, "") } NF' "$RP/cloud/checksum-exclusions.conf")"
 
 # --- a fake MySQL: columns from a fixture, every statement logged ---------------------
-R="$TMP/r"; mkdir -p "$R/cloud" "$TMP/bin" "$TMP/node"
+R="$TMP/r"; mkdir -p "$R/cloud" "$R/sync/tables" "$TMP/bin" "$TMP/node"
 cp "$RP/cloud/table-verdicts.conf" "$RP/cloud/checksum-exclusions.conf" "$R/cloud/"
-printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/cloud/tables.conf"
+cp "$RP/sync/tables/tables.sh" "$R/sync/tables/"
+printf '[up]\n[down]\nform:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/sync/tables/openmrs.conf"
 printf 'COMPOSE_PROJECT_NAME=bahmni-t\n' > "$TMP/node/.env"
 TAB="$(printf '\t')"
 cat > "$TMP/cols" <<EOF
@@ -102,7 +103,7 @@ INSERT INTO form VALUES (454, 'Vitals', '1', 1, NULL, 'u-454'), (457, 'History',
 INSERT INTO form_resource VALUES (1, 454, 'Vitals', '/home/bahmni/clinical_forms/a.json', 'r-1');
 INSERT INTO privilege VALUES ('Get Concepts', 'Able to get concepts', 'p-1');
 SQL
-printf 'form:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/cloud/tables.conf"
+printf '[up]\n[down]\nform:form_id\nform_resource:form_resource_id\nprivilege:privilege\n' > "$R/sync/tables/openmrs.conf"
 real(){ env PATH="$PATH" REPO_DIR="$R" CLINIC_DIR="$TMP/node" CT=docker bash "$S" --container "$CNAME" 2>&1; }
 idsum(){ echo "SELECT COALESCE(SUM(CAST(CONV(LEFT(MD5(CONCAT(form_id, ':', uuid)), 16), 16, 10) AS UNSIGNED)), 0) FROM form;" | sq; }
 a="$(real)"; rc=$?; ia="$(idsum)"

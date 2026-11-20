@@ -2,7 +2,7 @@
 # generate-cloud-source-connector.sh — render the DOWN-direction Debezium source that
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
-# table.include.list comes from cloud/tables.conf via generate-table-config.sh,
+# table.include.list comes from the OpenMRS [down] list via generate-table-config.sh,
 # so the whitelist can never drift from the declared ownership split.
 set -euo pipefail
 # The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
@@ -13,7 +13,7 @@ umask 077
 
 # Two roots, resolved separately:
 #   ROOT     the REPO checkout -- clinic/scripts/generate-table-config.sh and
-#            sync/local/tables.conf, which are repo files wherever the hub tree
+#            sync/tables/openmrs.conf, which are repo files wherever the hub tree
 #            happens to live;
 #   HUB_ROOT the HUB directory -- the template, cloud/.env and the default output.
 # Both fall back to this script's own location.
@@ -75,8 +75,25 @@ if not inc or '*' in inc:
 # that wrote them, through a source with no origin filter. Refused by name, so
 # the refusal holds even before the clinic's own list carries the table.
 root = os.environ['ROOT']
+TABLES = os.path.join(root, 'sync', 'tables', 'openmrs.conf')
 
-# Rows marked `clinic=<column>` in cloud/tables.conf: tables the clinics write, of
+
+def section(path, name):
+    """The lines of [name] in a sectioned table list (the whole file if it has no sections)."""
+    lines = open(path).read().splitlines()
+    heads = [l.split('#', 1)[0].strip() for l in lines]
+    if not any(h.startswith('[') and h.endswith(']') for h in heads):
+        return lines
+    out, on = [], False
+    for l, h in zip(lines, heads):
+        if h.startswith('[') and h.endswith(']'):
+            on = (h == '[' + name + ']')
+        elif on:
+            out.append(l)
+    return out
+
+
+# Rows marked `clinic=<column>` in the OpenMRS [down] list: tables the clinics write, of
 # which the hub publishes only the rows it wrote itself (lab results entered at
 # the hub); each clinic keeps those whose <column> names a row it wrote. Each
 # gets a row filter below; without it such a table would carry every clinic's
@@ -92,29 +109,29 @@ changes = set()
 # Rows marked `hub-rows`: tables the hub and the clinics both write, each its own
 # rows (the people behind logins at the hub, patients at a clinic). The source
 # publishes only the hub's: key at or above the table's floor, ending in 0. The
-# floor is the table's base in sync/local/tables.conf, read below.
+# floor is the table's base in the OpenMRS [up] list, read below.
 hubrows = {}
-with open(os.path.join(root, 'cloud', 'tables.conf')) as fh:
-    for line in fh:
+if True:
+    for line in section(TABLES, 'down'):
         line = line.split('#', 1)[0].strip()
         parts = line.split(':')
         if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes', 'hub-rows') or parts[2].startswith('clinic=')):
-            sys.exit(f"cloud/tables.conf: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
+            sys.exit(f"the OpenMRS [down] list: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
         if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
             plain.add(parts[0])
         if line and len(parts) == 3 and parts[2] == 'changes':
             changes.add(parts[0])
         if line and len(parts) == 3 and parts[2] == 'hub-rows':
             if ',' in parts[1]:
-                sys.exit(f"cloud/tables.conf: {line}: a hub-rows table is filtered on its key, which must be a single column")
+                sys.exit(f"the OpenMRS [down] list: {line}: a hub-rows table is filtered on its key, which must be a single column")
             hubrows[parts[0]] = parts[1]
         if len(parts) == 3 and parts[2].startswith('clinic='):
             col = parts[2][len('clinic='):]
             if parts[0] not in ROUTE:
-                sys.exit(f"cloud/tables.conf: {line}: only encounter and obs carry the hub's lab results to a clinic; "
+                sys.exit(f"the OpenMRS [down] list: {line}: only encounter and obs carry the hub's lab results to a clinic; "
                          "no other table may be published under clinic=")
             if col != ROUTE[parts[0]] or ',' in parts[1]:
-                sys.exit(f"cloud/tables.conf: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
+                sys.exit(f"the OpenMRS [down] list: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
                          f"({parts[0]}:<key>:clinic={ROUTE[parts[0]]}), on a single-column key")
             routed[parts[0]] = (parts[1], col)
 
@@ -125,12 +142,12 @@ never = sorted(({'orders', 'drug_order', 'test_order'} & {t.split('.')[-1] for t
 if never:
     sys.exit(
         f"REFUSING to generate: the hub never publishes {never}: they are written at\n"
-        "  the clinics and reach the hub through its up sinks. Remove them from cloud/tables.conf.")
+        "  the clinics and reach the hub through its up sinks. Remove them from the OpenMRS [down] list.")
 
 up = set()
 base = {}
-with open(os.path.join(root, 'sync', 'local', 'tables.conf')) as fh:
-    for line in fh:
+if True:
+    for line in section(TABLES, 'up'):
         line = line.strip()
         if line and not line.startswith('#'):
             f = line.split()[0].split(':')
@@ -146,7 +163,7 @@ for t, pk in sorted(hubrows.items()):
         continue
     f = base.get(t)
     if not f or f % 10:
-        sys.exit(f"REFUSING to generate: {t} is marked hub-rows, and its floor in sync/local/tables.conf "
+        sys.exit(f"REFUSING to generate: {t} is marked hub-rows, and its floor in the OpenMRS [up] list "
                  f"({t}:{pk}:<floor>) is {'missing' if not f else f'{f}, not a multiple of 10'}. Without a floor "
                  "the source cannot tell the hub's rows from older ones, which sit on every residue.")
     floor[t] = f
@@ -154,10 +171,10 @@ clash = sorted((down & up) - set(routed) - set(floor))
 if clash:
     sys.exit(
         f"REFUSING to generate: these tables appear in BOTH direction files: {clash}\n"
-        "  (clinic-owned per sync/local/tables.conf, and cloud-owned per this one)\n"
+        "  (clinic-owned per the OpenMRS [up] list, and cloud-owned per this one)\n"
         "\n"
         "  A table the clinics write is published by the hub only under a mark in\n"
-        "  cloud/tables.conf that gives it a row filter: `hub-rows` (the hub's own rows of a\n"
+        "  the OpenMRS [down] list that gives it a row filter: `hub-rows` (the hub's own rows of a\n"
         "  table both sides write, at or above its floor and ending in 0) or\n"
         "  `clinic=<column>` (the hub's lab results for one clinic). `relay` is not\n"
         "  published here at all: a hub that passed every clinic's rows on would send each\n"

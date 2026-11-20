@@ -10,14 +10,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/.env"; set +a
 
 # The hub's down sources take their table lists and aggregate regexes from the
-# down list (sync/hub-down.conf): HUB_DOWN_ODOO_* for the Odoo source (schema
+# down list (the [down] lists in sync/tables/): HUB_DOWN_ODOO_* for the Odoo source (schema
 # public), HUB_DOWN_CLINLIMS_* for the OpenELIS source (schema clinlims). Read
 # before anything is registered, and only when a template asks for that
 # subsystem; a list it refuses stops every registration.
 down_vars(){ # SUBSYSTEM PG_SCHEMA : exports HUB_DOWN_<SUB>_TABLES, _TABLE_INCLUDE_LIST, _ALTERNATION
   local sub="$1" schema="$2" up down
   up="$(printf '%s' "$sub" | tr '[:lower:]' '[:upper:]')"
-  down="$(bash "$ROOT/../sync/hub-down.sh" "$sub")" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
+  down="$(bash "$ROOT/../sync/tables/hub-down.sh" "$sub")" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
   export "HUB_DOWN_${up}_TABLES=$(printf '%s\n' "$down" | paste -sd, -)"
   export "HUB_DOWN_${up}_TABLE_INCLUDE_LIST=$(printf '%s\n' "$down" | sed "s/^/${schema}./" | paste -sd, -)"
   export "HUB_DOWN_${up}_ALTERNATION=$(printf '%s\n' "$down" | paste -sd'|' -)"

@@ -42,7 +42,7 @@ if [ -z "${connector_exists}" ]; then
     echo "To register it locally:"
     echo "  cd local"
     echo "  ./scripts/setup-connectors.sh"
-    echo "  ./scripts/register-source-connector.sh"
+    echo "  ./scripts/register-connectors.sh mysql-local-source-connector"
     exit 1
 fi
 
@@ -81,7 +81,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CLINIC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-. "${REPO_ROOT}/sync/local/tables-conf.sh"
+. "${REPO_ROOT}/sync/tables/tables.sh"
 . "${REPO_ROOT}/sync/origin-filter.sh"
 echo ""
 echo "Capture filter:"
@@ -96,7 +96,7 @@ if [ -z "${offset}" ]; then
     [ -n "${offset}" ] && break
   done
 fi
-verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/local/tables.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
+verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/tables/openmrs.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
 rm -f "${cfg_file}"
 printf '%s\n' "${verdict}" | sed 's/^/  /'
 exit "${vrc}"

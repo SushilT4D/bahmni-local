@@ -60,7 +60,7 @@ MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 # list that cannot be read fails here rather than checking no table.
 . "${INSTALL_DIR}/state.sh"
 ai_of(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true; }
-v="$(counter_floor_verdicts "${REPO_DIR}/sync/local/tables.conf" "${RESIDUE}" ai_of)" || fail "$v"
+v="$(counter_floor_verdicts "${REPO_DIR}/sync/tables/openmrs.conf" "${RESIDUE}" ai_of)" || fail "$v"
 while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF

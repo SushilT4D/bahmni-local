@@ -58,7 +58,7 @@ MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFK
 # compose project came from. Works regardless of how this script was invoked --
 # the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
 # Resolved here (not down by the checkout-drift section that originally read
-# it) so the unsynced-tables section below -- which needs sync/subsystems.conf,
+# it) so the unsynced-tables section below -- which needs the Odoo and OpenELIS [up] lists (sync/tables/),
 # same as checkout drift needs the git repo -- has it too.
 REPO=${PREFLIGHT_REPO:-}
 if [ -z "$REPO" ]; then
@@ -159,7 +159,7 @@ else bad "postgres service '$PG_SERVICE' not running"; fi
 # --- Unsynced tables tied to synced ones -------------------
 # village_village stopped a sink because a table nobody had listed grew rows
 # that referenced, and were referenced by, a synced table. That
-# is a CLASS, not a one-off: a table outside sync/subsystems.conf's synced set
+# is a CLASS, not a one-off: a table outside the Odoo and OpenELIS [up] lists' synced set
 # that (a) touches a synced table by a foreign key in EITHER direction and
 # (b) has gained rows is a future village_village until a human gives it a
 # verdict in sync/unsynced-allowlist.conf. WARN, not FAIL: this is a
@@ -175,14 +175,14 @@ else bad "postgres service '$PG_SERVICE' not running"; fi
 # unsynced-check:begin
 warn_(){ echo "  WARN $*"; }
 
-# subsystems_conf_tables PREFIX CONF : sync/subsystems.conf's <PREFIX>:<table>
-# rows, one per line -- the same parse clinic/install/lib.sh's
-# subsystem_tables does (trim, drop a trailing comment, skip :all, skip
-# blank/comment lines). A missing CONF prints nothing rather than erroring --
-# the caller decides whether that is a note or a real problem.
+# subsystems_conf_tables PREFIX CONF : CONF's <PREFIX>:<table> rows (the
+# output of sync/tables/tables.sh subsystems), one per line -- the same parse
+# clinic/install/lib.sh's subsystem_tables does (trim, drop a trailing comment,
+# skip :all, skip blank/comment lines). A missing CONF prints nothing rather
+# than erroring -- the caller decides whether that is a note or a real problem.
 subsystems_conf_tables(){ # PREFIX CONF
   local prefix="$1" conf="$2" line name
-  [ -f "$conf" ] || return 0
+  [ -r "$conf" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     case "$line" in "${prefix}:"*) ;; *) continue ;; esac
@@ -250,16 +250,16 @@ filter_unsynced_allowlist(){ # DB ALLOWFILE
 # unsynced-check:end
 
 if [ -z "${REPO:-}" ]; then
-  echo "  note unsynced-tables check NOT RUN: no repo checkout found on this node yet (needed for sync/subsystems.conf)"
+  echo "  note unsynced-tables check NOT RUN: no repo checkout found on this node yet (needed for sync/tables/)"
 else
-  CONF_F="${REPO}/sync/subsystems.conf"; ALLOW_F="${REPO}/sync/unsynced-allowlist.conf"
+  CONF_F="${REPO}/sync/tables/tables.sh"; ALLOW_F="${REPO}/sync/unsynced-allowlist.conf"
   if [ ! -f "$CONF_F" ]; then
     echo "  note unsynced-tables check NOT RUN: ${CONF_F} not found"
   else
     check_unsynced(){ # LABEL DB SCHEMA PREFIX
       local label="$1" db="$2" schema="$3" prefix="$4" synced sql out filtered
-      synced="$(subsystems_conf_tables "$prefix" "$CONF_F")"
-      if [ -z "$synced" ]; then echo "  note unsynced-tables check ($label): no ${prefix}: rows in $CONF_F"; return; fi
+      synced="$(subsystems_conf_tables "$prefix" <(bash "$CONF_F" subsystems))"
+      if [ -z "$synced" ]; then echo "  note unsynced-tables check ($label): no ${prefix} tables in the [up] lists of sync/tables/"; return; fi
       if [ -z "$PG" ]; then echo "  note unsynced-tables check ($label): postgres service '$PG_SERVICE' not running"; return; fi
       # shellcheck disable=SC2086
       sql="$(unsynced_check_sql "$schema" $synced)"

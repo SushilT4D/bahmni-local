@@ -1,0 +1,21 @@
+# macOS (podman machine) only: the two databases keep their data on named
+# volumes inside the machine's own disk, not on a bind mount from the host.
+# The host directories arrive through virtiofs, whose unlink/open semantics
+# are not POSIX: PostgreSQL's checkpointer removes a logical-decoding snapshot
+# file the walsender is about to open, the walsender PANICs, and the whole
+# server crash-recovers, dropping every replication connection. InnoDB relies
+# on the same guarantees. Selected through COMPOSE_FILE in clinic/.env, which
+# the installer writes on macOS; Linux hosts never load this file.
+services:
+  bahmni-postgres:
+    volumes: !override
+      - 'pgdata:/var/lib/postgresql/data'
+      - '${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro'
+  bahmni-mysql:
+    volumes: !override
+      - 'mysqldata:/var/lib/mysql'
+      - '${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums'
+      - '${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro'
+volumes:
+  pgdata:
+  mysqldata:

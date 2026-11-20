@@ -18,7 +18,7 @@
 # build context, then a single-stage build with plain COPY against that
 # context. The source image is never executed under emulation.
 #
-# usage: [CT=docker|podman] [CLINIC_DIR=...] openmrs/build-native.sh [--force]
+# usage: [CT=docker|podman] [CLINIC_DIR=...] openmrs/build.sh [--force]
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"
@@ -93,15 +93,15 @@ cp_path /etc/bahmni-emr bahmni-emr
 cp_path /home/bahmni bahmni-home
 "$CT" rm "$cid" >/dev/null 2>&1 || true
 
-# Accepted only if it looks like what Dockerfile.native's CMD actually needs --
+# Accepted only if it looks like what the Dockerfile's CMD actually needs --
 # a source image with a different layout must never silently produce a broken tag.
 [ -f "${CTX}/openmrs/bahmni_startup.sh" ] || die "${SRC} has no /openmrs/bahmni_startup.sh -- not an OpenMRS startup image"
 [ -f "${CTX}/openmrs/distribution/openmrs_core/openmrs.war" ] || die "${SRC} has no /openmrs/distribution/openmrs_core/openmrs.war"
 
-cp "${HERE}/Dockerfile.native" "${CTX}/Dockerfile.native"
+cp "${HERE}/Dockerfile" "${CTX}/Dockerfile"
 
 "$CT" build \
-  -f "${CTX}/Dockerfile.native" \
+  -f "${CTX}/Dockerfile" \
   --build-arg BASE_IMAGE="$BASE" \
   --label org.t4d.source-image="$SRC" \
   --label org.t4d.source-image-id="$src_id" \

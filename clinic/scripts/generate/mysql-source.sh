@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# Generate local Debezium source connector config from sync/local/tables.conf.
+# Generate local Debezium source connector config from the [up] list of
+# sync/tables/openmrs.conf.
 #
 # Every table line is included in CDC. The third field (a floor, see the
-# format comment in tables.conf) sets the id counters in configure-pk-offsets.sh;
+# format comment in openmrs.conf) sets the id counters in configure-pk-offsets.sh;
 # here, a floor taken from the seed or from another table adds that table's
 # capture filter (sync/origin-filter.sh). The lines are read by
-# sync/local/tables-conf.sh, the reader every script of that file shares.
+# sync/tables/tables.sh, the reader every script of that file shares.
 #
 # Usage: ./scripts/generate-connectors.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 ENV_FILE="${PROJECT_DIR}/.env"
-TABLES_CONF="${PROJECT_DIR}/../sync/local/tables.conf"
-TEMPLATE="${PROJECT_DIR}/../sync/local/connectors/mysql-source-connector.template.json"
+TABLES_CONF="${PROJECT_DIR}/../sync/tables/openmrs.conf"
+TEMPLATE="${PROJECT_DIR}/scripts/templates/mysql-source-connector.json"
 # Operators historically register from either filename; write both.
 OUT_PRIMARY="${CONNECTORS_DIR}/mysql-local-source-connector.json"
 OUT_ALIAS="${CONNECTORS_DIR}/mysql-source-connector.json"
@@ -49,9 +50,9 @@ table_include_list=()
 kafka_topics=()
 filter_recs=""
 
-# shellcheck source=../../sync/local/tables-conf.sh
-. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
-# shellcheck source=../../sync/origin-filter.sh
+# shellcheck source=../../../sync/tables/tables.sh
+. "${PROJECT_DIR}/../sync/tables/tables.sh"
+# shellcheck source=../../../sync/origin-filter.sh
 . "${PROJECT_DIR}/../sync/origin-filter.sh"
 recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
 while read -r table _pk _kind _arg; do
@@ -133,5 +134,5 @@ echo "  KAFKA_TOPICS=${KAFKA_TOPICS}"
 echo ""
 echo "Next:"
 echo "  1. Copy TABLE_INCLUDE_LIST / KAFKA_TOPICS into .env if you keep them there"
-echo "  2. ./scripts/register-source-connector.sh"
-echo "  3. Cloud→local tables live in cloud/tables.conf (separate list)"
+echo "  2. ./scripts/register-connectors.sh mysql-source-connector"
+echo "  3. Cloud→local tables are the [down] list of sync/tables/openmrs.conf"

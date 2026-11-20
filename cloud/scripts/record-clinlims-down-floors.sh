@@ -2,7 +2,7 @@
 # record-clinlims-down-floors.sh [--from-file FILE | --derive] [--out OUT] -- PSQL-COMMAND...
 #
 # Records the hub's floor of each OpenELIS down table its publication filters
-# (sync/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
+# (sync/tables/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
 # catalogue) in OUT, default cloud/clinlims-down-floors.local, one
 # "<table> <floor>" line each. The publication sends such a table's rows below
 # the floor (the hub's, from before its ids were strided) or ending in 0 (the
@@ -31,7 +31,7 @@
 # yet, a floor read from the rows: the first multiple of 10 above the table's
 # largest id. That is the floor for a hub whose OpenELIS ids were strided
 # before the table joined the down list. Refused for a table clinics send up
-# (sync/subsystems.conf) once any clinic's replication origin shows progress:
+# (the [up] list of sync/tables/openelis.conf) once any clinic's replication origin shows progress:
 # a clinic's rows may then be the largest ids, and a floor above them would
 # send them to every clinic. Save the output and record it with --from-file.
 #
@@ -64,10 +64,10 @@ done
 die(){ printf 'record-clinlims-down-floors.sh: %s\n' "$*" >&2; exit 1; }
 [ "$#" -gt 0 ] || { echo "usage: record-clinlims-down-floors.sh [--from-file FILE | --derive] [--out OUT] -- <psql command...>" >&2; exit 2; }
 [ -n "$SRC" ] && [ "$DERIVE" = 1 ] && die "--from-file and --derive do not go together: --derive prints floors, --from-file records them"
-down="$(bash "$R/sync/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was written"
-[ -n "$down" ] || die "sync/hub-down.conf sends no OpenELIS table down filtered on a floor; there is nothing to record"
+down="$(bash "$R/sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was written"
+[ -n "$down" ] || die "the OpenELIS [down] list sends no table down filtered on a floor; there is nothing to record"
 # the tables clinics send up: their rows can reach this hub
-up=" $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "
+up=" $(bash "$R/sync/tables/tables.sh" subsystems | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "
 is_up(){ case "$up" in *" $1 "*) return 0 ;; esac; return 1; }
 held=""
 if [ -e "$OUT" ]; then

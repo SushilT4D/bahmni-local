@@ -194,26 +194,28 @@ X=""; ( ask_secret X "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask_secret 
 out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: echo hello"
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"
 
-# subsystem_tables: one parsing path for sync/subsystems.conf, trimmed + validated
-# (an untrimmed row used to silently leave a table
+# subsystem_tables: one parsing path for the Odoo and OpenELIS [up] lists, trimmed
+# + validated (an untrimmed row used to silently leave a table
 # unstrided; see lib.sh's own comment on the function).
-mkdir -p "$REPO_DIR/sync"
-SUBS="$REPO_DIR/sync/subsystems.conf"
-printf 'odoo:all\nclinlims:all\n\nodoo:res_partner   \nodoo:account_move  # trailing inline comment\nodoo:uom_uom\nclinlims:sample\n' > "$SUBS"
+mkdir -p "$REPO_DIR/sync/tables"
+cp "${HERE}/../../../sync/tables/tables.sh" "$REPO_DIR/sync/tables/"
+SUBS="$REPO_DIR/sync/tables/odoo.conf"
+printf '[up]\n\nres_partner   \naccount_move  # trailing inline comment\nuom_uom\n[down]\nuom_uom\n' > "$SUBS"
+printf '[up]\nsample\n[down]\n' > "$REPO_DIR/sync/tables/openelis.conf"
 assert_eq "subsystem_tables trims trailing whitespace off a row" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "res_partner account_move uom_uom"
 assert_eq "subsystem_tables strips a trailing # comment" "$(subsystem_tables odoo | sed -n 2p)" "account_move"
 assert_eq "subsystem_tables skips the :all row" "$(subsystem_tables odoo | grep -c '^all$')" "0"
 assert_eq "subsystem_tables filters by subsystem prefix" "$(subsystem_tables clinlims)" "sample"
-printf 'odoo:Bad-Name\n' >> "$SUBS"
+printf '[up]\nres_partner\nBad-Name\n' > "$SUBS"
 out="$(subsystem_tables odoo 2>&1 1>/dev/null)"; rc=$?
 assert_rc "subsystem_tables fails on a name that is not a bare identifier" "$rc" "1"
 case "$out" in *"Bad-Name"*) named=yes ;; *) named=no ;; esac
 assert_eq "subsystem_tables names the offending row in its failure" "$named" "yes"
 # A file with NO trailing newline on its last line -- bash's `read` returns
 # non-zero there, which would otherwise drop that last row silently.
-printf 'odoo:a\nodoo:b' > "$SUBS"
+printf '[up]\na\nb' > "$SUBS"
 assert_eq "subsystem_tables reads an unterminated last line too" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "a b"
-printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
+printf '[up]\nres_partner\n[down]\n' > "$SUBS"   # leave a clean file behind
 
 # versions_put: a sync/versions.env with NO trailing newline on its last line
 # (the same unterminated-last-line trap subsystem_tables was fixed for above)

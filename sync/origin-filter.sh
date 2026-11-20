@@ -148,7 +148,7 @@ origin_filter_verdict(){
   local cfg="$1" conf="$2" floors="$3" off="$4" recs t pk kind arg got rpk rfl rr want r out="" n=0
   case "$off" in ''|*[!0-9]*) printf 'could not read MySQL'"'"'s auto_increment_offset (got '"'"'%s'"'"'), so the capture filter'"'"'s residue cannot be checked. Wait a minute and run the same command again; if it persists, call the operator.\n' "$off"; return 1 ;; esac
   r=$(( off % 10 ))
-  type up_tables_read >/dev/null 2>&1 || { printf 'origin_filter_verdict needs sync/local/tables-conf.sh sourced first\n'; return 1; }
+  type up_tables_read >/dev/null 2>&1 || { printf 'origin_filter_verdict needs sync/tables/tables.sh sourced first\n'; return 1; }
   recs="$(up_tables_read "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so the capture filter was not checked: %s\n' "$recs"; return 1; }
   while read -r t pk kind arg; do
     case "$kind" in seed|floor) ;; *) continue ;; esac
@@ -159,12 +159,12 @@ $got
 EOF
     [ "$rpk" = "$pk" ] || { printf 'the %s capture filter tests column %s, but the table'"'"'s key is %s\n' "$t" "$rpk" "$pk"; return 1; }
     if [ "$rr" != "$r" ]; then
-      printf 'the %s capture filter keeps residue %s, but this MySQL issues ids on residue %s (auto_increment_offset %s): every change this clinic makes to %s would be dropped. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rr" "$r" "$off" "$t"
+      printf 'the %s capture filter keeps residue %s, but this MySQL issues ids on residue %s (auto_increment_offset %s): every change this clinic makes to %s would be dropped. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-local-source-connector) or call the operator.\n' "$t" "$rr" "$r" "$off" "$t"
       return 1
     fi
     want="$(up_floor_of "$conf" "$t" "$floors" 2>&1)" || { printf 'the %s floor this clinic was seeded with cannot be read, so its capture filter was not checked: %s\n' "$t" "$want"; return 1; }
     if [ "$rfl" != "$want" ]; then
-      printf 'the %s capture filter starts at %s, but the floor this clinic was seeded with is %s. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rfl" "$want"
+      printf 'the %s capture filter starts at %s, but the floor this clinic was seeded with is %s. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-local-source-connector) or call the operator.\n' "$t" "$rfl" "$want"
       return 1
     fi
     out="${out}ok ${t} capture filter: key ${pk} at or above ${rfl}, residue ${rr}

@@ -60,7 +60,7 @@ svc "$Y" openmrs | grep -qE 'hibernate_(show|format)_sql:.*"true"' && bad "openm
 
 # the proxy's health must mean "a browser gets the UI": IPv4, TLS, the login page
 svc "$Y" proxy | grep -q 'https://127.0.0.1/bahmni/home/index.html' && ok_ "proxy healthcheck asks for the login page over IPv4/TLS" || bad "proxy has no meaningful healthcheck (the image's wget http://localhost can never pass)"
-grep -c 'echo "\$body" >&2' "$CL/connectors/register-odoo.sh" | grep -qx 0 && ok_ "register-odoo.sh never prints an unmasked render" || bad "register-odoo.sh echoes \$body unmasked on a render failure"
+grep -c 'echo "\$body" >&2' "$CL/scripts/register-connectors.sh" | grep -qx 0 && ok_ "register-connectors.sh never prints an unmasked render" || bad "register-connectors.sh echoes \$body unmasked on a render failure"
 
 # login stopgap: strip the UI's trailing comma before OpenMRS sees it
 for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma" || bad "$f has no trailing-comma rewrite"; done

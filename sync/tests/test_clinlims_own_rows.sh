@@ -4,14 +4,15 @@
 # the clinic's floor for the table and on its residue. The seed copies the
 # hub's accounts and signatures to every clinic, and a clinic's edit of one of
 # those stays at the clinic.
-#   - the tables are sync/local/tables-conf.sh's UP_CLINLIMS_OWN_ROWS, and the
+#   - the tables are sync/tables/tables.sh's UP_CLINLIMS_OWN_ROWS, and the
 #     source template carries one filter step for each, in that order, each on
 #     its own table's topic, before the step that routes every table into the
 #     one ordered topic; tombstones are judged too (the condition reads the key);
 #   - installer task 060 records a floor for each (state.sh
-#     clinlims_floor_tables), task 090 writes each step's condition from it with
-#     sync/origin-filter.sh's condition and stops when a floor is missing;
-#   - the clinic's register-odoo.sh refuses the source without the conditions;
+#     clinlims_floor_tables), and clinic/scripts/generate/postgres.sh writes each
+#     step's condition from it with sync/origin-filter.sh's condition and stops
+#     when a floor is missing; task 090 generates before it registers;
+#   - the template filler refuses the source without the conditions;
 #   - the Connect worker carries the scripting jars in the Postgres plugin
 #     directory (clinic/docker-compose.yml);
 #   - with docker, the pinned Debezium image and the scripting jars: the
@@ -22,12 +23,12 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0; ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
-. "$R/sync/local/tables-conf.sh"; . "$R/sync/origin-filter.sh"
+. "$R/sync/tables/tables.sh"; . "$R/sync/origin-filter.sh"
 [ "$UP_CLINLIMS_OWN_ROWS" = "system_user result_signature" ] && ok_ "the own-rows tables: system_user, result_signature" || bad "UP_CLINLIMS_OWN_ROWS is '$UP_CLINLIMS_OWN_ROWS'"
 for t in $UP_CLINLIMS_OWN_ROWS; do
-  grep -qx "clinlims:$t" "$R/sync/subsystems.conf" || bad "$t is not a synced OpenELIS table (sync/subsystems.conf)"
+  subsystems_list | grep -qx "clinlims:$t" || bad "$t is not a synced OpenELIS table (the [up] list of sync/tables/openelis.conf)"
 done
-TPL="$R/clinic/connectors/clinlims-source-connector.json"
+TPL="$R/clinic/scripts/templates/clinlims-source-connector.json"
 cfg(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get(sys.argv[2], "<absent>"))' "$1" "$2"; }
 want="$(for t in $UP_CLINLIMS_OWN_ROWS; do printf 'ownRows_%s,' "$t"; done)agg"
 [ "$(cfg "$TPL" transforms)" = "$want" ] && ok_ "the source's steps: one own-rows filter per table, in order, then the routing into the one topic ($want)" || bad "transforms: $(cfg "$TPL" transforms), want $want"
@@ -42,25 +43,26 @@ case ",$(cfg "$TPL" predicates)," in *,topicIs_system_user,*topicIs_result_signa
 # --- the floors and the installer -----------------------------------------------------
 ft="$(CLINIC_DIR="$T" REPO_DIR="$R" bash -c '. "$1/clinic/install/lib.sh"; . "$1/clinic/install/state.sh"; clinlims_floor_tables' _ "$R" | tr '\n' ' ')"
 case " $ft" in *" system_user result_signature "*) ok_ "task 060 records a floor for each own-rows table ($ft)" ;; *) bad "060 floor tables: $ft" ;; esac
-blk="$(sed -n '/^# clinlims-own-rows:begin/,/^# clinlims-own-rows:end/p' "$R/clinic/install/tasks/090-local-sync.sh")"
-printf '%s' "$blk" | grep -q 'for t in ${UP_CLINLIMS_OWN_ROWS}' && printf '%s' "$blk" | grep -q 'origin_filter_condition id "$fl" "${RESIDUE}"' && printf '%s' "$blk" | grep -q 'fail "no ${k} is recorded' \
-  && [ "$(grep -n 'clinlims-own-rows:end' "$R/clinic/install/tasks/090-local-sync.sh" | cut -d: -f1)" -lt "$(grep -n 'register-odoo.sh odoo-source-connector clinlims-source-connector' "$R/clinic/install/tasks/090-local-sync.sh" | cut -d: -f1)" ] \
-  && ok_ "task 090 writes each condition from the recorded floor and the residue before registering the source, and stops on a missing floor" || bad "090 block: $blk"
+G="$R/clinic/scripts/generate/postgres.sh"; T90="$R/clinic/install/tasks/090-local-sync.sh"
+gen_line="$(grep -n 'generate-connectors.sh postgres' "$T90" | head -1 | cut -d: -f1)"
+reg_line="$(grep -n 'register-connectors.sh odoo-source-connector clinlims-source-connector' "$T90" | head -1 | cut -d: -f1)"
+grep -q 'for t in ${UP_CLINLIMS_OWN_ROWS}' "$G" && grep -q 'origin_filter_condition id "$fl" "${RESIDUE}"' "$G" && grep -q 'die "no ${k} is recorded' "$G" \
+  && [ -n "$gen_line" ] && [ -n "$reg_line" ] && [ "$gen_line" -lt "$reg_line" ] \
+  && ok_ "generate/postgres.sh writes each condition from the recorded floor and the residue and stops on a missing floor; task 090 generates before it registers the source" || bad "postgres.sh / 090 order: generate ${gen_line:-none}, register ${reg_line:-none}"
 for j in groovy groovy-jsr223 debezium-scripting; do
   grep -qE "/ext/${j}-\\$\\{[A-Z_]+:\\?\\}\\.jar:/kafka/connect/debezium-connector-postgres/" "$R/clinic/docker-compose.yml" || bad "clinic/docker-compose.yml does not mount ${j} into the Postgres plugin directory"
 done
 grep -q 'debezium-connector-postgres/debezium-scripting' "$R/clinic/docker-compose.yml" && ok_ "the Connect worker carries the scripting jars in the Postgres plugin directory"
 
-# --- the source as the clinic registers it ------------------------------------------------
-mkdir -p "$T/c/clinic/connectors" "$T/bin"
-cp "$R/clinic/connectors/clinlims-source-connector.json" "$R/clinic/connectors/register-odoo.sh" "$R/clinic/connectors/_render_connector.py" "$T/c/clinic/connectors/"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nCLINLIMS_SOURCE_PASSWORD=x\n' > "$T/c/clinic/.env"
-printf '#!/bin/sh\ncat > "$FAKE_BODY"; echo PUT >> "$FAKE_BODY.log"; printf "\\n201"\n' > "$T/bin/curl"; chmod +x "$T/bin/curl"
-reg(){ rm -f "$T/body" "$T/body.log"; rout="$(PATH="$T/bin:$PATH" FAKE_BODY="$T/body" NODE=alpha "$@" bash "$T/c/clinic/connectors/register-odoo.sh" clinlims-source-connector 2>&1)"; rrc=$?; }
-reg
-[ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'unset env for: .*transforms.ownRows_system_user.condition' && [ ! -s "$T/body.log" ] && ok_ "without the conditions the source is refused, nothing registered" || bad "source without conditions: rc=$rrc $rout"
+# --- the source as the clinic generates it ------------------------------------------------
+# generate/postgres.sh fills the template with _fill_template.py; what it writes
+# is what register-connectors.sh uploads, passwords aside.
+fill(){ rm -f "$T/out.json" "$T/body"; rout="$(env MYSQL_SERVER_NAME=bahmni-t "$@" python3 "$R/clinic/scripts/_fill_template.py" "$TPL" "$T/out.json" 2>&1)"; rrc=$?
+  [ -f "$T/out.json" ] && python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1]))["config"], open(sys.argv[2], "w"))' "$T/out.json" "$T/body"; }
+fill
+[ "$rrc" != 0 ] && printf '%s' "$rout" | grep -q 'not set: .*CLINLIMS_UP_CONDITION_SYSTEM_USER' && [ ! -e "$T/out.json" ] && ok_ "without the conditions the source is refused, nothing written" || bad "source without conditions: rc=$rrc $rout"
 CS="$(origin_filter_condition id 170 3)"; CR="$(origin_filter_condition id 4400 3)"
-reg env CLINLIMS_UP_CONDITION_SYSTEM_USER="$CS" CLINLIMS_UP_CONDITION_RESULT_SIGNATURE="$CR"
+fill CLINLIMS_UP_CONDITION_SYSTEM_USER="$CS" CLINLIMS_UP_CONDITION_RESULT_SIGNATURE="$CR"
 [ "$rrc" = 0 ] && [ "$(cfg "$T/body" transforms.ownRows_system_user.condition)" = "key != null && key.get('id') instanceof Number && key.get('id').longValue() >= 170L && key.get('id').longValue() % 10 == 3" ] \
   && [ "$(cfg "$T/body" predicates.topicIs_result_signature.pattern)" = 'bahmni-t\.clinlims\.result_signature' ] \
   && ok_ "registered with each condition (system_user: key id >= 170, residue 3) on its own topic" || bad "rendered source: rc=$rrc $(cfg "$T/body" transforms.ownRows_system_user.condition)"

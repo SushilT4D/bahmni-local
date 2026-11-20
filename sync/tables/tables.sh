@@ -1,10 +1,22 @@
-# Reader for sync/local/tables.conf, sourced by every script that reads it, so
-# the source connector, MirrorMaker, the striding script and the hub's sinks
-# all accept the same lines and agree on what each one means. A line one
-# reader skips and another accepts is a table captured with no sink, or sunk
-# with no striding; a line this reader cannot place is refused, never skipped.
+# Reader for the table lists in sync/tables/ (openmrs.conf, odoo.conf,
+# openelis.conf), sourced by every script that reads them, so the source
+# connector, MirrorMaker, the striding script and the hub's sinks all accept the
+# same lines and agree on what each one means. A line one reader skips and
+# another accepts is a table captured with no sink, or sunk with no striding; a
+# line this reader cannot place is refused, never skipped.
 #
-# up_tables_read FILE prints one record per table line, in file order:
+# Each file has an [up] section (what a clinic sends to the hub) and a [down]
+# section (what the hub sends to clinics). Run as a command it prints them:
+#   tables.sh openmrs up | tables.sh openmrs down    one section, comments kept
+#   tables.sh subsystems                            the Odoo and OpenELIS [up]
+#                                                   lists as <schema>:<table>,
+#                                                   after <schema>:all
+#   tables.sh hub-down                              the Odoo and OpenELIS [down]
+#                                                   lists as <schema>:<table>[:...]
+# Odoo's schema name is odoo and OpenELIS's is clinlims, as in the topic names.
+#
+# up_tables_read FILE prints one record per table line of FILE's [up] section
+# (of the whole file, for a file with no sections), in file order:
 #   <table> <pk> base <base_id>    table:pk:<digits>       fixed floor; striding moves AUTO_INCREMENT above it
 #   <table> <pk> seed -            table:pk:seed           the floor is FLOOR_<TABLE> in the seed manifest
 #   <table> <pk> floor <other>     table:pk:floor=<other>  no counter of its own; reads <other>'s floor
@@ -50,6 +62,41 @@ UP_CLINICAL_TABLES="obs orders drug_order test_order"
 UP_CLINLIMS_OWN_ROWS="system_user result_signature"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
+# The directory of the table lists; TABLES_DIR overrides it (tests).
+TABLES_DIR="${TABLES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# tables_has_sections FILE: whether FILE is split into [up] and [down].
+tables_has_sections(){ grep -qE '^[[:space:]]*\[[a-z]+\][[:space:]]*$' "$1" 2>/dev/null; }
+# tables_section FILE SECTION prints FILE with every line outside [SECTION]
+# blanked, so a reader's line numbers are the file's own. A file with no
+# sections is printed whole.
+tables_section(){
+  if ! tables_has_sections "$1"; then cat "$1"; return; fi
+  awk -v s="[$2]" '{ l = $0; sub(/#.*/, "", l); gsub(/^[ \t]+|[ \t]+$/, "", l) }
+    l ~ /^\[[a-z]+\]$/ { u = (l == s); print ""; next } { print (u ? $0 : "") }' "$1"
+}
+# tables_lines FILE SECTION prints the section's table lines only: no comments,
+# no blank lines, no surrounding space.
+tables_lines(){ tables_section "$1" "$2" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true; }
+# tables_list DB SECTION prints the table names of DB's [SECTION] (DB is
+# openmrs, odoo or openelis), one per line, without the fields after a colon.
+tables_list(){
+  [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; return 1; }
+  tables_lines "${TABLES_DIR}/$1.conf" "$2" | cut -d: -f1
+}
+# subsystems_list prints every Odoo and OpenELIS table a clinic sends up, as
+# <schema>:<table>, after each schema's aggregate topic <schema>:all.
+subsystems_list(){
+  printf 'clinlims:all\nodoo:all\n'
+  tables_lines "${TABLES_DIR}/openelis.conf" up | sed 's/^/clinlims:/'
+  tables_lines "${TABLES_DIR}/odoo.conf" up | sed 's/^/odoo:/'
+}
+# hub_down_list prints every Odoo and OpenELIS table the hub sends down, as
+# <schema>:<table>[:clinic=<column>], Odoo first.
+hub_down_list(){
+  tables_lines "${TABLES_DIR}/odoo.conf" down | sed 's/^/odoo:/'
+  tables_lines "${TABLES_DIR}/openelis.conf" down | sed 's/^/clinlims:/'
+}
+#
 # bash 3.2 compatible (macOS): no associative arrays.
 up_tables_read(){
   local f="$1" line n=0 t pk third kind arg recs="" re
@@ -79,7 +126,7 @@ up_tables_read(){
     fi
     recs="${recs}${t} ${pk} ${kind} ${arg}
 "
-  done < "$f"
+  done < <(tables_section "$f" up)
   # second pass: a floor source must exist, and a key shared with a floored
   # table needs one
   local other okind opk
@@ -147,3 +194,15 @@ EOF
     *) return 0 ;;
   esac
 }
+
+# Run as a command (not sourced): print a list.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}:${2:-}" in
+    openmrs:up|openmrs:down|odoo:up|odoo:down|openelis:up|openelis:down)
+      [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'tables.sh: no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; exit 1; }
+      tables_section "${TABLES_DIR}/$1.conf" "$2" | grep -v '^$' || true ;;
+    subsystems:) subsystems_list ;;
+    hub-down:) hub_down_list ;;
+    *) printf 'usage: tables.sh <openmrs|odoo|openelis> <up|down> | subsystems | hub-down\n' >&2; exit 2 ;;
+  esac
+fi

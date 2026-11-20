@@ -1,4 +1,4 @@
-# Built by openmrs/build-native.sh only -- never invoked directly. BASE_IMAGE
+# Built by openmrs/build.sh only -- never invoked directly. BASE_IMAGE
 # and the four COPY sources below (tomcat/, openmrs/, bahmni-emr/,
 # bahmni-home/) are staged into the build context by that script's
 # create+cp step, which extracts them from the pinned amd64 OpenMRS image
@@ -19,7 +19,7 @@ RUN yum install -y mysql gettext acl curl tar gzip shadow-utils procps-ng \
     && yum clean all && rm -rf /var/cache/yum
 
 # The four trees the source image needs to run OpenMRS, copied out of it (not
-# rebuilt) by build-native.sh -- same application bytes, different CPU build
+# rebuilt) by build.sh -- same application bytes, different CPU build
 # underneath.
 COPY tomcat /usr/local/tomcat
 COPY openmrs /openmrs

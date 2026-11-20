@@ -2,12 +2,12 @@
 # stride-odoo.sh [--floors FILE] -- PSQL-COMMAND...
 #
 # Strides the hub's Odoo ids (residue 0) and records the floor of each down
-# table in the same run: clinic/odoo/apply-odoo-sequence-striding.sql over every
-# synced Odoo table, then clinic/odoo/apply-master-sequence-striding.sql. A
+# table in the same run: clinic/scripts/sql/odoo/apply-odoo-sequence-striding.sql over every
+# synced Odoo table, then clinic/scripts/sql/odoo/apply-master-sequence-striding.sql. A
 # table's floor is the value its sequence restarts at, read from the striding
 # scripts' own report of each restart, at the moment it happens. FILE defaults
 # to cloud/odoo-down-floors.local, one "<table> <floor>" line per down table with
-# an id (sync/hub-down.conf).
+# an id (the [down] list of sync/tables/odoo.conf).
 #
 # The floors are recorded once. When FILE already exists, a re-run strides
 # again (forward only) and never changes it: it refuses, before striding, when a
@@ -31,9 +31,9 @@ OUT="$HERE/../odoo-down-floors.local"
 [ "${1:-}" = -- ] && shift
 [ "$#" -gt 0 ] || { echo "usage: stride-odoo.sh [--floors FILE] -- <psql command...>" >&2; exit 2; }
 die(){ printf 'stride-odoo.sh: %s\n' "$*" >&2; exit 1; }
-down="$(bash "$R/sync/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was strided"
-synced="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | sed -n 's/^odoo://p' | grep -vx all | paste -sd, -)"
-[ -n "$synced" ] || die "sync/subsystems.conf has no odoo: tables; nothing was strided"
+down="$(bash "$R/sync/tables/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was strided"
+synced="$(bash "$R/sync/tables/tables.sh" subsystems | sed -n 's/^odoo://p' | grep -vx all | paste -sd, -)"
+[ -n "$synced" ] || die "the Odoo [up] list (sync/tables/odoo.conf) has no tables; nothing was strided"
 state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/odoo/down-sequence-state.sql" 2>&1)" \
   || die "the down sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 idtabs="$(printf '%s\n' "$state" | cut -d'|' -f1)"
@@ -60,9 +60,9 @@ else
   [ "$p" = 0 ] || die "$p clinic replication origin(s) show progress: clinics' rows have reached this hub, so a floor read now could sit above them; nothing was strided. Record the floors captured when the hub was first strided: cloud/scripts/record-down-floors.sh --from-file <file> -- <psql command>"
 fi
 
-o1="$("$@" -v ON_ERROR_STOP=1 -q -v residue=0 -v tables="$synced" -f /dev/stdin < "$R/clinic/odoo/apply-odoo-sequence-striding.sql" 2>&1)" \
+o1="$("$@" -v ON_ERROR_STOP=1 -q -v residue=0 -v tables="$synced" -f /dev/stdin < "$R/clinic/scripts/sql/odoo/apply-odoo-sequence-striding.sql" 2>&1)" \
   || { printf '%s\n' "$o1" >&2; die "apply-odoo-sequence-striding.sql failed (above)"; }
-o2="$("$@" -v ON_ERROR_STOP=1 -qAt -f /dev/stdin < "$R/clinic/odoo/apply-master-sequence-striding.sql" 2>&1)" \
+o2="$("$@" -v ON_ERROR_STOP=1 -qAt -f /dev/stdin < "$R/clinic/scripts/sql/odoo/apply-master-sequence-striding.sql" 2>&1)" \
   || { printf '%s\n' "$o1" "$o2" >&2; die "apply-master-sequence-striding.sql failed (above)"; }
 printf '%s\n' "$o1" "$o2" | grep -E 'NOTICE|next=' | sed 's/^/  /'
 

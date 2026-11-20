@@ -3,7 +3,7 @@
 #
 # Strides the hub's OpenELIS ids (residue 0) with cloud/openelis/apply-sequence-striding.sql
 # and, on the first striding, records the floor of each down table the hub's
-# OpenELIS publication filters (sync/hub-down.sh --unrouted clinlims; today
+# OpenELIS publication filters (sync/tables/hub-down.sh --unrouted clinlims; today
 # system_user) just before it: record-clinlims-down-floors.sh, which reads where
 # the striding is about to restart each sequence. FILE defaults to
 # cloud/clinlims-down-floors.local, one "<table> <floor>" line per table.
@@ -42,15 +42,15 @@ bad="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select coalesce(string_agg(format('%s (s
 
 if [ -e "$OUT" ]; then
   floors="$(bash "$HERE/down-floors.sh" "$OUT" clinlims)" || die "$OUT cannot be read (reason above); nothing was strided"
-  down="$(bash "$R/sync/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was strided"
+  down="$(bash "$R/sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was strided"
   if [ -n "$down" ]; then
     state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/openelis/down-sequence-state.sql" 2>&1)" \
       || die "the OpenELIS sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
-    # The tables clinics also write and send up (sync/subsystems.conf). Only for
+    # The tables clinics also write and send up (the [up] list of sync/tables/openelis.conf). Only for
     # those does an id issued below the floor matter; the lab test catalogue is
     # written at the hub alone, and its floor may stand above its sequence (some
     # catalogue sequences stand below the rows they hold).
-    up=" $(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$R/sync/subsystems.conf" | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "
+    up=" $(bash "$R/sync/tables/tables.sh" subsystems | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "
     while IFS='|' read -r t restart nxt inc; do
       [ -n "$t" ] || continue
       f="$(printf '%s\n' "$floors" | awk -v t="$t" '$1 == t { print $2 }')"

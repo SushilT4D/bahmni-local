@@ -7,13 +7,13 @@
 #
 # Every clinic receives the same stream: the result, analysis and sample rows a
 # hub lab user wrote, the hub's lab accounts and the hub's lab test catalogue
-# (sync/hub-down.conf). A lab row names its clinic by a routing column
-# (sync/hub-down.sh --routes clinlims): a result by the analysis it answers, an
+# (the [down] list of sync/tables/openelis.conf). A lab row names its clinic by a routing column
+# (sync/tables/hub-down.sh --routes clinlims): a result by the analysis it answers, an
 # analysis or a sample by its own id. A record is kept when
 #   - it is not a delete (a delete at the hub stays at the hub; the clinic's
 #     copy is the clinic's; a catalogue row the hub deletes is kept here, and
 #     the hub retires a test rather than deleting it), and
-#   - it is a table that goes to every clinic (sync/hub-down.sh --unrouted
+#   - it is a table that goes to every clinic (sync/tables/hub-down.sh --unrouted
 #     clinlims: the hub's lab accounts, which a sample the hub moved on names,
 #     and the catalogue a lab order is matched to), or its routing column is a
 #     number, at or above this clinic's floor for the table it names, and ends
@@ -47,9 +47,9 @@ value_of(){ # KEY -> environment, else clinic/.env, else SEED_MANIFEST, else .in
 
 r="$(value_of RESIDUE)"
 case "$r" in [1-9]) ;; *) die "this clinic's residue (RESIDUE, 1-9) is not set (read '${r}'): the OpenELIS down filter keeps only this clinic's rows and is not written without it" ;; esac
-routes="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
+routes="$(bash "${REPO_DIR}/sync/tables/hub-down.sh" --routes clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
 
-unrouted="$(bash "${REPO_DIR}/sync/hub-down.sh" --unrouted clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
+unrouted="$(bash "${REPO_DIR}/sync/tables/hub-down.sh" --unrouted clinlims)" || die "the hub's down list could not be read (reason above); no filter was written"
 parts=""; missing=""
 for t in $unrouted; do parts="${parts}${parts:+ || }t == '${t}'"; done
 while read -r t col ft; do

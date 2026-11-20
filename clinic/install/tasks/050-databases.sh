@@ -166,10 +166,10 @@ printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' 
 if [ "${PHASE:-install}" = seed ]; then
 # sink-grants:begin
 # The sink user writes only the tables the down sinks write: every
-# cloud/tables.conf row (lib.sh down_tables), each granted on its own and read
+# the OpenMRS [down] list (sync/tables/openmrs.conf) row (lib.sh down_tables), each granted on its own and read
 # back, so a table added to that file is granted here and a sink is never
 # refused its first INSERT.
-grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from cloud/tables.conf"
+grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from the OpenMRS [down] list (sync/tables/openmrs.conf)"
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
@@ -234,8 +234,8 @@ ok "odoo: dropped ${n:-0} asset-bundle attachment row(s) from the seed; Odoo reb
 # present, which stranded a node whose earlier run appended the password but failed
 # before creating the role (exactly what the create-before-DB bug above caused).
 if [ "${PHASE:-install}" = seed ]; then
-NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash odoo/create-odoo-sink-role.sh "${CLINIC_SLUG}"
-NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash openelis/create-clinlims-sink-role.sh "${CLINIC_SLUG}"
+NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash scripts/create-odoo-sink-role.sh "${CLINIC_SLUG}"
+NODE="${CLINIC_SLUG}" PG_CONTAINER="$PG" bash scripts/create-clinlims-sink-role.sh "${CLINIC_SLUG}"
 fi
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
@@ -243,7 +243,7 @@ partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U
 # Publications are created by the installer, not expected inside the dump:
 # a dump seeded from the hub carries no
 # publication at all -- staging has 0. The table list is derived at run time from
-# sync/subsystems.conf's odoo:/clinlims: rows, the same file the striding SQL (task 060)
+# the Odoo and OpenELIS [up] lists' odoo:/clinlims: rows, the same file the striding SQL (task 060)
 # and the MirrorMaker whitelist read, so there is exactly one place that says which
 # tables are synced. dbz_heartbeat is deliberately left OUT of this list: task 080 runs
 # scripts/apply-slot-heartbeat.sh once Connect is up, and that script creates the
@@ -255,7 +255,7 @@ if [ "${PHASE:-install}" = seed ]; then
 sync_publication(){ # db  subsystems-prefix  pg-schema  pubname
   local db="$1" prefix="$2" schema="$3" pub="$4" tables t parts=""
   tables="$(subsystem_tables "${prefix}")"
-  [ -n "${tables}" ] || fail "no ${prefix}: rows found in ${REPO_DIR}/sync/subsystems.conf"
+  [ -n "${tables}" ] || fail "no ${prefix} tables in the [up] lists of ${REPO_DIR}/sync/tables"
   for t in ${tables}; do parts="${parts}${parts:+, }${schema}.${t}"; done
   ct exec -i "$PG" psql -U postgres -d "${db}" -v ON_ERROR_STOP=1 -q <<SQL
 DO \$\$

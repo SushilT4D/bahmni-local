@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Print a row count and a content checksum for every table cloud/tables.conf
-# lists, from one OpenMRS MySQL. Run it on the hub and on a clinic seeded from
+# Print a row count and a content checksum for every table the OpenMRS [down]
+# list (sync/tables/openmrs.conf) names, from one OpenMRS MySQL. Run it on the hub and on a clinic seeded from
 # that hub and compare the two outputs line by line: a table whose line differs
 # holds different rows.
 #
@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || fail "bad database name: $DB"
 
-tables="$(master_down_tables)" || fail "could not read cloud/tables.conf"
+tables="$(master_down_tables)" || fail "could not read the OpenMRS [down] list (sync/tables/openmrs.conf)"
 if [ "$RESEED" = 1 ]; then
   V="${REPO_DIR}/cloud/table-verdicts.conf"
   [ -f "$V" ] || fail "no ${V}"

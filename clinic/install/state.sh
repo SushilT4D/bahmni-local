@@ -92,11 +92,11 @@ seed_manifest_verdict(){
   printf 'ok %s\n' "$taken"
 }
 
-# seed_floor_tables TABLES_CONF : the tables whose floor sync/local/tables.conf
+# seed_floor_tables TABLES_CONF : the tables whose floor the OpenMRS [up] list (sync/tables/openmrs.conf)
 # takes from the seed (table:pk:seed), one per line. A list the reader refuses
 # fails, with the reader's reason on stderr.
 seed_floor_tables(){
-  type up_tables_read >/dev/null 2>&1 || . "${INSTALL_DIR}/../../sync/local/tables-conf.sh"
+  type up_tables_read >/dev/null 2>&1 || . "${INSTALL_DIR}/../../sync/tables/tables.sh"
   local recs
   recs="$(up_tables_read "$1")" || return 1
   printf '%s\n' "$recs" | awk '$3=="seed" {print $1}'
@@ -104,7 +104,7 @@ seed_floor_tables(){
 
 # The clinical tables whose id counter the seed lifts above the manifest's
 # floor whenever the manifest carries one (FLOOR_OBS, FLOOR_ORDERS), whether
-# or not sync/local/tables.conf lists them. A clinic writes obs and orders from
+# or not the OpenMRS [up] list (sync/tables/openmrs.conf) lists them. A clinic writes obs and orders from
 # its first consultation. With the counter the dump restored, those ids fall
 # below the floor, among ids the hub's own rows use, so once the tables are
 # synced the hub could not tell the clinic's rows from its own, and a row
@@ -218,7 +218,7 @@ counter_floor_verdicts(){
     case " ${ts} " in *" ${t} "*) continue ;; esac
     [ -z "$(stamp_get "$(floor_key "$t")")" ] || ts="${ts} ${t}"
   done
-  [ -n "${ts// /}" ] || { printf 'ok no table in sync/local/tables.conf takes its floor from the seed, and no obs or orders floor is recorded: no id counter to check\n'; return 0; }
+  [ -n "${ts// /}" ] || { printf 'ok no table in the OpenMRS [up] list takes its floor from the seed, and no obs or orders floor is recorded: no id counter to check\n'; return 0; }
   for t in $ts; do
     v="$(counter_floor_verdict "$t" "$("$reader" "$t")" "$(stamp_get "$(floor_key "$t")")" "$r")" || { printf '%s\n' "$v"; return 1; }
     out="${out}${v}
@@ -523,7 +523,7 @@ node_fk_verdict(){
 
 # --- OpenELIS floors: where this clinic's own ids of a table begin ------------
 # The hub sends every clinic the OpenELIS rows its lab users wrote
-# (sync/hub-down.conf); each clinic keeps a row only when its routing column
+# (the [down] lists in sync/tables/); each clinic keeps a row only when its routing column
 # names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh). The
 # clinic's OpenELIS source, in turn, publishes a lab account or signature only
 # when this clinic minted it (UP_CLINLIMS_OWN_ROWS).
@@ -539,13 +539,13 @@ node_fk_verdict(){
 # clinic's earlier rows, so an existing value is kept.
 
 # clinlims_floor_tables : the tables whose floor a routed OpenELIS down row is
-# compared with (sync/hub-down.sh --routes clinlims, third field), then the
-# tables the clinic's OpenELIS source publishes only above the clinic's floor
-# (UP_CLINLIMS_OWN_ROWS, sync/local/tables-conf.sh), once each.
+# compared with (sync/tables/hub-down.sh --routes clinlims, third field), then
+# the tables the clinic's OpenELIS source publishes only above the clinic's
+# floor (UP_CLINLIMS_OWN_ROWS, sync/tables/tables.sh), once each.
 clinlims_floor_tables(){
   local r
-  r="$(bash "${REPO_DIR}/sync/hub-down.sh" --routes clinlims)" || return 1
-  [ -n "${UP_CLINLIMS_OWN_ROWS+x}" ] || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  r="$(bash "${REPO_DIR}/sync/tables/hub-down.sh" --routes clinlims)" || return 1
+  [ -n "${UP_CLINLIMS_OWN_ROWS+x}" ] || . "${REPO_DIR}/sync/tables/tables.sh"
   { printf '%s\n' "$r" | awk 'NF == 3 { print $3 }'; printf '%s\n' ${UP_CLINLIMS_OWN_ROWS}; } | awk 'NF && !seen[$1]++ { print $1 }'
 }
 clinlims_floor_key(){ printf 'CLINLIMS_FLOOR_%s' "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; }

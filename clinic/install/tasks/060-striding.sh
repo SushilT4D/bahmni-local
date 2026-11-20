@@ -26,7 +26,7 @@ inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' |
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 # seed-counters:begin
 # obs and orders: a clinic writes both from its first consultation, whether or
-# not sync/local/tables.conf lists them yet, and an id below the seed's floor
+# not the OpenMRS [up] list (sync/tables/openmrs.conf) lists them yet, and an id below the seed's floor
 # is one the hub's own rows use. Each counter moves to the first id on this
 # clinic's residue at or above the floor the seed gate recorded from the
 # manifest (it refuses a seed without them), and is read back. A counter
@@ -52,7 +52,7 @@ done
 # cannot be read fails here rather than checking no table.
 . "${INSTALL_DIR}/state.sh"
 ai_of(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | mysql_root 2>/dev/null | tail -1 || true; }
-v="$(counter_floor_verdicts "${REPO_DIR}/sync/local/tables.conf" "${RESIDUE}" ai_of)" || fail "$v"
+v="$(counter_floor_verdicts "${REPO_DIR}/sync/tables/openmrs.conf" "${RESIDUE}" ai_of)" || fail "$v"
 while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
@@ -86,19 +86,19 @@ $v
 EOF
 # clinlims-floors:end
 # Each OpenELIS sequence restarts above the largest id of the tables it numbers
-# (openelis/apply-sequence-striding.sql), and the script fails naming any that
-# is not, after it strides.
-o="$(ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -v residue="${RESIDUE}" -qAt -f /dev/stdin < openelis/apply-sequence-striding.sql 2>&1)" \
+# (scripts/sql/openelis/apply-sequence-striding.sql), and the script fails naming
+# any that is not, after it strides.
+o="$(ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -v residue="${RESIDUE}" -qAt -f /dev/stdin < scripts/sql/openelis/apply-sequence-striding.sql 2>&1)" \
   || fail "the OpenELIS sequences could not be strided above their rows: $(printf '%s\n' "$o" | sed -n 's/^.*ERROR: *//p' | head -1)"
 ok "$(printf '%s\n' "$o" | grep '^clinlims sequences step 10' | tail -1)"
-# Same table list the publication and MirrorMaker whitelist use (sync/subsystems.conf's
-# odoo: rows, the :all aggregate row excluded, trimmed and validated by subsystem_tables)
+# Same table list the publication and MirrorMaker whitelist use (the [up] list of
+# sync/tables/odoo.conf, trimmed and validated by subsystem_tables)
 # -- one source of truth, passed to the SQL as a comma-separated psql variable rather
 # than duplicated as a second hard-coded array.
 ODOO_TABLES="$(subsystem_tables odoo | tr '\n' ',' | sed 's/,$//')"
-[ -n "${ODOO_TABLES}" ] || fail "no odoo: rows found in ${REPO_DIR}/sync/subsystems.conf"
-ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < odoo/apply-odoo-sequence-striding.sql
-ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < odoo/apply-master-sequence-striding.sql
+[ -n "${ODOO_TABLES}" ] || fail "no tables in the [up] list of ${REPO_DIR}/sync/tables/odoo.conf"
+ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < scripts/sql/odoo/apply-odoo-sequence-striding.sql
+ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -q -f /dev/stdin < scripts/sql/odoo/apply-master-sequence-striding.sql
 bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) from pg_sequences where (schemaname='clinlims') and (increment_by<>10 or last_value %% 10 <> ${RESIDUE}) limit 3" | ct exec -i "$PG" psql -U postgres -d openelis -At | tr '\n' ' ')"
 [ -z "$bad" ] && ok "clinlims sequences: increment 10, residue ${RESIDUE}" || fail "clinlims sequences off-residue: ${bad}"
 bad="$(printf "select sequencename||':'||increment_by||':'||(last_value %% 10) from pg_sequences where sequencename in ('res_partner_id_seq','sale_order_id_seq','product_product_id_seq') and (increment_by<>10 or last_value %% 10 <> ${RESIDUE})" | ct exec -i "$PG" psql -U postgres -d odoo -At | tr '\n' ' ')"
@@ -122,6 +122,6 @@ for seq in village_village_id_seq state_district_id_seq district_subdistrict_id_
 done
 [ -z "$address_seq_bad" ] && ok "address odoo sequences: increment 10, residue ${RESIDUE}" || fail "address odoo sequences off-residue:${address_seq_bad}"
 
-for db in odoo openelis; do ct exec -i "$PG" psql -U postgres -d "$db" -q -f /dev/stdin < odoo/apply-replication-origin.sql >/dev/null; done
+for db in odoo openelis; do ct exec -i "$PG" psql -U postgres -d "$db" -q -f /dev/stdin < scripts/sql/apply-replication-origin.sql >/dev/null; done
 origins="$(printf "select count(*) from pg_replication_origin where roname like 'hub_%%'" | ct exec -i "$PG" psql -U postgres -At)"
 [ "${origins:-0}" -ge 8 ] && ok "replication origins hub_1.. (${origins})" || fail "replication origins missing (${origins})"

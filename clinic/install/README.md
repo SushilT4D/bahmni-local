@@ -139,7 +139,7 @@ Forms are published only on the hub, in the form builder. A clinic does not
 author them:
 
 - **Rows by sync.** `form` and `form_resource` are hub tables
-  (`cloud/tables.conf`). A clinic gets the hub's rows with its seed and every
+  (`sync/tables/openmrs.conf`). A clinic gets the hub's rows with its seed and every
   later change through the down sync, so a form has the same id, uuid and
   version on every node. That matters because a saved observation names its
   form by name and version.
@@ -416,7 +416,7 @@ The runtime is rootless **podman**, driven through `docker-compose` over
 the podman machine and the LaunchAgent that starts it, and the containers, at login.
 
 IPLIT's `OPENMRS_IMAGE_NAME` is `linux/amd64`-only. On an arm64 host, task 040
-does not pull it -- it runs `openmrs/build-native.sh`, which extracts
+does not pull it -- it runs `openmrs/build.sh`, which extracts
 `/usr/local/tomcat`, `/openmrs`, `/etc/bahmni-emr` and `/home/bahmni` out of
 the pinned image (`create`+`cp`, the source is never executed) onto a native
 arm64 base (`OPENMRS_ARM64_BASE_IMAGE`, pinned in `sync/versions.env`: same OS

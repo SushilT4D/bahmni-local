@@ -1,5 +1,5 @@
 -- The state of the id sequence of each OpenELIS down table the hub's
--- publication filters on its floor (sync/hub-down.sh --unrouted clinlims),
+-- publication filters on its floor (sync/tables/hub-down.sh --unrouted clinlims),
 -- read-only: it creates nothing, so it runs in a read-only session too.
 --
 -- One line per table, in the order passed:

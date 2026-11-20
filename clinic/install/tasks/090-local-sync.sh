@@ -53,8 +53,8 @@ plugins="$(curl -s localhost:8083/connector-plugins | jq -r '.[].class' | grep -
 [ "$plugins" = 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink" || fail "connect plugins missing (${plugins}/3) -- are the jars mounted as files?"
 til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
 [ -n "$til" ] && env_put "$E" TABLE_INCLUDE_LIST "$til"
-bash scripts/generate-connectors.sh >/dev/null
-bash scripts/register-source-connector.sh >/dev/null
+bash scripts/generate-connectors.sh mysql-source >/dev/null
+bash scripts/register-connectors.sh mysql-local-source-connector >/dev/null
 # The capture filter as Connect holds it, not as the file says (lib.sh
 # capture_filter_check): a wrong residue drops every change this clinic makes,
 # silently.
@@ -76,38 +76,26 @@ bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 # clinic's OpenELIS source, which decodes with origin=none, never sends those
 # rows back up. The floors are recorded by task 060 before it strides; without
 # them (or the residue) the filter cannot be written and this task stops.
-# clinlims-own-rows:begin
 # The OpenELIS source publishes a lab account or signature only when this
-# clinic minted it (sync/local/tables-conf.sh UP_CLINLIMS_OWN_ROWS): one filter
-# step per table, on the record key, at or above the floor task 060 recorded
-# and on this clinic's residue (sync/origin-filter.sh's condition).
-. "${REPO_DIR}/sync/local/tables-conf.sh"; . "${REPO_DIR}/sync/origin-filter.sh"
-for t in ${UP_CLINLIMS_OWN_ROWS}; do
-  k="$(clinlims_floor_key "$t")"; fl="$(stamp_get "$k")"
-  [ -n "$fl" ] || fail "no ${k} is recorded on this machine (task 060 records it before it strides the OpenELIS ids), so the OpenELIS source cannot tell this clinic's ${t} rows from the hub's: rerun from 060 (seed.sh --seed <folder> --from 060) or call the operator."
-  c="$(origin_filter_condition id "$fl" "${RESIDUE}")" || fail "the ${t} filter could not be written (reason above)"
-  export "CLINLIMS_UP_CONDITION_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')=$c"
-done
-# clinlims-own-rows:end
-NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
-# clinlims-down:begin
-# The filter script prints only the condition when it succeeds, and only the
-# reason when it refuses.
-if cond="$(SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/clinlims-down-filter.sh 2>&1)"; then
-  CLINLIMS_DOWN_CONDITION="$cond" NODE="${CLINIC_SLUG}" bash connectors/register-odoo.sh clinlims-clinic-sink-all >/dev/null
-  ok "OpenELIS down sink registered: keeps the hub's lab test catalogue and lab accounts, and the result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
-else
-  fail "the OpenELIS down sink cannot be registered, so lab results entered at the hub would never reach this clinic's OpenELIS: $(printf '%s\n' "$cond" | sed 's/^clinlims-down-filter: //' | tail -1)"
-fi
-# clinlims-down:end
-# after register-odoo.sh, not before: the heartbeat script patches the two PG
+# clinic minted it (UP_CLINLIMS_OWN_ROWS, sync/tables/tables.sh), and the
+# OpenELIS down sink keeps only this clinic's rows: generate/postgres.sh writes
+# both filters from the floors task 060 recorded and refuses without them.
+pg_out="$(SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/generate-connectors.sh postgres 2>&1)" \
+  || fail "the Odoo and OpenELIS connectors cannot be written, so this clinic's Odoo and lab data would not sync: $(printf '%s\n' "$pg_out" | tail -1)"
+bash scripts/register-connectors.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
+bash scripts/register-connectors.sh clinlims-clinic-sink-all >/dev/null
+ok "OpenELIS down sink registered: keeps the hub's lab test catalogue and lab accounts, and the result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
+# after the Postgres connectors are registered, not before: the heartbeat script patches the two PG
 # source connectors' configs (GET then PUT), so they must exist, and it takes
 # BOTH source names (first live clinic, manpur: it was called with one name
 # and one line too early -- "$5: unbound variable"). Its DB half (heartbeat
 # table + publication membership) is idempotent; the seed already carries both.
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
-bash scripts/generate-local-sink-connectors.sh >/dev/null
-bash scripts/register-local-sink-connectors.sh >/dev/null
+bash scripts/generate-connectors.sh mysql-sinks >/dev/null
+down_sinks="$(cd connectors && ls mysql-local-sink-*.json 2>/dev/null | sed 's/\.json$//')"
+[ -n "$down_sinks" ] || fail "generate-connectors.sh mysql-sinks wrote no down sink into connectors/"
+# shellcheck disable=SC2086
+bash scripts/register-connectors.sh $down_sinks >/dev/null
 # Restart FAILED tasks ONCE before anything judges them:
 # nine mysql-local-sink-* tasks FAILED on a bad pool setting; the template was
 # fixed and the connectors re-registered (HTTP 200) -- eight recovered,

@@ -57,6 +57,6 @@ out="$(fv 'FLOOR_ORDERS=300000\n' "$TMP/plain.conf")"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"no obs floor (FLOOR_OBS)"*) true ;; *) false ;; esac && ok_ "a seed with the orders floor only is refused, naming FLOOR_OBS" || bad "orders alone: rc=$rc $out"
 out="$(fv 'FLOOR_OBS=5000000\n' "$TMP/plain.conf")"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"no orders floor (FLOOR_ORDERS)"*) true ;; *) false ;; esac && ok_ "a seed with the obs floor only is refused, naming FLOOR_ORDERS" || bad "obs alone: rc=$rc $out"
-grep -q 'seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/local/tables.conf")" || refuse' "$G" && ok_ "005 refuses a seed without its floors" || bad "005 does not check the floors"
+grep -q 'seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/tables/openmrs.conf")" || refuse' "$G" && ok_ "005 refuses a seed without its floors" || bad "005 does not check the floors"
 grep -q 'stamp_put "FLOOR_' "$G" && ok_ "005 records the floors for the later counter checks" || bad "005 does not record the floors"
 exit $((fails > 0))

@@ -7,7 +7,7 @@
 #   - rows: form (name, version, uuid, published, retired) and form_resource,
 #     whose pointer row names the form's file as
 #     /home/bahmni/clinical_forms/<uuid>.json. The hub is the only node that
-#     publishes forms; the rows reach a clinic by sync (cloud/tables.conf) or
+#     publishes forms; the rows reach a clinic by sync (the OpenMRS [down] list (sync/tables/openmrs.conf)) or
 #     with the seed. A clinic does not create them: its Initializer does not
 #     load forms (initializer.sh), its stack does not run the form builder, and
 #     its forms folder is read-only.
@@ -52,7 +52,7 @@
 # deleted, on a node whose OpenMRS holds them: a clinic that keeps its own
 # database across an upgrade from a stack that loaded every Initializer domain.
 # Only those uuids are touched, and only on this node: clinics do not send form
-# rows up (sync/local/tables.conf).
+# rows up (the OpenMRS [up] list (sync/tables/openmrs.conf)).
 #
 # Exit codes, for a schedule: 1 a check refused (act on the FAIL line), 3 the
 # forms repo could not be reached (the forms already here keep working), 4

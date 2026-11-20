@@ -43,5 +43,4 @@ i="$(printf '%s\n' "$L" | grep -nE 'apt[-_]get install' | head -1 | cut -d: -f1)
 M="${HERE}/../host-macos.sh"
 grep -q 'ip_unprivileged_port_start=80' "$M" && ok_ "macOS: podman machine may bind ports from 80" || bad "macOS: no low-port sysctl"
 grep -q 'dns_install_macos' "$M" && ok_ "macOS host installs dnsmasq" || bad "macOS host does not install dnsmasq"
-grep -q 'dns_install_linux' "${HERE}/../host-linux.sh" && ok_ "Linux host installs dnsmasq" || bad "Linux host does not install dnsmasq"
 exit $((fails > 0))

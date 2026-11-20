@@ -14,8 +14,8 @@
 # A hub-written row is one whose key is at or above the hub's floor for its
 # table and ends in 0, the hub's residue. Below the floor this clinic's rows and
 # the hub's are two histories that share ids, so only hub-written rows come
-# down (clinic/scripts/generate-local-sink-connectors.sh, role `hub-written`).
-# The floors: person and person_name use their base in sync/local/tables.conf,
+# down (clinic/scripts/generate/mysql-sinks.sh, role `hub-written`).
+# The floors: person and person_name use their base in the OpenMRS [up] list,
 # the value the hub's source filter uses; users and provider use the hub's
 # recorded floors, a file of "<table> <floor>" lines kept on the hub.
 #
@@ -92,6 +92,8 @@ CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
 REPO_DIR="${REPO_DIR:-$(cd "${HERE}/../.." && pwd)}"; export REPO_DIR
 # shellcheck disable=SC1091
 . "${HERE}/../install/lib.sh"
+# shellcheck disable=SC1091
+. "${REPO_DIR}/sync/tables/tables.sh"
 usage(){ sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
 die2(){ printf '  FAIL %s\n' "$*" >&2; exit 2; }
 MODE=check; HUBF=""; FLOORS=""; DUMP=""; MY=""; DB=openmrs
@@ -119,8 +121,8 @@ NODE_LOCAL="$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "${REPO_DIR}/sync/user-prop
 [ -n "$NODE_LOCAL" ] || die2 "sync/user-property-node-local.conf lists no property name"
 sqlq(){ printf "'%s'" "$(printf '%s' "$1" | sed -e "s/\\\\/\\\\\\\\/g" -e "s/'/''/g")"; }
 node_local_list(){ printf '%s\n' "$NODE_LOCAL" | while read -r p; do sqlq "$p"; printf ','; done | sed 's/,$//'; }
-# person and person_name: their base in sync/local/tables.conf
-base_of(){ awk -v t="$1" '{ sub(/#.*/, "") } NF { split($1, f, ":"); if (f[1] == t && f[3] ~ /^[0-9]+$/) { print f[3]; exit } }' "${REPO_DIR}/sync/local/tables.conf"; }
+# person and person_name: their base in the OpenMRS [up] list
+base_of(){ tables_section "${REPO_DIR}/sync/tables/openmrs.conf" up | awk -v t="$1" '{ sub(/#.*/, "") } NF { split($1, f, ":"); if (f[1] == t && f[3] ~ /^[0-9]+$/) { print f[3]; exit } }'; }
 valid_floor(){ printf '%s' "$1" | grep -qE '^[1-9][0-9]*0$'; }
 
 if [ "$MODE" = derive ]; then
@@ -133,18 +135,18 @@ if [ "$MODE" = derive ]; then
 fi
 
 # the floors: users and provider from a floors file (on the hub) or the hub's
-# rows file (on the clinic); person and person_name from sync/local/tables.conf
+# rows file (on the clinic); person and person_name from the OpenMRS [up] list
 F_users=""; F_provider=""; F_person=""; F_person_name=""
 floor_of(){ eval "printf '%s' \"\${F_$1}\""; }
 for t in person person_name; do
-  b="$(base_of "$t")"; valid_floor "$b" || die2 "sync/local/tables.conf gives ${t} no base that is a multiple of 10 ('${b}'): its hub-written rows cannot be told apart"
+  b="$(base_of "$t")"; valid_floor "$b" || die2 "the OpenMRS [up] list gives ${t} no base that is a multiple of 10 ('${b}'): its hub-written rows cannot be told apart"
   eval "F_$t=$b"
 done
 read_floors_file(){ # FILE: "<table> <floor>" lines for users and provider
   local f="$1" n t v
   [ -s "$f" ] || die2 "no floors file at ${f}: on the hub, record it once with --derive-floors"
   for t in $(awk '{ sub(/#.*/, "") } NF { print $1 }' "$f"); do
-    case "$t" in users|provider) ;; *) die2 "${f}: '${t}' takes no floor here (only users and provider; person and person_name use sync/local/tables.conf)" ;; esac
+    case "$t" in users|provider) ;; *) die2 "${f}: '${t}' takes no floor here (only users and provider; person and person_name use the OpenMRS [up] list)" ;; esac
   done
   for t in users provider; do
     n="$(awk -v t="$t" '{ sub(/#.*/, "") } NF && $1 == t' "$f" | grep -c . || true)"
@@ -204,7 +206,7 @@ for t in $ID_TABLES; do
   v="$(awk -F'\t' -v t="$t" '$1 == "floor" && $2 == t { print $3 }' "$HUBF")"
   valid_floor "$v" || die2 "${HUBF} has no floor line for ${t}: read it again with this checkout's --hub-query"
   case "$t" in
-    person|person_name) [ "$v" = "$(floor_of "$t")" ] || die2 "${HUBF} reads ${t} from ${v}, and this checkout's sync/local/tables.conf from $(floor_of "$t"): the two checkouts disagree on the floor the hub's source filter uses" ;;
+    person|person_name) [ "$v" = "$(floor_of "$t")" ] || die2 "${HUBF} reads ${t} from ${v}, and this checkout's OpenMRS [up] list from $(floor_of "$t"): the two checkouts disagree on the floor the hub's source filter uses" ;;
     *) eval "F_$t=$v" ;;
   esac
 done

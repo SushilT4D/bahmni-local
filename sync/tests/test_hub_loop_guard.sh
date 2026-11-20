@@ -23,7 +23,7 @@ done
 # A row a clinic's down sink writes is tagged with the origin the sink claims,
 # so the clinic's own Postgres sources (origin=none) never send it back up. An
 # origin is held by one session at a time, so the two down sinks claim two.
-CC="$R/clinic/connectors"
+CC="$R/clinic/scripts/templates"
 for n in odoo-source-connector clinlims-source-connector; do
   v="$(cfg "$CC/$n.json" slot.stream.params)"
   [ "$v" = origin=none ] && ok_ "the clinic's $n decodes with origin=none" || bad "the clinic's $n: slot.stream.params is '${v}', want origin=none"
@@ -36,9 +36,11 @@ esac
 for n in odoo-clinic-sink-all clinlims-clinic-sink-all; do
   [ "$(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)" = "1|1" ] && ok_ "$n: one task on one connection (the origin is held by one session)" || bad "$n: tasks.max/pool read $(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)"
 done
-reg="$(grep -E '^[^#]*register-odoo\.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
-printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && printf '%s' "$reg" | grep -q 'CLINLIMS_DOWN_CONDITION=.*clinlims-clinic-sink-all' \
-  && ok_ "the clinic installer registers its Odoo down sink, and its OpenELIS down sink with its filter" || bad "090 registers: $reg"
+reg="$(grep -E '^[^#]*register-connectors\.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
+printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && printf '%s' "$reg" | grep -q 'clinlims-clinic-sink-all' \
+  && grep -q '"${CLINLIMS_DOWN_CONDITION}"' "$CC/clinlims-clinic-sink-all.json" \
+  && grep -q '^export CLINLIMS_DOWN_CONDITION' "$R/clinic/scripts/generate/postgres.sh" \
+  && ok_ "the clinic installer registers its Odoo down sink, and its OpenELIS down sink with the filter generate/postgres.sh writes" || bad "090 registers: $reg"
 
 # --- the up-sinks: each claims its own clinic's origin, on one connection ----
 # check_sinks DIR CLINICS_CONF : every Postgres JDBC sink in DIR claims

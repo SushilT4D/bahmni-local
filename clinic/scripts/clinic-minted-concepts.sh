@@ -6,7 +6,7 @@
 #   clinic/scripts/clinic-minted-concepts.sh --hub-query
 #   clinic/scripts/clinic-minted-concepts.sh --hub-ids FILE [--rekey] [--container NAME] [--database DB]
 #
-# The tables are the rows cloud/tables.conf marks `changes` (the concept
+# The tables are the rows the OpenMRS [down] list marks `changes` (the concept
 # dictionary): the hub writes them and sends changes only, so a clinic must
 # already hold the hub's rows under the hub's ids. Three kinds of clinic row
 # break that, and each would stop or corrupt a down sink:
@@ -49,7 +49,7 @@
 #   - with any collision (a row is in the way of a move, or would be
 #     overwritten), or when OpenMRS is running (it caches these rows; stop it
 #     first, and its next start rebuilds the search index);
-#   - when a table this clinic sends up (sync/local/tables.conf, obs among
+#   - when a table this clinic sends up (the OpenMRS [up] list, obs among
 #     them) refers to a row that would move: its copy at the hub would keep the
 #     old id;
 #   - when another column whose name speaks of a concept, or a global property
@@ -68,6 +68,8 @@ CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
 REPO_DIR="${REPO_DIR:-$(cd "${HERE}/../.." && pwd)}"; export REPO_DIR
 # shellcheck disable=SC1091
 . "${HERE}/../install/lib.sh"
+# shellcheck disable=SC1091
+. "${REPO_DIR}/sync/tables/tables.sh"
 usage(){ sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
 die2(){ printf '  FAIL %s\n' "$*" >&2; exit 2; }
 MODE=check; HUBF=""; MY=""; DB=openmrs
@@ -87,10 +89,10 @@ printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || die2 "bad database na
 # concept_numeric rows extend a concept row under the concept's own id and
 # carry no uuid of their own.
 NO_UUID=" concept_numeric "
-SPECS="$(awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }' "${REPO_DIR}/cloud/tables.conf")"
-[ -n "$SPECS" ] || die2 "cloud/tables.conf marks no table \`changes\`: there is no concept table to check"
+SPECS="$(tables_section "${REPO_DIR}/sync/tables/openmrs.conf" down | awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }')"
+[ -n "$SPECS" ] || die2 "the OpenMRS [down] list marks no table \`changes\`: there is no concept table to check"
 while read -r t pk; do
-  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "cloud/tables.conf: '$t:$pk:changes' needs a single-column key"
+  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "the OpenMRS [down] list: '$t:$pk:changes' needs a single-column key"
 done <<EOF
 $SPECS
 EOF
@@ -225,7 +227,7 @@ for spec in $(awk '{ print $1 ":" $2 }' "$W/mrefs") $(for t in $moved_tables; do
   awk -F'\t' -v t="$t" -v c="$c" '$1 == t && $2 == c && $4 !~ /unsigned/ && $3 ~ /int$/ { f = 1 } END { exit !f }' "$W/cols" \
     || die2 "${t}.${c} is not a signed integer column; the move through a temporary negative id cannot be used; nothing was changed"
 done
-UP_TABLES=" $(sed -e 's/#.*//' "${REPO_DIR}/sync/local/tables.conf" | awk -F: 'NF { gsub(/[ \t]/, "", $1); if ($1 != "") print $1 }' | tr '\n' ' ') "
+UP_TABLES=" $(tables_section "${REPO_DIR}/sync/tables/openmrs.conf" up | sed -e 's/#.*//' | awk -F: 'NF { gsub(/[ \t]/, "", $1); if ($1 != "") print $1 }' | tr '\n' ' ') "
 # what refers to a moving row now, and from where
 refusals=""
 while read -r ch col par; do

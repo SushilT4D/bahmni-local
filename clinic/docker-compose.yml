@@ -170,11 +170,11 @@ services:
     image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
     platform: linux/amd64
     volumes:
-      - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo-connect/logback.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
       # HttpClient 5, which the image calls and does not ship.
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo-connect/lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo-connect/lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
+      - '${CONTAINER_DATA_PATH:?}/odoo-connect/lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
     environment:
       ODOO_DB_SERVER: bahmni-postgres
       IS_ODOO_16: "true"

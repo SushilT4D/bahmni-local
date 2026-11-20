@@ -16,18 +16,18 @@ fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-L="$R/sync/local/tables.conf"
+UP="$(bash "$R/sync/tables/tables.sh" openmrs up)"; DOWN="$(bash "$R/sync/tables/tables.sh" openmrs down)"
 for line in 'obs:obs_id:seed' 'orders:order_id:seed' 'drug_order:order_id:floor=orders' 'test_order:order_id:floor=orders'; do
-  grep -qx "$line" "$L" && ok_ "sync/local/tables.conf: $line" || bad "sync/local/tables.conf lacks $line"
+  printf '%s\n' "$UP" | grep -qx "$line" && ok_ "the OpenMRS [up] list: $line" || bad "the OpenMRS [up] list lacks $line"
 done
 C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/cloud"
 cp -R "$R/clinic/scripts" "$C/clinic/"; cp -R "$R/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$R/sync" "$C/"
-cp -R "$R/cloud/scripts" "$R/cloud/connectors" "$C/cloud/"; cp "$R/cloud/tables.conf" "$C/cloud/"
+cp -R "$R/cloud/scripts" "$R/cloud/connectors" "$C/cloud/"
 printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/cloud/.env"
 printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
-SEED_MANIFEST="$TMP/manifest.env" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/gc" 2>&1 || bad "the source does not render from the committed list: $(tail -2 "$TMP/gc")"
+SEED_MANIFEST="$TMP/manifest.env" bash "$C/clinic/scripts/generate-connectors.sh" mysql-source > "$TMP/gc" 2>&1 || bad "the source does not render from the committed list: $(tail -2 "$TMP/gc")"
 python3 - "$C/clinic/connectors/mysql-local-source-connector.json" > "$TMP/src" 2>&1 <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))["config"]
@@ -57,6 +57,6 @@ for f in "$C/cloud/connectors"/mysql-sink-alpha-*.json; do
   python3 "$C/cloud/scripts/validate-sink-config.py" "$f" --known-good "$C/cloud/connectors/known-good.json" --profile "$p" > "$TMP/val" 2>&1 || vbad="${vbad} ${t}($(tail -1 "$TMP/val"))"
 done
 [ -z "$vbad" ] && ok_ "validate-sink-config.py accepts every rendered hub sink, the four on the clinical profile" || bad "validator refused:${vbad}"
-grep -qE '^[[:space:]]*(orders|drug_order|test_order):' "$R/cloud/tables.conf" && bad "cloud/tables.conf names orders, drug_order or test_order" || ok_ "cloud/tables.conf names none of orders, drug_order, test_order"
-grep -E '^[[:space:]]*obs:' "$R/cloud/tables.conf" | grep -vqE '^[[:space:]]*obs:obs_id:clinic=order_id[[:space:]]*$' && bad "cloud/tables.conf names obs other than as the hub's lab results, routed by order" || ok_ "cloud/tables.conf names obs only as the hub's lab results, routed by order"
+printf '%s\n' "$DOWN" | grep -qE '^[[:space:]]*(orders|drug_order|test_order):' && bad "the OpenMRS [down] list names orders, drug_order or test_order" || ok_ "the OpenMRS [down] list names none of orders, drug_order, test_order"
+printf '%s\n' "$DOWN" | grep -E '^[[:space:]]*obs:' | grep -vqE '^[[:space:]]*obs:obs_id:clinic=order_id[[:space:]]*$' && bad "the OpenMRS [down] list names obs other than as the hub's lab results, routed by order" || ok_ "the OpenMRS [down] list names obs only as the hub's lab results, routed by order"
 exit $((fails > 0))

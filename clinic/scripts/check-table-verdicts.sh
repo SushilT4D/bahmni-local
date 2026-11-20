@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Check both sync table lists against cloud/table-verdicts.conf:
 #
-#   cloud/tables.conf          an unmarked row, or one marked `changes`, must
+#   openmrs.conf [down]          an unmarked row, or one marked `changes`, must
 #                            have verdict DOWN, a row marked `relay` must have
 #                            verdict relay, a row marked `hub-rows` verdict
 #                            SHARED;
-#   sync/local/tables.conf   every row must have verdict UP, relay or SHARED, and
-#                            the file must pass sync/local/tables-conf.sh's
+#   openmrs.conf [up]   every row must have verdict UP, relay or SHARED, and
+#                            the file must pass sync/tables/tables.sh's
 #                            reader, which every script that reads it uses;
 #   UP_NEVER_TABLES          the tables that reader never lets a clinic
 #                            capture must have verdict DOWN or OUT.
@@ -21,12 +21,14 @@
 # repo-dir defaults to the checkout this script is in. Reads files only.
 # Exit 0 when both lists agree with the verdicts, 1 naming every row that
 # does not, 2 when a file is missing, the verdict file is malformed or
-# sync/local/tables.conf has a line its reader refuses.
+# openmrs.conf [up] has a line its reader refuses.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="${1:-$(cd "${HERE}/../.." && pwd)}"
-V="${R}/cloud/table-verdicts.conf"; DOWN="${R}/cloud/tables.conf"; UP="${R}/sync/local/tables.conf"
-for f in "$V" "$DOWN" "$UP"; do [ -f "$f" ] || { echo "  FAIL no such file: $f" >&2; exit 2; }; done
+V="${R}/cloud/table-verdicts.conf"; DOWN="${R}/sync/tables/openmrs.conf"; UP="$DOWN"
+for f in "$V" "$DOWN"; do [ -f "$f" ] || { echo "  FAIL no such file: $f" >&2; exit 2; }; done
+# shellcheck source=../../sync/tables/tables.sh
+. "${HERE}/../../sync/tables/tables.sh"
 
 # the verdict file, as "table verdict" lines; malformed lines are fatal
 verdicts="$(awk '
@@ -48,7 +50,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# cloud/tables.conf: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
+# openmrs.conf [down]: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -56,37 +58,35 @@ while IFS= read -r line || [ -n "$line" ]; do
   t="${line%%:*}"; role=""
   case "$line" in *:*:*) role="${line##*:}" ;; esac
   v="$(verdict_of "$t")"; n=$((n+1))
-  if [ -z "$v" ]; then bad "cloud/tables.conf lists ${t}, which has no verdict in cloud/table-verdicts.conf"
-  elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "cloud/tables.conf marks ${t} relay, but its verdict is ${v}"
+  if [ -z "$v" ]; then bad "openmrs.conf [down] lists ${t}, which has no verdict in cloud/table-verdicts.conf"
+  elif [ "$role" = relay ]; then [ "$v" = relay ] || bad "openmrs.conf [down] marks ${t} relay, but its verdict is ${v}"
   elif [ "$role" = hub-rows ]; then
     # written at the hub and at the clinics, each its own rows; the hub sends down only its own
-    [ "$v" = SHARED ] || bad "cloud/tables.conf marks ${t} hub-rows, but its verdict is ${v}: only a table the hub and the clinics both write (SHARED) is sent down as the hub's own rows"
+    [ "$v" = SHARED ] || bad "openmrs.conf [down] marks ${t} hub-rows, but its verdict is ${v}: only a table the hub and the clinics both write (SHARED) is sent down as the hub's own rows"
   elif [ "$role" = changes ]; then
     # the hub's own table, sent as changes only: the same verdict as an unmarked row
-    [ "$v" = DOWN ] || bad "cloud/tables.conf marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
+    [ "$v" = DOWN ] || bad "openmrs.conf [down] marks ${t} changes, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   elif case "$role" in clinic=*) true ;; *) false ;; esac; then
     # a clinic's table; the hub sends down only its own rows, each kept by the clinic its column names
-    [ "$v" = UP ] || bad "cloud/tables.conf marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic"
-    printf '%s' "${role#clinic=}" | grep -qE '^[a-z_][a-z0-9_]*$' || bad "cloud/tables.conf: ${t} names a bad routing column '${role#clinic=}'"
-  elif [ -n "$role" ]; then bad "cloud/tables.conf: ${t} has an unknown role '${role}'"
-  else [ "$v" = DOWN ] || bad "cloud/tables.conf lists ${t} for a down sink, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
+    [ "$v" = UP ] || bad "openmrs.conf [down] marks ${t} ${role}, but its verdict is ${v}: only a table the clinics write (UP) carries the hub's rows for a clinic"
+    printf '%s' "${role#clinic=}" | grep -qE '^[a-z_][a-z0-9_]*$' || bad "openmrs.conf [down]: ${t} names a bad routing column '${role#clinic=}'"
+  elif [ -n "$role" ]; then bad "openmrs.conf [down]: ${t} has an unknown role '${role}'"
+  else [ "$v" = DOWN ] || bad "openmrs.conf [down] lists ${t} for a down sink, but its verdict is ${v}: only the hub's own tables (DOWN) are sent down"
   fi
-done < "$DOWN"
+done < <(tables_section "$DOWN" down)
 
-# sync/local/tables.conf, through the reader every script that captures,
+# openmrs.conf [up], through the reader every script that captures,
 # mirrors, strides or sinks it uses: a line that reader refuses is refused here
 # too, so this check never passes a list the sync layer cannot run
-# shellcheck source=../../sync/local/tables-conf.sh
-. "${HERE}/../../sync/local/tables-conf.sh"
-recs="$(up_tables_read "$UP" 2>&1)" || { printf '  FAIL sync/local/tables.conf is refused by its reader (sync/local/tables-conf.sh): %s\n' "$recs" >&2; exit 2; }
+recs="$(up_tables_read "$UP" 2>&1)" || { printf '  FAIL openmrs.conf [up] is refused by its reader (sync/tables/tables.sh): %s\n' "$recs" >&2; exit 2; }
 m=0
 while read -r t _; do
   [ -n "$t" ] || continue
   v="$(verdict_of "$t")"; m=$((m+1))
   case "$v" in
     UP|relay|SHARED) ;;
-    '') bad "sync/local/tables.conf lists ${t}, which has no verdict in cloud/table-verdicts.conf" ;;
-    *) bad "sync/local/tables.conf captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP, relay or SHARED)" ;;
+    '') bad "openmrs.conf [up] lists ${t}, which has no verdict in cloud/table-verdicts.conf" ;;
+    *) bad "openmrs.conf [up] captures ${t} at the clinic, but its verdict is ${v}: a clinic sends up only what it writes (UP, relay or SHARED)" ;;
   esac
 done <<EOF
 $recs
@@ -99,10 +99,10 @@ for t in ${UP_NEVER_TABLES}; do
   v="$(verdict_of "$t")"
   case "$v" in
     DOWN|OUT) ;;
-    '') bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, which has no verdict in cloud/table-verdicts.conf (it must be DOWN or OUT)" ;;
-    *) bad "sync/local/tables-conf.sh never lets a clinic capture ${t}, but its verdict is ${v}: a table no clinic captures is DOWN or OUT" ;;
+    '') bad "sync/tables/tables.sh never lets a clinic capture ${t}, which has no verdict in cloud/table-verdicts.conf (it must be DOWN or OUT)" ;;
+    *) bad "sync/tables/tables.sh never lets a clinic capture ${t}, but its verdict is ${v}: a table no clinic captures is DOWN or OUT" ;;
   esac
 done
 
 [ "$fails" -eq 0 ] || exit 1
-printf '  ok   %s cloud/tables.conf row(s), %s sync/local/tables.conf row(s) and the %s never-captured table(s) agree with cloud/table-verdicts.conf\n' "$n" "$m" "$(printf '%s\n' ${UP_NEVER_TABLES} | grep -c .)"
+printf '  ok   %s openmrs.conf [down] row(s), %s openmrs.conf [up] row(s) and the %s never-captured table(s) agree with cloud/table-verdicts.conf\n' "$n" "$m" "$(printf '%s\n' ${UP_NEVER_TABLES} | grep -c .)"

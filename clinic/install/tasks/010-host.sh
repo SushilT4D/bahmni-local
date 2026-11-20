@@ -5,8 +5,7 @@ set -euo pipefail
 begin_task "10 · host (${PLATFORM}, $(detect_runtime))"
 case "${PLATFORM}" in
   macos) . "${INSTALL_DIR}/host-macos.sh"; host_macos ;;
-  linux) . "${INSTALL_DIR}/host-linux.sh"; host_linux ;;
-  *) fail "unsupported platform: ${PLATFORM}" ;;
+  *) fail "unsupported platform: ${PLATFORM}: a clinic runs on macOS with podman" ;;
 esac
 [ "${DRY}" = 1 ] && { ok "dry run: runtime checks skipped"; exit 0; }
 setup_compose

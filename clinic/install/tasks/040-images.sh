@@ -11,7 +11,7 @@ cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"
 omrs="$(env_get "$E" OPENMRS_IMAGE_NAME)"
 # OpenMRS: IPLIT's image is linux/amd64 only. On an arm64 host it is rebuilt
-# natively (openmrs/build-native.sh -- 2.3s bare Tomcat+WAR on Ghated vs 26s
+# natively (openmrs/build.sh -- 2.3s bare Tomcat+WAR on Ghated vs 26s
 # emulated, ~11x; the PREVIOUS pinned image took 51 minutes under QEMU with
 # modules loading) and the result is written to OPENMRS_RUN_IMAGE, which
 # docker-compose.yml prefers over OPENMRS_IMAGE_NAME. x86 clinics are
@@ -22,14 +22,14 @@ case "$arch" in
   arm64|aarch64)
     info "arm64 host (${arch}): rebuilding OpenMRS natively -- ${omrs} is amd64-only and would run emulated"
     build_log="$(mktemp)"
-    if bash "${CLINIC_DIR}/openmrs/build-native.sh" >"${build_log}" 2>&1; then
+    if bash "${CLINIC_DIR}/openmrs/build.sh" >"${build_log}" 2>&1; then
       cat "${build_log}"
     else
       cat "${build_log}" >&2; rm -f "${build_log}"
-      fail "openmrs/build-native.sh failed (its FAIL line is above)"
+      fail "openmrs/build.sh failed (its FAIL line is above)"
     fi
     run_tag="$(sed -n 's/^image=//p' "${build_log}" | tail -1)"; rm -f "${build_log}"
-    [ -n "$run_tag" ] || fail "openmrs/build-native.sh printed no image=<tag> line"
+    [ -n "$run_tag" ] || fail "openmrs/build.sh printed no image=<tag> line"
     env_put "$E" OPENMRS_RUN_IMAGE "$run_tag"
     ok "openmrs image: native ${run_tag}, built from ${omrs}"
     ;;

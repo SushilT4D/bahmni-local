@@ -1,7 +1,8 @@
 #!/bin/bash
-# generate-local-sink-connectors.sh — render the DOWN-direction (cloud → clinic) sinks.
+# generate/mysql-sinks.sh — render the DOWN-direction (cloud → clinic) sinks.
 #
-# One connector per cloud-owned table from cloud/tables.conf. These run ON THE
+# One connector per cloud-owned table from the [down] list of
+# sync/tables/openmrs.conf. These run ON THE
 # CLINIC and write into the clinic's OpenMRS DB.
 #
 # Deliberate choices, each one closing a defect a generator can have:
@@ -12,18 +13,20 @@
 #     blocked by a hardcoded `source.<clinic>.openmrs.`;
 #   - connection.restart.on.errors is set in the template (see it for why).
 #
-# Usage: ./scripts/generate-local-sink-connectors.sh [output-dir]
+# Usage: ./scripts/generate-connectors.sh mysql-sinks [output-dir]
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${1:-${ROOT}/connectors}"
 TEMPLATE="${ROOT}/scripts/templates/mysql-local-sink-connector.json"
-TABLES_CONF="${TABLES_CONF:-${ROOT}/../cloud/tables.conf}"
+TABLES_CONF="${TABLES_CONF:-${ROOT}/../sync/tables/openmrs.conf}"
 # The clinic's OWN capture list. Read only to refuse overlap — see the ownership guard below.
-UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/local/tables.conf}"
+UP_TABLES_CONF="${UP_TABLES_CONF:-${ROOT}/../sync/tables/openmrs.conf}"
 
 [[ -f "$TEMPLATE"    ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
 [[ -f "$TABLES_CONF" ]] || { echo "missing table list: $TABLES_CONF" >&2; exit 1; }
+# shellcheck source=../../../sync/tables/tables.sh
+. "${ROOT}/../sync/tables/tables.sh"
 
 # shellcheck disable=SC1091
 [[ -f "${ROOT}/.env" ]] && set -a && source "${ROOT}/.env" && set +a
@@ -71,7 +74,7 @@ while read -r line || [[ -n "$line" ]]; do
             HW_COLS+=("$c"); HW_LINKS+=(1) ;;
         *) HW_COLS+=(""); HW_LINKS+=(0) ;;
     esac
-done < "$TABLES_CONF"
+done < <(tables_section "$TABLES_CONF" down)
 
 # A `clinic=<column>` row carries the hub's own rows (lab results entered at
 # the hub) for whichever clinic <column> names. This clinic keeps a row only
@@ -79,8 +82,8 @@ done < "$TABLES_CONF"
 # residue and is at or above that table's base. Below the base a residue says
 # nothing about who wrote the row (older rows were numbered before striding),
 # so those rows are not kept anywhere. The column says which table it points
-# at: visit_id -> visit, order_id -> orders. The base is that table's in
-# sync/local/tables.conf; a table whose base comes from the seed (orders) takes
+# at: visit_id -> visit, order_id -> orders. The base is that table's in the
+# OpenMRS [up] list; a table whose base comes from the seed (orders) takes
 # the floor recorded at seeding (FLOOR_ORDERS, in .env or .install-state). The
 # residue comes from this clinic's .env. Without either nothing is generated.
 need_residue=no
@@ -90,8 +93,8 @@ declare -a ROUTE_BASES=()
 route_table(){ case "$1" in visit_id) echo visit ;; order_id) echo orders ;; *) return 1 ;; esac; }
 route_base(){ # COLUMN -> the base of the table it points at
     local t b k
-    t="$(route_table "$1")" || { echo "cloud/tables.conf routes by '$1'; a clinic can route only by visit_id or order_id" >&2; return 1; }
-    b="$(grep -E "^[[:space:]]*${t}:[^:]+:" "$UP_TABLES_CONF" | head -1 | awk '{print $1}' | cut -d: -f3)"
+    t="$(route_table "$1")" || { echo "the OpenMRS [down] list routes by '$1'; a clinic can route only by visit_id or order_id" >&2; return 1; }
+    b="$(tables_section "$UP_TABLES_CONF" up | grep -E "^[[:space:]]*${t}:[^:]+:" | head -1 | awk '{print $1}' | cut -d: -f3)"
     if [[ "$b" == seed ]]; then
         k="FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
         b="${!k:-}"
@@ -113,7 +116,7 @@ done
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
-# A `hub-written` row (a clinic's down list, never cloud/tables.conf) carries the
+# A `hub-written` row (a clinic's down list, never the OpenMRS [down] list (sync/tables/openmrs.conf)) carries the
 # hub's staff to a clinic that keeps its own OpenMRS database: the logins,
 # roles, providers and people the hub created. Below the hub's floor such a
 # clinic's rows and the hub's are two histories that share ids, so this clinic
@@ -122,7 +125,7 @@ done
 # or `hub-written=user_id` for a link row (user_role, user_property), judged
 # by the user it belongs to.
 #
-# Floors: a table with a base in sync/local/tables.conf (person, person_name)
+# Floors: a table with a base in the OpenMRS [up] list (sync/tables/openmrs.conf) (person, person_name)
 # uses that base, the same value the hub's source filter uses; any other
 # (users, provider) takes the hub's recorded floor from HUB_STAFF_FLOORS, a
 # file of "<table> <floor>" lines (clinic/scripts/clinic-minted-staff.sh
@@ -156,7 +159,7 @@ NODE_LOCAL_PROPS="${NODE_LOCAL_PROPS:-${ROOT}/../sync/user-property-node-local.c
 hw_floor_table(){ case "$1" in user_id) echo users ;; *) return 1 ;; esac; }
 hw_floor(){ # TABLE -> its floor
     local b fl
-    b="$(grep -E "^[[:space:]]*$1:[^:]+:[0-9]+([[:space:]]|\$)" "$UP_TABLES_CONF" 2>/dev/null | head -1 | awk '{print $1}' | cut -d: -f3)"
+    b="$(tables_section "$UP_TABLES_CONF" up 2>/dev/null | grep -E "^[[:space:]]*$1:[^:]+:[0-9]+([[:space:]]|\$)" | head -1 | awk '{print $1}' | cut -d: -f3)"
     fl=""
     if [[ -n "${HUB_STAFF_FLOORS:-}" ]]; then
         [[ -f "$HUB_STAFF_FLOORS" ]] || { echo "HUB_STAFF_FLOORS names ${HUB_STAFF_FLOORS}, which is not a file" >&2; return 1; }
@@ -227,7 +230,7 @@ done
 # reverts to the old absolute behaviour, which is the safe direction to fail in.
 if [[ -f "$UP_TABLES_CONF" ]] && ! grep -q 'sql_log_bin=0' "$TEMPLATE"; then
     for t in "${TABLES[@]}"; do
-        if grep -qE "^[[:space:]]*${t}:" "$UP_TABLES_CONF"; then
+        if tables_section "$UP_TABLES_CONF" up | grep -qE "^[[:space:]]*${t}:"; then
             {
               echo "REFUSING ${t}: it is clinic-owned (listed in ${UP_TABLES_CONF})."
               echo "  A down-direction sink would write cloud rows into a table the clinic authors."
@@ -311,7 +314,7 @@ if hw:
         os.environ['CHANGES'] = '1'
 
 if os.environ.get('CHANGES') == '1':
-    # a `changes` table (cloud/tables.conf): inserts and updates are applied,
+    # a `changes` table (the OpenMRS [down] list (sync/tables/openmrs.conf)): inserts and updates are applied,
     # never a delete. The hub retires such a row rather than deleting it, and a
     # delete here would fail on, or orphan, the clinic's own rows that point to
     # it. Tombstones carry no row and are dropped with the deletes.

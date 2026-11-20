@@ -10,9 +10,9 @@ One branch for every node of the Bahmni local-cloud sync lab. Three trees:
   Connect, the connector generators, and its own `clinics.<hub>.conf`/`tables.conf`.
   It runs beside the hub's Bahmni application stack, which is not in this
   repository.
-- `sync/` -- shared definitions both sides read: the clinic-owned table list
-  and connector templates (`sync/local/`), `subsystems.conf`, and the fleet
-  ledger `clinics.txt`.
+- `sync/` -- shared definitions both sides read: the table lists, up and down,
+  for OpenMRS, Odoo and OpenELIS (`sync/tables/`), the MirrorMaker settings
+  (`sync/local/`), and the fleet ledger `clinics.txt`.
 
 Per-node values live in each project's gitignored `.env`; the committed
 `.env.example` next to it enumerates every variable.

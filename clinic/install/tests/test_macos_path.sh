@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The macOS/Apple-Silicon path, static + compose-config checks: compose falls
 # back OPENMRS_RUN_IMAGE -> OPENMRS_IMAGE_NAME, task 040 branches on host
-# architecture and no longer references the old openmrs/build.sh fallback,
+# architecture and builds the native image with openmrs/build.sh on arm64,
 # both pin files carry the new arm64 base image, preflight's macos-facts
 # block (arch line + podman-machine memory gate), and host-macos.sh's new
 # machine-sizing function and dry-run-without-podman fix. Sections below
@@ -24,8 +24,7 @@ T40="${HERE}/../tasks/040-images.sh"
 code40="$(grep -vE '^[[:space:]]*#' "$T40")"
 printf '%s' "$code40" | grep -q 'HOST_ARCH:-\$(uname -m)' && ok_ "040 decides architecture via HOST_ARCH/uname -m" || bad "040 has no HOST_ARCH/uname -m arch decision"
 printf '%s' "$code40" | grep -qF 'arm64|aarch64' && ok_ "040 branches on arm64|aarch64" || bad "040 does not branch on arm64|aarch64"
-printf '%s' "$code40" | grep -q 'openmrs/build\.sh' && bad "040 still references openmrs/build.sh (the pull-failed fallback was supposed to be removed)" || ok_ "040 no longer references openmrs/build.sh"
-printf '%s' "$code40" | grep -q 'openmrs/build-native\.sh' && ok_ "040 calls openmrs/build-native.sh" || bad "040 does not call openmrs/build-native.sh"
+printf '%s' "$code40" | grep -q 'openmrs/build\.sh' && ok_ "040 calls openmrs/build.sh" || bad "040 does not call openmrs/build.sh"
 printf '%s' "$code40" | grep -q 'OPENMRS_RUN_IMAGE' && ok_ "040 writes/reads OPENMRS_RUN_IMAGE" || bad "040 never mentions OPENMRS_RUN_IMAGE"
 printf '%s' "$code40" | grep -q 'bahmni-local/\*' && ok_ "040's pull loop still skips bahmni-local/* (covers the native tag)" || bad "040 lost its bahmni-local/* skip pattern"
 

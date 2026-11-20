@@ -15,7 +15,7 @@ taken="${v#ok }"
 ok "seed taken ${taken} (limit ${SEED_MAX_AGE_DAYS:-6} days); three dumps match their checksums"
 # the id floors the seed was cut with: obs and orders always, and every other
 # table whose floor comes from the seed
-v="$(seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/local/tables.conf")" || refuse "$v"
+v="$(seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/tables/openmrs.conf")" || refuse "$v"
 floors="${v#ok}"
 ok "id floors from the seed:${floors}"
 v="$(seed_shape_verdict "${SEED_DIR}")" || refuse "$v"

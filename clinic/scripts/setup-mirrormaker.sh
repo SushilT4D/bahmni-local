@@ -13,10 +13,11 @@ TEMPLATE="${PROJECT_DIR}/config/mirrormaker/mm2.properties.template"
 OUTPUT="${PROJECT_DIR}/config/mirrormaker/mm2.properties"
 LEGACY_TEMPLATE="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties.template"
 LEGACY_OUTPUT="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties"
-TABLES_CONF="${PROJECT_DIR}/../sync/local/tables.conf"
-DOWN_TABLES_CONF="${PROJECT_DIR}/../cloud/tables.conf"
-SUBSYSTEMS_CONF="${PROJECT_DIR}/../sync/subsystems.conf"
-HUB_DOWN_SH="${PROJECT_DIR}/../sync/hub-down.sh"
+TABLES_CONF="${PROJECT_DIR}/../sync/tables/openmrs.conf"
+DOWN_TABLES_CONF="${TABLES_CONF}"
+HUB_DOWN_SH="${PROJECT_DIR}/../sync/tables/hub-down.sh"
+# shellcheck source=../../sync/tables/tables.sh
+. "${PROJECT_DIR}/../sync/tables/tables.sh"
 
 echo "Setting up MirrorMaker configuration..."
 
@@ -77,8 +78,8 @@ echo "✓ cloud secrets left as \${REMOTE_KAFKA_*} placeholders (runtime inject)
 # Building only the UP pattern, and only from the OpenMRS table list, with the
 # DOWN pattern a literal in the template, omits every Odoo and OpenELIS topic,
 # so a regenerate would silently drop two whole subsystems from replication.
-# The subsystem topics come from sync/subsystems.conf, which is the tracked
-# source of truth for them.
+# The subsystem topics come from the [up] lists of sync/tables/odoo.conf and
+# sync/tables/openelis.conf.
 #
 # Ordering is deliberate and matches the rendered file this replaced:
 # aggregates first, then OpenMRS, then per-table subsystem topics.
@@ -87,15 +88,15 @@ SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
 
-# build_topic_pattern <server-name> <openmrs-tables.conf> [up|down]
+# build_topic_pattern <server-name> <openmrs.conf> [up|down]
 # Emits a MirrorMaker topics regex.  Dots are escaped for the regex, so a topic
 # name is matched literally rather than "." matching any character.  `up` reads
-# the clinic's own list through sync/local/tables-conf.sh, the reader the
+# the clinic's own list through sync/tables/tables.sh, the reader the
 # source connector uses too, so MirrorMaker forwards exactly the topics the
 # source writes; a list it refuses returns 2, which stops this script rather
 # than rendering a config that mirrors none of the clinic's tables.
 # `down` takes the Odoo/OpenELIS topics from the hub's down list
-# (sync/hub-down.sh) instead of sync/subsystems.conf: the hub sends down only
+# (sync/tables/hub-down.sh) instead of the [up] lists: the hub sends down only
 # master tables, and a subsystem with nothing on that list sends nothing down,
 # not even its aggregate topic. A down list it refuses also returns 2.
 build_topic_pattern() {
@@ -109,7 +110,7 @@ build_topic_pattern() {
       aggs+=("${sn}\\.${schema}\\.all")
       for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
     done
-  elif [[ -f "${SUBSYSTEMS_CONF}" ]]; then
+  else
     while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$line" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
@@ -120,12 +121,10 @@ build_topic_pattern() {
       else
         subs+=("${sn}\\.${schema}\\.${topic}")
       fi
-    done < "${SUBSYSTEMS_CONF}"
+    done < <(subsystems_list)
   fi
 
   if [[ -f "${tconf}" && "${grammar}" == up ]]; then
-    # shellcheck source=../../sync/local/tables-conf.sh
-    . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
     recs="$(up_tables_read "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
     while read -r table _rest; do
       [[ -n "${table}" ]] || continue
@@ -140,7 +139,7 @@ EOF
       [[ "$line" =~ ^([^:]+):(.+)$ ]] || continue
       table="${BASH_REMATCH[1]}"
       omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")
-    done < "${tconf}"
+    done < <(tables_section "${tconf}" down)
   fi
 
   local all=("${aggs[@]}" "${omrs[@]}" "${subs[@]}")

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# openmrs/build-native.sh against a fake container runtime: the native arm64
+# openmrs/build.sh against a fake container runtime: the native arm64
 # image is assembled from the source's own /usr/local/tomcat, /openmrs,
 # /etc/bahmni-emr, /home/bahmni via create+cp+rm (the source is never run),
 # skipped when its labels already match the current source+base image ids,
 # rebuilt when either id changes or --force is given, refused when the
 # extracted tree carries no WAR or the built image is not arm64, and DRY
-# never touches the runtime at all. See openmrs/Dockerfile.native and
-# task1b-report.md for the recipe this proves.
+# never touches the runtime at all. See openmrs/Dockerfile for the recipe
+# this proves.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-S="${HERE}/../../openmrs/build-native.sh"
+S="${HERE}/../../openmrs/build.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
-[ -f "$S" ] || { bad "no openmrs/build-native.sh"; exit 1; }
+[ -f "$S" ] || { bad "no openmrs/build.sh"; exit 1; }
 
 san(){ printf '%s' "$1" | tr '/:' '__'; }
 mkdir -p "$TMP/bin" "$TMP/clinic" "$TMP/images"

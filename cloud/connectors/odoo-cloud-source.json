@@ -25,7 +25,7 @@
     "database.port": "5432",
     "plugin.name": "pgoutput",
     "slot.stream.params": "origin=none",
-    "//down": "Sends down only the tables in sync/hub-down.conf: register-odoo.sh fills the table list and the aggregate regex from that list, and refuses to register when it cannot. The publication it reads (dbz_odoo_owned) holds the same tables, with a row filter on each table that has an id.",
+    "//down": "Sends down only the tables in the [down] lists in sync/tables/: register-odoo.sh fills the table list and the aggregate regex from that list, and refuses to register when it cannot. The publication it reads (dbz_odoo_owned) holds the same tables, with a row filter on each table that has an id.",
     "//origin": "Decodes only what was written at this hub. A row a clinic's up-sink applied here carries that clinic's replication origin and is skipped, so the hub never publishes one clinic's rows to another clinic or back to the clinic that sent them.",
     "key.converter.schemas.enable": "true",
     "database.hostname": "${BASE_PG_CONTAINER}",

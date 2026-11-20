@@ -34,7 +34,7 @@ preflight_mysql_read(){
   [ -n "${CT:-}" ] || setup_compose
   printf '%s\n' "$q" | ct exec -i "${p}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 | tr '\t' ' ' || true
 }
-v="$(node_counters_verdict "$(stamp_get STATE)" "${REPO_DIR}/sync/local/tables.conf" "${RESIDUE}" preflight_mysql_read)" || fail "$v"
+v="$(node_counters_verdict "$(stamp_get STATE)" "${REPO_DIR}/sync/tables/openmrs.conf" "${RESIDUE}" preflight_mysql_read)" || fail "$v"
 while IFS= read -r l; do
   case "$l" in skip\ *) ok "${l#skip }" ;; ok\ *) ok "${l#ok }" ;; esac
 done <<EOF

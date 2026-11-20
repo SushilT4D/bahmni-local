@@ -209,8 +209,8 @@ env_get(){
   printf '%s' "$v"
 }
 gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
-# subsystem_tables SUBSYSTEM : prints sync/subsystems.conf's `<SUBSYSTEM>:<table>`
-# rows' table names, one per line -- the ONE parsing path task 050 (publications)
+# subsystem_tables SUBSYSTEM : prints the table names of SUBSYSTEM's [up] list
+# (odoo: sync/tables/odoo.conf, clinlims: sync/tables/openelis.conf), one per line -- the ONE parsing path task 050 (publications)
 # and task 060 (striding) both call, instead of each carrying its own
 # `grep | cut`. An untrimmed row --
 # trailing whitespace, or an inline `#` comment left on the line -- used to come
@@ -223,12 +223,12 @@ gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(st
 # lowercase identifier (naming the offending row) -- a typo'd or unquoted name
 # is a defect to catch here, not something to carry forward as a silent NOTICE.
 subsystem_tables(){
-  local subsystem="$1" conf="${REPO_DIR}/sync/subsystems.conf" line name
-  [ -f "$conf" ] || fail "subsystem_tables: no such file: $conf"
+  local subsystem="$1" line name
+  type subsystems_list >/dev/null 2>&1 || . "${REPO_DIR}/sync/tables/tables.sh"
   # `|| [ -n "$line" ]` : bash's `read` returns non-zero on a final line with no
   # trailing newline, which would otherwise drop that last row silently --
   # the exact gap this function exists to close,
-  # just moved one line down. sync/subsystems.conf ends in a newline today, so this
+  # just moved one line down. the Odoo and OpenELIS [up] lists (sync/tables/) ends in a newline today, so this
   # was dormant, but a hand-edit that saves without one must not silently lose the
   # last odoo:/clinlims: row.
   while IFS= read -r line || [ -n "$line" ]; do
@@ -238,37 +238,39 @@ subsystem_tables(){
     name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"  # trim
     [ "$name" = "all" ] && continue
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
-      || fail "sync/subsystems.conf: bad ${subsystem} table name '${name}' (row: ${line})"
+      || fail "sync/tables: bad ${subsystem} table name '${name}' (row: ${line})"
     printf '%s\n' "$name"
-  done < "$conf"
+  done < <(subsystems_list)
 }
-# down_tables : the table of every cloud/tables.conf row, one per line, in file
+# down_tables : the table of every the OpenMRS [down] list (sync/tables/openmrs.conf) row, one per line, in file
 # order -- every table the clinic's down sinks write, relayed ones included
-# (clinic/scripts/generate-local-sink-connectors.sh reads the same rows). The
+# (clinic/scripts/generate/mysql-sinks.sh reads the same rows). The
 # sink user's grants come from this list, so a table added there is granted
 # wherever the grants are applied: seed task 050, or
 # clinic/scripts/grant-down-tables.sh on a node seeded before. A name that is
 # not a bare lowercase identifier fails, naming its row.
 down_tables(){
-  local conf="${REPO_DIR}/cloud/tables.conf" line name
+  local conf="${REPO_DIR}/sync/tables/openmrs.conf" line name
   [ -f "$conf" ] || fail "down_tables: no such file: $conf"
+  type tables_section >/dev/null 2>&1 || . "${REPO_DIR}/sync/tables/tables.sh"
   while IFS= read -r line || [ -n "$line" ]; do
     name="${line%%#*}"
     name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -n "$name" ] || continue
     name="${name%%:*}"
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
-      || fail "cloud/tables.conf: bad table name '${name}' (row: ${line})"
+      || fail "openmrs.conf [down]: bad table name '${name}' (row: ${line})"
     printf '%s\n' "$name"
-  done < "$conf"
+  done < <(tables_section "$conf" down)
 }
 # master_down_tables : the down tables that are master data -- every row of
-# cloud/tables.conf except those marked `clinic=<column>`. Those carry the hub's
+# the OpenMRS [down] list (sync/tables/openmrs.conf) except those marked `clinic=<column>`. Those carry the hub's
 # rows for one clinic (lab results), which differ on every node by design, so
 # they are never compared between a clinic and the hub.
 master_down_tables(){
-  local conf="${REPO_DIR}/cloud/tables.conf" line name
+  local conf="${REPO_DIR}/sync/tables/openmrs.conf" line name
   [ -f "$conf" ] || fail "master_down_tables: no such file: $conf"
+  type tables_section >/dev/null 2>&1 || . "${REPO_DIR}/sync/tables/tables.sh"
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%%#*}"
     line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -276,9 +278,9 @@ master_down_tables(){
     case "$line" in *:*:clinic=*) continue ;; esac
     name="${line%%:*}"
     printf '%s' "$name" | grep -qE '^[a-z_][a-z0-9_]*$' \
-      || fail "cloud/tables.conf: bad table name '${name}' (row: ${line})"
+      || fail "openmrs.conf [down]: bad table name '${name}' (row: ${line})"
     printf '%s\n' "$name"
-  done < "$conf"
+  done < <(tables_section "$conf" down)
 }
 # sink_grant_sql : one GRANT per down table for the clinic's sink database
 # user: what a JDBC upsert sink with deletes enabled needs, on that table only.
@@ -634,7 +636,7 @@ versions_put(){
   [ -f "${VERSIONS_FILE}" ] || fail "version pins missing: ${VERSIONS_FILE}"
   # `|| [ -n "$line" ]` : a versions.env saved without a trailing newline on its
   # last line would otherwise drop that last KEY=value silently (the same class
-  # of bug subsystem_tables's own comment above documents for sync/subsystems.conf).
+  # of bug subsystem_tables's own comment above documents for the Odoo and OpenELIS [up] lists (sync/tables/)).
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"; v="${v%%#*}"; v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+$//')"
@@ -805,7 +807,7 @@ elis_page_ok(){
 # the Connect address.
 capture_filter_check(){
   local reg off floors v rc
-  type up_tables_read >/dev/null 2>&1 || . "${REPO_DIR}/sync/local/tables-conf.sh"
+  type up_tables_read >/dev/null 2>&1 || . "${REPO_DIR}/sync/tables/tables.sh"
   type origin_filter_verdict >/dev/null 2>&1 || . "${REPO_DIR}/sync/origin-filter.sh"
   reg="$(mktemp)"
   if ! curl -sf --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/mysql-source-connector/config" > "$reg" 2>/dev/null; then
@@ -815,7 +817,7 @@ capture_filter_check(){
   fi
   off="$(printf 'select @@global.auto_increment_offset' | ct exec -i "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
   floors="${SEED_DIR:-}/manifest.env"; [ -f "$floors" ] || floors="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
-  v="$(origin_filter_verdict "$reg" "${REPO_DIR}/sync/local/tables.conf" "$floors" "$off")"; rc=$?
+  v="$(origin_filter_verdict "$reg" "${REPO_DIR}/sync/tables/openmrs.conf" "$floors" "$off")"; rc=$?
   rm -f "$reg"
   printf '%s\n' "$v"
   return "$rc"
@@ -883,7 +885,7 @@ if not coll:
 if "source" not in chans:
     print("the registered source connector does not read signals from its signal table (signal.enabled.channels is %r)" % c.get("signal.enabled.channels", "")); sys.exit(1)
 if coll not in inc:
-    print("the registered source connector does not capture its signal table %s (not in table.include.list), so a signal inserted there is never read. Regenerate and register it (scripts/generate-connectors.sh, then scripts/register-source-connector.sh)." % coll); sys.exit(1)
+    print("the registered source connector does not capture its signal table %s (not in table.include.list), so a signal inserted there is never read. Regenerate and register it (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-local-source-connector)." % coll); sys.exit(1)
 print("ok source connector captures its signal table %s" % coll)
 PY
 }
@@ -938,15 +940,16 @@ clinlims_down_sink_check(){
 
 # provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
 # run on this clinic's MySQL over exactly the tables the seed's provenance
-# record holds content lines for (the tool checksums the tables a cloud/tables.conf
-# lists, so it runs from a scratch copy whose list is the record's).
+# record holds content lines for (the tool checksums the tables the OpenMRS
+# [down] list names, so it runs from a scratch copy whose list is the record's).
 provenance_content_lines(){
   local rec="$1" my="$2" d rc=0
-  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/cloud"
+  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/cloud" "$d/sync/tables"
   cp "${REPO_DIR}/clinic/scripts/master-checksum.sh" "$d/clinic/scripts/"
   cp "${REPO_DIR}/clinic/install/lib.sh" "$d/clinic/install/"
+  cp "${REPO_DIR}/sync/tables/tables.sh" "$d/sync/tables/"
   cp "${REPO_DIR}/cloud/table-verdicts.conf" "${REPO_DIR}/cloud/checksum-exclusions.conf" "$d/cloud/"
-  awk -F'\t' '$1=="content" {print $2}' "$rec" > "$d/cloud/tables.conf"
+  { printf '[down]\n'; awk -F'\t' '$1=="content" {print $2}' "$rec"; } > "$d/sync/tables/openmrs.conf"
   REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
   rm -rf "$d"; return "$rc"
 }

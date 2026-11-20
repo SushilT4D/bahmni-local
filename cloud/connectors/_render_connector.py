@@ -38,7 +38,7 @@ if down_left:
 
 # A source that reads one of the hub's down publications sends down exactly the
 # down list of its subsystem (HUB_DOWN_ODOO_TABLES / HUB_DOWN_CLINLIMS_TABLES,
-# from sync/hub-down.sh): any other table in its table list or aggregate regex
+# from sync/tables/hub-down.sh): any other table in its table list or aggregate regex
 # is refused, whatever the template says.
 DOWN_PUBLICATIONS = {'dbz_odoo_owned': 'HUB_DOWN_ODOO_TABLES', 'dbz_clinlims_owned': 'HUB_DOWN_CLINLIMS_TABLES'}
 if cfg.get('publication.name') in DOWN_PUBLICATIONS:

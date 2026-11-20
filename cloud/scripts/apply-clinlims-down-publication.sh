@@ -2,10 +2,10 @@
 # apply-clinlims-down-publication.sh FLOORS-FILE -- PSQL-COMMAND...
 #
 # Converges the hub's OpenELIS down publication, dbz_clinlims_owned, to exactly
-# the OpenELIS rows of the down list (sync/hub-down.conf through
-# sync/hub-down.sh clinlims), plus clinlims.dbz_heartbeat: the rows routed to
+# the OpenELIS rows of the down list (the [down] list of sync/tables/openelis.conf, through
+# sync/tables/hub-down.sh clinlims), plus clinlims.dbz_heartbeat: the rows routed to
 # one clinic with no row filter, the rows that go to every clinic
-# (sync/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
+# (sync/tables/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
 # catalogue) with (id < <floor> OR id % 10 = 0) on this hub's floor from
 # FLOORS-FILE (cloud/clinlims-down-floors.local), each of those without an id
 # column (a link table) with no row filter.
@@ -22,8 +22,8 @@ F="${1:?usage: apply-clinlims-down-publication.sh <floors file> -- <psql command
 [ "${1:-}" = -- ] && shift
 [ "$#" -gt 0 ] || { echo "usage: apply-clinlims-down-publication.sh <floors file> -- <psql command...>" >&2; exit 2; }
 die(){ printf 'apply-clinlims-down-publication.sh: %s\n' "$*" >&2; exit 1; }
-tables="$(bash "$HERE/../../sync/hub-down.sh" clinlims)" || die "the down list could not be read (reason above); the publication was not touched"
-filtered="$(bash "$HERE/../../sync/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); the publication was not touched"
+tables="$(bash "$HERE/../../sync/tables/hub-down.sh" clinlims)" || die "the down list could not be read (reason above); the publication was not touched"
+filtered="$(bash "$HERE/../../sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); the publication was not touched"
 floors=""
 if [ -n "$filtered" ]; then
   floors="$(bash "$HERE/down-floors.sh" "$F" clinlims)" || die "this hub's OpenELIS floors could not be read (reason above); the publication was not touched"

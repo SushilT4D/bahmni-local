@@ -20,15 +20,15 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 
 # These sinks apply UP-direction data: they consume <clinic>.<server>.openmrs.*
 # topics and write clinic-authored rows into the cloud. So the table list is the
-# CLINIC's (sync/local/tables.conf), NOT this directory's tables.conf --
-# which lists the tables that flow the other way.
+# CLINIC's ([up] in sync/tables/openmrs.conf), NOT the [down] list -- which
+# lists the tables that flow the other way.
 #
-# Generating up-direction sinks from this directory's tables.conf instead would
+# Generating up-direction sinks from the [down] list instead would
 # produce sinks for users/role/role_privilege/role_role/user_property/user_role/
 # provider, all subscribed to topics the clinic never publishes: inert, but
 # reporting RUNNING and inflating any "all sinks green" check.
-TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/local/tables.conf}"
-DOWN_TABLES_CONF="${PROJECT_DIR}/tables.conf"
+TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
+DOWN_TABLES_CONF="${DOWN_TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 ENV_FILE="${PROJECT_DIR}/.env"
 # Each hub keeps its own clinics: cloud/clinics.<HUB_NAME>.conf, HUB_NAME from the
 # environment or cloud/.env. A hub without a name has no clinics file to read.
@@ -46,8 +46,8 @@ CONNECTORS_DIR="${PROJECT_DIR}/connectors"
 # The clinic's list is read by the reader every script of it shares, so a line
 # the clinic captures is never one this generator skips: a skipped line is a
 # topic with no sink. A list it refuses stops the run before anything is written.
-# shellcheck source=../../sync/local/tables-conf.sh
-. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+# shellcheck source=../../sync/tables/tables.sh
+. "${PROJECT_DIR}/../sync/tables/tables.sh"
 TABLE_RECS="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)"; exit 1; }
 
 set -a
@@ -100,8 +100,8 @@ while IFS= read -r cline || [ -n "$cline" ]; do
         # person/person_name, which the hub relays. It warns instead, because a
         # bidirectional table is still worth a human glance -- it is only safe
         # ABOVE that table's base_id floor (rows below it occupy all ten residues).
-        if [ -f "${DOWN_TABLES_CONF}" ] && grep -qE "^[[:space:]]*${table}:" "${DOWN_TABLES_CONF}"; then
-            echo "  NOTE ${table}: bidirectional (also in ${DOWN_TABLES_CONF##*/}). Safe only above its base_id floor." >&2
+        if [ -f "${DOWN_TABLES_CONF}" ] && tables_section "${DOWN_TABLES_CONF}" down | grep -qE "^[[:space:]]*${table}:"; then
+            echo "  NOTE ${table}: bidirectional (also in the [down] list of ${DOWN_TABLES_CONF##*/}). Safe only above its base_id floor." >&2
         fi
 
         profile=default
