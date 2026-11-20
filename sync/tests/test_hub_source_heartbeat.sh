@@ -13,7 +13,7 @@ T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/cloud/scripts/templates"
 cp "$R/cloud/scripts/templates/mysql-cloud-source-connector.json.template" "$T/cloud/scripts/templates/"
 printf 'DEBEZIUM_DB_PASSWORD=test-only\nOPENMRS_DB_HOST=openmrsdb\nOPENMRS_DB_NAME=openmrs\n' > "$T/cloud/.env"
-if HUB_DIR="$T/cloud" REPO_DIR="$R" bash "$R/cloud/scripts/generate-cloud-source-connector.sh" "$T/out.json" >"$T/gen.log" 2>&1; then
+if (cd "$T/cloud" && REPO_DIR="$R" bash "$R/cloud/scripts/generate-cloud-source-connector.sh" "$T/out.json") >"$T/gen.log" 2>&1; then
   v="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get("heartbeat.interval.ms",""))' "$T/out.json")"
   [ "$v" = 60000 ] && ok_ "the rendered MySQL source heartbeats every 60000 ms" || bad "the rendered MySQL source has heartbeat.interval.ms '${v}', want 60000"
 else

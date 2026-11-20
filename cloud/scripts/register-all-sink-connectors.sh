@@ -1,5 +1,5 @@
 #!/bin/bash
-# Registers (or updates) every up sink in cloud/connectors/*-sink.json with Kafka Connect
+# Registers (or updates) every up sink in ./connectors/*-sink.json with Kafka Connect
 # (openmrs-, odoo- and clinlims-<slug>-sink per clinic), after check-clinical-fks.sh passes
 # against HUB_MYSQL_CONTAINER, then prints each one's state.
 
@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
-CONNECTORS_DIR="${CONNECTORS_DIR:-${PROJECT_DIR}/connectors}"
+CONNECTORS_DIR="${CONNECTORS_DIR:-$PWD/connectors}"
 CONNECT_URL="${KAFKA_CONNECT_URL:-http://localhost:8083}"
 
 echo "Registering all sink connectors..."

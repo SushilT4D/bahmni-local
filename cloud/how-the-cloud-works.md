@@ -268,7 +268,7 @@ published. Each clinic keeps only the rows whose routing column names it.
 A table every clinic keeps (system_user, the lab test catalogue)
 carries the filter
     (id < <floor> OR id % 10 = 0)
-with this hub's floor (cloud/clinlims-down-floors.local): the hub's own rows,
+with this hub's floor (./clinlims-down-floors.local): the hub's own rows,
 from before its ids were strided and since. A row a clinic minted that the
 hub edits stays at the hub. Such a table without an id column (a link table,
 keyed by the ids it links) carries no filter: only the hub writes the
@@ -382,13 +382,13 @@ apply-down-publication.sh odoo|openelis FLOORS-FILE -- PSQL-COMMAND...
 
 openelis: converges dbz_clinlims_owned to the OpenELIS [down] tables, with
 (id < <floor> OR id % 10 = 0) on the tables every clinic keeps (floors from
-cloud/clinlims-down-floors.local); cloud/openelis/apply-down-publication.sql
+./clinlims-down-floors.local); cloud/openelis/apply-down-publication.sql
 does the work.
 
 odoo: converges the hub's Odoo down publication, dbz_odoo_owned, to exactly the down
 list (sync/tables/{odoo,openelis}.conf [down] through sync/tables/tables.sh), each table with an `id`
 filtered with (id < <floor> OR id % 10 = 0) from FLOORS-FILE (the hub's
-cloud/odoo-down-floors.local), plus public.dbz_heartbeat. cloud/odoo/
+./odoo-down-floors.local), plus public.dbz_heartbeat. cloud/odoo/
 apply-down-publication.sql does the work and refuses, naming the table, a
 missing floor, a missing table, or a replica identity that does not cover
 `id`. Prints "<table> <row filter>" per published table on success.
@@ -456,8 +456,8 @@ before the reader opens it reads as empty, and a difference would be lost)
 
 down-floors.sh FILE [clinlims] : prints FILE's "<table> <floor>" lines,
 validated, one per line. FILE is a hub's own record of its down-table floors
-(cloud/odoo-down-floors.local, written once by stride.sh odoo in the run that
-strides the hub's Odoo ids; with clinlims, cloud/clinlims-down-floors.local,
+(./odoo-down-floors.local, written once by stride.sh odoo in the run that
+strides the hub's Odoo ids; with clinlims, ./clinlims-down-floors.local,
 written once by record-down-floors.sh openelis before the hub's OpenELIS ids
 are strided; never committed, because each hub has its own).
 
@@ -583,7 +583,7 @@ record-down-floors.sh openelis [--from-file FILE | --derive] [--out OUT] -- PSQL
 
 Records the hub's floor of each OpenELIS down table its publication filters
 (sync/tables/tables.sh" openelis unrouted: the lab accounts and the lab test
-catalogue) in OUT, default cloud/clinlims-down-floors.local, one
+catalogue) in OUT, default ./clinlims-down-floors.local, one
 "<table> <floor>" line each. The publication sends such a table's rows below
 the floor (the hub's, from before its ids were strided) or ending in 0 (the
 hub's since), and nothing a clinic minted. A table without an id column (a
@@ -648,7 +648,7 @@ Records this hub's down-table floors from values captured when its Odoo ids
 were strided, for a hub whose striding ran before stride.sh odoo recorded
 them itself. FILE holds "<table> <floor>" lines: each down table with an id
 (sync/tables/{odoo,openelis}.conf [down]) and the value its sequence restarted at. OUT defaults to
-cloud/odoo-down-floors.local and is never rewritten.
+./odoo-down-floors.local and is never rewritten.
 
 Floors are never read from the sequences now: once a hub has issued ids, or
 been strided again, its sequences no longer show where they restarted. The
@@ -699,7 +699,7 @@ table in the same run: clinic/odoo/apply-odoo-sequence-striding.sql over every
 synced Odoo table, then clinic/odoo/apply-master-sequence-striding.sql. A
 table's floor is the value its sequence restarts at, read from the striding
 scripts' own report of each restart, at the moment it happens. FILE defaults
-to cloud/odoo-down-floors.local, one "<table> <floor>" line per down table with
+to ./odoo-down-floors.local, one "<table> <floor>" line per down table with
 an id (sync/tables/{odoo,openelis}.conf [down]).
 
 The floors are recorded once. When FILE already exists, a re-run strides
@@ -740,7 +740,7 @@ and, on the first striding, records the floor of each down table the hub's
 OpenELIS publication filters (sync/tables/tables.sh" openelis unrouted; today
 system_user) just before it: record-down-floors.sh openelis, which reads where
 the striding is about to restart each sequence. FILE defaults to
-cloud/clinlims-down-floors.local, one "<table> <floor>" line per table.
+./clinlims-down-floors.local, one "<table> <floor>" line per table.
 
 The floors are recorded once. When FILE already exists, a re-run never
 changes it: it refuses, before striding, when a filtered table's sequence

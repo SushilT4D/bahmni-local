@@ -27,7 +27,7 @@ echo "\$*" >> "$TMP/curl.log"
 case "\$*" in *"-w"*) printf 404 ;; */status) printf '{"connector":{"state":"RUNNING"},"tasks":[{"id":0,"state":"RUNNING"}]}' ;; *) printf '{}' ;; esac
 SH
 chmod +x "$TMP/bin/"*
-run(){ rm -f "$TMP/curl.log"; env PATH="$TMP/bin:$PATH" "$@" bash "$C/scripts/register-all-sink-connectors.sh" </dev/null > "$TMP/out" 2>&1; echo $? > "$TMP/rc"; }
+run(){ rm -f "$TMP/curl.log"; env PATH="$TMP/bin:$PATH" "$@" bash -c 'cd "$1" && bash scripts/register-all-sink-connectors.sh' _ "$C" </dev/null > "$TMP/out" 2>&1; echo $? > "$TMP/rc"; }
 posts(){ grep -c -- '-X POST' "$TMP/curl.log" 2>/dev/null || echo 0; }
 
 sink openmrs-beta-sink beta; sink openmrs-alpha-sink alpha

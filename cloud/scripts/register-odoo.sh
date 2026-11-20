@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Renders the cloud server's Odoo and OpenELIS sources from scripts/templates/<name>.json.template
-# into cloud/connectors/<name>.json, filling passwords and [down] table lists from cloud/.env,
+# into ./connectors/<name>.json, filling passwords and [down] table lists from ./.env,
 # and registers each with Kafka Connect.
 # Usage: scripts/register-odoo.sh [odoo-cloud-source] [clinlims-cloud-source]   (default: both)
 set -euo pipefail
@@ -8,10 +8,10 @@ set -euo pipefail
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TEMPLATES="$ROOT/scripts/templates"
-OUT="$ROOT/connectors"
+OUT="${OUT_DIR:-$PWD/connectors}"
 
 set -a
-. "$ROOT/.env"
+. "${ENV_FILE:-$PWD/.env}"
 set +a
 
 [ "$#" -gt 0 ] || set -- odoo-cloud-source clinlims-cloud-source
@@ -38,7 +38,7 @@ down_vars odoo public
 down_vars clinlims clinlims
 
 
-# ---- render each config into cloud/connectors/, then PUT it ------------------------
+# ---- render each config into ./connectors/, then PUT it ----------------------------
 
 mask() { sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g'; }
 

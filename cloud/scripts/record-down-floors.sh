@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Records the hub's floor for each floor-filtered down table, checked against the database:
-#   odoo      cloud/odoo-down-floors.local, from values captured at the first striding
+#   odoo      ./odoo-down-floors.local, from values captured at the first striding
 #             (--from-file); written once, never rewritten
-#   openelis  cloud/clinlims-down-floors.local: before the first striding (stride.sh calls it),
+#   openelis  ./clinlims-down-floors.local: before the first striding (stride.sh calls it),
 #             from a file (--from-file), or printed from the rows (--derive)
 # usage: record-down-floors.sh odoo --from-file FILE [--out OUT] -- PSQL-COMMAND...
 #        record-down-floors.sh openelis [--from-file FILE | --derive] [--out OUT] -- PSQL-COMMAND...
@@ -21,8 +21,8 @@ die() { printf 'record-down-floors.sh: %s\n' "$*" >&2; exit 1; }
 DB="${1:-}"
 shift || true
 case "$DB" in
-  odoo)     OUT="$HERE/../odoo-down-floors.local" ;;
-  openelis) OUT="$HERE/../clinlims-down-floors.local" ;;
+  odoo)     OUT="$PWD/odoo-down-floors.local" ;;
+  openelis) OUT="$PWD/clinlims-down-floors.local" ;;
   *)        echo "$USAGE" >&2; exit 2 ;;
 esac
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Generates the hub's up sinks for every clinic in sync/clinics.txt, three per clinic, into
-# cloud/connectors/:
+# ./connectors/:
 #   openmrs-<slug>-sink   reads <slug>.bahmni-<slug>.openmrs.all, writes each record to its own table
 #   odoo-<slug>-sink      reads <slug>.bahmni-<slug>.odoo.all, claims origin clinic_<slug>_odoo
 #   clinlims-<slug>-sink  reads <slug>.bahmni-<slug>.clinlims.all, claims origin clinic_<slug>_clinlims
@@ -15,9 +15,9 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 
 TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
-ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
+ENV_FILE="${ENV_FILE:-$PWD/.env}"
 TEMPLATES_DIR="${PROJECT_DIR}/scripts/templates"
-OUT_DIR="${OUT_DIR:-${PROJECT_DIR}/connectors}"
+OUT_DIR="${OUT_DIR:-$PWD/connectors}"
 
 
 # ---- inputs: the clinic's [up] list, the clinics and cloud/.env -----------------

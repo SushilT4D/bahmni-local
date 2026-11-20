@@ -8,6 +8,7 @@ Here are the cloud setup steps as commands. Run them on the cloud server.
 ```bash
 cd /App/bahmni-std-cloud-package-master
 set -a; . ./.env; set +a
+export BASE_DIR=/home/ubuntu/bahmni-local
 export BASE_PG_CONTAINER=bahmni-std-cloud-package-master-odoodb-1
 export BASE_ELIS_CONTAINER=bahmni-std-cloud-package-master-openelisdb-1
 export BASE_MYSQL_CONTAINER=bahmni-std-cloud-package-master-openmrsdb-1
@@ -55,7 +56,7 @@ SQL
 
 **Check the clinical foreign keys**
 ```bash
-scripts/check-clinical-fks.sh --container "$BASE_MYSQL_CONTAINER"
+${BASE_DIR}/cloud/scripts/check-clinical-fks.sh --container "$BASE_MYSQL_CONTAINER"
 ```
 
 ### Postgres
@@ -94,8 +95,8 @@ docker restart "$BASE_PG_CONTAINER" "$BASE_ELIS_CONTAINER"
 
 **Stride ids and record floors**
 ```bash
-scripts/stride.sh odoo     -- docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME"
-scripts/stride.sh openelis -- docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis
+${BASE_DIR}/cloud/scripts/stride.sh odoo     -- docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME"
+${BASE_DIR}/cloud/scripts/stride.sh openelis -- docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis
 ls -l odoo-down-floors.local clinlims-down-floors.local
 ```
 
@@ -125,8 +126,8 @@ pg_elis -c "ALTER ROLE \"$OPENELIS_DB_USER\" REPLICATION;"
 
 **Build the down publications**
 ```bash
-scripts/apply-down-publication.sh odoo     odoo-down-floors.local     -- docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME"
-scripts/apply-down-publication.sh openelis clinlims-down-floors.local -- docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis
+${BASE_DIR}/cloud/scripts/apply-down-publication.sh odoo     odoo-down-floors.local     -- docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME"
+${BASE_DIR}/cloud/scripts/apply-down-publication.sh openelis clinlims-down-floors.local -- docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis
 ```
 
 ### Kafka and Connect
@@ -141,14 +142,14 @@ set -a; . ./.env; set +a
 
 **Create certificates**
 ```bash
-bash setup-certs.sh
+bash ${BASE_DIR}/cloud/setup-certs.sh
 mkdir -p "$CONTAINER_DATA_PATH/certs/kafka"
 cp certs/kafka/kafka.keystore.p12 certs/kafka/kafka.truststore.p12 "$CONTAINER_DATA_PATH/certs/kafka/"
 ```
 
 **Fetch the Groovy jars**
 ```bash
-bash ../clinic/config/kafka-connect/ext/fetch-scripting-jars.sh
+bash ${BASE_DIR}/clinic/config/kafka-connect/ext/fetch-scripting-jars.sh
 ```
 
 **Start (or restart) Kafka and Connect with the new passwords**
@@ -158,15 +159,15 @@ docker compose --profile debezium up -d --force-recreate kafka kafka-connect
 
 **Load the Groovy jars into Connect**
 ```bash
-for j in ../clinic/config/kafka-connect/ext/*.jar; do docker cp "$j" kafka-connect:/kafka/connect/debezium-connector-mysql/; done
+for j in ${BASE_DIR}/clinic/config/kafka-connect/ext/*.jar; do docker cp "$j" kafka-connect:/kafka/connect/debezium-connector-mysql/; done
 docker restart kafka-connect
 ```
 
 **Publish the CA and fix the clinic login settings** (on a checkout that can push)
 ```bash
-cp certs/ca/ca.crt ../sync/hub-ca.pem
-sed -i "s/^REMOTE_KAFKA_USERNAME=.*/REMOTE_KAFKA_USERNAME=app/; s/^REMOTE_KAFKA_SECURITY_PROTOCOL=.*/REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL/; s/^REMOTE_KAFKA_BOOTSTRAP_SERVERS=.*/REMOTE_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_CLOUD_HOST}:9092/" ../sync/hub.env
-git -C .. add sync/hub-ca.pem sync/hub.env && git -C .. commit -m "Cloud Kafka CA and clinic login" && git -C .. push
+cp certs/ca/ca.crt ${BASE_DIR}/sync/hub-ca.pem
+sed -i "s/^REMOTE_KAFKA_USERNAME=.*/REMOTE_KAFKA_USERNAME=app/; s/^REMOTE_KAFKA_SECURITY_PROTOCOL=.*/REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL/; s/^REMOTE_KAFKA_BOOTSTRAP_SERVERS=.*/REMOTE_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_CLOUD_HOST}:9092/" ${BASE_DIR}/sync/hub.env
+git -C ${BASE_DIR} add sync/hub-ca.pem sync/hub.env && git -C ${BASE_DIR} commit -m "Cloud Kafka CA and clinic login" && git -C ${BASE_DIR} push
 echo "Clinics' REMOTE_KAFKA_PASSWORD: $KAFKA_APP_PASSWORD"
 ```
 
@@ -177,10 +178,10 @@ kt --create --if-not-exists --topic "${CLOUD_MYSQL_SERVER_NAME:-bahmni-cloud}.op
 
 **Register the cloud's sources**
 ```bash
-scripts/generate-cloud-source-connector.sh
+${BASE_DIR}/cloud/scripts/generate-cloud-source-connector.sh
 f=connectors/mysql-cloud-source-connector.json
 jq .config "$f" | curl -s -X PUT -H 'Content-Type: application/json' --data-binary @- "$C/connectors/$(jq -r .name "$f")/config"
-scripts/register-odoo.sh
+${BASE_DIR}/cloud/scripts/register-odoo.sh
 curl -s "$C/connectors?expand=status" | jq -r '.[] | "\(.status.name) \(.status.connector.state) \([.status.tasks[].state] | join(","))"'
 ```
 
@@ -217,8 +218,8 @@ done
 
 **Generate and register the sinks**
 ```bash
-scripts/generate-sink-connectors.sh "$SLUG"
-HUB_MYSQL_CONTAINER="$BASE_MYSQL_CONTAINER" scripts/register-all-sink-connectors.sh
+${BASE_DIR}/cloud/scripts/generate-sink-connectors.sh "$SLUG"
+HUB_MYSQL_CONTAINER="$BASE_MYSQL_CONTAINER" ${BASE_DIR}/cloud/scripts/register-all-sink-connectors.sh
 ```
 
 **Check the clinic's sinks**

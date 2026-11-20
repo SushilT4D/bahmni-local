@@ -27,7 +27,7 @@ repository, and attaches to that stack's Docker network through
 - **Publication** `dbz_odoo_owned` over exactly the down list,
   `sync/tables/{odoo,openelis}.conf [down]`, built by `scripts/apply-down-publication.sh odoo`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
-  with this hub's floors in `cloud/odoo-down-floors.local` (below).
+  with this hub's floors in `./odoo-down-floors.local` (below).
 - **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
   built by `scripts/apply-down-publication.sh openelis`: `result`, `analysis`
   and `sample` with no row filter (those rows keep the clinic's ids, and the
@@ -35,7 +35,7 @@ repository, and attaches to that stack's Docker network through
   lab accounts, `system_user`, and the lab test catalogue (tests, panels,
   sample types, departments, result options and every table they point to)
   with `(id < <floor> OR id % 10 = 0)` on this hub's floors in
-  `cloud/clinlims-down-floors.local`, the catalogue's two link tables without an
+  `./clinlims-down-floors.local`, the catalogue's two link tables without an
   `id` unfiltered. The floors are recorded once, by the run that strides the
   hub's OpenELIS ids, just before it strides:
   `scripts/stride.sh openelis -- <psql command>` (residue 0, from
@@ -75,7 +75,7 @@ even when the hub edits them: below a table's floor the rows predate striding
 and are the hub's; above it the hub mints residue 0. A floor is the value the
 table's sequence restarted at when the hub's Odoo ids were strided, and it is
 recorded by that same run: `scripts/stride.sh odoo -- <psql command>` strides
-and writes `cloud/odoo-down-floors.local` (one `<table> <floor>` line per table
+and writes `./odoo-down-floors.local` (one `<table> <floor>` line per table
 with an `id`; never committed). A re-run strides again and leaves the file as
 it is, refusing if a sequence would restart below its floor. Floors are never
 read back from the sequences later: once the hub has issued ids they no longer

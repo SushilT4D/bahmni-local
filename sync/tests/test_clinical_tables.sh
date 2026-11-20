@@ -48,7 +48,7 @@ if command -v envsubst >/dev/null 2>&1; then
   case "$top" in *signal*) bad "MirrorMaker forwards the signal table" ;; *) ok_ "MirrorMaker forwards the four topics, not the signal table" ;; esac
   grep -E -- '->remote\.topics' "$C/clinic/config/mirrormaker/mm2.properties" | grep -q 'bahmni-t\\\.openmrs\\\.all' && ok_ "MirrorMaker forwards bahmni-t.openmrs.all" || bad "MirrorMaker does not forward bahmni-t.openmrs.all"
 fi
-CLINICS_FILE="$TMP/clinics.txt" bash "$C/cloud/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1 || bad "the hub sinks do not render: $(tail -2 "$TMP/hs")"
+(cd "$C/cloud" && CLINICS_FILE="$TMP/clinics.txt" bash "$C/cloud/scripts/generate-sink-connectors.sh") > "$TMP/hs" 2>&1 || bad "the hub sinks do not render: $(tail -2 "$TMP/hs")"
 f="$C/cloud/connectors/openmrs-alpha-sink.json"
 got="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; print(c.get("topics"), c.get("collection.name.format"), c.get("primary.key.mode"), c.get("schema.evolution"), bool(c.get("transforms")))' "$f" 2>&1)"
 [ "$got" = 'alpha.bahmni-alpha.openmrs.all openmrs.${source.table} record_key none False' ] && ok_ "hub: one sink for alpha on its ordered topic, no table filtered" || bad "hub sink: ${got}"

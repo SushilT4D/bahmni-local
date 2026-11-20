@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Strides the hub's Odoo or OpenELIS ids (residue 0) and, on the first striding, records the
-# floors of the floor-filtered down tables:
-#   odoo      cloud/odoo-down-floors.local, from where each sequence restarted
-#   openelis  cloud/clinlims-down-floors.local, recorded just before striding
+# Strides the hub's Odoo or OpenELIS ids (residue 0) and, when no floors are recorded yet, records
+# the floors of the floor-filtered down tables in the working directory:
+#   odoo      odoo-down-floors.local, from where each sequence restarted
+#   openelis  clinlims-down-floors.local, recorded just before striding
 # usage: stride.sh <odoo|openelis> [--floors FILE] -- PSQL-COMMAND...
 set -u
 
@@ -18,8 +18,8 @@ die() { printf 'stride.sh: %s\n' "$*" >&2; exit 1; }
 DB="${1:-}"
 shift || true
 case "$DB" in
-  odoo)     OUT="$HERE/../odoo-down-floors.local" ;;
-  openelis) OUT="$HERE/../clinlims-down-floors.local" ;;
+  odoo)     OUT="$PWD/odoo-down-floors.local" ;;
+  openelis) OUT="$PWD/clinlims-down-floors.local" ;;
   *)        echo "$USAGE" >&2; exit 2 ;;
 esac
 
@@ -69,12 +69,8 @@ $state
 EOF
 
   else
-    # first recording: only on a first striding, before any clinic's rows have arrived
-    strided="$(printf '%s\n' "$state" \
-      | awk -F'|' 'NF == 4 && $4 != 1 { printf "%s%s (steps by %s)", (n++ ? ", " : ""), $1, $4 }')"
-    [ -z "$strided" ] \
-      || die "no floors file at $OUT, and this hub's ids were strided before: ${strided}. Its floors are the values its sequences restarted at then; nothing was strided. Record them from those values: cloud/scripts/record-down-floors.sh odoo --from-file <file> -- <psql command>"
-
+    # no floors yet: only before any clinic's rows have arrived. Striding restarts every
+    # sequence above its rows (also one strided before), and each restart becomes the floor.
     p="$("$@" -v ON_ERROR_STOP=1 -qAt \
            -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" 2>&1)" \
       || die "the replication origins could not be read; nothing was strided: $p"

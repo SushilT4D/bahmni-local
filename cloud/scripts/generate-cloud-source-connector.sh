@@ -1,21 +1,21 @@
 #!/bin/bash
 # Generates the hub's MySQL (OpenMRS) source connector: captures the [down] tables of
 # sync/tables/openmrs.conf into one ordered topic, <server>.openmrs.all, for clinics' MirrorMaker to pull.
-# usage: generate-cloud-source-connector.sh [OUT]   (default cloud/connectors/mysql-cloud-source-connector.json)
+# usage: generate-cloud-source-connector.sh [OUT]   (default ./connectors/mysql-cloud-source-connector.json)
 set -euo pipefail
 # the output holds DEBEZIUM_DB_PASSWORD: written mode 600
 umask 077
 
-# ROOT is the repo checkout; HUB_ROOT the cloud directory (template, .env, output)
+# ROOT is the repo checkout, HUB_ROOT its cloud directory (template); .env and the output are in the working directory
 ROOT="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 HUB_ROOT="${HUB_DIR:-${ROOT}/cloud}"
 TEMPLATE="${HUB_ROOT}/scripts/templates/mysql-cloud-source-connector.json.template"
-OUT="${1:-${HUB_ROOT}/connectors/mysql-cloud-source-connector.json}"
+OUT="${1:-$PWD/connectors/mysql-cloud-source-connector.json}"
 
 [[ -f "$TEMPLATE" ]] || { echo "missing template: $TEMPLATE" >&2; exit 1; }
-# settings: the repo .env, then cloud/.env (which wins)
+# settings: the repo .env, then ./.env (which wins)
 # shellcheck disable=SC1091
-for envf in "${ROOT}/.env" "${HUB_ROOT}/.env"; do
+for envf in "${ROOT}/.env" "$PWD/.env"; do
   [[ -f "$envf" ]] && set -a && source "$envf" && set +a
 done
 
