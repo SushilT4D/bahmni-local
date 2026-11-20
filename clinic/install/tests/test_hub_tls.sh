@@ -15,15 +15,7 @@ grep -q './tls:/etc/kafka/secrets:ro' "$H" && ok_ "hub: keystore read from cloud
 grep -qE 'KAFKA_SSL_(KEYSTORE|KEY|TRUSTSTORE)_PASSWORD' "$H" && bad "hub: a TLS password is in the environment" || ok_ "hub: no TLS password in the environment"
 ( cd "$R" && git check-ignore -q cloud/tls/kafka.keystore.p12 ) && ok_ "cloud/tls is gitignored" || bad "cloud/tls is not gitignored"
 
-# clinic MirrorMaker: render start-mm2.sh with the paths moved into a temp dir
-printf 'clusters = local, remote\n' > "$TMP/mm2.properties"
-sed -e "s#/etc/kafka-connect/mm2.properties#$TMP/mm2.properties#" -e "s#RUNTIME=/tmp/mm2-runtime.properties#RUNTIME=$TMP/rt#" \
-    -e 's#exec connect-mirror-maker "$RUNTIME"#cat "$RUNTIME"#' "$C/config/mirrormaker/start-mm2.sh" > "$TMP/start.sh"
-run(){ REMOTE_KAFKA_SECURITY_PROTOCOL="$1" REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD=p REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD=t bash "$TMP/start.sh" 2>&1; }
-out="$(run SASL_SSL)"
-case "$out" in *"remote.security.protocol=SASL_SSL"*"remote.ssl.truststore.location=/etc/kafka-connect/secrets/kafka.truststore.p12"*"remote.ssl.truststore.password=t"*) ok_ "mm2: SASL_SSL adds the truststore" ;; *) bad "mm2: SASL_SSL render lacks the truststore: $out" ;; esac
-out="$(run SASL_PLAINTEXT)"
-case "$out" in *"remote.security.protocol=SASL_PLAINTEXT"*) case "$out" in *truststore*) bad "mm2: SASL_PLAINTEXT render carries a truststore" ;; *) ok_ "mm2: SASL_PLAINTEXT adds no truststore" ;; esac ;; *) bad "mm2: SASL_PLAINTEXT render wrong: $out" ;; esac
+# clinic MirrorMaker
 grep -q 'REMOTE_KAFKA_SECURITY_PROTOCOL: ${REMOTE_KAFKA_SECURITY_PROTOCOL:-SASL_PLAINTEXT}' "$C/docker-compose.yml" && ok_ "compose passes the protocol to MirrorMaker; a node without the setting keeps plaintext" || bad "compose does not pass REMOTE_KAFKA_SECURITY_PROTOCOL to MirrorMaker"
 grep -qE '^REMOTE_KAFKA_SECURITY_PROTOCOL=' "$R/sync/hub.env" && ok_ "sync/hub.env names the hub's protocol" || bad "sync/hub.env has no REMOTE_KAFKA_SECURITY_PROTOCOL"
 

@@ -20,7 +20,7 @@ install_gate_verdict(){
     SEEDED|SEEDING)
       [ "${2:-}" = 010 ] && { printf 'ok\n'; return 0; }
       if [ "$1" = SEEDED ]; then printf 'this machine is already seeded; install.sh would put it back to the baseline state. Only --only 010 (the name service) may run on it.\n'
-      else printf 'this machine is being seeded; install.sh would put it back to the baseline state. Finish or rerun the seed (seed.sh) instead.\n'; fi
+      else printf 'this machine is being seeded; install.sh would put it back to the baseline state. Finish or rerun the seed instead.\n'; fi
       return 1 ;;
     *) printf 'ok\n' ;;
   esac
@@ -48,7 +48,7 @@ stamp_gate_verdict(){
 seed_resume_verdict(){
   if [ -z "${2:-}" ] && [ -z "${3:-}" ]; then printf 'ok\n'; return 0; fi
   [ "${1:-}" = SEEDING ] && { printf 'ok\n'; return 0; }
-  printf -- '--from and --only only resume a seed that stopped part-way; this machine is %s. Run seed.sh --seed <folder> without them.\n' "${1:-not installed}"
+  printf -- '--from and --only only resume a seed that stopped part-way; this machine is %s. Run the seed again without them.\n' "${1:-not installed}"
   return 1
 }
 
@@ -179,7 +179,7 @@ seed_floors_verdict(){
 seed_counter_plan(){
   local t="$1" ai="$2" fl="$3" r="$4" first
   case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
-  case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (from task005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
   case "$r" in [1-9]) ;; *) printf 'residue %s is not a clinic residue (1 to 9)\n' "${r:-none}"; return 1 ;; esac
   first=$(( fl + (r - fl % 10 + 10) % 10 ))
   if [ "$ai" -lt "$first" ]; then printf 'set %s\n' "$first"; else printf 'keep\n'; fi
@@ -193,10 +193,10 @@ seed_counter_plan(){
 counter_floor_verdict(){
   local t="$1" ai="$2" fl="$3" r="$4" next
   case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
-  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (seed.sh --seed <folder> --from 005) or call the operator.\n' "$t"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (from task005) or call the operator.\n' "$t"; return 1 ;; esac
   next=$(( ai + (r - ai % 10 + 10) % 10 ))
   if [ "$next" -lt $((fl + r)) ]; then
-    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
+    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (from task060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
     return 1
   fi
   printf 'ok %s next id %s, at or above floor %s + residue %s\n' "$t" "$next" "$fl" "$r"
@@ -234,7 +234,7 @@ mysql_stride_verdict(){
   case "$1" in
     "10 $2") printf 'ok MySQL issues ids 10 apart on residue %s\n' "$2" ;;
     '') printf 'could not read MySQL'"'"'s id increment and offset; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1 ;;
-    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$1" "$2"; return 1 ;;
+    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (from task060) or call the operator.\n' "$1" "$2"; return 1 ;;
   esac
 }
 
@@ -317,9 +317,9 @@ order_seed_verdict(){
   local v="$1" r="$2" rg lo hi
   rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
   lo="${rg% *}"; hi="${rg#* }"
-  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v"; return 1 ;; esac
+  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (from task060) or call the operator.\n' "$v"; return 1 ;; esac
   if [ "$v" -lt "$lo" ] || [ "$v" -gt "$hi" ]; then
-    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (seed.sh --seed <folder> --from 060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (from task060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
     return 1
   fi
   if [ $(( hi - v )) -lt "${ORDER_RANGE_MARGIN}" ]; then
@@ -539,12 +539,12 @@ node_fk_verdict(){
 # clinic's earlier rows, so an existing value is kept.
 
 # clinlims_floor_tables : the tables whose floor a routed OpenELIS down row is
-# compared with (sync/tables/hub-down.sh --routes clinlims, third field), then
+# compared with (sync/tables/tables.sh hub-down --routes clinlims, third field), then
 # the tables the clinic's OpenELIS source publishes only above the clinic's
 # floor (UP_CLINLIMS_OWN_ROWS, sync/tables/tables.sh), once each.
 clinlims_floor_tables(){
   local r
-  r="$(bash "${REPO_DIR}/sync/tables/hub-down.sh" --routes clinlims)" || return 1
+  r="$(bash "${REPO_DIR}/sync/tables/tables.sh" hub-down --routes clinlims)" || return 1
   [ -n "${UP_CLINLIMS_OWN_ROWS+x}" ] || . "${REPO_DIR}/sync/tables/tables.sh"
   { printf '%s\n' "$r" | awk 'NF == 3 { print $3 }'; printf '%s\n' ${UP_CLINLIMS_OWN_ROWS}; } | awk 'NF && !seen[$1]++ { print $1 }'
 }

@@ -31,7 +31,7 @@ OUT="$HERE/../odoo-down-floors.local"
 [ "${1:-}" = -- ] && shift
 [ "$#" -gt 0 ] || { echo "usage: stride-odoo.sh [--floors FILE] -- <psql command...>" >&2; exit 2; }
 die(){ printf 'stride-odoo.sh: %s\n' "$*" >&2; exit 1; }
-down="$(bash "$R/sync/tables/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was strided"
+down="$(bash "$R/sync/tables/tables.sh" hub-down odoo)" || die "the down list could not be read (reason above); nothing was strided"
 synced="$(bash "$R/sync/tables/tables.sh" subsystems | sed -n 's/^odoo://p' | grep -vx all | paste -sd, -)"
 [ -n "$synced" ] || die "the Odoo [up] list (sync/tables/odoo.conf) has no tables; nothing was strided"
 state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/odoo/down-sequence-state.sql" 2>&1)" \

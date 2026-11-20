@@ -15,7 +15,6 @@ LEGACY_TEMPLATE="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties.
 LEGACY_OUTPUT="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties"
 TABLES_CONF="${PROJECT_DIR}/../sync/tables/openmrs.conf"
 DOWN_TABLES_CONF="${TABLES_CONF}"
-HUB_DOWN_SH="${PROJECT_DIR}/../sync/tables/hub-down.sh"
 # shellcheck source=../../sync/tables/tables.sh
 . "${PROJECT_DIR}/../sync/tables/tables.sh"
 
@@ -96,17 +95,17 @@ REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
 # source writes; a list it refuses returns 2, which stops this script rather
 # than rendering a config that mirrors none of the clinic's tables.
 # `down` takes the Odoo/OpenELIS topics from the hub's down list
-# (sync/tables/hub-down.sh) instead of the [up] lists: the hub sends down only
-# master tables, and a subsystem with nothing on that list sends nothing down,
-# not even its aggregate topic. A down list it refuses also returns 2.
+# (hub_down, sync/tables/tables.sh) instead of the [up] lists: the hub sends down
+# only master tables, and a subsystem with nothing on that list sends nothing
+# down, not even its aggregate topic. An unreadable down list also returns 2.
 build_topic_pattern() {
   local sn="$1" tconf="$2" grammar="${3:-}"
   local aggs=() omrs=() subs=() line schema topic table recs dsubs dtabs
 
   if [[ "${grammar}" == down ]]; then
-    dsubs="$(bash "${HUB_DOWN_SH}" --subsystems)" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+    dsubs="$(hub_down --subsystems)" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
     for schema in ${dsubs}; do
-      dtabs="$(bash "${HUB_DOWN_SH}" "${schema}")" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+      dtabs="$(hub_down "${schema}")" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
       aggs+=("${sn}\\.${schema}\\.all")
       for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
     done

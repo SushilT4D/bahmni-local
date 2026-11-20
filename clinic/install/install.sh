@@ -173,5 +173,5 @@ if [ "${DRY}" != 1 ] && [ -z "${ONLY}" ]; then
 fi
 log ""
 if [ "${DRY}" = 1 ]; then log "dry run: nothing was installed or changed. Each 'would:' line above is a step a real install takes; it was not taken."
-else log "done: installed on the baseline. At go-live, clinic staff run: clinic/install/seed.sh --seed <folder the operator copied>"; fi
+else log "done: installed on the baseline. At go-live it is seeded from the folder the operator copied (the seed tasks in clinic/install/tasks)."; fi
 log "install log: ${INSTALL_LOG}"

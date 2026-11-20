@@ -30,7 +30,7 @@
 -- are empty). OpenELIS takes a table's ids from clinlims.<table>_seq, except for
 -- the tables listed here, whose sequences its mappings name otherwise (two
 -- tables can share one). The same list is in cloud/openelis/down-sequence-state.sql
--- and clinic/openelis/apply-sequence-striding.sql; a test fails when they differ.
+-- and clinic/scripts/sql/openelis/apply-sequence-striding.sql; a test fails when they differ.
 CREATE OR REPLACE FUNCTION pg_temp.clinlims_rows_top(seq text) RETURNS bigint LANGUAGE sql STABLE AS $f$
   SELECT coalesce(max((xpath('/row/m/text()', query_to_xml(format('SELECT max(id) AS m FROM clinlims.%I', c.table_name), false, true, '')))[1]::text::numeric), 0)::bigint
     FROM information_schema.columns c

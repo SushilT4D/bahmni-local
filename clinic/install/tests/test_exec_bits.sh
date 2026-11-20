@@ -5,7 +5,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../../.." && pwd)"
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
-for f in clinic/install/install.sh clinic/install/seed.sh clinic/install/tasks/*.sh clinic/scripts/extract-baseline.sh; do
+for f in clinic/install/install.sh clinic/install/tasks/*.sh; do
   ( cd "$REPO" && [ -e "$f" ] ) || continue
   mode="$(cd "$REPO" && git ls-files -s -- "$f" 2>/dev/null | cut -d' ' -f1)"
   [ -z "$mode" ] && continue   # not tracked (a working copy outside git): nothing to check

@@ -89,11 +89,11 @@ echo "  clinlims_sink role ready on ${CTR} (node ${NODE})"
   -c "SELECT '  verified: role=' || rolname || ' canlogin=' || rolcanlogin FROM pg_roles WHERE rolname='clinlims_sink';"
 
 # The OpenELIS down sink writes, as this role, the rows the hub sends down
-# (sync/tables/hub-down.sh clinlims): read each privilege back on each table (a
+# (sync/tables/tables.sh hub-down clinlims): read each privilege back on each table (a
 # comma list in has_table_privilege is true when ANY one is held), rather than
 # trusting the GRANT above, so a sink is never refused its first write. Re-run
 # this script on a clinic seeded before a table joined that list.
-DOWN="$(bash "$(cd "$(dirname "$0")/../.." && pwd)/sync/tables/hub-down.sh" clinlims)" || { echo "  the hub's down list could not be read (reason above)" >&2; exit 1; }
+DOWN="$(bash "$(cd "$(dirname "$0")/../.." && pwd)/sync/tables/tables.sh" hub-down clinlims)" || { echo "  the hub's down list could not be read (reason above)" >&2; exit 1; }
 lacking=""
 for t in $DOWN; do
   got="$("$CTR_RT" exec "$CTR" psql -U "$PG_ADMIN" -d openelis -t -A -c "SELECT has_table_privilege('clinlims_sink', 'clinlims.${t}', 'SELECT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'INSERT') AND has_table_privilege('clinlims_sink', 'clinlims.${t}', 'UPDATE')")" || got=""

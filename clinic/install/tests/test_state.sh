@@ -40,7 +40,7 @@ expect "install: SEEDING refused"         1 "this machine is being seeded" insta
 expect "install: SEEDED --only 010 ok (re-point the name service)" 0 "ok" install_gate_verdict SEEDED 010
 # a seed that reached the sync layer cannot be redone by dropping databases
 expect "gate: SEEDING after sync started refused" 1 "this seed stopped after the sync layer had started" stamp_gate_verdict SEEDING 1
-# seed.sh --from/--only only resume a seed that stopped part-way, past the gate
+# a seed's --from/--only only resume one that stopped part-way, past the gate
 expect "resume: no flags ok"              0 "ok" seed_resume_verdict INSTALLED "" ""
 expect "resume: --from on INSTALLED refused" 1 "--from and --only only resume a seed that stopped part-way" seed_resume_verdict INSTALLED 050 ""
 expect "resume: --only on SEEDED refused" 1 "--from and --only only resume a seed that stopped part-way" seed_resume_verdict SEEDED "" 050

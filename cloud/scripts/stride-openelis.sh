@@ -3,7 +3,7 @@
 #
 # Strides the hub's OpenELIS ids (residue 0) with cloud/openelis/apply-sequence-striding.sql
 # and, on the first striding, records the floor of each down table the hub's
-# OpenELIS publication filters (sync/tables/hub-down.sh --unrouted clinlims; today
+# OpenELIS publication filters (sync/tables/tables.sh hub-down --unrouted clinlims; today
 # system_user) just before it: record-clinlims-down-floors.sh, which reads where
 # the striding is about to restart each sequence. FILE defaults to
 # cloud/clinlims-down-floors.local, one "<table> <floor>" line per table.
@@ -42,7 +42,7 @@ bad="$("$@" -v ON_ERROR_STOP=1 -qAt -c "select coalesce(string_agg(format('%s (s
 
 if [ -e "$OUT" ]; then
   floors="$(bash "$HERE/down-floors.sh" "$OUT" clinlims)" || die "$OUT cannot be read (reason above); nothing was strided"
-  down="$(bash "$R/sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was strided"
+  down="$(bash "$R/sync/tables/tables.sh" hub-down --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was strided"
   if [ -n "$down" ]; then
     state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/openelis/down-sequence-state.sql" 2>&1)" \
       || die "the OpenELIS sequences could not be read; nothing was strided: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"

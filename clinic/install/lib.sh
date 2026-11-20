@@ -854,14 +854,14 @@ signal_table_verdict(){
   rows="$(cat)"
   cols="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="col" {s=$1" "$2" "$3" "$4; if ($5 != "") s=s" "$5; print s}')"
   if [ -z "$cols" ]; then
-    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$t"; return 1
+    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (from task050) or call the operator.\n' "$t"; return 1
   fi
   if [ "$cols" != "$SIGNAL_TABLE_WANT" ]; then
     printf '%s is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$t" "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
   fi
   privs="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="priv" {print $2}' | tr '\n' ' ')"
   for p in SELECT INSERT UPDATE DELETE; do
-    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (seed.sh --seed <folder> --from 050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
+    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (from task050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
   done
   printf 'ok signal table %s (id, type, data), writable by the debezium user\n' "$t"
 }

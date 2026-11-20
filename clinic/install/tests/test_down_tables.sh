@@ -12,7 +12,7 @@ ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 C="$TMP/repo"
-for f in sync/tables/tables.sh sync/tables/hub-down.sh sync/tables/openmrs.conf sync/tables/odoo.conf sync/tables/openelis.conf \
+for f in sync/tables/tables.sh sync/tables/openmrs.conf sync/tables/odoo.conf sync/tables/openelis.conf \
          clinic/scripts/generate-table-config.sh clinic/scripts/generate/mysql-sinks.sh clinic/scripts/setup-mirrormaker.sh \
          clinic/config/mirrormaker/mm2.properties.template \
          clinic/scripts/templates/mysql-local-sink-connector.json \

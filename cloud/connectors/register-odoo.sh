@@ -17,7 +17,7 @@ set -a; . "$ROOT/.env"; set +a
 down_vars(){ # SUBSYSTEM PG_SCHEMA : exports HUB_DOWN_<SUB>_TABLES, _TABLE_INCLUDE_LIST, _ALTERNATION
   local sub="$1" schema="$2" up down
   up="$(printf '%s' "$sub" | tr '[:lower:]' '[:upper:]')"
-  down="$(bash "$ROOT/../sync/tables/hub-down.sh" "$sub")" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
+  down="$(bash "$ROOT/../sync/tables/tables.sh" hub-down "$sub")" || { echo "  the down list could not be read (reason above); nothing was registered" >&2; exit 1; }
   export "HUB_DOWN_${up}_TABLES=$(printf '%s\n' "$down" | paste -sd, -)"
   export "HUB_DOWN_${up}_TABLE_INCLUDE_LIST=$(printf '%s\n' "$down" | sed "s/^/${schema}./" | paste -sd, -)"
   export "HUB_DOWN_${up}_ALTERNATION=$(printf '%s\n' "$down" | paste -sd'|' -)"
@@ -46,7 +46,7 @@ for name in "$@"; do
   # Connect's response echoes the connector config back, database.password and
   # connection.password included -- so the body is never written to disk (was
   # /tmp/.reg.out, a fixed, world-readable path -- the same fix as
-  # clinic/connectors/register-odoo.sh). It's held
+  # clinic/scripts/register-connectors.sh). It's held
   # only in this shell's own memory, split on the trailing newline curl's -w
   # appends, and on a non-2xx it's printed with any password value masked
   # before the human ever sees it.

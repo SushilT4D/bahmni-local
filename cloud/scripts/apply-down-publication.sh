@@ -2,7 +2,7 @@
 # apply-down-publication.sh FLOORS-FILE -- PSQL-COMMAND...
 #
 # Converges the hub's Odoo down publication, dbz_odoo_owned, to exactly the down
-# list (the [down] lists in sync/tables/, through sync/tables/hub-down.sh), each table with an `id`
+# list (the [down] lists in sync/tables/, through sync/tables/tables.sh hub-down), each table with an `id`
 # filtered with (id < <floor> OR id % 10 = 0) from FLOORS-FILE (the hub's
 # cloud/odoo-down-floors.local), plus public.dbz_heartbeat. cloud/odoo/
 # apply-down-publication.sql does the work and refuses, naming the table, a
@@ -17,7 +17,7 @@ F="${1:?usage: apply-down-publication.sh <floors file> -- <psql command...>}"; s
 [ "${1:-}" = -- ] && shift
 [ "$#" -gt 0 ] || { echo "usage: apply-down-publication.sh <floors file> -- <psql command...>" >&2; exit 2; }
 die(){ printf 'apply-down-publication.sh: %s\n' "$*" >&2; exit 1; }
-tables="$(bash "$HERE/../../sync/tables/hub-down.sh" odoo)" || die "the down list could not be read (reason above); the publication was not touched"
+tables="$(bash "$HERE/../../sync/tables/tables.sh" hub-down odoo)" || die "the down list could not be read (reason above); the publication was not touched"
 floors="$(bash "$HERE/down-floors.sh" "$F")" || die "the floors could not be read (reason above); the publication was not touched"
 tables="$(printf '%s\n' "$tables" | paste -sd, -)"
 floors="$(printf '%s\n' "$floors" | awk 'NF == 2 { printf "%s%s:%s", (n++ ? "," : ""), $1, $2 }')"

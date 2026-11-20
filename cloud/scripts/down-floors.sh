@@ -8,8 +8,8 @@
 #
 # Refuses (exit 1, naming the line) a line that is not "<table> <floor>", a
 # floor that is not a whole multiple of 10, a table listed twice, and a table
-# that is not a down table (sync/tables/hub-down.sh odoo; with clinlims, an OpenELIS
-# down table the publication filters: sync/tables/hub-down.sh --unrouted clinlims).
+# that is not a down table (sync/tables/tables.sh hub-down odoo; with clinlims, an OpenELIS
+# down table the publication filters: sync/tables/tables.sh hub-down --unrouted clinlims).
 # Blank lines and "#"
 # comments are skipped.
 set -uf
@@ -18,9 +18,9 @@ F="${1:?usage: down-floors.sh <floors file> [clinlims]}"; SUBSYS="${2:-odoo}"
 die(){ printf 'down-floors.sh: %s\n' "$*" >&2; exit 1; }
 case "$SUBSYS" in
   odoo) [ -f "$F" ] || die "no floors file at $F: the hub's floors are recorded by the run that strides its Odoo ids (cloud/scripts/stride-odoo.sh)"
-        down="$(bash "$HERE/../../sync/tables/hub-down.sh" odoo)" || die "the down list could not be read (reason above)" ;;
+        down="$(bash "$HERE/../../sync/tables/tables.sh" hub-down odoo)" || die "the down list could not be read (reason above)" ;;
   clinlims) [ -f "$F" ] || die "no floors file at $F: the hub's OpenELIS floors are recorded just before its OpenELIS ids are strided (cloud/scripts/record-clinlims-down-floors.sh)"
-        down="$(bash "$HERE/../../sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above)" ;;
+        down="$(bash "$HERE/../../sync/tables/tables.sh" hub-down --unrouted clinlims)" || die "the down list could not be read (reason above)" ;;
   *) die "unknown subsystem '$SUBSYS' (odoo or clinlims)" ;;
 esac
 out=""; seen=" "; n=0

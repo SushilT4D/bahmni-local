@@ -4,16 +4,7 @@
 # same lines and agree on what each one means. A line one reader skips and
 # another accepts is a table captured with no sink, or sunk with no striding; a
 # line this reader cannot place is refused, never skipped.
-#
-# Each file has an [up] section (what a clinic sends to the hub) and a [down]
-# section (what the hub sends to clinics). Run as a command it prints them:
-#   tables.sh openmrs up | tables.sh openmrs down    one section, comments kept
-#   tables.sh subsystems                            the Odoo and OpenELIS [up]
-#                                                   lists as <schema>:<table>,
-#                                                   after <schema>:all
-#   tables.sh hub-down                              the Odoo and OpenELIS [down]
-#                                                   lists as <schema>:<table>[:...]
-# Odoo's schema name is odoo and OpenELIS's is clinlims, as in the topic names.
+# As a command: tables.sh <openmrs|odoo|openelis> <up|down> | subsystems | hub-down [args of hub_down]
 #
 # up_tables_read FILE prints one record per table line of FILE's [up] section
 # (of the whole file, for a file with no sections), in file order:
@@ -57,44 +48,45 @@ UP_CLINICAL_TABLES="obs orders drug_order test_order"
 # residue. The seed copies the hub's lab accounts and signatures to every
 # clinic; an edit a clinic makes to one of those stays at the clinic, as an
 # edit to a hub obs does. Each has a filter step in
-# clinic/connectors/clinlims-source-connector.json, in this order, before the
+# clinic/scripts/templates/clinlims-source-connector.json, in this order, before the
 # step that routes every table into the one ordered topic.
 UP_CLINLIMS_OWN_ROWS="system_user result_signature"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
-# The directory of the table lists; TABLES_DIR overrides it (tests).
 TABLES_DIR="${TABLES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-# tables_has_sections FILE: whether FILE is split into [up] and [down].
 tables_has_sections(){ grep -qE '^[[:space:]]*\[[a-z]+\][[:space:]]*$' "$1" 2>/dev/null; }
-# tables_section FILE SECTION prints FILE with every line outside [SECTION]
-# blanked, so a reader's line numbers are the file's own. A file with no
-# sections is printed whole.
+# Lines outside [SECTION] are blanked, not dropped, so a reader's line numbers stay the file's own.
 tables_section(){
   if ! tables_has_sections "$1"; then cat "$1"; return; fi
   awk -v s="[$2]" '{ l = $0; sub(/#.*/, "", l); gsub(/^[ \t]+|[ \t]+$/, "", l) }
     l ~ /^\[[a-z]+\]$/ { u = (l == s); print ""; next } { print (u ? $0 : "") }' "$1"
 }
-# tables_lines FILE SECTION prints the section's table lines only: no comments,
-# no blank lines, no surrounding space.
 tables_lines(){ tables_section "$1" "$2" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true; }
-# tables_list DB SECTION prints the table names of DB's [SECTION] (DB is
-# openmrs, odoo or openelis), one per line, without the fields after a colon.
-tables_list(){
+tables_list(){ # DB SECTION -> table names
   [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; return 1; }
   tables_lines "${TABLES_DIR}/$1.conf" "$2" | cut -d: -f1
 }
-# subsystems_list prints every Odoo and OpenELIS table a clinic sends up, as
-# <schema>:<table>, after each schema's aggregate topic <schema>:all.
-subsystems_list(){
+subsystems_list(){ # <schema>:<table> rows, each schema's aggregate topic first
   printf 'clinlims:all\nodoo:all\n'
   tables_lines "${TABLES_DIR}/openelis.conf" up | sed 's/^/clinlims:/'
   tables_lines "${TABLES_DIR}/odoo.conf" up | sed 's/^/odoo:/'
 }
-# hub_down_list prints every Odoo and OpenELIS table the hub sends down, as
-# <schema>:<table>[:clinic=<column>], Odoo first.
 hub_down_list(){
   tables_lines "${TABLES_DIR}/odoo.conf" down | sed 's/^/odoo:/'
   tables_lines "${TABLES_DIR}/openelis.conf" down | sed 's/^/clinlims:/'
+}
+# hub_down SCHEMA | --unrouted SCHEMA | --routes SCHEMA (<table> <column> <floor table>) | --subsystems
+hub_down(){
+  local mode=tables s="${1:-}" out
+  case "${1:-}" in --routes|--unrouted) mode="${1#--}"; s="${2:-}" ;; --subsystems) mode=subsystems ;; esac
+  out="$(hub_down_list | awk -F: -v m="$mode" -v s="$s" '
+    m == "subsystems" { if (!seen[$1]++) print $1; next }
+    $1 != s { next }
+    m == "tables" { print $2 }
+    m == "unrouted" && $3 == "" { print $2 }
+    m == "routes" && $3 != "" { c = $3; sub(/^clinic=/, "", c); f = $2; if (c != "id") { f = c; sub(/_id$/, "", f) }; print $2, c, f }')"
+  [ -n "$out" ] || [ "$mode" = unrouted ] || { printf 'the [down] lists have no %s rows for %s\n' "$mode" "${s:-any schema}" >&2; return 1; }
+  [ -z "$out" ] || printf '%s\n' "$out"
 }
 #
 # bash 3.2 compatible (macOS): no associative arrays.
@@ -197,6 +189,7 @@ EOF
 
 # Run as a command (not sourced): print a list.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  if [ "${1:-}" = hub-down ] && [ $# -gt 1 ]; then shift; hub_down "$@"; exit; fi
   case "${1:-}:${2:-}" in
     openmrs:up|openmrs:down|odoo:up|odoo:down|openelis:up|openelis:down)
       [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'tables.sh: no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; exit 1; }

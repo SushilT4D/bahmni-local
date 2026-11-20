@@ -7,8 +7,8 @@ Two sittings, two people, on a fresh macOS (rootless podman) or Linux (Docker) h
     clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> --dry-run
     clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> [--versions <file>] [--cert-hostname <name>] [--baseline <dir>]
 
-    # clinic staff, on site, at go-live, with the folder the operator copied
-    clinic/install/seed.sh --seed <folder> [--discard-baseline-data] [--dry-run]
+    # at go-live, with the folder the operator copied: the seed tasks in
+    # clinic/install/tasks (each marked "# phase: seed"), in order
 
 `install.sh` builds the host, the images and the name service, and starts Bahmni on
 a disposable baseline (IPLIT's own database images, pinned in `sync/versions.env`;
@@ -16,7 +16,7 @@ a disposable baseline (IPLIT's own database images, pinned in `sync/versions.env
 instead). No sync runs and nothing is captured. It ends with the machine marked
 INSTALLED (`clinic/.install-state`).
 
-`seed.sh` refuses a seed folder with no manifest, a dump older than six days (the
+The seed refuses a seed folder with no manifest, a dump older than six days (the
 hub keeps a week of changes; `SEED_MAX_AGE_DAYS`), a damaged dump, a dump from the
 wrong OpenMRS or Odoo version or taken before the hub partitioned its address ids,
 a machine whose LAN name no longer points at it, a machine already seeded, and
@@ -75,7 +75,7 @@ Two ways to choose, like the hub secrets:
   Enter keeps it.
 
 Each image that differs from its default is kept in `~/clinic-<slug>.env`, so a
-resume makes the same choice; it is written into `clinic/.env`, and `seed.sh` reads
+resume makes the same choice; it is written into `clinic/.env`, and the seed reads
 it from there. The run log names every image that differs. To choose again, pass
 `--versions`, or delete the answers file.
 

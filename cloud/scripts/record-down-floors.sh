@@ -28,7 +28,7 @@ die(){ printf 'record-down-floors.sh: %s\n' "$*" >&2; exit 1; }
 [ -n "$SRC" ] && [ "$#" -gt 0 ] || { echo "usage: record-down-floors.sh --from-file FILE [--out OUT] -- <psql command...>" >&2; exit 2; }
 [ -e "$OUT" ] && die "$OUT already exists: it holds this hub's floors and is never rewritten"
 floors="$(bash "$HERE/down-floors.sh" "$SRC")" || die "$SRC cannot be read as floors (reason above); nothing was written"
-down="$(bash "$R/sync/tables/hub-down.sh" odoo)" || die "the down list could not be read (reason above); nothing was written"
+down="$(bash "$R/sync/tables/tables.sh" hub-down odoo)" || die "the down list could not be read (reason above); nothing was written"
 state="$("$@" -v ON_ERROR_STOP=1 -qAt -v tables="$(printf '%s\n' "$down" | paste -sd, -)" -f /dev/stdin < "$R/cloud/odoo/down-sequence-state.sql" 2>&1)" \
   || die "the down sequences could not be read; nothing was written: $(printf '%s\n' "$state" | sed -n 's/^.*ERROR: *//p' | head -1)"
 idtabs=" $(printf '%s\n' "$state" | cut -d'|' -f1 | tr '\n' ' ') "

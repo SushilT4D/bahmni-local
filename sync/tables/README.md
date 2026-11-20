@@ -15,8 +15,7 @@ Each section's line format is described in a comment at its top. Lines that
 start with `#` are comments.
 
 `tables.sh` is the one reader for these files; every script that needs a table
-list goes through it. `hub-down.sh` checks the Odoo and OpenELIS `[down]` lists
-(it refuses tables that must never go down) and prints them.
+list goes through it.
 
 ## How to add or remove a table
 
@@ -39,7 +38,7 @@ list goes through it. `hub-down.sh` checks the Odoo and OpenELIS `[down]` lists
 
 ```
 bash sync/tables/tables.sh openmrs up      # the OpenMRS tables a clinic sends
-bash sync/tables/hub-down.sh odoo          # the Odoo tables the hub sends, checked
+bash sync/tables/tables.sh hub-down odoo   # the Odoo tables the hub sends
 ```
 
 The installer and the tests read the same files, so a mistake in a list fails

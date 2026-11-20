@@ -268,7 +268,7 @@ doc = json.loads(raw)
 # drop the //-prefixed documentation keys: Connect would report them as unknown configs
 doc['config'] = {k: v for k, v in doc['config'].items() if not k.startswith('//')}
 
-# ${LOCAL_MYSQL_PASSWORD} stays a placeholder: register-local-sink-connectors.sh fills it from .env.
+# ${LOCAL_MYSQL_PASSWORD} stays a placeholder: register-connectors.sh fills it from .env.
 leftover = [k for k, v in doc['config'].items() if '${' in str(v).replace('${LOCAL_MYSQL_PASSWORD}', '')]
 if leftover:
     sys.exit(f"unsubstituted placeholder(s) in {leftover}")

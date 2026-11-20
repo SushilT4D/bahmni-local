@@ -65,7 +65,7 @@ clinic that wrote them, so a hub edit to one of
 those rows (by a person, or by the OpenMRS-to-Odoo
 feed) reaches no clinic. The hub source's table list and aggregate regex, the
 publication and each clinic's MirrorMaker down regex are all rendered from that
-one list; `sync/tables/hub-down.sh` reads it and refuses an up-only table by name.
+one list, read with `sync/tables/tables.sh hub-down`.
 
 On the tables that do go down, the row filter keeps a clinic's rows at the hub
 even when the hub edits them: below a table's floor the rows predate striding

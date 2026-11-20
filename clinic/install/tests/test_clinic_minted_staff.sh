@@ -36,7 +36,7 @@ q="$(REPO_DIR="$RP" bash "$S" --hub-query --floors "$TMP/floors" 2>&1)"; rc=$?
   && ok_ "the hub query is one read-only transaction" || bad "hub query: rc=$rc $q"
 printf '%s\n' "$q" | grep -q "FROM \`openmrs\`.\`users\` WHERE \`user_id\` >= 20 AND \`user_id\` % 10 = 0" \
   && printf '%s\n' "$q" | grep -q "FROM \`openmrs\`.\`person\` WHERE \`person_id\` >= 230000 AND \`person_id\` % 10 = 0" \
-  && ok_ "the hub query reads users on the recorded floor and person on its base in sync/local/tables.conf" || bad "hub query floors: $q"
+  && ok_ "the hub query reads users on the recorded floor and person on its base in the OpenMRS [up] list" || bad "hub query floors: $q"
 d="$(REPO_DIR="$RP" bash "$S" --hub-dump --floors "$TMP/floors" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && printf '%s\n' "$d" | grep -q "user_property --where=\"user_id >= 20 AND user_id % 10 = 0 AND property NOT IN ('lastViewedPatients'," \
   && printf '%s\n' "$d" | grep -q "'loginAttempts'" && ok_ "the dump leaves every node-local property name out" || bad "hub dump: rc=$rc $d"

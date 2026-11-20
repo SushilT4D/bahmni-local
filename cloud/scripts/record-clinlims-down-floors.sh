@@ -2,7 +2,7 @@
 # record-clinlims-down-floors.sh [--from-file FILE | --derive] [--out OUT] -- PSQL-COMMAND...
 #
 # Records the hub's floor of each OpenELIS down table its publication filters
-# (sync/tables/hub-down.sh --unrouted clinlims: the lab accounts and the lab test
+# (sync/tables/tables.sh hub-down --unrouted clinlims: the lab accounts and the lab test
 # catalogue) in OUT, default cloud/clinlims-down-floors.local, one
 # "<table> <floor>" line each. The publication sends such a table's rows below
 # the floor (the hub's, from before its ids were strided) or ending in 0 (the
@@ -64,7 +64,7 @@ done
 die(){ printf 'record-clinlims-down-floors.sh: %s\n' "$*" >&2; exit 1; }
 [ "$#" -gt 0 ] || { echo "usage: record-clinlims-down-floors.sh [--from-file FILE | --derive] [--out OUT] -- <psql command...>" >&2; exit 2; }
 [ -n "$SRC" ] && [ "$DERIVE" = 1 ] && die "--from-file and --derive do not go together: --derive prints floors, --from-file records them"
-down="$(bash "$R/sync/tables/hub-down.sh" --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was written"
+down="$(bash "$R/sync/tables/tables.sh" hub-down --unrouted clinlims)" || die "the down list could not be read (reason above); nothing was written"
 [ -n "$down" ] || die "the OpenELIS [down] list sends no table down filtered on a floor; there is nothing to record"
 # the tables clinics send up: their rows can reach this hub
 up=" $(bash "$R/sync/tables/tables.sh" subsystems | sed -n 's/^clinlims://p' | grep -vx all | tr '\n' ' ') "

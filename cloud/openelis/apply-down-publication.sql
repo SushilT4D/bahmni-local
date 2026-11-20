@@ -2,7 +2,7 @@
 -- every clinic.
 --
 -- It holds exactly the OpenELIS down tables passed in (the [down] lists in sync/tables/, read
--- through sync/tables/hub-down.sh), plus clinlims.dbz_heartbeat when it exists, and
+-- through sync/tables/tables.sh hub-down), plus clinlims.dbz_heartbeat when it exists, and
 -- nothing else: SET TABLE replaces whatever the publication held before. It
 -- publishes INSERT, UPDATE and DELETE, never TRUNCATE (a TRUNCATE at the hub
 -- would empty every clinic's copy).
