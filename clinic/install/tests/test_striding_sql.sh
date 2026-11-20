@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# clinic/odoo/apply-odoo-sequence-striding.sql against a REAL PostgreSQL, because
+# clinic/scripts/sql/odoo/apply-odoo-sequence-striding.sql against a REAL PostgreSQL, because
 # a version of it passed every fixture test and failed on a database:
 # pg_get_serial_sequence('t','id') does not return NULL for a table that has no
 # `id` column -- it RAISES, which rolled back the whole transaction, so even the
@@ -8,7 +8,7 @@
 # A host without psql keeps a static guard.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SQL="${HERE}/../../odoo/apply-odoo-sequence-striding.sql"
+SQL="${HERE}/../../scripts/sql/odoo/apply-odoo-sequence-striding.sql"
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
@@ -57,8 +57,8 @@ SH
 chmod +x "$T/bin/podman"
 printf 'BHS_LOCATION=alpha\nMYSQL_ROOT_PASSWORD=x\n' > "$T/env"; printf 'alpha:3\n' > "$T/ledger"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$T/manifest.env"
-printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$T/tables.conf"
-stride(){ PATH="$T/bin:$PATH" ENV_FILE="$T/env" CLINICS_FILE="$T/ledger" TABLES_FILE="$T/tables.conf" MYSQL_CONTAINER=fake SEED_MANIFEST="$T/manifest.env" "$@" bash "$R/clinic/scripts/configure-pk-offsets.sh" --dry-run 2>&1; }
+printf '[up]\nperson:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n[down]\n' > "$T/openmrs.conf"
+stride(){ PATH="$T/bin:$PATH" ENV_FILE="$T/env" CLINICS_FILE="$T/ledger" TABLES_FILE="$T/openmrs.conf" MYSQL_CONTAINER=fake SEED_MANIFEST="$T/manifest.env" "$@" bash "$R/clinic/scripts/configure-pk-offsets.sh" --dry-run 2>&1; }
 out="$(stride env MAX_obs=4999990 MAX_orders=299990 MAX_drug_order=299990)"
 printf '%s' "$out" | grep -qF 'ALTER TABLE `obs` AUTO_INCREMENT = 5000003;' && ok_ "obs: seed max 4,999,990, floor 5,000,000, residue 3 -> 5,000,003" || bad "obs: $out"
 printf '%s' "$out" | grep -qF 'ALTER TABLE `orders` AUTO_INCREMENT = 300003;' && ok_ "orders: seed max 299,990, floor 300,000, residue 3 -> 300,003" || bad "orders: $out"
@@ -91,24 +91,24 @@ out="$(cv obs 5000003 '' 3)"; [ $? = 1 ] && case "$out" in "no obs floor is reco
 # A broken list must refuse: a loop over an empty list would check no counter
 # and pass.
 stamp_put FLOOR_OBS 5000000; stamp_put FLOOR_ORDERS 300000
-printf 'obs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$CLINIC_DIR/tables.conf"
+printf '[up]\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n[down]\n' > "$CLINIC_DIR/openmrs.conf"
 AI_OBS=5000003; AI_ORDERS=300003
 ai_fake(){ case "$1" in obs) echo "$AI_OBS" ;; orders) echo "$AI_ORDERS" ;; esac; }
 cvs(){ counter_floor_verdicts "$1" 3 ai_fake 2>&1; }
-out="$(cvs "$CLINIC_DIR/tables.conf")"; rc=$?
+out="$(cvs "$CLINIC_DIR/openmrs.conf")"; rc=$?
 [ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^ok ')" = 2 ] && printf '%s' "$out" | grep -q '^ok orders next id 300003' \
   && ok_ "counter_floor_verdicts: one ok line per floored table (drug_order has no counter)" || bad "all counters: rc=$rc $out"
-AI_ORDERS=299991; out="$(cvs "$CLINIC_DIR/tables.conf")"; rc=$?; AI_ORDERS=300003
+AI_ORDERS=299991; out="$(cvs "$CLINIC_DIR/openmrs.conf")"; rc=$?; AI_ORDERS=300003
 [ "$rc" = 1 ] && case "$out" in "the orders id counter is below this clinic's floor"*) true ;; *) false ;; esac && ! printf '%s' "$out" | grep -q '^ok ' \
   && ok_ "counter_floor_verdicts: one counter below its floor refuses, with only the refusal" || bad "one below: rc=$rc $out"
 out="$(cvs "$CLINIC_DIR/no-such.conf")"; rc=$?
-[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read, so no id counter was checked: tables.conf not found"*) true ;; *) false ;; esac \
+[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read, so no id counter was checked: no such table list"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: a missing table list refuses, not zero tables checked" || bad "missing list: rc=$rc $out"
-printf 'obs:obs_id:seed   # a trailing note\n' > "$CLINIC_DIR/bad.conf"
+printf '[up]\nobs:obs_id:seed   # a trailing note\n[down]\n' > "$CLINIC_DIR/bad.conf"
 out="$(cvs "$CLINIC_DIR/bad.conf")"; rc=$?
 [ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read"*"not table:pk[:floor]"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: a list its reader refuses refuses, with the reader's reason" || bad "refused list: rc=$rc $out"
-printf 'encounter:encounter_id:528000\nidgen_seq_id_gen:id\n' > "$CLINIC_DIR/plain.conf"
+printf '[up]\nencounter:encounter_id:528000\nidgen_seq_id_gen:id\n[down]\n' > "$CLINIC_DIR/plain.conf"
 # obs and orders not listed: their recorded floors are checked all the same
 out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?
 [ "$rc" = 0 ] && [ "$(printf '%s\n' "$out" | grep -c '^ok ')" = 2 ] && printf '%s' "$out" | grep -q '^ok obs next id 5000003' && printf '%s' "$out" | grep -q '^ok orders next id 300003' \
@@ -118,13 +118,13 @@ AI_OBS=4999993; out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?; AI_OBS=5000003
   && ok_ "counter_floor_verdicts: an unlisted obs counter below its recorded floor refuses" || bad "unlisted below: rc=$rc $out"
 env_del "$STATE_FILE" FLOOR_OBS; env_del "$STATE_FILE" FLOOR_ORDERS
 out="$(cvs "$CLINIC_DIR/plain.conf")"; rc=$?
-[ "$rc" = 0 ] && case "$out" in "ok no table in sync/local/tables.conf takes its floor from the seed, and no obs or orders floor is recorded"*) true ;; *) false ;; esac \
+[ "$rc" = 0 ] && case "$out" in "ok no table in the OpenMRS [up] list takes its floor from the seed, and no obs or orders floor is recorded"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: a list with no floored table and no recorded floor says so" || bad "plain list: rc=$rc $out"
 stamp_put FLOOR_OBS 5000000; stamp_put FLOOR_ORDERS 300000
 
 # tasks 060 and 100 run their counter-check block; a table list that cannot be
 # read fails the task
-mkdir -p "$CLINIC_DIR/repo/sync/local" "$CLINIC_DIR/norepo"; cp "$CLINIC_DIR/tables.conf" "$CLINIC_DIR/repo/sync/local/"
+mkdir -p "$CLINIC_DIR/repo/sync/tables" "$CLINIC_DIR/norepo"; cp "$CLINIC_DIR/openmrs.conf" "$CLINIC_DIR/repo/sync/tables/"
 blk_run(){ # TASK-FILE REPO-DIR AUTO_INCREMENT -> the block's output with stand-ins for the database
   local B; B="$(sed -n '/^# counter-check:begin/,/^# counter-check:end/p' "$1")"
   [ -n "$B" ] || { printf 'NO BLOCK\n'; return 2; }
@@ -221,7 +221,7 @@ out="$(sb_run 4999993 299991)"; rc=$?
 
 # the exit checks read the unlisted counters again against the recorded floors
 stamp_put FLOOR_OBS 5000000; stamp_put FLOOR_ORDERS 300000
-cp "$CLINIC_DIR/plain.conf" "$CLINIC_DIR/repo/sync/local/tables.conf"
+cp "$CLINIC_DIR/plain.conf" "$CLINIC_DIR/repo/sync/tables/openmrs.conf"
 out="$(blk_run "${HERE}/../tasks/100-exit-checks.sh" "$CLINIC_DIR/repo" 4999993)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in "FAIL the obs id counter is below this clinic's floor: the next obs id would be 4999993"*) true ;; *) false ;; esac \
   && ok_ "100: an unlisted obs counter below the seed's floor fails the exit checks" || bad "100 unlisted below: rc=$rc $out"

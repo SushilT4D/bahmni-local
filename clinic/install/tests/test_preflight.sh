@@ -16,7 +16,7 @@ printf 'rawach:4\nghated:3\n' > "$TMP/ledger"
 printf 'fk\tset\t2\tx\nfk\tencounter\tvisit_id\tvisit\tvisit_id\tencounter_visit\nfk\tvisit\tpatient_id\tpatient\tpatient_id\tvisit_patient\n' > "$TMP/hub-fks.tsv"
 grep -v '^fk.set' "$TMP/hub-fks.tsv" | cut -f2- > "$TMP/fk.rows"
 cp "$TMP/hub-fks.tsv" "$TMP/clinic/.seed-provenance.tsv"
-base(){ env -i PATH="$PATH" HOME="$HOME" PREFLIGHT_SKIP_HOST=1 DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" LEDGER="$TMP/ledger" PLATFORM=linux RUNTIME=docker CLINIC_SLUG=azure RESIDUE=7 LOCAL_CLUSTER_ALIAS=azure OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1.2.0-1200-03 "$@"; }
+base(){ env -i PATH="$PATH" HOME="$HOME" PREFLIGHT_SKIP_HOST=1 DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" LEDGER="$TMP/ledger" CLINIC_SLUG=azure RESIDUE=7 LOCAL_CLUSTER_ALIAS=azure OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1.2.0-1200-03 "$@"; }
 # every run reads its foreign keys from FK_ROWS (default: the hub's own)
 eval "base_env_$(declare -f base)"
 base(){ base_env_base PREFLIGHT_FK_ROWS="${FK_ROWS:-$TMP/fk.rows}" "$@"; }
@@ -35,8 +35,9 @@ printf 'rawach:4\nghated:3\nazure:7\n' > "$TMP/ledger"
 # id counters: checked on a machine in service, skipped (and said so) on one that is not
 out="$(base bash "$T" 2>&1)"; rc=$?
 assert_rc "no install state: counters skipped, run passes" "$rc" 0; assert_contains "says the counters were not checked, and why" "$out" "id counters not checked: this machine is not seeded yet"
-mkdir -p "$TMP/sync/local"
-printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$TMP/sync/local/tables.conf"
+mkdir -p "$TMP/sync/tables"
+up_list(){ printf '[up]\n%s\n[down]\n' "$1" > "$TMP/sync/tables/openmrs.conf"; }   # LINES : the OpenMRS [up] list
+up_list "$(printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders')"
 printf 'STATE=SEEDED\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300017' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, counters at or above their floors: passes" "$rc" 0
@@ -51,15 +52,15 @@ assert_rc "seeded, MySQL striding on another residue: refused" "$rc" 1
 assert_contains "the refusal says new rows would land on another residue" "$out" "increment and offset 10 3, not 10 7"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, a counter that cannot be read: refused" "$rc" 1; assert_contains "not taken as zero" "$out" "could not read the orders id counter"
-mv "$TMP/sync/local/tables.conf" "$TMP/sync/local/tables.conf.aside"
+mv "$TMP/sync/tables/openmrs.conf" "$TMP/sync/tables/openmrs.conf.aside"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300017' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, the table list cannot be read: refused" "$rc" 1; assert_contains "says no counter was checked" "$out" "the clinic table list cannot be read, so no id counter was checked"
-mv "$TMP/sync/local/tables.conf.aside" "$TMP/sync/local/tables.conf"
+mv "$TMP/sync/tables/openmrs.conf.aside" "$TMP/sync/tables/openmrs.conf"
 printf 'STATE=SEEDING\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=1 orders=1' PREFLIGHT_STRIDE='1 1' bash "$T" 2>&1)"; rc=$?
 assert_rc "part-way through its data load: counters skipped" "$rc" 0; assert_contains "says the striding step checks them" "$out" "id counters not checked: this machine is part-way through"
 # obs and orders not in the list: their recorded floors are checked all the same
-printf 'person:person_id:230000\n' > "$TMP/sync/local/tables.conf"
+up_list 'person:person_id:230000'
 printf 'STATE=SEEDED\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300007' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded, unlisted obs and orders at or above their floors: passes" "$rc" 0
@@ -78,7 +79,7 @@ printf 'STATE=SEEDED\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=1 orders=1' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?
 assert_rc "seeded with no floors recorded and none listed: passes" "$rc" 0
 assert_contains "says no counter was checked" "$out" "no obs or orders floor is recorded"
-printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders\n' > "$TMP/sync/local/tables.conf"
+up_list "$(printf 'person:person_id:230000\nobs:obs_id:seed\norders:order_id:seed\ndrug_order:order_id:floor=orders')"
 # foreign keys on a machine in service: the hub's, as the seed recorded them
 printf 'STATE=SEEDED\nFLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/clinic/.install-state"
 out="$(base PREFLIGHT_AUTO_INCREMENT='obs=5000007 orders=300017' PREFLIGHT_STRIDE='10 7' bash "$T" 2>&1)"; rc=$?

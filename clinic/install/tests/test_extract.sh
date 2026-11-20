@@ -115,12 +115,11 @@ mv "$X/ocl-held/CIEL_v1.zip" "$X/bahmni_config/masterdata/configuration/ocl/"; o
 out="$(env KEEP_OCL_ZIPS=1 true; PFX=MAN; env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$TMP/clinic" BAHMNI_WEB_IMAGE=acme/web:1 BAHMNI_CONFIG_IMAGE=acme/config:1 MRN_PREFIX=MAN KEEP_OCL_ZIPS=1 bash "$S" --force 2>&1)"
 [ -f "$X/bahmni_config/masterdata/configuration/ocl/CIEL_v1.zip" ] && ok_ "KEEP_OCL_ZIPS=1 leaves the zips in place" || bad "KEEP_OCL_ZIPS=1 ignored"
 
-# LAN_NAME unset: --force re-pulls the fixture's original
-# whiteLabel.json (linkPrefix "erp", no linkHost) fresh from the image, and
-# apply_landing must leave odoo's entry exactly as the image shipped it.
+# LAN_NAME unset: the address is bahmni.clinic, so the odoo tile still opens
+# odoo.bahmni.clinic.
 out="$(LAN="" run --force)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "run succeeds with LAN_NAME unset" || bad "run rc=$rc with unset LAN_NAME: $out"
-[ "$(odoo .linkPrefix)" = erp ] && [ "$(odoo 'has("linkHost")')" = false ] && ok_ "unset LAN_NAME leaves odoo's linkPrefix alone" || bad "odoo entry changed despite unset LAN_NAME: $(odoo .)"
+[ "$(odoo .linkHost)" = odoo.bahmni.clinic ] && ok_ "unset LAN_NAME still opens odoo.bahmni.clinic" || bad "odoo entry with unset LAN_NAME: $(odoo .)"
 
 out="$(run --force)"   # back to the default for the checks below
 

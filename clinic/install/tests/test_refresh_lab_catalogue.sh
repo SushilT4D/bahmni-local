@@ -62,7 +62,7 @@ reset; run
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q 'name the concept' && [ ! -s "$TMP/log" ] && ok_ "without a concept name it refuses, touching nothing" || bad "no name: rc=$rc $out"
 reset; echo 0 > "$TMP/count"; run "ZZ Haemoglobin A1c"
 [ "$rc" != 0 ] && printf '%s' "$out" | grep -q "no concept named 'ZZ Haemoglobin A1c' in this clinic's database" && [ -z "$(calls)" ] \
-  && ok_ "a concept that has not come down yet: refused before anything is stopped or restarted" || bad "concept missing: rc=$rc $out [$(calls)]"
+  && ok_ "a concept that has not been pulled yet: refused before anything is stopped or restarted" || bad "concept missing: rc=$rc $out [$(calls)]"
 reset; run "ZZ Haemoglobin A1c"
 [ "$rc" = 0 ] && [ "$(calls)" = "stop bahmni-t-odoo-connect-1,stop bahmni-t-openelis-1,restart bahmni-t-openmrs-1,start bahmni-t-openelis-1,start bahmni-t-odoo-connect-1," ] \
   && ok_ "in order: odoo-connect and OpenELIS stopped, OpenMRS restarted, then OpenELIS and odoo-connect started" || bad "happy path: rc=$rc [$(calls)] $out"

@@ -2,6 +2,7 @@
 """Fill a connector template for clinic/connectors/: used by generate-connectors.sh.
 
 usage: _fill_template.py TEMPLATE OUT
+       _fill_template.py --mark FILE TEMPLATE   add the "generated" note to FILE
 
 Every ${NAME} whose NAME is set in the environment is replaced, except
 passwords (names ending in _PASSWORD): those stay placeholders, and
@@ -39,16 +40,31 @@ def main(src, out):
                    if not m.endswith('_PASSWORD') and m != 'topic'})
     if left:
         sys.exit(f"{os.path.basename(src)}: not set: {', '.join(left)}")
-    rel = os.path.relpath(src, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-    result = {'//': NOTE.format(src=f'clinic/{rel}'), 'name': fill(doc['name']), 'config': cfg}
-    tmp = out + '.new'
+    write(out, {'//': note(src), 'name': fill(doc['name']), 'config': cfg})
+
+
+def note(src):
+    rel = os.path.relpath(os.path.abspath(src), os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+    return NOTE.format(src=f'clinic/{rel}')
+
+
+def write(out, doc):
+    tmp = out + '.tmp'
     with open(tmp, 'w') as fh:
-        json.dump(result, fh, indent=2)
+        json.dump(doc, fh, indent=2)
         fh.write('\n')
     os.replace(tmp, out)
 
 
+def mark(path, src):
+    doc = json.load(open(path))
+    write(path, {'//': note(src), **{k: v for k, v in doc.items() if k != '//'}})
+
+
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) == 4 and sys.argv[1] == '--mark':
+        mark(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) == 3:
+        main(sys.argv[1], sys.argv[2])
+    else:
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])

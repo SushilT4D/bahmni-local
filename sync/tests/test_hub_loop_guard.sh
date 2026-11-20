@@ -3,27 +3,27 @@
 # OpenELIS rows stop there: the hub up-sinks that write them claim that
 # clinic's replication origin, and the hub's two Postgres sources decode with
 # origin=none, so a row a sink applied is never published to the other clinics
-# or back to its sender. This checks both halves in the tracked templates, and
-# that the per-clinic render a join makes (the ghated template with the slug
-# swapped) gives every clinic an origin of its own: PostgreSQL lets one session
-# at a time hold an origin, so two clinics sharing one would stop a sink.
+# or back to its sender. This checks the sources, and that the sinks
+# generate-sink-connectors.sh writes give every clinic an origin of its own:
+# PostgreSQL lets one session at a time hold an origin, so two clinics sharing
+# one would stop a sink.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0
 ok_(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
-C="$R/cloud/connectors"
+C="$R/cloud/scripts/templates"
 cfg(){ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("config") or d).get(sys.argv[2], ""))' "$1" "$2"; }
 
 # --- the source: decode only what was written at the hub --------------------
 for n in odoo-cloud-source clinlims-cloud-source; do
-  v="$(cfg "$C/$n.json" slot.stream.params)"
+  v="$(cfg "$C/$n.json.template" slot.stream.params)"
   [ "$v" = origin=none ] && ok_ "$n decodes with slot.stream.params=origin=none" || bad "$n: slot.stream.params is '${v}', want origin=none"
 done
 # --- the clinic's down sinks: each claims an origin of its own -----------------
 # A row a clinic's down sink writes is tagged with the origin the sink claims,
 # so the clinic's own Postgres sources (origin=none) never send it back up. An
 # origin is held by one session at a time, so the two down sinks claim two.
-CC="$R/clinic/connectors"
+CC="$R/clinic/scripts/templates"
 for n in odoo-source-connector clinlims-source-connector; do
   v="$(cfg "$CC/$n.json" slot.stream.params)"
   [ "$v" = origin=none ] && ok_ "the clinic's $n decodes with origin=none" || bad "the clinic's $n: slot.stream.params is '${v}', want origin=none"
@@ -36,29 +36,24 @@ esac
 for n in odoo-clinic-sink-all clinlims-clinic-sink-all; do
   [ "$(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)" = "1|1" ] && ok_ "$n: one task on one connection (the origin is held by one session)" || bad "$n: tasks.max/pool read $(cfg "$CC/$n.json" tasks.max)|$(cfg "$CC/$n.json" connection.pool.max_size)"
 done
-reg="$(grep -E '^[^#]*register-odoo\.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
-printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && printf '%s' "$reg" | grep -q 'CLINLIMS_DOWN_CONDITION=.*clinlims-clinic-sink-all' \
+reg="$(grep -E '^[^#]*register-connectors.sh' "$R/clinic/install/tasks/090-local-sync.sh")"
+printf '%s' "$reg" | grep -q 'odoo-clinic-sink-all' && printf '%s' "$reg" | grep -q 'clinlims-clinic-sink-all' \
+  && grep -q '^export CLINLIMS_DOWN_CONDITION' "$R/clinic/scripts/generate/postgres.sh" \
+  && grep -q '${CLINLIMS_DOWN_CONDITION}' "$CC/clinlims-clinic-sink-all.json" \
   && ok_ "the clinic installer registers its Odoo down sink, and its OpenELIS down sink with its filter" || bad "090 registers: $reg"
 
 # --- the up-sinks: each claims its own clinic's origin, on one connection ----
-# check_sinks DIR CLINICS_CONF : every Postgres JDBC sink in DIR claims
-# clinic_<slug>_<odoo|clinlims>, where <slug> is the clinics.conf row whose
-# "<mm_prefix>.<server_name>." starts the sink's topic and the suffix follows
+# check_sinks DIR SLUGS : every Postgres JDBC sink in DIR claims
+# clinic_<slug>_<odoo|clinlims>, where <slug> is the clinic whose
+# "<slug>.bahmni-<slug>." starts the sink's topic and the suffix follows
 # the database the sink writes; one task, a pool of one; no origin shared.
 check_sinks(){
   python3 - "$1" "$2" <<'PY'
 import glob, json, os, re, sys
-d, conf = sys.argv[1], sys.argv[2]
-rows = []
-for line in open(conf):
-    line = line.split('#', 1)[0].strip()
-    if not line:
-        continue
-    f = line.split(':')
-    if len(f) >= 4:
-        rows.append((f[0], f[2] + '.' + f[3] + '.'))
+d, slugs = sys.argv[1], sys.argv[2].split()
+rows = [(s, f"{s}.bahmni-{s}.") for s in slugs]
 seen, bad, n = {}, 0, 0
-for p in sorted(glob.glob(os.path.join(d, '*-sink-all.json'))):
+for p in sorted(glob.glob(os.path.join(d, '*-sink.json'))):
     c = json.load(open(p)); c = c.get('config') or c
     url = c.get('connection.url', '')
     if not url.startswith('jdbc:postgresql:'):
@@ -73,7 +68,7 @@ for p in sorted(glob.glob(os.path.join(d, '*-sink-all.json'))):
     if not sfx:
         msgs.append('writes database %r, not odoo or openelis' % db)
     if len(slug) != 1:
-        msgs.append('topic %r belongs to %d clinics.conf rows, want 1' % (topic, len(slug)))
+        msgs.append('topic %r belongs to %d clinics, want 1' % (topic, len(slug)))
     want = "SELECT pg_replication_origin_session_setup('clinic_%s_%s')" % (slug[0] if len(slug) == 1 else '?', sfx)
     got = c.get('hibernate.agroal.initialSQL', '')
     if got != want:
@@ -92,42 +87,35 @@ for p in sorted(glob.glob(os.path.join(d, '*-sink-all.json'))):
     else:
         print('  ok   %s claims %s, one task, a pool of one' % (name, m.group(1)))
 if n < 2:
-    print('  FAIL only %d Postgres up-sink templates found in %s' % (n, d)); bad += 1
+    print('  FAIL only %d Postgres up-sinks found in %s' % (n, d)); bad += 1
 sys.exit(1 if bad else 0)
 PY
 }
-CL="$(mktemp)"; cat "$R"/cloud/clinics.*.conf > "$CL"   # every hub's clinics
-# the up-sink templates are written for ghated and the checks below render them for manpur;
-# a hub file without those clinics still checks them
-for s in ghated manpur; do
-  grep -q "^$s:" "$CL" || printf '%s:mysql-sink-%s-:%s:bahmni-%s:clinical\n' "$s" "$s" "$s" "$s" >> "$CL"
-done
-check_sinks "$C" "$CL" || fails=$((fails+1))
-
-# --- a join renders the ghated template for its own slug ---------------------
-T="$(mktemp -d)"; trap 'rm -rf "$T" "$CL"' EXIT
-for slug in manpur bedawal; do
-  for k in odoo clinlims; do sed "s/ghated/$slug/g" "$C/$k-ghated-sink-all.json" > "$T/$k-$slug-sink-all.json"; done
-done
-{ cat "$CL"; printf 'bedawal:mysql-sink-bedawal-:bedawal:bahmni-bedawal\n'; } > "$T/clinics.conf"
-out="$(check_sinks "$T" "$T/clinics.conf")"; rc=$?
+# --- the generated sinks: two clinics, four distinct origins ---------------------
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+printf 'manpur:1\nbedawal:2\ncloud:10\n' > "$T/clinics.txt"
+printf 'OPENMRS_DB_HOST=h\nOPENMRS_DB_NAME=openmrs\nDEBEZIUM_DB_PASSWORD=x\nODOO_DB_HOST=o\nODOO_DB_NAME=odoo\nODOO_SINK_PASSWORD=x\nOPENELIS_DB_HOST=e\nCLINLIMS_SINK_PASSWORD=x\n' > "$T/.env"
+CLINICS_FILE="$T/clinics.txt" ENV_FILE="$T/.env" OUT_DIR="$T/gen" bash "$R/cloud/scripts/generate-sink-connectors.sh" > "$T/gen.log" 2>&1 \
+  || bad "generate-sink-connectors.sh failed: $(tail -3 "$T/gen.log")"
+out="$(check_sinks "$T/gen" "manpur bedawal")"; rc=$?
 printf '%s\n' "$out" | sed 's/^  /  render: /'
 [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q "clinic_manpur_odoo" && printf '%s\n' "$out" | grep -q "clinic_bedawal_clinlims" \
-  && ok_ "two clinics rendered from the template claim four distinct origins" || bad "the per-clinic render does not give each clinic its own origins"
+  && ok_ "two clinics generated from sync/clinics.txt claim four distinct origins" || bad "the generated sinks do not give each clinic its own origins"
+[ ! -e "$T/gen/odoo-cloud-sink.json" ] && ok_ "the cloud's own row gets no sinks" || bad "a sink was generated for the cloud itself"
 
 # --- the negative: a sink without the claim, or sharing one, is caught --------
-mkdir -p "$T/neg"; cp "$C/odoo-ghated-sink-all.json" "$T/neg/"
-python3 - "$T/neg/odoo-ghated-sink-all.json" "$T/neg/odoo-manpur-sink-all.json" <<'PY'
+mkdir -p "$T/neg"; cp "$T/gen/odoo-manpur-sink.json" "$T/neg/"
+python3 - "$T/neg/odoo-manpur-sink.json" "$T/neg/odoo-bedawal-sink.json" <<'NEG'
 import json, sys
 d = json.load(open(sys.argv[1])); d['config'].pop('hibernate.agroal.initialSQL', None)
 json.dump(d, open(sys.argv[1], 'w'))
-d['config']['topics'] = 'manpur.bahmni-manpur.odoo.all'
-d['config']['hibernate.agroal.initialSQL'] = "SELECT pg_replication_origin_session_setup('clinic_ghated_odoo')"
+d['config']['topics'] = 'bedawal.bahmni-bedawal.odoo.all'
+d['config']['hibernate.agroal.initialSQL'] = "SELECT pg_replication_origin_session_setup('clinic_manpur_odoo')"
 json.dump(d, open(sys.argv[2], 'w'))
-PY
-out="$(check_sinks "$T/neg" "$CL")"; rc=$?
-[ "$rc" != 0 ] && printf '%s\n' "$out" | grep -q 'odoo-ghated-sink-all.json: hibernate.agroal.initialSQL is' \
-  && printf '%s\n' "$out" | grep -q "odoo-manpur-sink-all.json: hibernate.agroal.initialSQL is \"SELECT pg_replication_origin_session_setup('clinic_ghated_odoo')\"" \
+NEG
+out="$(check_sinks "$T/neg" "manpur bedawal")"; rc=$?
+[ "$rc" != 0 ] && printf '%s\n' "$out" | grep -q 'odoo-manpur-sink.json: hibernate.agroal.initialSQL is' \
+  && printf '%s\n' "$out" | grep -q "odoo-bedawal-sink.json: hibernate.agroal.initialSQL is \"SELECT pg_replication_origin_session_setup('clinic_manpur_odoo')\"" \
   && ok_ "a sink with no claim, and a sink claiming another clinic's origin, both fail" || bad "the check passes a sink without its own claim: rc=$rc $out"
 
 # --- the README states the rule now in force -----------------------------------

@@ -1,36 +1,7 @@
--- The state of the id sequence of each OpenELIS down table the hub's
--- publication filters on its floor (sync/hub-down.sh --unrouted clinlims),
--- read-only: it creates nothing, so it runs in a read-only session too.
---
--- One line per table, in the order passed:
---   <table>|<restart>|<next>|<increment>
--- <restart> is where striding the hub's OpenELIS ids (residue 0) restarts the
--- sequence if it runs now: ((greatest(last_value, largest id) / 10) + 1) * 10,
--- last_value read from the sequence itself and the largest id taken over the
--- table and every other table OpenELIS numbers from the same sequence, as the
--- hub's OpenELIS striding reads them. <next> is the id the sequence would issue
--- next.
---
--- With -v detail=1 each line also carries what the table holds:
---   <table>|<restart>|<next>|<increment>|<max id>|<max id not ending in 0>|id
--- (0 for an empty table), so a floor can be judged against the rows as well
--- as the sequence: rows on another residue than 0 above a floor would not
--- pass the publication's filter.
---
--- The sequence is the id column's own, else the one OpenELIS's mappings name
--- where that is not clinlims.<table>_seq (the list in `names` below; the same
--- list is in cloud/openelis/apply-sequence-striding.sql and
--- clinic/openelis/apply-sequence-striding.sql, and a test fails when they
--- differ), else clinlims.<table>_seq. A table with
--- an id and no sequence at all (OpenELIS never issues ids for it) reads
--- <restart> and <next> as the first multiple of 10 above its largest id and
--- <increment> as 0. A table with no id column (a link table, keyed otherwise)
--- takes no floor: it prints no line, or with detail=1
---   <table>|0|0|0|0|0|noid
--- Refused, naming the table: a table that does not exist.
---
--- Usage: psql -d openelis -v tables=system_user -f down-sequence-state.sql
---        psql -d openelis -v tables=system_user,test -v detail=1 -f down-sequence-state.sql
+-- Read-only: for each OpenELIS table, where striding would restart its id sequence and the id it issues next.
+-- psql -d openelis -v tables=a,b [-v detail=1] -f down-sequence-state.sql  -> <table>|<restart>|<next>|<increment>[|<max id>|<max id not ending in 0>|id]
+
+-- Pass the psql variables; detail defaults to 0.
 \set ON_ERROR_STOP on
 \if :{?detail}
 \else
@@ -39,6 +10,7 @@
 SELECT set_config('myvars.tables', :'tables', false) \g /dev/null
 SELECT set_config('myvars.detail', :'detail', false) \g /dev/null
 
+-- Refuse a table that does not exist.
 DO $do$
 DECLARE
   v_tables text[] := string_to_array(nullif(current_setting('myvars.tables'), ''), ',');
@@ -54,6 +26,7 @@ BEGIN
   END LOOP;
 END $do$;
 
+-- Sequences OpenELIS names other than clinlims.<table>_seq (kept in step with the striding SQL).
 WITH names(t, seq) AS (VALUES
 -- openelis-sequence-names:begin
             ('external_reference', 'external_reference_id_seq'),
@@ -72,6 +45,7 @@ WITH names(t, seq) AS (VALUES
             ('system_role_module', 'system_user_module_seq'),
             ('test_code_type', 'hl7_encoding_type_seq')
 -- openelis-sequence-names:end
+-- Find each table's sequence, its largest ids and the sequence's last value, then the restart and next ids.
 ), t AS (
   SELECT u.n, u.name, to_regclass(format('clinlims.%I', u.name)) AS rel
     FROM unnest(string_to_array(current_setting('myvars.tables'), ',')) WITH ORDINALITY AS u(name, n)
@@ -118,6 +92,7 @@ WITH names(t, seq) AS (VALUES
          CASE WHEN v.seq IS NULL THEN 0 ELSE v.inc END AS inc
     FROM v
 )
+-- One line per table; tables without an id only with detail=1.
 SELECT CASE WHEN current_setting('myvars.detail') = '1'
             THEN name || '|' || restart || '|' || nxt || '|' || inc || '|' || mx || '|' || mxnz || '|' || CASE WHEN hasid THEN 'id' ELSE 'noid' END
             ELSE name || '|' || restart || '|' || nxt || '|' || inc END

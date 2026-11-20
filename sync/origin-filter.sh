@@ -148,16 +148,8 @@ origin_filter_verdict(){
   local cfg="$1" conf="$2" floors="$3" off="$4" recs t pk kind arg got rpk rfl rr want r out="" n=0
   case "$off" in ''|*[!0-9]*) printf 'could not read MySQL'"'"'s auto_increment_offset (got '"'"'%s'"'"'), so the capture filter'"'"'s residue cannot be checked. Wait a minute and run the same command again; if it persists, call the operator.\n' "$off"; return 1 ;; esac
   r=$(( off % 10 ))
-  type up_tables_read >/dev/null 2>&1 || { printf 'origin_filter_verdict needs sync/local/tables-conf.sh sourced first\n'; return 1; }
-  recs="$(up_tables_for_clinic "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so the capture filter was not checked: %s\n' "$recs"; return 1; }
-  # with the clinical tables off at this clinic, the connector must not capture them
-  if [ "${CLINICAL_UP_SYNC:-off}" != test ]; then
-    got="$(python3 -c 'import json,sys; c=json.load(open(sys.argv[1])); c=c.get("config", c); print(" ".join(x.split(".", 1)[-1] for x in c.get("table.include.list", "").split(",") if x.split(".", 1)[-1] in sys.argv[2].split()))' "$cfg" "${UP_CLINICAL_TABLES}" 2>&1)" \
-      || { printf 'the registered source configuration cannot be read: %s\n' "$got"; return 1; }
-    if [ -n "$got" ]; then
-      printf 'the source connector captures %s, but CLINICAL_UP_SYNC is off at this clinic: its clinical data would be sent to the hub. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh).\n' "$got"; return 1
-    fi
-  fi
+  type up_tables_read >/dev/null 2>&1 || { printf 'origin_filter_verdict needs sync/tables/tables.sh sourced first\n'; return 1; }
+  recs="$(up_tables_read "$conf" 2>&1)" || { printf 'the clinic table list cannot be read, so the capture filter was not checked: %s\n' "$recs"; return 1; }
   while read -r t pk kind arg; do
     case "$kind" in seed|floor) ;; *) continue ;; esac
     n=$((n+1))
@@ -167,12 +159,12 @@ $got
 EOF
     [ "$rpk" = "$pk" ] || { printf 'the %s capture filter tests column %s, but the table'"'"'s key is %s\n' "$t" "$rpk" "$pk"; return 1; }
     if [ "$rr" != "$r" ]; then
-      printf 'the %s capture filter keeps residue %s, but this MySQL issues ids on residue %s (auto_increment_offset %s): every change this clinic makes to %s would be dropped. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rr" "$r" "$off" "$t"
+      printf 'the %s capture filter keeps residue %s, but this MySQL issues ids on residue %s (auto_increment_offset %s): every change this clinic makes to %s would be dropped. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-source-connector) or call the operator.\n' "$t" "$rr" "$r" "$off" "$t"
       return 1
     fi
     want="$(up_floor_of "$conf" "$t" "$floors" 2>&1)" || { printf 'the %s floor this clinic was seeded with cannot be read, so its capture filter was not checked: %s\n' "$t" "$want"; return 1; }
     if [ "$rfl" != "$want" ]; then
-      printf 'the %s capture filter starts at %s, but the floor this clinic was seeded with is %s. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-source-connector.sh) or call the operator.\n' "$t" "$rfl" "$want"
+      printf 'the %s capture filter starts at %s, but the floor this clinic was seeded with is %s. Regenerate and register the source connector (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-source-connector) or call the operator.\n' "$t" "$rfl" "$want"
       return 1
     fi
     out="${out}ok ${t} capture filter: key ${pk} at or above ${rfl}, residue ${rr}
@@ -181,8 +173,7 @@ EOF
 $recs
 EOF
   if [ "$n" = 0 ]; then
-    if [ "${CLINICAL_UP_SYNC:-off}" != test ]; then printf 'ok CLINICAL_UP_SYNC is off: the source captures no clinical table, so no capture filter is needed\n'
-    else printf 'ok no table in the clinic table list needs a capture filter\n'; fi
+    printf 'ok no table in the clinic table list needs a capture filter\n'
     return 0
   fi
   printf '%s' "$out"

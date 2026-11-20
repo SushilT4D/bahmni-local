@@ -1,44 +1,16 @@
--- Strides the hub's OpenELIS ids (residue 0): every clinlims sequence steps by
--- 10 and restarts at ((greatest(last_value, largest id) / 10) + 1) * 10, the
--- restart cloud/openelis/down-sequence-state.sql reports, so a floor recorded
--- just before this run is exactly where its sequence restarts.
---
--- The largest id is taken over every table OpenELIS numbers from that
--- sequence, not the sequence alone: some lab test catalogue sequences stand
--- below the rows they hold (the rows were loaded with fixed ids), and a
--- sequence restarted from its last value would issue ids those tables already
--- have, so each such save would fail on the duplicate key.
---
--- A sequence already stepping by 10 from a multiple of 10 is left as it is,
--- unless the next id it would issue is at or below the largest id of its
--- tables: then it restarts above them, on the same rule. So a second run moves
--- nothing that is already clear of its rows. A sequence stepping by 10 from any
--- other value is another node's striding, not the hub's: refused, naming it,
--- before anything changes (cloud/scripts/stride-openelis.sh asks the same
--- question before it records any floor).
---
--- Last, every sequence is checked: step 10, a multiple of 10, and its next id
--- above the largest id of its tables. Any that is not is named and the run
--- fails.
---
--- One NOTICE per sequence restarted or lifted, one summary NOTICE, then one line:
---   sequences step 10: <n> of <total>
--- Usage: psql -d openelis -f apply-sequence-striding.sql
+-- Strides the hub's OpenELIS id sequences (residue 0): step 10, restarting above the largest id of their tables.
+-- psql -d openelis -f apply-sequence-striding.sql
+
 \set ON_ERROR_STOP on
 
--- The largest id of the tables OpenELIS numbers from sequence SEQ (0 when they
--- are empty). OpenELIS takes a table's ids from clinlims.<table>_seq, except for
--- the tables listed here, whose sequences its mappings name otherwise (two
--- tables can share one). The same list is in cloud/openelis/down-sequence-state.sql
--- and clinic/openelis/apply-sequence-striding.sql; a test fails when they differ.
+-- The largest id of the tables OpenELIS numbers from a sequence (0 when empty).
 CREATE OR REPLACE FUNCTION pg_temp.clinlims_rows_top(seq text) RETURNS bigint LANGUAGE sql STABLE AS $f$
   SELECT coalesce(max((xpath('/row/m/text()', query_to_xml(format('SELECT max(id) AS m FROM clinlims.%I', c.table_name), false, true, '')))[1]::text::numeric), 0)::bigint
     FROM information_schema.columns c
    WHERE c.table_schema = 'clinlims' AND c.column_name = 'id'
      AND c.data_type IN ('smallint', 'integer', 'bigint', 'numeric')
      AND (c.table_name::text || '_seq' = seq
-          -- pg_get_serial_sequence raises on a table without an id column, and the
-          -- planner may call it before the column test above: CASE keeps the order
+          -- CASE keeps pg_get_serial_sequence off tables without an id column
           OR CASE WHEN c.column_name = 'id' THEN pg_get_serial_sequence(format('clinlims.%I', c.table_name), 'id') END = format('clinlims.%I', seq)
           OR (c.table_name::text, seq) IN (VALUES
 -- openelis-sequence-names:begin
@@ -61,6 +33,7 @@ CREATE OR REPLACE FUNCTION pg_temp.clinlims_rows_top(seq text) RETURNS bigint LA
           ))
 $f$;
 
+-- Refuse another node's striding; then restart unstrided sequences, and lift strided ones that fell behind their rows.
 DO $do$
 DECLARE
   r        record;
@@ -108,6 +81,7 @@ BEGIN
   RAISE NOTICE 'strided % sequence(s); lifted % above their rows; % already stepped by 10 and clear of their rows', v_done, v_lifted, v_kept;
 END $do$;
 
+-- Check every sequence: step 10, on residue 0, next id above its rows.
 DO $check$
 DECLARE
   r        record;

@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Generate MirrorMaker 2 config from template.
-# Consumer group IDs are derived from BHS_LOCATION so each clinic
-# tracks cloud-topic offsets independently.
-#
+# Generate MirrorMaker 2 config from the template.
 # Usage: ./scripts/setup-mirrormaker.sh
 set -euo pipefail
 
@@ -13,10 +10,10 @@ TEMPLATE="${PROJECT_DIR}/config/mirrormaker/mm2.properties.template"
 OUTPUT="${PROJECT_DIR}/config/mirrormaker/mm2.properties"
 LEGACY_TEMPLATE="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties.template"
 LEGACY_OUTPUT="${PROJECT_DIR}/../sync/local/mirrormaker-config/mm2.properties"
-TABLES_CONF="${PROJECT_DIR}/../sync/local/tables.conf"
-DOWN_TABLES_CONF="${PROJECT_DIR}/../cloud/tables.conf"
-SUBSYSTEMS_CONF="${PROJECT_DIR}/../sync/subsystems.conf"
-HUB_DOWN_SH="${PROJECT_DIR}/../sync/hub-down.sh"
+TABLES_CONF="${PROJECT_DIR}/../sync/tables/openmrs.conf"
+DOWN_TABLES_CONF="${TABLES_CONF}"
+# shellcheck source=../../sync/tables/tables.sh
+. "${PROJECT_DIR}/../sync/tables/tables.sh"
 
 echo "Setting up MirrorMaker configuration..."
 
@@ -62,71 +59,44 @@ export BHS_LOCATION
 export MIRRORMAKER_CONSUMER_GROUP_ID="mirrormaker-consumer-group-${BHS_LOCATION}"
 export MIRRORMAKER_CLUSTER_GROUP_ID="mirrormaker-cluster-${BHS_LOCATION}"
 export REMOTE_KAFKA_BOOTSTRAP_SERVERS
-# Cloud SASL + truststore secrets are NOT written into mm2.properties —
-# injected at container start by config/mirrormaker/start-mm2.sh from:
-#   REMOTE_KAFKA_USERNAME, REMOTE_KAFKA_PASSWORD, REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD
+# Cloud secrets stay out of mm2.properties: it reads them as ${env:...} from the container's environment.
 
 echo "✓ BHS_LOCATION=${BHS_LOCATION}"
 echo "✓ MIRRORMAKER_CONSUMER_GROUP_ID=${MIRRORMAKER_CONSUMER_GROUP_ID}"
 echo "✓ MIRRORMAKER_CLUSTER_GROUP_ID=${MIRRORMAKER_CLUSTER_GROUP_ID}"
-echo "✓ cloud secrets left as \${REMOTE_KAFKA_*} placeholders (runtime inject)"
+echo "✓ cloud secrets read from the container environment (\${env:REMOTE_KAFKA_*})"
 
-# ---------------------------------------------------------------------------
-# Topic patterns.  BOTH directions are generated here.
-#
-# Building only the UP pattern, and only from the OpenMRS table list, with the
-# DOWN pattern a literal in the template, omits every Odoo and OpenELIS topic,
-# so a regenerate would silently drop two whole subsystems from replication.
-# The subsystem topics come from sync/subsystems.conf, which is the tracked
-# source of truth for them.
-#
-# Ordering is deliberate and matches the rendered file this replaced:
-# aggregates first, then OpenMRS, then per-table subsystem topics.
-# ---------------------------------------------------------------------------
+# Generate topic patterns for both replication directions.
 SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 REMOTE_SERVER_NAME="${REMOTE_SERVER_NAME:-bahmni-cloud}"
 
-# build_topic_pattern <server-name> <openmrs-tables.conf> [up|down]
-# Emits a MirrorMaker topics regex.  Dots are escaped for the regex, so a topic
-# name is matched literally rather than "." matching any character.  `up` reads
-# the clinic's own list through sync/local/tables-conf.sh, the reader the
-# source connector uses too, so MirrorMaker forwards exactly the topics the
-# source writes; a list it refuses returns 2, which stops this script rather
-# than rendering a config that mirrors none of the clinic's tables.
-# `down` takes the Odoo/OpenELIS topics from the hub's down list
-# (sync/hub-down.sh) instead of sync/subsystems.conf: the hub sends down only
-# master tables, and a subsystem with nothing on that list sends nothing down,
-# not even its aggregate topic. A down list it refuses also returns 2.
+# Build an escaped topic regex from the validated table lists.
 build_topic_pattern() {
   local sn="$1" tconf="$2" grammar="${3:-}"
   local aggs=() omrs=() subs=() line schema topic table recs dsubs dtabs
 
   if [[ "${grammar}" == down ]]; then
-    dsubs="$(bash "${HUB_DOWN_SH}" --subsystems)" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
-    for schema in ${dsubs}; do
-      dtabs="$(bash "${HUB_DOWN_SH}" "${schema}")" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+    for schema in odoo clinlims; do
+      dtabs="$(tables_list "${schema}" down)" || { echo "Error: the hub's down list cannot be read (reason above)" >&2; return 2; }
+      dtabs="$(printf '%s\n' "$dtabs" | cut -d: -f1)"
       aggs+=("${sn}\\.${schema}\\.all")
       for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
     done
-  elif [[ -f "${SUBSYSTEMS_CONF}" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ "$line" =~ ^[[:space:]]*# ]] && continue
-      [[ -z "${line// }" ]] && continue
-      [[ "$line" =~ ^([^:]+):(.+)$ ]] || continue
-      schema="${BASH_REMATCH[1]}"; topic="${BASH_REMATCH[2]}"
-      if [[ "${topic}" == "all" ]]; then
-        aggs+=("${sn}\\.${schema}\\.${topic}")
-      else
-        subs+=("${sn}\\.${schema}\\.${topic}")
-      fi
-    done < "${SUBSYSTEMS_CONF}"
+  else
+    # Odoo and OpenELIS: each [up] table, and the aggregate topic <schema>.all
+    # every table is captured into.
+    for schema in clinlims odoo; do
+      dtabs="$(tables_list "${schema}" up)" || { echo "Error: the ${schema} [up] list cannot be read (reason above)" >&2; return 2; }
+      aggs+=("${sn}\\.${schema}\\.all")
+      for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
+    done
   fi
 
   if [[ -f "${tconf}" && "${grammar}" == up ]]; then
-    # shellcheck source=../../sync/local/tables-conf.sh
-    . "${PROJECT_DIR}/../sync/local/tables-conf.sh"
-    recs="$(up_tables_for_clinic "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
+    # shellcheck source=../../sync/tables/tables.sh
+    . "${PROJECT_DIR}/../sync/tables/tables.sh"
+    recs="$(up_tables_read "${tconf}")" || { echo "Error: ${tconf} cannot be read as the clinic's table list (reason above)" >&2; return 2; }
     while read -r table _rest; do
       [[ -n "${table}" ]] || continue
       omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")
@@ -140,9 +110,12 @@ EOF
       [[ "$line" =~ ^([^:]+):(.+)$ ]] || continue
       table="${BASH_REMATCH[1]}"
       omrs+=("${sn}\\.${DATABASE_NAME}\\.${table}")
-    done < "${tconf}"
+    done < <(tables_section "${tconf}" down)
   fi
 
+  # OpenMRS: the aggregate topic <database>.all every table is routed into; the per-table
+  # topics stay listed until every clinic has drained them
+  aggs+=("${sn}\\.${DATABASE_NAME}\\.all")
   local all=("${aggs[@]}" "${omrs[@]}" "${subs[@]}")
   (( ${#all[@]} > 0 )) || return 1
   printf '(%s)' "$(IFS='|'; echo "${all[*]}")"
@@ -167,10 +140,11 @@ if [[ -z "${KAFKA_DOWN_TOPIC_PATTERNS:-}" ]]; then
 fi
 export REMOTE_SERVER_NAME
 
-# Omit cloud credential vars so placeholders remain for start-mm2.sh.
+# Substitute only these; the ${env:...} references stay for MirrorMaker to resolve.
 SUBST_VARS='${LOCAL_CLUSTER_ALIAS} ${KAFKA_TOPIC_PATTERNS} ${KAFKA_DOWN_TOPIC_PATTERNS} ${BHS_LOCATION} ${MIRRORMAKER_CONSUMER_GROUP_ID} ${MIRRORMAKER_CLUSTER_GROUP_ID} ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}'
 
-envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${OUTPUT}"
+GENERATED_NOTE="# Generated by clinic/scripts/setup-mirrormaker.sh from its template and sync/tables/*.conf. Do not edit: change those and run setup-mirrormaker.sh again."
+{ printf '%s\n' "${GENERATED_NOTE}"; envsubst "${SUBST_VARS}" < "${TEMPLATE}"; } > "${OUTPUT}"
 echo "✓ Generated: ${OUTPUT}"
 
 # Keep legacy debezium/local template in sync when present
@@ -181,7 +155,7 @@ if [[ -f "${LEGACY_TEMPLATE}" ]]; then
   export KAFKA_TOPIC_PATTERNS="${KAFKA_TOPIC_PATTERNS:-.*}"
   export MIRRORMAKER_PRODUCER_RETRIES="${MIRRORMAKER_PRODUCER_RETRIES:-2147483647}"
   export MIRRORMAKER_PRODUCER_MAX_IN_FLIGHT="${MIRRORMAKER_PRODUCER_MAX_IN_FLIGHT:-1}"
-  envsubst "${LEGACY_SUBST}" < "${LEGACY_TEMPLATE}" > "${LEGACY_OUTPUT}"
+  { printf '%s\n' "${GENERATED_NOTE}"; envsubst "${LEGACY_SUBST}" < "${LEGACY_TEMPLATE}"; } > "${LEGACY_OUTPUT}"
   echo "✓ Generated: ${LEGACY_OUTPUT}"
 fi
 

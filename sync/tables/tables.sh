@@ -1,60 +1,46 @@
-# Reader for sync/local/tables.conf, sourced by every script that reads it, so
-# the source connector, MirrorMaker, the striding script and the hub's sinks
-# all accept the same lines and agree on what each one means. A line one
-# reader skips and another accepts is a table captured with no sink, or sunk
-# with no striding; a line this reader cannot place is refused, never skipped.
-#
-# up_tables_read FILE prints one record per table line, in file order:
-#   <table> <pk> base <base_id>    table:pk:<digits>       fixed floor; striding moves AUTO_INCREMENT above it
-#   <table> <pk> seed -            table:pk:seed           the floor is FLOOR_<TABLE> in the seed manifest
-#   <table> <pk> floor <other>     table:pk:floor=<other>  no counter of its own; reads <other>'s floor
-#   <table> <pk> sync -            table:pk                sync only, no floor
-# and on a line it refuses prints the reason to stderr and returns 1.
-#
-# A floor=<other> line names a table with a floor of its own (base or seed)
-# and the same key column: drug_order's key is orders.order_id, and so is
-# test_order's, so their rows are on a clinic's residue exactly when the orders
-# row is, and the capture filter and catch-up read the orders floor. A sync-only line whose key column
-# is a floored table's key is refused for the same reason: without a floor
-# source nothing can tell its legacy rows from the clinic's own.
-#
-# Some tables are never captured at a clinic, whatever the line says: users and
-# user_property are written at the hub and reach a clinic through its down
-# sinks, and global_property is each node's own configuration (it holds, among
-# others, the next order number this node issues). A line for one is refused.
-UP_NEVER_TABLES="users user_property global_property"
-#
-# The source connector's signal table (Debezium's source signal channel: a row
-# inserted there asks the connector for an incremental snapshot) is captured
-# on every clinic, outside this file: it is not clinical data, is never sent to
-# the hub and has no sink. Every reader puts it in the connector's include list
-# (up_signal_collection) and refuses a line that names it, so it can never
-# acquire a topic in MirrorMaker's list or a sink on the hub.
-UP_SIGNAL_TABLE=debezium_signal
-#
-# The clinical tables. Their rows below the floor are the hub's, copied to
-# every clinic by the seed, so a line for one must say where its floor comes
-# from (seed, or floor=<table>): read as sync-only or with a fixed base_id, it
-# would carry no capture filter and every clinic would publish its edits to
-# the hub's rows. Such a line is refused.
-UP_CLINICAL_TABLES="obs orders drug_order test_order"
-#
-# The OpenELIS tables a clinic's OpenELIS source publishes only for rows this
-# clinic minted: id at or above the clinic's floor for the table (recorded by
-# installer task 060 before it strides, CLINLIMS_FLOOR_<TABLE>) and on its
-# residue. The seed copies the hub's lab accounts and signatures to every
-# clinic; an edit a clinic makes to one of those stays at the clinic, as an
-# edit to a hub obs does. Each has a filter step in
-# clinic/connectors/clinlims-source-connector.json, in this order, before the
-# step that routes every table into the one ordered topic.
-UP_CLINLIMS_OWN_ROWS="system_user result_signature"
+#!/usr/bin/env bash
+# Reads the table lists in this directory (openmrs.conf, odoo.conf,
+# openelis.conf), each with an [up] and a [down] section. Source it, or run it
+# (commands at the end). SYNC_TABLES_DIR overrides the directory. bash 3.2.
+SYNC_TABLES_DIR="${SYNC_TABLES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+
+tables_file(){
+  case "$1" in
+    openmrs|odoo|openelis) printf '%s/%s.conf\n' "${SYNC_TABLES_DIR}" "$1" ;;
+    clinlims) printf '%s/openelis.conf\n' "${SYNC_TABLES_DIR}" ;;
+    *) printf 'tables_file: unknown database %s (openmrs, odoo or openelis)\n' "$1" >&2; return 1 ;;
+  esac
+}
+
+tables_section(){ # FILE SECTION
+  [ -f "$1" ] || { printf 'no such table list: %s\n' "$1" >&2; return 1; }
+  awk -v want="[$2]" '
+    { line = $0; t = line; gsub(/^[ \t]+|[ \t]+$/, "", t) }
+    t ~ /^\[[a-z]+\]$/ { inside = (t == want); if (inside) found = 1; next }
+    inside { print line }
+    END { exit !found }' "$1" || { printf '%s has no [%s] section\n' "${1##*/}" "$2" >&2; return 1; }
+}
+
+tables_list(){ # DB SECTION
+  local f c
+  f="$(tables_file "$1")" || return 1
+  c="$(tables_section "$f" "$2")" || return 1
+  printf '%s\n' "$c" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true
+}
+
+UP_NEVER_TABLES="users user_property global_property"   # never captured at a clinic
+UP_SIGNAL_TABLE=debezium_signal                          # captured on every clinic without a line
+UP_CLINICAL_TABLES="obs orders drug_order test_order"    # need a seed or floor=<table> floor
+UP_CLINLIMS_OWN_ROWS="system_user result_signature"     # OpenELIS tables sent only for rows the clinic minted
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
-#
-# bash 3.2 compatible (macOS): no associative arrays.
+
+# up_tables_read FILE: the OpenMRS [up] section of FILE, one record per line:
+#   <table> <pk> base <n> | seed - | floor <other table> | sync -
+# Refuses (stderr, exit 1) a line it cannot place.
 up_tables_read(){
-  local f="$1" line n=0 t pk third kind arg recs="" re
+  local f="$1" line n=0 t pk third kind arg recs="" re sec
   re='^([A-Za-z0-9_]+):([A-Za-z0-9_,]+)(:([^:[:space:]]+))?$'
-  [ -f "$f" ] || { printf 'tables.conf not found: %s\n' "$f" >&2; return 1; }
+  sec="$(tables_section "$f" up)" || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n+1))
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -79,9 +65,10 @@ up_tables_read(){
     fi
     recs="${recs}${t} ${pk} ${kind} ${arg}
 "
-  done < "$f"
-  # second pass: a floor source must exist, and a key shared with a floored
-  # table needs one
+  done <<EOF_SECTION
+$sec
+EOF_SECTION
+  # a floor source must exist, and a key shared with a floored table needs one
   local other okind opk
   while read -r t pk kind arg; do
     [ -n "$t" ] || continue
@@ -113,13 +100,7 @@ EOF
   printf '%s' "$recs"
 }
 
-# up_floor_of FILE TABLE MANIFEST prints the floor that applies to TABLE's keys:
-# its base_id, its seed manifest floor, or the floor of the table it reads; and
-# nothing for a sync-only table. Returns 1, with the reason on stderr, when
-# TABLE is not in FILE, or its floor should come from the manifest and the
-# manifest is missing or does not carry it as a number. It never stops the
-# calling shell itself, under set -e -o pipefail or not: a caller that does not
-# test the status still sees why.
+# up_floor_of FILE TABLE MANIFEST: the floor of TABLE's keys (nothing if it has none).
 up_floor_of(){
   local f="$1" want="$2" m="${3:-}" recs t="" pk="" kind="" arg="" key v
   recs="$(up_tables_read "$f")" || return 1
@@ -148,27 +129,28 @@ EOF
   esac
 }
 
-# Whether this clinic sends the clinical tables up at all: CLINICAL_UP_SYNC in
-# clinic/.env, written at install from the answers. "off" (the default) keeps
-# obs, orders, drug_order and test_order at the clinic whatever this file lists; "test"
-# sends them, for a clinic that carries test data only. Real patients'
-# clinical data does not travel until the hub link has per-site credentials
-# and access control, so a clinic is never switched on by default, and a
-# production clinic installed from this tree keeps them local.
-up_clinical_mode_verdict(){ # VALUE -> "ok off|test", or the refusal
-  case "${1:-off}" in
-    off|test) printf 'ok %s\n' "${1:-off}" ;;
-    *) printf 'CLINICAL_UP_SYNC is '"'"'%s'"'"', not off or test: off keeps obs, orders, drug_order and test_order at this clinic, test sends them to the hub (test data only). Fix the answers file.\n' "$1"; return 1 ;;
+# tables_unrouted DB: the [down] tables every clinic keeps (no clinic=<column>).
+tables_unrouted(){ tables_list "$1" down | grep -v ':clinic=' | cut -d: -f1; }
+
+# tables_routes DB: "<table> <column> <floor table>" for each [down] row marked
+# clinic=<column>. The clinic compares <column> with its floor for <floor table>:
+# the table itself when <column> is id, table t when <column> is t_id.
+tables_routes(){
+  tables_list "$1" down | sed -n 's/^\([a-z0-9_]*\):clinic=\([a-z0-9_]*\)$/\1 \2/p' |
+    while read -r t c; do
+      if [ "$c" = id ]; then echo "$t $c $t"; else echo "$t $c ${c%_id}"; fi
+    done
+}
+
+# Run as a command:
+#   tables.sh DB up|down          the section's entries, as written
+#   tables.sh DB unrouted|routes  tables_unrouted / tables_routes
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  [ $# -eq 2 ] || { echo 'usage: tables.sh <openmrs|odoo|openelis> <up|down|unrouted|routes>' >&2; exit 2; }
+  case "$2" in
+    up|down) tables_list "$1" "$2" ;;
+    unrouted) tables_unrouted "$1" ;;
+    routes) tables_routes "$1" ;;
+    *) echo "tables.sh: unknown section $2" >&2; exit 2 ;;
   esac
-}
-# up_tables_for_clinic FILE [MODE] : up_tables_read, as a clinic reads it: the
-# clinical tables (UP_CLINICAL_TABLES) are left out unless MODE (default
-# CLINICAL_UP_SYNC, default off) is test. Every clinic-side reader uses it;
-# the hub reads the whole list and decides per clinic (cloud/clinics.<hub>.conf).
-up_tables_for_clinic(){
-  local f="$1" mode="${2:-${CLINICAL_UP_SYNC:-off}}" recs v
-  v="$(up_clinical_mode_verdict "$mode")" || { printf '%s\n' "$v" >&2; return 1; }
-  recs="$(up_tables_read "$f")" || return 1
-  if [ "$mode" = test ]; then printf '%s' "$recs"; return 0; fi
-  printf '%s' "$recs" | awk -v c=" ${UP_CLINICAL_TABLES} " 'index(c, " " $1 " ") == 0 { print }'
-}
+fi

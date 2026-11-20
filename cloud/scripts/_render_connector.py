@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""Render a connector JSON for registration: substitute credentials from the
-environment and emit the bare config object.
-
-Substitutes ONLY names that actually exist in the environment. Kafka Connect has its
-own ${topic} placeholder which it expands at runtime in table.name.format, and an
-unconditional substitution silently turned it into an empty string -- the sink then
-tried to write to a table named `public.` and every task died with
-`Invalid identifier: public.` while the CONNECTOR still reported RUNNING. Only the
-task state showed it. Unknown placeholders are therefore passed through untouched.
-"""
+"""Render a connector JSON for upload: fill ${NAME} values from the environment,
+check that no password and no [down] table list is left unfilled, and print the
+config object. Unknown placeholders (Kafka Connect's own, like ${topic}) are kept."""
 import json, os, re, sys
 
 d = json.load(open(sys.argv[1]))
 cfg = d.get('config', d)
-
 
 def sub(v):
     if not isinstance(v, str):
@@ -22,24 +14,20 @@ def sub(v):
                   lambda m: os.environ[m.group(1)] if m.group(1) in os.environ else m.group(0),
                   v)
 
-
+# Fill every ${NAME} that is set in the environment.
 cfg = {k: sub(v) for k, v in cfg.items()}
 
+# A password left as a placeholder, or an unfilled [down] list, stops the upload.
 unresolved = [k for k, v in cfg.items()
               if 'password' in k.lower() and isinstance(v, str) and v.startswith('${')]
 if unresolved:
     sys.exit('  unset env for: ' + ','.join(unresolved))
 
-# The down list's placeholders must be filled: left in, Debezium reads them as a
-# table pattern that matches nothing, and the source runs while sending nothing.
 down_left = [k for k, v in cfg.items() if isinstance(v, str) and '${HUB_DOWN_' in v]
 if down_left:
     sys.exit('  the down list was not rendered into: ' + ','.join(down_left))
 
-# A source that reads one of the hub's down publications sends down exactly the
-# down list of its subsystem (HUB_DOWN_ODOO_TABLES / HUB_DOWN_CLINLIMS_TABLES,
-# from sync/hub-down.sh): any other table in its table list or aggregate regex
-# is refused, whatever the template says.
+# A source reading a down publication must capture exactly the [down] tables.
 DOWN_PUBLICATIONS = {'dbz_odoo_owned': 'HUB_DOWN_ODOO_TABLES', 'dbz_clinlims_owned': 'HUB_DOWN_CLINLIMS_TABLES'}
 if cfg.get('publication.name') in DOWN_PUBLICATIONS:
     var = DOWN_PUBLICATIONS[cfg['publication.name']]

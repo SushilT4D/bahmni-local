@@ -1,41 +1,21 @@
 #!/usr/bin/env bash
-# Send up the rows of obs, orders, drug_order and test_order this clinic wrote before the
-# source connector captured those tables, or that the hub lost (an outage
-# longer than the hub keeps changes).
-#
-# The source starts with snapshot.mode no_data, so a table added to
-# sync/local/tables.conf later is captured from that moment on; rows written
-# before it never travel. This script asks the running source connector for an
-# incremental snapshot of each such table, through its signal table
-# (openmrs.debezium_signal), limited to the rows this clinic owns:
-#     <key> >= <floor> AND <key> % 10 = <residue>
-# the same test the capture filter applies, so no hub row and no other
-# clinic's row is read. drug_order and test_order read the orders floor. The hub's sinks
-# upsert on the key, so sending a row the hub already has changes nothing, and
-# running this twice is harmless.
+# Request incremental snapshots of clinic-owned clinical rows.
 #
 # Usage (from the clinic directory):
 #   scripts/catch-up-clinical.sh --dry-run [--id RUN] [TABLE ...]   print what would be signalled; touches nothing
 #   scripts/catch-up-clinical.sh [--id RUN] [TABLE ...]             count the rows, then insert one signal per table
 #   scripts/catch-up-clinical.sh --status                           what the connector's offsets say is in progress
-# TABLE defaults to every table of sync/local/tables.conf whose floor comes
-# from the seed or from another table. RUN names the signal rows
-# (catch-up-<table>-<RUN>); it defaults to the UTC time.
-#
-# Floors come from SEED_MANIFEST, or else from the floors the seed recorded in
-# .install-state; the residue is RESIDUE in .env. CONNECT_URL (default
-# http://localhost:8083), CONTAINER_TOOL and MYSQL_CONTAINER override where the
-# connector and the database are reached.
+# TABLE defaults to seeded tables; RUN defaults to the current UTC time.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${PROJECT_DIR}/.." && pwd)"
 ENV_FILE="${PROJECT_DIR}/.env"
-TABLES_CONF="${REPO_ROOT}/sync/local/tables.conf"
+TABLES_CONF="${REPO_ROOT}/sync/tables/openmrs.conf"
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 CONNECTOR=mysql-source-connector
 
-usage(){ sed -n '17,23p' "$0" | sed 's/^# \{0,1\}//'; }
+usage(){ sed -n '4,8p' "$0" | sed 's/^# \{0,1\}//'; }
 die(){ printf 'catch-up: %s\n' "$*" >&2; exit 1; }
 
 DRY=0; STATUS=0; RUN=""; want=""
@@ -51,6 +31,7 @@ while [ $# -gt 0 ]; do
 done
 case "$RUN" in '') RUN="$(date -u +%Y%m%dT%H%M%SZ)" ;; *[!A-Za-z0-9_-]*) die "--id takes letters, digits, _ and - only" ;; esac
 
+# Report the source connector's incremental-snapshot progress when requested.
 if [ "$STATUS" = 1 ]; then
   # Kafka Connect returns the connector's source offsets; while an incremental
   # snapshot runs they carry the collections it still has to read
@@ -75,20 +56,16 @@ else:
 fi
 
 [ -f "${ENV_FILE}" ] || die ".env not found at ${ENV_FILE}"
+# Load clinic identity and seed-derived table floors.
 set -a; . "${ENV_FILE}"; set +a
 DB="${DATABASE_NAME:-openmrs}"
 case "${RESIDUE:-}" in [1-9]) ;; *) die "RESIDUE in ${ENV_FILE} is '${RESIDUE:-}', not a clinic residue (1 to 9)" ;; esac
 FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
-. "${REPO_ROOT}/sync/local/tables-conf.sh"
-v="$(up_clinical_mode_verdict "${CLINICAL_UP_SYNC:-off}")" || die "$v"
-if [ "${v#ok }" != test ]; then
-  echo "catch-up: CLINICAL_UP_SYNC is off at this clinic: obs, orders, drug_order and test_order stay here, so there is nothing to send up."
-  exit 0
-fi
-recs="$(up_tables_for_clinic "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"
+. "${REPO_ROOT}/sync/tables/tables.sh"
+recs="$(up_tables_read "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"
 SIGNAL="$(up_signal_collection "${DB}")"
 
-# the tables this run covers: "table pk floor" lines
+# Build the selected table plan as "table pk floor" records.
 plan=""
 while read -r t pk kind _arg; do
   [ -n "$t" ] || continue
@@ -114,6 +91,7 @@ signal_sql(){ # TABLE PK FLOOR
 }
 count_sql(){ printf 'SELECT COUNT(*) FROM %s.`%s` WHERE %s;\n' "$DB" "$1" "$(cond_of "$2" "$3")"; }
 
+# Print the SQL without touching MySQL in dry-run mode.
 if [ "$DRY" = 1 ]; then
   echo "-- catch-up, residue ${RESIDUE}, run ${RUN} (dry run: nothing counted, nothing inserted)"
   printf '%s' "$plan" | while read -r t pk fl; do
@@ -125,12 +103,11 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
-# The running connector must capture each table and its signal table, or the
-# signal is never read (or reads a table it does not publish).
+# Verify the connector captures every table and its signal channel.
 cfg="$(curl -sf --max-time 10 "${CONNECT_URL}/connectors/${CONNECTOR}/config")" || die "could not read ${CONNECTOR}'s configuration from ${CONNECT_URL}; is Kafka Connect up?"
 inc="$(printf '%s' "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("table.include.list",""))')"
 for t in "${SIGNAL#*.}" $(printf '%s' "$plan" | awk '{print $1}'); do
-  case ",${inc}," in *",${DB}.${t},"*) ;; *) die "${CONNECTOR} does not capture ${DB}.${t}; regenerate and register it first (scripts/generate-connectors.sh, then scripts/register-source-connector.sh). Nothing was signalled." ;; esac
+  case ",${inc}," in *",${DB}.${t},"*) ;; *) die "${CONNECTOR} does not capture ${DB}.${t}; regenerate and register it first (scripts/generate-connectors.sh, then scripts/register-connectors.sh mysql-source-connector). Nothing was signalled." ;; esac
 done
 
 CT="${CONTAINER_TOOL:-}"
@@ -140,6 +117,7 @@ MY="${MYSQL_CONTAINER:-${COMPOSE_PROJECT_NAME:-bahmni}-bahmni-mysql-1}"
 mysql_root(){ "$CT" exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N'; }
 
 echo "catch-up: residue ${RESIDUE}, run ${RUN}"
+# Count clinic-owned rows and submit one snapshot signal per table.
 total=0
 while read -r t pk fl; do
   [ -n "$t" ] || continue

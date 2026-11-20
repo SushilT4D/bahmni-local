@@ -42,7 +42,7 @@ if [ -z "${connector_exists}" ]; then
     echo "To register it locally:"
     echo "  cd local"
     echo "  ./scripts/setup-connectors.sh"
-    echo "  ./scripts/register-source-connector.sh"
+    echo "  ./scripts/register-connectors.sh mysql-source-connector"
     exit 1
 fi
 
@@ -73,15 +73,11 @@ fi
 
 
 
-# Capture filter: the steps that keep the clinic's own rows of obs, orders,
-# drug_order and test_order, read back from the registered connector (sync/origin-filter.sh).
-# Its residue is checked against the running MySQL's auto_increment_offset
-# (MYSQL_OFFSET overrides the read) and its floors against SEED_MANIFEST, or
-# else the floors the seed recorded on this machine (.install-state).
+# Validate the registered capture filter against the clinic's residue and floors.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CLINIC_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-. "${REPO_ROOT}/sync/local/tables-conf.sh"
+. "${REPO_ROOT}/sync/tables/tables.sh"
 . "${REPO_ROOT}/sync/origin-filter.sh"
 echo ""
 echo "Capture filter:"
@@ -96,10 +92,7 @@ if [ -z "${offset}" ]; then
     [ -n "${offset}" ] && break
   done
 fi
-# whether this clinic sends the clinical tables at all, as its .env says
-CLINICAL_UP_SYNC="${CLINICAL_UP_SYNC:-$(sed -n 's/^CLINICAL_UP_SYNC=//p' "${CLINIC_ROOT}/.env" 2>/dev/null | tail -1 | tr -d "\"' ")}"
-export CLINICAL_UP_SYNC
-verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/local/tables.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
+verdict="$(origin_filter_verdict "${cfg_file}" "${REPO_ROOT}/sync/tables/openmrs.conf" "${SEED_MANIFEST:-${CLINIC_ROOT}/.install-state}" "${offset}")"; vrc=$?
 rm -f "${cfg_file}"
 printf '%s\n' "${verdict}" | sed 's/^/  /'
 exit "${vrc}"

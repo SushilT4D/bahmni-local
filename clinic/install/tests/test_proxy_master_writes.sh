@@ -11,7 +11,7 @@
 # configuration.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
-C="${PROXY_CONF:-${RP}/clinic/proxy/bahmni-nginx.openelis.conf}"
+C="${PROXY_CONF:-${RP}/clinic/proxy/bahmni-nginx.conf}"
 V="${RP}/cloud/table-verdicts.conf"
 MSG='Master data is maintained at the hub; this change is refused at this clinic'
 U=7c4e5b2a-0d6f-4b5e-9d1a-3f2e1c0b9a87

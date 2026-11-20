@@ -34,7 +34,7 @@ printf '%s' "$line" | grep -qF -- "-Dinitializer.domains=\${OPENMRS_INITIALIZER_
 grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | grep -q -- '-Dinitializer.domains' && bad ".env.example sets the domains in OMRS_JAVA_SERVER_OPTS" || ok_ ".env.example leaves -Dinitializer.domains to compose"
 if command -v docker >/dev/null 2>&1; then
   { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
-    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
+    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
   } | sort -u | grep -v '^OMRS_JAVA_SERVER_OPTS$' | awk '/PATH$|DIR$|BACKUP$/{print $0"=/p"; next} {print $0"=1"}' > "$TMP/render.vars"
   printf 'OMRS_JAVA_SERVER_OPTS="-server -Dfile.encoding=UTF-8"\n' >> "$TMP/render.vars"
   opts(){ ( cd "$CL" && env -u OPENMRS_INITIALIZER_DOMAINS "$@" docker compose --env-file "$TMP/render.vars" --profile local config --format json 2>/dev/null ) \

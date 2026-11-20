@@ -8,7 +8,7 @@
 -- keyed on the PK that is not a loud failure -- it is silent data loss: the
 -- second node's order OVERWRITES the first node's. This script closes that.
 --
--- SCOPE. Only the synced tables (sync/subsystems.conf's odoo: rows, the
+-- SCOPE. Only the synced tables (sync/tables/odoo.conf [up], the
 -- address-mapping, attribute and link tables included) plus the join/child tables that
 -- hang off them. Framework sequences (ir_*) are deliberately untouched: they never
 -- travel, and striding them would desynchronise module installation across nodes.
@@ -31,13 +31,12 @@
 -- separately; this script does not pretend to fix it.
 --
 -- TABLE LIST. The synced Odoo tables are not hard-coded here: the caller
--- (task 060) reads sync/subsystems.conf's odoo: rows,
+-- (task 060) reads sync/tables/odoo.conf [up],
 -- through lib.sh's subsystem_tables (trims, validates, skips :all) -- the same file
 -- the publication and MirrorMaker whitelist derive from -- and passes them in as a
 -- single comma-separated psql variable, split back into an array below. A second
--- source of truth for "which Odoo tables are synced" is exactly the bug this repo's
--- subsystems.conf already fixed once for the MirrorMaker regex (see that file's own
--- header); this script does not get to keep its own copy.
+-- source of truth for "which Odoo tables are synced" would let a table be published
+-- and replicated but not strided; this script does not get to keep its own copy.
 --
 -- COMPOSITE-KEY LINK TABLES. Three of the tables
 -- this script now receives (product_taxes_rel, product_supplier_taxes_rel,
@@ -54,7 +53,7 @@
 -- table name.
 --
 -- Usage: psql -U postgres -d odoo -v residue=4 -v tables=res_partner,product_template,... \
---          -f odoo/apply-odoo-sequence-striding.sql
+--          -f scripts/sql/odoo/apply-odoo-sequence-striding.sql
 \set ON_ERROR_STOP on
 BEGIN;
 
@@ -76,7 +75,7 @@ DECLARE
   v_tables  text[] := string_to_array(current_setting('myvars.tables'), ',');
 BEGIN
   IF v_tables IS NULL OR array_length(v_tables, 1) IS NULL THEN
-    RAISE EXCEPTION 'no tables passed in -tables (expected a comma-separated list from sync/subsystems.conf)';
+    RAISE EXCEPTION 'no tables passed in -tables (expected a comma-separated list from sync/tables/{odoo,openelis}.conf [up])';
   END IF;
   IF v_residue < 0 OR v_residue > 9 THEN
     RAISE EXCEPTION 'residue must be 0..9, got %', v_residue;
@@ -88,7 +87,7 @@ BEGIN
     --
     -- A synced table with no serial sequence on id is a DEFECT, not something to
     -- notice-and-skip: this table is in the publication
-    -- and in the MirrorMaker whitelist by construction (same subsystems.conf list),
+    -- and in the MirrorMaker whitelist by construction (the same sync/tables/odoo.conf [up] list),
     -- so it will be written from more than one node -- and if its ids are not
     -- strided, two nodes CAN mint the same id. A quiet NOTICE let exactly
     -- that gap through with a green task.
@@ -119,7 +118,7 @@ BEGIN
         RAISE NOTICE '  % : composite primary key (% columns), no serial id -- collision-free by construction (strided id + seed-identical master id), skipping', v_tbl, v_pkcols;
         CONTINUE;
       END IF;
-      RAISE EXCEPTION '% is a synced table (sync/subsystems.conf) with no serial sequence on id and no composite primary key -- it cannot be strided, so two nodes could mint the same id', v_tbl;
+      RAISE EXCEPTION '% is a synced table (sync/tables/{odoo,openelis}.conf [up]) with no serial sequence on id and no composite primary key -- it cannot be strided, so two nodes could mint the same id', v_tbl;
     END IF;
 
     EXECUTE format('SELECT COALESCE(MAX(id),0) FROM public.%I', v_tbl) INTO v_max;

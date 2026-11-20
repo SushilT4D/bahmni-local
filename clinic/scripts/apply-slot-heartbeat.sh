@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# heartbeat table + publication membership in both PG databases, then heartbeat settings
-# on both PG source connectors of this node. Usage: scripts/apply-slot-heartbeat.sh <docker|podman> <pg-container> <pg-superuser> <odoo-source-name> <clinlims-source-name> [connect-url]
+# Configure the heartbeat table, publication and source connectors.
+# Usage: scripts/apply-slot-heartbeat.sh <docker|podman> <pg-container> <pg-superuser> <odoo-source-name> <clinlims-source-name> [connect-url]
 set -euo pipefail
 T=$1; PG=$2; SU=$3; OSRC=$4; CSRC=$5; C=${6:-http://localhost:8083}
 here=$(cd "$(dirname "$0")/.." && pwd)
-$T cp "$here/odoo/apply-slot-heartbeat.sql" "$PG:/tmp/hb.sql"
+# Install the heartbeat table and publication in both databases.
+$T cp "$here/scripts/sql/apply-slot-heartbeat.sql" "$PG:/tmp/hb.sql"
 $T exec "$PG" psql -U "$SU" -d odoo     -v ON_ERROR_STOP=1 -v s=public   -v r=odoo     -v p=dbz_odoo_owned     -f /tmp/hb.sql | grep 'carries'
 $T exec "$PG" psql -U "$SU" -d openelis -v ON_ERROR_STOP=1 -v s=clinlims -v r=clinlims -v p=dbz_clinlims_owned -f /tmp/hb.sql | grep 'carries'
+# Enable heartbeat events on both source connectors.
 patch() { # name schema
   curl -s "$C/connectors/$1/config" | python3 -c "
 import json,sys; c=json.load(sys.stdin); s=sys.argv[1]

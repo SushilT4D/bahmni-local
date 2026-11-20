@@ -49,9 +49,9 @@ step(){ # PLATFORM [UPSTREAMS] : one run of the install step, sudo log reset fir
     DRY=0; DNS_UPSTREAMS="${2:-1.1.1.1}"
     "dns_install_$1" bahmni.clinic ) > "${T}/out" 2>&1
 }
-restarted(){ grep -qE 'services restart dnsmasq|systemctl restart dnsmasq' "${STUB_LOG}"; }
+restarted(){ grep -qE 'services restart dnsmasq' "${STUB_LOG}"; }
 
-for p in macos linux; do
+for p in macos; do
   step "$p"
   restarted && ok_ "${p}: first run restarts dnsmasq" || bad "${p}: first run did not restart dnsmasq"
   step "$p"

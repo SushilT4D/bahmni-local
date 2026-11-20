@@ -1,30 +1,23 @@
-# clinic/install — install a clinic machine, then seed it at go-live
+# clinic/install — install a clinic machine on the hub's data
 
-Two sittings, two people, on a fresh macOS (rootless podman) or Linux (Docker) host:
+One run, on a fresh Apple Silicon Mac running rootless podman, with the seed
+folder the operator took from the hub:
 
-    # the operator, before the machine ships (no hub data needed)
     clinic/install/install.sh --clinics                                          # who is registered
-    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> --dry-run
-    clinic/install/install.sh --clinic <slug> --secrets <hub secrets file> [--versions <file>] [--cert-hostname <name>] [--baseline <dir>]
+    clinic/install/install.sh --clinic <slug> --seed <folder> --secrets <hub secrets file> --dry-run
+    clinic/install/install.sh --clinic <slug> --seed <folder> --secrets <hub secrets file> [--versions <file>]
 
-    # clinic staff, on site, at go-live, with the folder the operator copied
-    clinic/install/seed.sh --seed <folder> [--discard-baseline-data] [--dry-run]
-
-`install.sh` builds the host, the images and the name service, and starts Bahmni on
-a disposable baseline (IPLIT's own database images, pinned in `sync/versions.env`;
-`--baseline <dir>` supplies `openmrs.sql.gz`, `odoo.sql.gz` and `openelis.sql.gz`
-instead). No sync runs and nothing is captured. It ends with the machine marked
-INSTALLED (`clinic/.install-state`).
-
-`seed.sh` refuses a seed folder with no manifest, a dump older than six days (the
-hub keeps a week of changes; `SEED_MAX_AGE_DAYS`), a damaged dump, a dump from the
-wrong OpenMRS or Odoo version or taken before the hub partitioned its address ids,
-a machine whose LAN name no longer points at it, a machine already seeded, and
-records entered before seeding (unless `--discard-baseline-data`). Then it replaces
-the three databases with the hub's, strides them, sets the site identity, checks the
-hub credentials, starts the feeds and the sync layer, and proves the node. It ends
-SEEDED; the operator then joins the clinic to the hub. A seed that stops part-way
-is run again as is: it redoes the restore from the start.
+The seed folder holds `openmrs.sql.gz`, `odoo.sql.gz`, `openelis.sql.gz` and
+`manifest.env`. The installer first refuses a folder with no manifest, a dump
+older than six days (the hub keeps a week of changes; `SEED_MAX_AGE_DAYS`), a
+damaged dump, a dump from the wrong OpenMRS or Odoo version or taken before the
+hub partitioned its address ids, and a machine already installed. Then it builds
+the host, the images and the name service, loads the three databases from the
+seed, strides them, sets the site identity, checks the hub credentials, starts
+the feeds and the sync layer, and proves the node. It ends with the machine
+marked SEEDED (`clinic/.install-state`); the operator then joins the clinic to
+the hub. A run that stops part-way is resumed with `--from NNN`, or run again
+as is: it reloads the databases from the start.
 
 Staff open `https://bahmni.clinic/` (Bahmni, `/openmrs`, `/openelis`) and
 `https://odoo.bahmni.clinic/` (Odoo). The certificate is self-signed: each device
@@ -37,8 +30,7 @@ router, point both names at the machine in that computer's hosts file.
 (MRN prefix, site number, phone), the residue from `sync/clinics.txt` (the only
 place it lives), the hub endpoint from `sync/hub.env`, and the four hub credentials
 from `--secrets` (the operator's hub secrets file). Whatever
-is still missing is asked on the terminal — the certificate hostname always, unless
-`--cert-hostname` is given — and the result is kept in `~/clinic-<slug>.env` (mode
+is still missing is asked on the terminal, and the result is kept in `~/clinic-<slug>.env` (mode
 600) so a resume needs nothing typed again. With no terminal and a value missing
 it fails naming the file to put it in. `--answers <file>` remains the hand-written
 path for a clinic that is not registered (`clinic.env.example`).
@@ -52,7 +44,7 @@ chosen per install; the sync layer (Kafka, MirrorMaker, Debezium) cannot.
 | Key | Default image |
 |---|---|
 | `OPENMRS_IMAGE_NAME` | `infoiplitin/openmrs` |
-| `ODOO_IMAGE_NAME` | `bahmni/odoo-16` |
+| `ODOO_LOCAL_IMAGE` | `bahmni/odoo-16` |
 | `ODOO_CONNECT_IMAGE_TAG` | `bahmni/odoo-connect` |
 | `OPENELIS_IMAGE_TAG` | `bahmni/openelis` |
 | `BAHMNI_WEB_IMAGE` | `infoiplitin/bahmni-iplit-web` (the UI the clinic's nginx serves) |
@@ -75,7 +67,7 @@ Two ways to choose, like the hub secrets:
   Enter keeps it.
 
 Each image that differs from its default is kept in `~/clinic-<slug>.env`, so a
-resume makes the same choice; it is written into `clinic/.env`, and `seed.sh` reads
+resume makes the same choice; it is written into `clinic/.env`, and later tasks read
 it from there. The run log names every image that differs. To choose again, pass
 `--versions`, or delete the answers file.
 
@@ -104,7 +96,7 @@ command that fails under `set -e` prints a `FAILED rc=N: <command as written>` l
 with its call chain (bash 4+), so a STOPPED never arrives without a culprit. Task 080
 pins the OpenMRS JVM options in `.env` before it starts the stack (a node composed
 before that fix is repaired on resume), proves odoo-connect is parked before it sets
-the feed markers, and treats a container Docker restarted during the OpenMRS wait as
+the feed markers, and treats a container podman restarted during the OpenMRS wait as
 a crash loop: it fails at once with the log lines instead of after 25 minutes. Every
 task is idempotent (it skips what is already done), but this is a FRESH-INSTALL
 tool: an existing `clinic/.env` is a refusal.
@@ -139,7 +131,7 @@ Forms are published only on the hub, in the form builder. A clinic does not
 author them:
 
 - **Rows by sync.** `form` and `form_resource` are hub tables
-  (`cloud/tables.conf`). A clinic gets the hub's rows with its seed and every
+  (`sync/tables/openmrs.conf [down]`). A clinic gets the hub's rows with its seed and every
   later change through the down sync, so a form has the same id, uuid and
   version on every node. That matters because a saved observation names its
   form by name and version.
@@ -172,7 +164,7 @@ Two answers name the forms repo:
 
 They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
 file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
-`clinic/.env`, where the seed sitting and `update-forms.sh` read them, together
+`clinic/.env`, where later tasks and `update-forms.sh` read them, together
 with the folder `docker-compose.yml` mounts and whether it is read-only
 (`FORMS_DIR`, `FORMS_READ_ONLY`). Git gets the key by path; nothing prints its
 contents. The key path must be absolute and plain (letters, digits, `. _ / -`);
@@ -231,8 +223,8 @@ After the database is restored, task 075:
 
 Task 080 does not start the stack while the forms folder is missing, holds no
 form or has no `translations/`, or, with a forms repo, while the mount is not
-the clone, read-only; at seed it runs the row/file check again. Install checks
-neither concepts nor rows: the baseline database is replaced at seed.
+the clone, read-only, and it runs the row/file check again against the restored
+database.
 
 ### Updating the forms on a running node
 
@@ -251,11 +243,8 @@ forms already here keep working; the next run tries again); 4 another run holds
 `clinic/forms`. With no forms repo configured it reports the frozen copy and
 exits 0.
 
-Schedule it every 15 minutes, as the user that owns the checkout:
-
-- Linux: a cron line, `*/15 * * * * <checkout>/clinic/scripts/update-forms.sh >> <log file> 2>&1`,
-  or a systemd timer running the same command;
-- macOS: a launchd agent with `StartInterval` 900 running the same command.
+Schedule it every 15 minutes, as the user that owns the checkout: a launchd
+agent with `StartInterval` 900 running `<checkout>/clinic/scripts/update-forms.sh`.
 
 The rows and the files travel separately. A form row can arrive before its
 file; that form then fails to open until the next pull, and the row/file check
@@ -263,8 +252,8 @@ names it. The hub's forms are exported to the forms repo right after they are
 published, and clinics pull often, to keep that gap short. A file can also
 arrive before its rows; nothing shows it until they do.
 
-**A node seeded before forms came down by sync** takes them by a **reseed**.
-The seed is the baseline: it brings the hub's form rows, seed task 050 grants
+**A node seeded before forms were pulled by sync** takes them by a **reseed**.
+The seed brings the hub's form rows, task 050 grants
 the sink user the form tables, and task 075 clones the forms repo. The down
 sinks carry only later changes, so registering them on such a node would keep
 any form row it already has that differs from the hub's, and the row/file
@@ -281,14 +270,13 @@ image, after an edit of `clinic/.env`):
 
 runs the checks task 080 runs before OpenMRS starts (the JVM options, the
 forms mount, the Initializer domain list against the config tree) and only
-then recreates openmrs alone, with the node's compose setup (`clinic/.env`'s
-`COMPOSE_FILE`, the fleet's profiles, docker compose or docker-compose over the
-podman socket). A refused check recreates nothing. Recreate OpenMRS this way,
+then recreates openmrs alone, with the node's compose setup (the fleet's
+profiles, docker compose or docker-compose over the podman socket). A refused check recreates nothing. Recreate OpenMRS this way,
 not with a compose command by hand.
 
 **Retiring a form.** Forms are never deleted. A bad version is retired on the
 hub (or its previous content published again as a new version); the retired
-flag comes down by sync, and the file stays in the forms repo for the
+flag reaches the clinic by sync, and the file stays in the forms repo for the
 observations saved with it.
 
 **The config package's demo forms.** A stack that let the Initializer load
@@ -312,7 +300,7 @@ where the form builder is used.
 
 At every start the Initializer module loads each domain folder of the config
 tree (`masterdata/configuration`). Almost every domain writes master data the
-hub owns and sends down: forms (a form it does not know becomes a new version
+cloud server owns and clinics pull: forms (a form it does not know becomes a new version
 numbered by this node), concepts, drugs, locations, roles, programs, the
 address hierarchy, and config changesets that change concepts. So the openmrs
 service passes
@@ -357,13 +345,13 @@ so the property is passed once.
 
 ### Master data writes refused at the proxy
 
-The clinic's proxy (`clinic/proxy/bahmni-nginx.openelis.conf`, the file the
+The clinic's proxy (`clinic/proxy/bahmni-nginx.conf`, the file the
 proxy service mounts) answers any method other than GET, HEAD and OPTIONS with
 403 and the plain-text message
 
     Master data is maintained at the hub; this change is refused at this clinic
 
-on the paths that write the master data the hub sends down, and logs each
+on the paths that write the master data clinics pull from the cloud server, and logs each
 refusal as a line ending `master data write refused: master data is
 maintained at the hub`. The paths are:
 
@@ -416,7 +404,7 @@ The runtime is rootless **podman**, driven through `docker-compose` over
 the podman machine and the LaunchAgent that starts it, and the containers, at login.
 
 IPLIT's `OPENMRS_IMAGE_NAME` is `linux/amd64`-only. On an arm64 host, task 040
-does not pull it -- it runs `openmrs/build-native.sh`, which extracts
+does not pull it -- it runs `openmrs/build.sh`, which extracts
 `/usr/local/tomcat`, `/openmrs`, `/etc/bahmni-emr` and `/home/bahmni` out of
 the pinned image (`create`+`cp`, the source is never executed) onto a native
 arm64 base (`OPENMRS_ARM64_BASE_IMAGE`, pinned in `sync/versions.env`: same OS
@@ -453,10 +441,8 @@ stack back when the machine boots. Two settings are manual, once per machine:
 
 A node installed before the restart policies were added picks them up when
 its containers are recreated, once, in `clinic/`:
-`docker compose --profile local --profile debezium --profile openelis up -d`
-(on macOS: `docker-compose` with the same arguments and `DOCKER_HOST` set to
-the podman machine's socket; `clinic/.env`'s `COMPOSE_FILE` names the compose
-files on both). Without the profiles the
+`docker-compose --profile local --profile debezium --profile openelis up -d`,
+with `DOCKER_HOST` set to the podman machine's socket. Without the profiles the
 command recreates nothing, since every service is in one. Run
 `clinic/scripts/recreate-openmrs.sh --check` first: it runs the checks the
 installer runs before OpenMRS starts.

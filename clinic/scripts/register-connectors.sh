@@ -2,18 +2,19 @@
 # Uploads connector configs from clinic/connectors/ to Kafka Connect.
 #
 # usage: scripts/register-connectors.sh [NAME...]
-#   NAME is a file in connectors/ without .json; with no NAME, every file there.
+#   NAME is a file in connectors/ without .json, or a pattern such as
+#   'mysql-local-sink-*'; with no NAME, every file there.
 #
 # Each config's passwords are ${...} placeholders, filled in here from .env, so
 # no file on disk holds one. A config is created or, if it exists, updated.
-# Before any MySQL down sink (mysql-local-sink-*) is uploaded, the sink database
-# user's grants are checked, and nothing is uploaded if one is missing; after
+# Before the MySQL down sink (mysql-local-sink-all) is uploaded, the sink database
+# user's grants on every [down] table are checked, and nothing is uploaded if one is missing; after
 # them, their tasks are checked.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIR="${CONNECTORS_DIR:-${ROOT}/connectors}"
 CONNECT="${CONNECT_URL:-${LOCAL_CONNECT_URL:-http://localhost:8083}}"
 CLINIC_DIR="${CLINIC_DIR:-${ROOT}}"; export CLINIC_DIR
+DIR="${CLINIC_DIR}/connectors"
 REPO_DIR="${REPO_DIR:-$(cd "${ROOT}/.." && pwd)}"; export REPO_DIR
 # shellcheck disable=SC1091
 . "${ROOT}/install/lib.sh"
@@ -24,7 +25,12 @@ E="${CLINIC_DIR}/.env"
 shopt -s nullglob
 files=()
 if [ $# -gt 0 ]; then
-  for n in "$@"; do [ -f "${DIR}/${n}.json" ] || fail "no ${DIR}/${n}.json: run scripts/generate-connectors.sh first"; files+=("${DIR}/${n}.json"); done
+  for n in "$@"; do
+    # shellcheck disable=SC2206
+    m=("${DIR}"/${n}.json)
+    (( ${#m[@]} )) || fail "no ${DIR}/${n}.json: run scripts/generate-connectors.sh first"
+    files+=("${m[@]}")
+  done
 else
   files=("${DIR}"/*.json)
 fi
@@ -41,13 +47,12 @@ for v in LOCAL_DEBEZIUM_PASSWORD LOCAL_MYSQL_PASSWORD ODOO_DB_PASSWORD ODOO_SINK
   [ -n "${!v}" ] || unset "$v"
 done
 
-# The MySQL down sinks need the sink user's grants on every table they write.
+# The MySQL down sink needs the sink user's grants on every [down] table it writes.
 sinks=()
 for f in "${files[@]}"; do case "${f##*/}" in mysql-local-sink-*) sinks+=("$f") ;; esac; done
 if (( ${#sinks[@]} )); then
-  tables="$(python3 -c 'import json,sys
-for f in sys.argv[1:]: print(json.load(open(f))["config"]["table.name.format"])' "${sinks[@]}")" \
-    || fail "could not read table.name.format from the sink configs in ${DIR}"
+  tables="$(bash "${REPO_DIR}/sync/tables/tables.sh" openmrs down | cut -d: -f1)" \
+    || fail "could not read the OpenMRS [down] list (reason above); nothing was registered"
   COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
   [ -n "${COMPOSE_PROJECT_NAME}" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME: the sink user's grants cannot be read, so nothing was registered"
   [ -n "${CT:-}" ] || setup_compose
@@ -61,7 +66,7 @@ for f in sys.argv[1:]: print(json.load(open(f))["config"]["table.name.format"])'
        Each of those sinks would fail on its first write. Nothing was registered.
        Grant them first:  bash scripts/grant-down-tables.sh   (then run this again)"
   fi
-  echo "  sink user holds SELECT, INSERT, UPDATE, DELETE on all ${#sinks[@]} down sink table(s)"
+  echo "  sink user holds SELECT, INSERT, UPDATE, DELETE on all $(printf '%s\n' $tables | grep -c .) [down] table(s)"
 fi
 
 curl -sf --connect-timeout 5 "${CONNECT}/connectors" >/dev/null || fail "cannot reach Kafka Connect at ${CONNECT}"

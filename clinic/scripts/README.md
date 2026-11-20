@@ -14,34 +14,55 @@ load-bearing. Check the runbooks before concluding anything here is dead.
 
 ## Groups
 
-**Render config** — read `debezium/{local,cloud}/tables.conf` plus `.env` and
-emit connector/topic definitions.
+**Connectors** — two scripts.
+
+- `generate-connectors.sh` regenerates every connector config in
+  `../connectors/` (the OpenMRS, Odoo and OpenELIS sources and down sinks) from `templates/` and
+  `../../sync/tables/`. Passwords stay `${...}` placeholders. Its work is split
+  into the scripts in `generate/`.
+- `register-connectors.sh` uploads configs from `../connectors/` to Kafka
+  Connect, filling in the passwords from `.env`. With no arguments it uploads
+  all of them; or name some (`register-connectors.sh mysql-source-connector`,
+  `register-connectors.sh 'mysql-local-sink-*'`). Before the OpenMRS down sink
+  is uploaded it checks the `sink` user's grants on every `[down]` table and uploads
+  nothing if one is missing.
+
+Each database syncs through one ordered topic per direction: the clinic sends
+`<server>.openmrs.all`, `<server>.odoo.all` and `<server>.clinlims.all`, and pulls the
+cloud server's `bahmni-cloud.<database>.all`. Every table is routed into it, so changes
+arrive in commit order (a parent row before its children), and one sink writes each
+record to the table it came from.
+
+To change which tables sync, edit `../../sync/tables/` (see its README), then
+run both scripts. `unregister-connectors.sh` removes the MySQL source.
+
+**Other rendered config**
 
 | script | renders |
 |---|---|
-| `generate-connectors.sh` | the UP-direction Debezium MySQL source connector |
-| `generate-local-sink-connectors.sh` | the DOWN-direction (cloud → clinic) sinks |
 | `generate-table-config.sh` | `TABLE_INCLUDE_LIST` / `KAFKA_TOPICS` |
 | `generate-topics.sh` | the Kafka topic list |
 | `setup-mirrormaker.sh` | `mm2.properties` from the template |
 
-**Register / unregister** — talk to the local Kafka Connect REST API.
-`register-source-connector.sh`, `register-local-sink-connectors.sh`,
-`unregister-connectors.sh`. `register-local-sink-connectors.sh` first reads the
-`sink` user's grants and refuses, naming the tables and registering nothing,
-when any down sink's table lacks SELECT, INSERT, UPDATE or DELETE.
+**OpenELIS sink role** — `create-clinlims-sink-role.sh` creates the `clinlims_sink`
+role the OpenELIS down sinks log in as, stores its password in `.env`, and checks
+its grants on the OpenELIS `[down]` tables. Task 050 runs it; re-run it after a
+table joins `sync/tables/openelis.conf [down]`.
+
+**Odoo sink role** — `create-odoo-sink-role.sh` creates the `odoo_sink` role the
+Odoo down sinks log in as and stores its password in `.env`. Task 050 runs it.
 
 **Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
 database user SELECT, INSERT, UPDATE and DELETE on every table
-`cloud/tables.conf` lists, and reads the grants back. Seed task 050 does the same
+`sync/tables/openmrs.conf [down]` lists, and reads the grants back. Seed task 050 does the same
 when it seeds; run this on a node seeded before a table joined that file, then
 regenerate and register the down sinks. `--dry-run` prints the grants.
 
-**Table verdicts** — `check-table-verdicts.sh` holds `cloud/tables.conf` and
-`sync/local/tables.conf` to `cloud/table-verdicts.conf`, the one record of which
+**Table verdicts** — `check-table-verdicts.sh` holds `sync/tables/openmrs.conf [down]` and
+`sync/tables/openmrs.conf [up]` to `cloud/table-verdicts.conf`, the one record of which
 node writes each table: a down row must be a hub-written table (DOWN) or a
 relayed one, a clinic capture row must be one a clinic writes (UP or relay).
-It reads `sync/local/tables.conf` with `sync/local/tables-conf.sh`, the reader
+It reads `sync/tables/openmrs.conf [up]` with `sync/tables/tables.sh`, the reader
 every capture, mirror, striding and sink script uses, so a line those scripts
 refuse fails here too; and the tables that reader never lets a clinic capture
 must be DOWN or OUT in the verdicts. It names every row that breaks a rule and
@@ -75,10 +96,10 @@ done, the hub holds, for this clinic's residue at or above the floor, the
 count the run logged for each table.
 
 **OpenELIS down filter** — `clinlims-down-filter.sh` prints the condition of
-the clinic's OpenELIS down sink (`connectors/clinlims-clinic-sink-all.json`).
-The hub sends every clinic the `result`, `analysis` and `sample` rows its lab
-users wrote, its lab accounts and its lab test catalogue (`sync/hub-down.conf`);
-the condition keeps every account and catalogue row the hub sends (a sample the
+the clinic's OpenELIS down sink (`scripts/templates/clinlims-clinic-sink-all.json`).
+Every clinic pulls from the cloud server the `result`, `analysis` and `sample` rows its lab
+users wrote, its lab accounts and its lab test catalogue (`sync/tables/{odoo,openelis}.conf [down]`);
+the condition keeps every account and catalogue row it pulls (a sample the
 hub moved on names an account; a lab order is matched to the catalogue), and a
 lab row only when its
 routing column (a result's `analysis_id`, an analysis's or a sample's `id`) is
@@ -91,10 +112,10 @@ what is missing, and the installer stops. The
 sink claims replication origin `hub_2` so this clinic's OpenELIS source never
 sends those rows back up.
 
-**Content checksum** — `master-checksum.sh` prints, per table `cloud/tables.conf`
+**Content checksum** — `master-checksum.sh` prints, per table `sync/tables/openmrs.conf [down]`
 lists (with `--reseed`, also the RESEED tables of `cloud/table-verdicts.conf`),
 the row count and a checksum over every column of every row except those
-`cloud/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
+`clinic/scripts/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
 and on a clinic seeded from it and compare the outputs: a row edited in place
 shows even when its id and uuid are unchanged. Read-only.
 
@@ -138,7 +159,7 @@ Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
 4 another run holds `clinic/forms`.
 
 **Concepts minted at this clinic** — `clinic-minted-concepts.sh --hub-ids
-<file>` compares this clinic's concept dictionary (the tables `cloud/tables.conf`
+<file>` compares this clinic's concept dictionary (the tables `sync/tables/openmrs.conf [down]`
 marks `changes`) with the hub's, read on the hub with `--hub-query`, and lists
 every row this clinic minted for itself: a `twin` (the hub holds its uuid under
 another id), a `collision` (the hub holds its id with another uuid) or a
@@ -149,29 +170,6 @@ every reference to them, and checks counts, uuids and references before it
 commits; it refuses, changing nothing, on a collision, while OpenMRS runs, or
 when a table this clinic sends up (obs) or an unknown column refers to a
 moving row.
-
-**The hub's staff at a clinic that keeps its own database** —
-`clinic-minted-staff.sh --hub-rows <file>` compares this clinic's users,
-providers, people, names and roles with the hub's own rows (key at or above the
-hub's floor and ending in 0), read on the hub with `--hub-query --floors
-<hub floors file>`, and lists every row in their way: a `collision`, a `twin`,
-a `login-twin` (the same username, system id or provider identifier under
-another id), a row of this clinic `in-the-hub-range`, a role that differs in
-privileges or parents (`role-differs`), and a role a hub user holds that this
-clinic lacks (`role-missing`). The staff receivers (role `hub-written` in the
-clinic's down list) start only when it finds none; nothing is ever moved.
-`--print-floors` and `--print-properties` give the receivers their floors and
-the user property names to keep (never one in
-`sync/user-property-node-local.conf`); `--load <dump>` loads the hub's existing
-rows (`--hub-dump` on the hub) once, before the receivers start, in one
-transaction with binary logging off, checked before it commits. `users` carries
-password hashes: its receiver and its load need `HUB_LINK_PER_SITE_TLS=yes`,
-which states that this clinic's link to the hub is TLS with plaintext refused
-and a login of its own, or `HUB_STAFF_SHARED_TLS_LOGIN=accepted`, the
-operator's acceptance of the hashes crossing over TLS with the login every
-clinic shares. The acceptance holds only while the clinic's `.env` reaches the
-hub over TLS (`REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`); over plaintext both
-still refuse.
 
 **Lab catalogue refresh** — `refresh-lab-catalogue.sh "<concept name>"`, run
 outside clinic hours after the hub adds or changes a lab test: stops
@@ -192,14 +190,12 @@ forms mount or `clinic/.env` setting; a refused check recreates nothing.
 
 - Run from `clinic/` (the compose project directory), not from inside `scripts/`.
   Paths resolve relative to `clinic/`, the scripts read `clinic/.env`, and the
-  shared sync definitions are `../sync/` (tables, subsystems, templates, the
-  clinics ledger) with the hub tree at `../cloud/`.
+  shared sync definitions are `../sync/` (the table lists in `sync/tables/`,
+  the clinics ledger) with the hub tree at `../cloud/`.
 - `.env` is gitignored; `.env.example` enumerates every variable.
-- Rendered connector JSON is gitignored by design — `.gitignore` covers
-  `cloud/connectors/mysql-sink-*.json`, `cloud/connectors/generated/` and
-  `sync/local/connectors/generated/`. Templates are tracked, output
-  is not: a rendered config carries a live password, so it must never be
-  committed. Regenerate rather than copy.
+- Generated connector JSON is gitignored — `.gitignore` covers
+  `cloud/connectors/` and
+  `clinic/connectors/`.
 
 ## No SSH lives here
 

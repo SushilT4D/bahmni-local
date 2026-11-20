@@ -4,8 +4,8 @@
     "connector.class": "io.debezium.connector.mysql.MySqlConnector",
     "tasks.max": "1",
 
-    "database.hostname": "${CLOUD_MYSQL_HOST}",
-    "database.port": "${CLOUD_MYSQL_PORT}",
+    "database.hostname": "${OPENMRS_DB_HOST}",
+    "database.port": "${OPENMRS_DB_PORT}",
     "database.user": "${DEBEZIUM_DB_USER}",
     "database.password": "${DEBEZIUM_DB_PASSWORD}",
 
@@ -16,7 +16,7 @@
     "//topic-prefix2": "clinic's bahmni-local.* so the two directions can never alias each other.",
     "topic.prefix": "${CLOUD_MYSQL_SERVER_NAME}",
 
-    "database.include.list": "${CLOUD_MYSQL_DATABASE}",
+    "database.include.list": "${OPENMRS_DB_NAME}",
 
     "//whitelist": "THE LOOP GUARD. The cloud binlog also records every UP-direction sink",
     "//whitelist2": "write (121k patients). Capturing those here would send clinic data straight",

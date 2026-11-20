@@ -1,38 +1,9 @@
 #!/usr/bin/env bash
-# After the hub adds or changes a lab test: make this clinic's applications
-# show it. Run it outside clinic hours; OpenMRS is down while it runs.
-#
+# Refresh the OpenMRS, OpenELIS and Odoo lab catalogue.
+# Run outside clinic hours; OpenMRS restarts.
 #   clinic/scripts/refresh-lab-catalogue.sh "<concept name>"
 #   clinic/scripts/refresh-lab-catalogue.sh --start-readers
-#
-# The test's rows reach this clinic's databases by sync, written straight into
-# the tables: OpenMRS and OpenELIS do not see a row they did not write until
-# they start again (OpenMRS keeps concepts in its cache and finds them through
-# a search index that every start rebuilds). In order:
-#   1. checks the concept is in this clinic's database by that name (its row
-#      has come down); refuses, restarting nothing, when it is not;
-#   2. stops odoo-connect and OpenELIS, and proves both stayed down: their
-#      queued feed reads would all hit OpenMRS the moment it starts, and a
-#      starting OpenMRS flooded that way can run out of memory and restart
-#      again and again;
-#   3. restarts OpenMRS and waits for its session URL (OPENMRS_RESTART_TIMEOUT_S,
-#      default 1800 s; 302 means still starting);
-#   4. searches OpenMRS for the concept by name until the search finds it
-#      (CONCEPT_SEARCH_TIMEOUT_S, default 2700 s): a search goes through the
-#      rebuilt index, so a hit proves a doctor can find the test;
-#   5. starts OpenELIS and waits for its login page (OPENELIS_START_TIMEOUT_S,
-#      default 900 s);
-#   6. starts odoo-connect and checks it is still running, without a restart,
-#      ODOO_CONNECT_SETTLE_S later (default 120 s).
-# Each wait that runs out prints a FAIL line naming what it last saw. A failure
-# in steps 3-4 leaves odoo-connect and OpenELIS stopped (starting them against
-# an OpenMRS that is not up would bring the flood back): once OpenMRS answers,
-# --start-readers runs steps 5 and 6 alone.
-#
-# REFRESH_POLL_S sets the pause between two reads of a wait (default 30 s for
-# the search, 10 s for OpenELIS). Reads COMPOSE_PROJECT_NAME and the OpenMRS feed login (OPENMRS_ATOMFEED_USER,
-# OPENMRS_ATOMFEED_PASSWORD) from clinic/.env; RUNTIME=docker|podman overrides
-# the platform's default runtime.
+# --start-readers starts only the readers after OpenMRS is ready.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
@@ -82,11 +53,11 @@ start_readers(){
 if [ "$READERS_ONLY" = 1 ]; then start_readers; ok "readers started"; exit 0; fi
 
 begin_task "refresh the lab test catalogue: ${NAME}"
-# 1. the concept has come down
+# 1. the concept has been pulled from the cloud server
 esc="$(printf '%s' "$NAME" | sed -e 's/\\/\\\\/g' -e "s/'/''/g")"
 n="$(printf "SELECT COUNT(*) FROM openmrs.concept_name WHERE name = '%s' AND voided = 0;\n" "$esc" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B' 2>/dev/null)" \
   || fail "could not read this clinic's concept names in ${MY}: is MySQL running? Nothing was restarted"
-[ "${n:-0}" -gt 0 ] 2>/dev/null || fail "no concept named '${NAME}' in this clinic's database: its row has not come down from the hub yet (check the concept sinks: bash scripts/check-sink-tasks.sh), or the name is spelled differently. Nothing was restarted"
+[ "${n:-0}" -gt 0 ] 2>/dev/null || fail "no concept named '${NAME}' in this clinic's database: its row has not been pulled from the cloud server yet (check the concept sinks: bash scripts/check-sink-tasks.sh), or the name is spelled differently. Nothing was restarted"
 ok "the concept '${NAME}' is in this clinic's database (${n} name row(s))"
 # 2. the feed readers down, and proven down
 ensure_stopped "$OC" || fail "odoo-connect (${OC}) will not stay stopped: ${COMPOSE_CMD:-compose} ps odoo-connect. Nothing else was touched"

@@ -15,13 +15,11 @@ services:
       - ${CERTIFICATE_PATH}:/etc/tls:ro
       - "${BAHMNI_UI_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_UI_DIR (see .env.example)}:/usr/share/nginx/html/bahmni/:ro"
       - "${BAHMNI_CONFIG_DIR:?run scripts/extract-ui-config.sh and set BAHMNI_CONFIG_DIR (see .env.example)}:/usr/share/nginx/html/bahmni_config/:ro"
-      # Mounted rather than built in, so an edit needs no image rebuild.
-      - './proxy/bahmni-nginx.openelis.conf:/etc/nginx/nginx.conf:ro'
+      - './proxy/bahmni-nginx.conf:/etc/nginx/nginx.conf:ro'
       - './proxy/htdocs/internalError.html:/usr/share/nginx/html/internalError.html:ro'
       - './proxy/05-clinic-resolver.sh:/docker-entrypoint.d/05-clinic-resolver.sh:ro'
       - './proxy/htdocs/index.html:/usr/share/nginx/html/index.html:ro'
     healthcheck:
-      # IPv4 and TLS: inside the container `localhost` is ::1 and nginx listens on IPv4 only.
       test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/bahmni/home/index.html"]
       interval: 30s
       timeout: 10s
@@ -37,7 +35,6 @@ services:
 
   bahmni-config:
     image: ${BAHMNI_CONFIG_IMAGE:?}
-    # Its entrypoint rewrites whatever is mounted here, so it gets a scratch dir.
     volumes:
       - './.local-config-scratch:/usr/local/bahmni_config'
     logging: *log-config
@@ -53,9 +50,7 @@ services:
 
   openmrs:
     profiles: ["emr","local", "bahmni-mart"]
-    # OPENMRS_RUN_IMAGE is a native rebuild, set on arm64 hosts only.
     image: ${OPENMRS_RUN_IMAGE:-${OPENMRS_IMAGE_NAME:?}}
-    # Set per node: memory outside the Java heap grows with the database size.
     mem_limit: ${OPENMRS_MEM_LIMIT:?}
     environment:
       TZ: ${TZ}
@@ -66,10 +61,6 @@ services:
       OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
       OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
       OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
-      # The Initializer loads only what a clinic may write: no forms and no
-      # other master data the hub owns (clinic/install/initializer.sh, which
-      # holds the default below and checks the value before the stack starts).
-      # A leading ! = exclusion list; otherwise an inclusion list.
       OMRS_JAVA_SERVER_OPTS: "${OMRS_JAVA_SERVER_OPTS} -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-globalproperties,idgen}"
       OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
       SEND_MAIL: ${SEND_MAIL}
@@ -111,42 +102,27 @@ services:
       - "${CONTAINER_DATA_PATH}/data/bahmni-document-images:/home/bahmni/document_images"
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
-      # The forms folder: each form's definition, <form uuid>.json, which the
-      # form's form_resource row points at (/home/bahmni/clinical_forms/...).
-      # The rows come from the hub by sync; the files from the forms repo, whose
-      # clone install task 075 makes and sets FORMS_DIR to (clinic/forms/
-      # clinical_forms), with FORMS_READ_ONLY true: forms are published on the
-      # hub, and a form file written here would fork a form. With no forms
-      # repo configured, FORMS_DIR is the frozen copy below, read-write.
-      # create_host_path: false: a missing folder stops OpenMRS from starting,
-      # rather than being created empty, which would start it with no forms.
       - type: bind
         source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}"
         target: /home/bahmni/clinical_forms
         read_only: ${FORMS_READ_ONLY:-false}
         bind:
           create_host_path: false
-      # The form module reads each form's translations as <form uuid>.json in
-      # the directory its bahmni.formTranslations.directory global property
-      # names, which is this path; the files are the forms folder's
-      # translations/. Without it every form's translations request answers 500.
       - type: bind
         source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations"
         target: /var/www/bahmni_config/openmrs/apps/forms/translations
         read_only: ${FORMS_READ_ONLY:-false}
         bind:
           create_host_path: false
-      # bahmnicore answers a patient without a photo with this file; the image
-      # does not carry it, so every such request answered 404. The UI ships it.
       - "${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro"
     logging: *log-config
     restart: ${RESTART_POLICY}
 
   odoo:
     profiles: ["odoo","local"]
-    image: '${ODOO_IMAGE_NAME:?[ERROR]}'
-    # The image is published for amd64 only.
-    platform: linux/amd64
+    image: '${ODOO_LOCAL_IMAGE:?[ERROR]}'
+    mem_limit: ${ODOO_MEM_LIMIT:-1g}
+    platform: linux/arm64
     ports:
       - '8069:8069'
     volumes:
@@ -159,7 +135,7 @@ services:
         condition: service_healthy
     environment:
       TZ: ${TZ}
-      HOST: ${ODOO_DB_HOST}
+      HOST: ${ODOO_DB_SERVER}
       USER: ${ODOO_DB_USER}
       PASSWORD: ${ODOO_DB_PASSWORD}
     logging: *log-config
@@ -167,15 +143,11 @@ services:
 
   odoo-connect:
     profiles: ["odoo","local"]
-    image: 'bahmni/odoo-connect:${ODOO_CONNECT_IMAGE_TAG}'
-    platform: linux/amd64
-    volumes:
-      - '${CONTAINER_DATA_PATH:?}/odoo/logback-erp-connect.xml:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/classes/logback.xml:ro'
-      # HttpClient 5, which the image calls and does not ship.
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpclient5-5.1.4.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar:ro'
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-5.1.5.jar:ro'
-      - '${CONTAINER_DATA_PATH:?}/odoo/erp-connect-lib/httpcore5-h2-5.1.5.jar:/run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpcore5-h2-5.1.5.jar:ro'
+    image: 'bahmni-local/odoo-connect:${ODOO_CONNECT_IMAGE_TAG:?}'
+    mem_limit: ${ODOO_CONNECT_MEM_LIMIT:-768m}
+    platform: linux/arm64
     environment:
+      SERVER_OPTS: ${ODOO_CONNECT_SERVER_OPTS:--Xms128m -Xmx384m -XX:MaxMetaspaceSize=192m}
       ODOO_DB_SERVER: bahmni-postgres
       IS_ODOO_16: "true"
       TZ: ${TZ}
@@ -199,11 +171,6 @@ services:
     logging: *log-config
     restart: ${RESTART_POLICY}
 
-  # The form builder. Forms are made and published on the hub only, so a clinic
-  # does not run it: it is in no profile the clinic starts (local, emr), only
-  # in its own, and the home page carries no tile for it
-  # (scripts/extract-ui-config.sh). The read-only forms mount stays the second
-  # line if it is started by hand.
   implementer-interface:
     image: bahmni/implementer-interface:${IMPLEMENTER_INTERFACE_IMAGE_TAG:?}
     profiles: ["implementer-interface"]
@@ -222,11 +189,10 @@ services:
     image: ${MYSQL_IMAGE:?}
     restart: always
     profiles: ["emr","local", "metabase", "bahmni-mart"]
-    # Striding is a server flag so it survives a rebuilt data volume.
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
-      --auto-increment-increment=10 --auto-increment-offset=${MYSQL_AUTO_INCREMENT_OFFSET:?}
+      --auto-increment-increment=10 --auto-increment-offset=${BHS_LOCATION_OFFSET:?}
       --server-id=${MYSQL_SERVER_ID:?}
       --wait-timeout=604800 --interactive-timeout=604800
     ports:
@@ -238,12 +204,11 @@ services:
       MYSQL_USER: ${OPENMRS_DB_USERNAME:?}
       MYSQL_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
     volumes:
-      - ${CONTAINER_DATA_PATH}/data/mysql:/var/lib/mysql
+      - mysql-data:/var/lib/mysql
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro"
     logging: *log-config
 
-  # Hosts both the odoo and the openelis databases.
   bahmni-postgres:
     profiles: ["odoo", "local", "openelis"]
     image: ${POSTGRES_IMAGE:?}
@@ -253,7 +218,7 @@ services:
       -c max_replication_slots=10
       -c max_wal_senders=10
     volumes:
-      - '${CONTAINER_DATA_PATH}/data/postgresql16:/var/lib/postgresql/data'
+      - postgres-data:/var/lib/postgresql/data
       - '${CONTAINER_DATA_PATH}/files/postgresql:/filestore:ro'
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -h localhost -U odoo']
@@ -261,24 +226,26 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - '127.0.0.1:5433:5432'
+      - '127.0.0.1:5432:5432'
     environment:
       TZ: ${TZ}
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${ODOO_DB_PASSWORD:?}
-      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
     logging: *log-config
     restart: ${RESTART_POLICY}
 
   openelis:
-    profiles: ["openelis"]
+    profiles: ["openelis", "local"]
     image: 'bahmni/openelis:${OPENELIS_IMAGE_TAG:-1.1.0-111}'
+    mem_limit: ${OPENELIS_MEM_LIMIT:-1536m}
     ports:
       - '127.0.0.1:8052:8052'
     command: ['/start-no-migrate.sh']
     volumes:
       - '${BAHMNI_CONFIG_DIR:?}:/etc/bahmni_config:ro'
       - './openelis/start-no-migrate.sh:/start-no-migrate.sh:ro'
+      - "${CONTAINER_DATA_PATH}/config/openelis/log4j2.xml:/run/bahmni-lab/bahmni-lab/WEB-INF/classes/log4j2.xml:ro"
     environment:
       TZ: ${TZ}
       OPENELIS_DB_SERVER: ${OPENELIS_DB_SERVER}
@@ -293,6 +260,7 @@ services:
     depends_on:
       bahmni-postgres:
         condition: service_healthy
+    logging: *log-config
     restart: ${RESTART_POLICY}
 
   patient-documents:
@@ -310,10 +278,12 @@ services:
 
   atomfeed-console:
     image: bahmni/atomfeed-console:${ATOMFEED_CONSOLE_IMAGE_TAG:-latest}   # a .env without the key runs latest
+    mem_limit: ${ATOMFEED_CONSOLE_MEM_LIMIT:-768m}
     profiles: ["atomfeed-console"]
     restart: ${RESTART_POLICY}
     logging: *log-config
     environment:
+      JAVA_TOOL_OPTIONS: ${ATOMFEED_CONSOLE_JAVA_OPTS:--Xmx256m}
       TZ: ${TZ}
       OPENMRS_DB_HOST: ${BAHMNI_MYSQL_HOST}
       OPENMRS_DB_NAME: ${OPENMRS_DB_NAME}
@@ -323,6 +293,7 @@ services:
   kafka:
     profiles: [ "debezium" ]
     image: ${KAFKA_IMAGE:?}
+    mem_limit: ${KAFKA_MEM_LIMIT:-1536m}
     restart: ${RESTART_POLICY}
     hostname: kafka
     container_name: kafka
@@ -359,6 +330,7 @@ services:
   kafka-connect:
     profiles: [ "debezium" ]
     image: ${DEBEZIUM_CONNECT_IMAGE:?}
+    mem_limit: ${KAFKA_CONNECT_MEM_LIMIT:-1536m}
     restart: ${RESTART_POLICY}
     hostname: kafka-connect
     container_name: kafka-connect
@@ -412,9 +384,12 @@ services:
   mirrormaker-connect:
     profiles: [ "debezium" ]
     image: ${MM2_IMAGE:?}
+    mem_limit: ${MM2_MEM_LIMIT:-1280m}
     hostname: mirrormaker-connect
     container_name: mirrormaker-connect
     logging: *log-config
+    ports:
+      - '127.0.0.1:8084:8083'
     environment:
       KAFKA_HEAP_OPTS: ${MM2_HEAP_OPTS:--Xms256m -Xmx768m}
       CONNECT_BOOTSTRAP_SERVERS: kafka:29092
@@ -437,24 +412,22 @@ services:
       REMOTE_KAFKA_USERNAME: ${REMOTE_KAFKA_USERNAME:?}
       REMOTE_KAFKA_PASSWORD: ${REMOTE_KAFKA_PASSWORD:?}
       REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD: ${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD:?}
-      # The installer writes it; a node installed before it existed keeps plaintext.
       REMOTE_KAFKA_SECURITY_PROTOCOL: ${REMOTE_KAFKA_SECURITY_PROTOCOL:-SASL_PLAINTEXT}
       KAFKA_TOPIC_PATTERNS: ${KAFKA_TOPIC_PATTERNS:-.*}
-      # The image looks for its log config in the wrong directory.
       KAFKA_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/kafka-connect/log4j.properties"
       LOG4J_LOGGERS: "org.apache.kafka.connect.runtime.rest.RestServer=WARN,org.apache.kafka.clients.NetworkClient=WARN"
     volumes:
       - "${CONTAINER_DATA_PATH}/certs/kafka/kafka.truststore.p12:/etc/kafka-connect/secrets/kafka.truststore.p12"
       - "${CONTAINER_DATA_PATH}/data/mirrormaker:/kafka/connect/data"
       - "${CONTAINER_DATA_PATH}/config/mirrormaker/mm2.properties:/etc/kafka-connect/mm2.properties:ro"
-      - "${CONTAINER_DATA_PATH}/config/mirrormaker/start-mm2.sh:/etc/kafka-connect/start-mm2.sh:ro"
       - "${CONTAINER_DATA_PATH}/config/mirrormaker/log4j.properties:/etc/kafka-connect/log4j.properties"
     restart: unless-stopped
-    command: ["/bin/bash", "/etc/kafka-connect/start-mm2.sh"]
+    command: ["connect-mirror-maker", "/etc/kafka-connect/mm2.properties"]
 
   kafka-ui:
     profiles: [ "debezium" ]
     image: provectuslabs/kafka-ui:latest
+    mem_limit: ${KAFKA_UI_MEM_LIMIT:-512m}
     restart: ${RESTART_POLICY}
     hostname: kafka-ui
     container_name: kafka-ui
@@ -467,7 +440,12 @@ services:
     ports:
       - '127.0.0.1:8086:8080'
     environment:
+      JAVA_OPTS: ${KAFKA_UI_JAVA_OPTS:--Xmx256m}
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+
+volumes:
+  mysql-data:
+  postgres-data:

@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# openmrs/build-native.sh against a fake container runtime: the native arm64
+# openmrs/build.sh against a fake container runtime: the native arm64
 # image is assembled from the source's own /usr/local/tomcat, /openmrs,
 # /etc/bahmni-emr, /home/bahmni via create+cp+rm (the source is never run),
 # skipped when its labels already match the current source+base image ids,
 # rebuilt when either id changes or --force is given, refused when the
-# extracted tree carries no WAR or the built image is not arm64, and DRY
-# never touches the runtime at all. See openmrs/Dockerfile.native and
+# extracted tree carries no WAR or the built image is not arm64. See openmrs/Dockerfile and
 # task1b-report.md for the recipe this proves.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-S="${HERE}/../../openmrs/build-native.sh"
+S="${HERE}/../../openmrs/build.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }
 bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
-[ -f "$S" ] || { bad "no openmrs/build-native.sh"; exit 1; }
+[ -f "$S" ] || { bad "no openmrs/build.sh"; exit 1; }
 
 san(){ printf '%s' "$1" | tr '/:' '__'; }
 mkdir -p "$TMP/bin" "$TMP/clinic" "$TMP/images"
@@ -91,11 +90,11 @@ echo homefile > "$S_DIR/home/bahmni/.keep"
 mkimg "$BASE" base1 >/dev/null
 
 CLINIC="$TMP/clinic"
-DRY_=0; ARCH_=arm64
+ARCH_=arm64
 run(){
   env -i PATH="$PATH" HOME="$HOME" CT="$TMP/bin/fakect" FAKE_ROOT="$FAKE_ROOT" FAKE_LOG="$FAKE_LOG" \
     CLINIC_DIR="$CLINIC" OPENMRS_IMAGE_NAME="$SRC" OPENMRS_ARM64_BASE_IMAGE="$BASE" \
-    DRY="$DRY_" FAKE_BUILD_ARCH="$ARCH_" \
+    FAKE_BUILD_ARCH="$ARCH_" \
     bash "$S" "$@" 2>&1
 }
 OUTTAG="bahmni-local/openmrs:1.2.0-arm64"
@@ -154,17 +153,8 @@ SRC="$SRC_SAVE"; ARCH_=arm64
 [ "$rc" -ne 0 ] && ok_ "a non-arm64 build result is refused" || bad "non-arm64 result accepted"
 printf '%s' "$out" | grep -qi 'architecture' && ok_ "refusal names the architecture problem" || bad "refusal message unclear: $out"
 
-# === DRY makes no runtime calls ==================================================
-: > "$FAKE_LOG"
-DRY_=1
-out="$(run)"; rc=$?
-DRY_=0
-[ "$rc" -eq 0 ] && ok_ "DRY exits 0" || bad "DRY rc=$rc: $out"
-[ ! -s "$FAKE_LOG" ] && ok_ "DRY made no runtime calls" || bad "DRY invoked the runtime: $(cat "$FAKE_LOG")"
-printf '%s' "$out" | tail -1 | grep -qx "image=${OUTTAG}" && ok_ "DRY still prints image=<tag>" || bad "DRY missing image= line: $out"
-
 # === temp context is gone afterwards, in every case above ======================
-leftover="$(ls -d "$CLINIC"/.build-native.* 2>/dev/null)"
-[ -z "$leftover" ] && ok_ "no leftover .build-native temp context after any run" || bad "leftover temp context: $leftover"
+leftover="$(ls -d "$CLINIC"/.openmrs-build.* 2>/dev/null)"
+[ -z "$leftover" ] && ok_ "no leftover .openmrs-build temp context after any run" || bad "leftover temp context: $leftover"
 
 exit "$fails"

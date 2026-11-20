@@ -1,56 +1,7 @@
 #!/usr/bin/env bash
-# Take the forms repo's latest form files on a running clinic node. Run it from
-# a schedule (every 15 minutes) and on demand:
-#
-#   clinic/scripts/update-forms.sh [--dry-run]
-#
-#   1. fetch the forms repo and fast-forward clinic/forms; a checkout with local
-#      edits, or at a commit the forms repo does not contain, is refused and
-#      left exactly as it is;
-#   2. check the incoming forms' concepts against this node's OpenMRS, with
-#      the checker this node already runs: a form that uses a concept the node
-#      lacks is a WARN, never a refusal;
-#   3. row/file check: every published, unretired form row in this node's
-#      database must have its file in the forms folder; a file with no row is
-#      fine (its rows have not synced yet, or it is an old version kept for
-#      saved observations);
-#   4. print a summary, which says "concepts NOT checked" when the concept
-#      check could not run.
-#
-# One run at a time: a run that finds another holding clinic/forms changes
-# nothing and exits 4.
-#
-# OpenMRS is never restarted: it reads a form's file when the form is opened,
-# so a user sees a new version after reloading the page. The rows of a new
-# form arrive by sync from the hub, independently of this script. This script
-# only ever adds form files to what the node has; the node's form rows come
-# from its seed and the down sync.
-#
-# --dry-run fetches and shows the incoming commits and MANIFEST.tsv changes,
-# and changes nothing: no fast-forward, no database read, no clinic/.env edit.
-#
-# Exit codes:
-#   0  clinic/forms holds what the forms repo holds and every published form
-#      has its file;
-#   1  a check refused (a refused checkout, a missing file, a bad setting):
-#      act on the FAIL line;
-#   3  the forms repo could not be reached (fetch or clone failed): the forms
-#      already here keep working, and the next run tries again;
-#   4  another run holds clinic/forms.
-# With no forms repo configured (FORMS_REPO_URL empty in clinic/.env) the node
-# runs the frozen copy; the run reports any form missing its file there as a
-# WARN and exits 0.
-#
-# On a node whose clinic/.env names a forms repo but that runs from another
-# folder (no clone yet, or the frozen copy), the first run clones the repo and
-# points FORMS_DIR and FORMS_READ_ONLY in clinic/.env at the clone, read-only.
-# The openmrs service takes that mount when it is next recreated, with
-# scripts/recreate-openmrs.sh; the run says so, and does not recreate it.
-#
-# Reads FORMS_REPO_URL, FORMS_REPO_KEY, FORMS_DIR, FORMS_READ_ONLY and
-# COMPOSE_PROJECT_NAME from clinic/.env. Settings for tests and for lists
-# taken elsewhere: FORMS_CONCEPTS_FILE, FORMS_KNOWN_FORMS_FILE, FORMS_ROWS_FILE
-# (clinic/install/forms.sh).
+# Update the clinic's forms checkout.
+# Usage: clinic/scripts/update-forms.sh [--dry-run]
+# --dry-run shows incoming changes without updating files or clinic/.env.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR

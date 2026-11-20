@@ -2,6 +2,7 @@
 .env
 
 odoo-db-dump/
+dumps/
 data/
 logs/
 certs/
@@ -13,36 +14,18 @@ certs/
 # moved-aside PG14 datadirs from the PG15 bump
 clinic/data/postgresql.pg14*
 
-# generated sink connectors carry an injected password - regenerate with scripts/generate-local-sink-connectors.sh
-sync/local/connectors/generated/
 
-# Same rule, CLOUD side. generate-sink-connectors.sh writes
-# mysql-sink-<table>.json straight into cloud/connectors/ - NOT into a
-# generated/ subdir - with connection.password already substituted. On the mini
-# that is 19 files carrying the live sink DB password, in a tracked directory,
-# in a repo whose origin is public. A single `git add -A` there publishes them.
-# The *.json.template and known-good.json files do NOT match this pattern.
-cloud/connectors/mysql-sink-*.json
-cloud/connectors/generated/
-# The hub's OTHER rendered connectors (register-odoo.sh / _render_connector.py
-# write odoo-*.json with live passwords), its untracked htdocs copy, its starter
-# SQL and every *.bak-* the operator leaves behind. Without these rules a hub
-# checkout shows its node-local files as untracked, some of them carrying
-# credentials. Templates and known-good.json stay tracked: ignore rules
-# never apply to tracked files.
-cloud/connectors/odoo-*.json
+# cloud/connectors/ holds only configs the cloud scripts render, with passwords filled in
+cloud/connectors/
+# the cloud's untracked htdocs copy, its starter SQL and every *.bak-* the operator leaves behind
 cloud/htdocs/
 cloud/openelis-starter.sql
 *.bak-*
 
-# Same rule again, CLINIC side. scripts/generate-connectors.sh renders
-# debezium/local/connectors/mysql-source-connector.template.json into BOTH paths
-# below, and its SUBST_VARS includes ${LOCAL_DEBEZIUM_PASSWORD} -- so the output
-# carries the live Debezium password. A tracked copy of either would leak it on
-# the next `git add`, and a copy hand-edited to hold a placeholder instead could
-# not register. Template is tracked, output is not. Regenerate rather than copy.
-clinic/connectors/mysql-source-connector.json
-clinic/connectors/mysql-local-source-connector.json
+# CLINIC side: clinic/connectors/ holds only what scripts/generate-connectors.sh writes
+# from clinic/scripts/templates/. Templates are tracked, output is not.
+clinic/connectors/*
+!clinic/connectors/README.md
 
 # The bahmni-config service's entrypoint REWRITES whatever tree is mounted at
 # /usr/local/bahmni_config. clinic/docker-compose.yml points it here so it can
@@ -99,35 +82,8 @@ clinic-*.env
 secrets.env
 # the installer's podman->docker shim (lib.sh mk_podman_shim); a per-node artifact, never config
 clinic/install/.bin/
-# rendered per-clinic clinlims up-sinks (install-clinic.sh join copies the tracked
-# clinic/connectors/clinlims-ghated-sink-all.json with the slug swapped), like odoo-*.json above
-cloud/connectors/clinlims-*.json
-
-# cloud/: the cloud (hub) sync layer as its own compose project.
-# Same secret classes as the cloud/connectors/* rules above -- the env file,
-# the JAAS SASL password, and every connector JSON a generator writes with a
-# live password already substituted. Templates are exempt by name: the six
-# hand-authored connector JSONs below carry only ${VAR} placeholders,
-# substituted by register-odoo.sh at registration time, not at
-# rest -- so they stay tracked.
+# the cloud's env file
 cloud/.env
-cloud/kafka_server_jaas.conf
-# the hub's TLS keystore and its two password files
-cloud/tls/
-cloud/connectors/mysql-sink-*.json
-cloud/connectors/odoo-*-sink-all.json
-cloud/connectors/clinlims-*-sink-all.json
-cloud/connectors/mysql-cloud-source-connector.json
-# generate-cloud-source-connector.sh's default OUT path (mirrors the
-# cloud/connectors/generated/ rule above, same reason: rendered, password-
-# substituted output, never meant to be committed).
-cloud/connectors/generated/
-!cloud/connectors/odoo-cloud-source.json
-!cloud/connectors/clinlims-cloud-source.json
-!cloud/connectors/odoo-cloud-sink-all.json
-!cloud/connectors/clinlims-cloud-sink-all.json
-!cloud/connectors/odoo-ghated-sink-all.json
-!cloud/connectors/clinlims-ghated-sink-all.json
 
 # cloud/ scratch files. Every one of these is a
 # mktemp'd name created UNDER cloud/ -- by lib.sh's own probes (the SASL client
@@ -163,10 +119,10 @@ clinic/.forms.new.*/
 clinic/.forms.lock/
 clinic/.forms.lock.stale.*/
 
-# openmrs/build-native.sh's build context (create+cp of the source image's
-# trees, plus Dockerfile.native) -- removed by its own EXIT trap on every
+# openmrs/build.sh's build context (create+cp of the source image's
+# trees, plus Dockerfile) -- removed by its own EXIT trap on every
 # path; this rule is for the run that is killed outright.
-clinic/.build-native.*/
+clinic/.openmrs-build.*/
 
 # Rendered env files the clinic installer leaves beside clinic/.env. Each holds
 # generated passwords and none is named exactly ".env", so the rule at the top
@@ -188,14 +144,11 @@ clinic/files/
 clinic/config/mysql/
 clinic/.install-state
 # this hub's down-table floors, recorded once by the run that strides its Odoo
-# ids (cloud/scripts/stride-odoo.sh), and its OpenELIS ones, recorded once before
-# its OpenELIS ids are strided (cloud/scripts/record-clinlims-down-floors.sh);
+# ids (cloud/scripts/stride.sh odoo), and its OpenELIS ones, recorded once before
+# its OpenELIS ids are strided (cloud/scripts/record-down-floors.sh openelis);
 # each hub has its own
 cloud/odoo-down-floors.local
 cloud/clinlims-down-floors.local
-# this hub's floors for users and provider, where its own rows begin, recorded
-# once (clinic/scripts/clinic-minted-staff.sh --derive-floors); each hub has its own
-cloud/openmrs-staff-floors.local
 # the seed's provenance record, kept by the seed for the join's comparison
 clinic/.seed-provenance.tsv
 # the restore's definer users, removed after use; left behind if the restore stops

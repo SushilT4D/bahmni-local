@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Unsynced-table check: clinic/scripts/preflight.sh's WARN
 # section for tables outside the synced set that touch it by FK and have
-# rows. Exercises the SQL-building and allowlist/subsystems parsing without a
+# rows. Exercises the SQL-building, allowlist and [up]-section parsing without a
 # database -- pulled out via the unsynced-check:begin/:end markers, the same
 # technique test_boot_budget.sh uses for the cpu-budget block. Does not try to
 # run psql.
@@ -19,27 +19,33 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 run(){ bash -c "${blk}
 $1"; } # runs one command against the extracted function defs, nothing else
 
-# --- subsystems_conf_tables --------------------------------------------------
-cat > "$TMP/subsystems.conf" <<'CONF'
-clinlims:all
-odoo:all
+# --- up_section_tables ----------------------------------------------------------
+cat > "$TMP/odoo.conf" <<'CONF'
+# header
+[up]
+res_partner
 
-clinlims:sample
-clinlims:sample_item
-
-odoo:res_partner
-odoo:village_village   # trailing comment
+  village_village   # trailing comment
+[down]
+product_template
 CONF
-out="$(run "subsystems_conf_tables odoo '$TMP/subsystems.conf'")"
+cat > "$TMP/openelis.conf" <<'CONF'
+[up]
+sample
+sample_item
+[down]
+result:clinic=analysis_id
+CONF
+out="$(run "up_section_tables '$TMP/odoo.conf'")"
 [ "$out" = "$(printf 'res_partner\nvillage_village')" ] \
-  && ok_ "subsystems_conf_tables odoo: rows, :all/comment/blank handled" \
-  || bad "subsystems_conf_tables odoo: got [$out]"
-out="$(run "subsystems_conf_tables clinlims '$TMP/subsystems.conf'")"
+  && ok_ "up_section_tables odoo: [up] rows only, comment/blank/indent handled" \
+  || bad "up_section_tables odoo: got [$out]"
+out="$(run "up_section_tables '$TMP/openelis.conf'")"
 [ "$out" = "$(printf 'sample\nsample_item')" ] \
-  && ok_ "subsystems_conf_tables clinlims: rows" \
-  || bad "subsystems_conf_tables clinlims: got [$out]"
-out="$(run "subsystems_conf_tables odoo '$TMP/no-such-file.conf'")"
-[ -z "$out" ] && ok_ "subsystems_conf_tables: missing conf file returns nothing, does not error" || bad "subsystems_conf_tables: missing conf file gave [$out]"
+  && ok_ "up_section_tables openelis: rows" \
+  || bad "up_section_tables openelis: got [$out]"
+out="$(run "up_section_tables '$TMP/no-such-file.conf'")"
+[ -z "$out" ] && ok_ "up_section_tables: missing conf file returns nothing, does not error" || bad "up_section_tables: missing conf file gave [$out]"
 
 # --- unsynced_check_sql -------------------------------------------------------
 sql="$(run "unsynced_check_sql public res_partner village_village")"

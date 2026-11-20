@@ -79,6 +79,7 @@ out="$(run060 DOWN)"; case "$out" in "FAIL could not read order.nextOrderNumberS
 rm -rf "$DB"
 
 # --- wiring ---------------------------------------------------------------------------
-grep -q '^# phase: seed' "${HERE}/../tasks/060-striding.sh" && ok_ "060 runs in the seed sitting, after the restore (050) and before the stack starts (080)" || bad "060 is not a seed task"
+order="$(cd "${HERE}/../tasks" && ls [0-9]*-*.sh | grep -E '^0(50|60|80)-' | tr '\n' ' ')"
+[ "$order" = "050-databases.sh 060-striding.sh 080-stack.sh " ] && ok_ "060 runs after the restore (050) and before the stack starts (080)" || bad "task order is: $order"
 grep -q 'order_seed_verdict' "${HERE}/../tasks/100-exit-checks.sh" && ok_ "the exit checks read the counter back after the applications have started" || bad "100 does not read the order-number counter back"
 exit "$fails"

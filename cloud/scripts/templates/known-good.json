@@ -1,0 +1,38 @@
+{
+  "//": "The shape every generated OpenMRS up sink must have (one per clinic, on its ordered topic).",
+  "//2": "validate-sink-config.py requires every key here; values must match except the per-deployment ones.",
+  "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
+  "tasks.max": "1",
+  "batch.size": "1",
+  "connection.pool.min_size": "1",
+  "connection.pool.max_size": "1",
+  "connection.pool.timeout": "1800",
+
+  "topics": "<mm_prefix>.<server_name>.openmrs.all",
+  "collection.name.format": "openmrs.${source.table}",
+
+  "connection.url": "<per-deployment>",
+  "connection.username": "<per-deployment>",
+  "connection.password": "<per-deployment>",
+
+  "insert.mode": "upsert",
+  "primary.key.mode": "record_key",
+  "delete.enabled": "true",
+  "schema.evolution": "none",
+
+  "connection.restart.on.errors": "true",
+  "errors.retry.timeout": "-1",
+  "errors.retry.delay.max.ms": "60000",
+  "flush.max.retries": "10",
+  "hibernate.agroal.validateOnBorrow": "true",
+  "hibernate.agroal.idleValidation_s": "300",
+
+  "errors.tolerance": "none",
+  "errors.log.enable": "true",
+  "errors.log.include.messages": "true",
+
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter.schemas.enable": "true",
+  "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "key.converter.schemas.enable": "true"
+}

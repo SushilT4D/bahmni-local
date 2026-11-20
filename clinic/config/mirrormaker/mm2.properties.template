@@ -10,6 +10,16 @@ ${LOCAL_CLUSTER_ALIAS}.bootstrap.servers = kafka:29092
 # Remote cluster (target) - configured via environment variable
 remote.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 
+# Cloud login and truststore, read from the container's environment at start (${env:...}).
+config.providers = env
+config.providers.env.class = org.apache.kafka.common.config.provider.EnvVarConfigProvider
+remote.security.protocol = ${env:REMOTE_KAFKA_SECURITY_PROTOCOL}
+remote.sasl.mechanism = PLAIN
+remote.sasl.jaas.config = org.apache.kafka.common.security.plain.PlainLoginModule required username="${env:REMOTE_KAFKA_USERNAME}" password="${env:REMOTE_KAFKA_PASSWORD}";
+remote.ssl.truststore.location = /etc/kafka-connect/secrets/kafka.truststore.p12
+remote.ssl.truststore.type = PKCS12
+remote.ssl.truststore.password = ${env:REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}
+
 # Enable replication from local to remote
 ${LOCAL_CLUSTER_ALIAS}->remote.enabled = true
 ${LOCAL_CLUSTER_ALIAS}->remote.topics = ${KAFKA_TOPIC_PATTERNS}
@@ -19,7 +29,7 @@ ${LOCAL_CLUSTER_ALIAS}->remote.topics = ${KAFKA_TOPIC_PATTERNS}
 refresh.topics.interval.seconds = 60
 
 # Topics to replicate (regex pattern)
-# Generated from tables.conf - use specific topics for better control
+# Topics come from sync/tables/*.conf (setup-mirrormaker.sh) - use specific topics for better control
 # Format: server-name.database.table1,server-name.database.table2
 # Example: bahmni-local\.openmrs\.(person|patient|visit)
 

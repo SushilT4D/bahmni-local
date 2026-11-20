@@ -16,7 +16,7 @@ cat > "$VERSIONS_FILE" <<'EOF'
 # pins
 KAFKA_IMAGE=confluentinc/cp-kafka:8.3.2          # sync layer
 OPENMRS_IMAGE_NAME=infoiplitin/openmrs:iplit-1.2.0-1200-03   # app
-ODOO_IMAGE_NAME=bahmni/odoo-16:1.0.0
+ODOO_LOCAL_IMAGE=bahmni/odoo-16:1.0.0
 ODOO_CONNECT_IMAGE_TAG=1.0.0
 OPENELIS_IMAGE_TAG=1.1.0-111                     # app
 BAHMNI_WEB_IMAGE=infoiplitin/bahmni-iplit-web:bhs-1.0.0

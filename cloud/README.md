@@ -16,19 +16,20 @@ repository, and attaches to that stack's Docker network through
   `max_wal_senders>=4`, `max_replication_slots` at least 4 and at least the
   number of replication origins the instance holds (below), and every synced
   sequence incrementing by 10 on residue 0. The synced tables are listed in
-  `sync/subsystems.conf`. 16 is the first version whose `pgoutput` accepts the
+  `sync/tables/{odoo,openelis}.conf [up]`. 16 is the first version whose `pgoutput` accepts the
   `origin` option the Odoo and OpenELIS sources decode with.
-- **Accounts**: a MySQL account for the sinks and one for Debezium; Postgres
+- **Accounts**: one MySQL account, `DEBEZIUM_DB_USER`: the source reads the binlog with it, and the
+  clinics' up sinks write with it, with `SESSION_VARIABLES_ADMIN` so they can set `sql_log_bin=0`; Postgres
   roles `odoo_sink` and `clinlims_sink`, each with `EXECUTE` on
   `pg_replication_origin_session_setup`, `pg_replication_origin_session_reset`
   and `pg_replication_origin_session_is_setup` in its own database;
   `REPLICATION` on the roles the Odoo and OpenELIS sources log in as.
 - **Publication** `dbz_odoo_owned` over exactly the down list,
-  `sync/hub-down.conf`, built by `scripts/apply-down-publication.sh`. Each
+  `sync/tables/{odoo,openelis}.conf [down]`, built by `scripts/apply-down-publication.sh odoo`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
   with this hub's floors in `cloud/odoo-down-floors.local` (below).
 - **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
-  built by `scripts/apply-clinlims-down-publication.sh`: `result`, `analysis`
+  built by `scripts/apply-down-publication.sh openelis`: `result`, `analysis`
   and `sample` with no row filter (those rows keep the clinic's ids, and the
   source's `origin=none` is what keeps a clinic's own writes at the hub); the
   lab accounts, `system_user`, and the lab test catalogue (tests, panels,
@@ -37,15 +38,17 @@ repository, and attaches to that stack's Docker network through
   `cloud/clinlims-down-floors.local`, the catalogue's two link tables without an
   `id` unfiltered. The floors are recorded once, by the run that strides the
   hub's OpenELIS ids, just before it strides:
-  `scripts/stride-openelis.sh -- <psql command>` (residue 0, from
+  `scripts/stride.sh openelis -- <psql command>` (residue 0, from
   `openelis/apply-sequence-striding.sql`; a second run keeps the floors and
   moves only a sequence that would issue an id at or below its rows). On a hub strided before a table joined the down list,
-  `scripts/record-clinlims-down-floors.sh --derive -- <psql command>` prints
+  `scripts/record-down-floors.sh openelis --derive -- <psql command>` prints
   that table's floor read from its rows, and `--from-file <file>` adds it to
   the floors file, leaving the floors it already holds as they are.
 - **Replication origins**, one per clinic per database: `clinic_<slug>_odoo` in
-  the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance,
-  created when the clinic joins.
+  the Odoo instance and `clinic_<slug>_clinlims` in the OpenELIS instance.
+  **Required when a clinic joins, before its sinks are registered:** run
+  `postgres/apply-sink-origin.sql` in each database (usage in its header).
+  Without the origin the clinic's sinks cannot connect.
 
 ## What the hub publishes
 
@@ -54,30 +57,30 @@ clinic's sample, and the people the hub creates (the `person` and `person_name`
 behind a user or provider made at the hub); of those, only the rows written at
 the hub.
 
-The clinics send up every table in `sync/subsystems.conf`. The hub sends down
-only `sync/hub-down.conf`: products, categories, units of measure and the
+The clinics send up every table in `sync/tables/{odoo,openelis}.conf [up]`. Clinics pull
+only `sync/tables/{odoo,openelis}.conf [down]`: products, categories, units of measure and the
 address tables, plus the three product link tables and the central-transfer
-tables; the OpenELIS `result`, `analysis` and `sample` rows, each routed to
-one clinic; and, to every clinic, the OpenELIS lab accounts and lab test
+tables; the OpenELIS `result`, `analysis` and `sample` rows, each kept by one
+clinic; and, kept by every clinic, the OpenELIS lab accounts and lab test
 catalogue and the OpenMRS concept dictionary (as changes only). Partners,
 sales, invoices, stock levels and every other OpenELIS table stay at the
 clinic that wrote them, so a hub edit to one of
 those rows (by a person, or by the OpenMRS-to-Odoo
 feed) reaches no clinic. The hub source's table list and aggregate regex, the
 publication and each clinic's MirrorMaker down regex are all rendered from that
-one list; `sync/hub-down.sh` reads it and refuses an up-only table by name.
+one list; `sync/tables/tables.sh` reads it.
 
-On the tables that do go down, the row filter keeps a clinic's rows at the hub
+On the tables clinics do pull, the row filter keeps a clinic's rows at the hub
 even when the hub edits them: below a table's floor the rows predate striding
 and are the hub's; above it the hub mints residue 0. A floor is the value the
 table's sequence restarted at when the hub's Odoo ids were strided, and it is
-recorded by that same run: `scripts/stride-odoo.sh -- <psql command>` strides
+recorded by that same run: `scripts/stride.sh odoo -- <psql command>` strides
 and writes `cloud/odoo-down-floors.local` (one `<table> <floor>` line per table
 with an `id`; never committed). A re-run strides again and leaves the file as
 it is, refusing if a sequence would restart below its floor. Floors are never
 read back from the sequences later: once the hub has issued ids they no longer
 show it. A hub strided before this script records its floors from the values
-captured then, with `scripts/record-down-floors.sh --from-file <file>`. The
+captured then, with `scripts/record-down-floors.sh odoo --from-file <file>`. The
 publication step refuses, naming the table, when a floor is missing, and
 publishes no TRUNCATE (it ignores row filters).
 
@@ -89,26 +92,15 @@ every row they apply is tagged, and the Odoo source decodes with
 another clinic or back to its sender.
 OpenMRS gets the same result from the MySQL source's table list, which holds
 only tables the hub writes, and from a row filter on the tables both sides
-write: `person` and `person_name` (marked `hub-rows` in `tables.conf`) are
+write: `person` and `person_name` (marked `hub-rows` in the [down] section of `sync/tables/openmrs.conf`) are
 published only for a key at or above the table's floor (its base in
-`sync/local/tables.conf`) that ends in 0. The filter judges the record's key, so
+`sync/tables/openmrs.conf [up]`) that ends in 0. The filter judges the record's key, so
 updates, deletes and tombstones are treated alike, and the source's first
 snapshot reads only those rows. A clinic does the same in the other direction.
 
-A clinic that keeps its own OpenMRS database takes the hub's staff (`users`,
-`user_role`, `user_property`, `provider`, `person`, `person_name`, and changes
-to the roles) only for rows the hub wrote, filtered at its own receivers: below
-the hub's floor its rows and the hub's share ids. The floors of `person` and
-`person_name` are their bases in `sync/local/tables.conf`; those of `users` and
-`provider` are this hub's, recorded once in `cloud/openmrs-staff-floors.local`
-(never committed) from the output of
-`clinic/scripts/clinic-minted-staff.sh --derive-floors`, run against this hub's
-OpenMRS MySQL. That file feeds `--hub-query` and `--hub-dump`, which the
-clinic's check and its one-time load read.
-
 PostgreSQL lets one session at a time hold an origin, which is why each clinic
 has its own and why those sinks keep `tasks.max` and the pool at one. A sink
-that does not claim an origin writes rows the hub publishes to every clinic.
+that does not claim an origin writes rows the cloud server captures for every clinic to pull.
 
 ## Files this directory needs that are not tracked
 
@@ -116,8 +108,8 @@ that does not claim an origin writes rows the hub publishes to every clinic.
   Image names come from `sync/versions.env`; change a version there.
 - The three Groovy scripting jars in `clinic/config/kafka-connect/ext/`
   (`bash clinic/config/kafka-connect/ext/fetch-scripting-jars.sh`). The hub's
-  Connect mounts them into its MySQL connector, whose row filter sends down
-  only the lab-result rows the hub wrote itself (`cloud/tables.conf`, `clinic=`
+  Connect mounts them into its MySQL connector, whose row filter captures, for clinics to pull,
+  only the lab-result rows the hub wrote itself (`sync/tables/openmrs.conf [down]`, `clinic=`
   rows). Without them that connector fails at configuration.
 - `cloud/kafka_server_jaas.conf`, mode 600: a `KafkaServer` section for the
   `PLAIN` mechanism with two users, `admin` (`KAFKA_ADMIN_PASSWORD`) and the
@@ -159,14 +151,14 @@ on loopback only; reach them over an SSH tunnel.
 ## Connectors
 
 - Down direction, hub to clinics: `scripts/generate-cloud-source-connector.sh`
-  renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
+  renders the MySQL source from the [down] section of `sync/tables/openmrs.conf`; `scripts/register-odoo.sh`
   registers the Odoo source, `odoo-cloud-source`, filling its table list and
-  aggregate regex from `sync/hub-down.conf`, and the OpenELIS source,
+  aggregate regex from `sync/tables/{odoo,openelis}.conf [down]`, and the OpenELIS source,
   `clinlims-cloud-source` (slot `dbz_clinlims_down`), filling its table list
   and aggregate regex from the same file's OpenELIS rows. Each decodes with
   `origin=none` and starts with `snapshot.mode=no_data`: nothing written
   before it is registered is sent.
-- A table added to `tables.conf` after the MySQL source first started: the
+- A table added to the OpenMRS [down] list after the MySQL source first started: the
   source records the structure of only the tables it captures
   (`schema.history.internal.store.only.captured.tables.ddl=true`) and resumes
   from its offsets, so it has no structure for the new table and stops at that
@@ -177,13 +169,15 @@ on loopback only; reach them over an SSH tunnel.
   of every captured table, no rows), resume it, then register the generated
   config as it is. A source registered on a Kafka with no offsets reads every
   structure on its first start and needs none of this.
-- Up direction, one set per clinic listed in this hub's `clinics.<HUB_NAME>.conf` (the sinks for
-  `obs`, `orders`, `drug_order` and `test_order` only for a row ending in
-  `:clinical`, a
-  clinic installed with `CLINICAL_UP_SYNC=test`):
-  `scripts/generate-sink-connectors.sh <slug>` then
-  `scripts/register-all-sink-connectors.sh` for the MySQL sinks, and
-  `connectors/register-odoo.sh` for that clinic's Odoo and OpenELIS sinks.
+- Down direction topics: every source routes its tables into one ordered topic per
+  database, `<server>.openmrs.all`, `<server>.odoo.all`, `<server>.clinlims.all`.
+- Up direction, three sinks per clinic in `sync/clinics.txt`, written by
+  `scripts/generate-sink-connectors.sh [slug]` into `connectors/`:
+  `openmrs-<slug>-sink`, `odoo-<slug>-sink` and `clinlims-<slug>-sink`, reading
+  `<slug>.bahmni-<slug>.<db>.all`. Register with
+  `HUB_MYSQL_CONTAINER=<hub mysql> scripts/register-all-sink-connectors.sh`, which checks the
+  clinical tables' foreign keys first. `scripts/register-odoo.sh` registers the cloud's
+  own Odoo and OpenELIS sources.
 
 Rendered connector files hold passwords and are gitignored.
 
@@ -196,7 +190,7 @@ Rendered connector files hold passwords and are gitignored.
   row arrives before its parent. An FK out to a table only the hub writes
   (`DOWN` in `table-verdicts.conf`) or only changesets and the seed write
   (`RESEED`) passes and is named: its rows are at the hub first.
-  The FKs into them are compared with `clinical-fks-in.conf`, and a difference
+  The FKs into them are compared with `scripts/clinical-fks-in.conf`, and a difference
   is reported (exit 2). Run it before and after every hub upgrade;
   `scripts/register-all-sink-connectors.sh` runs it itself before it registers
   any sink for these tables (set `HUB_MYSQL_CONTAINER`) and registers nothing

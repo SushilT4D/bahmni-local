@@ -1,33 +1,5 @@
 #!/usr/bin/env bash
-# Parks the feed bookmarks of odoo-connect (the odoo database's markers table)
-# and of OpenELIS (the openelis database's clinlims.markers) at the newest entry
-# of this clinic's own OpenMRS feeds, so neither replays the events already in
-# them and neither keeps a bookmark into another OpenMRS's feed.
-#
-#   clinic/scripts/park-feed-markers.sh
-#
-# The seed copies the hub's Odoo and OpenELIS databases, bookmarks included. A
-# clinic restored from the seed holds the hub's OpenMRS feeds too, so those
-# bookmarks name entries it has; a clinic that keeps its own OpenMRS does not,
-# and a bookmark naming an entry its feed lacks stops that job for good
-# ("Last Read entry not found in feed", or an error page for a page number the
-# feed does not have). So each feed a bookmark is kept for is parked at its
-# newest entry, and a feed with no entries has its bookmark removed: the job
-# then starts at the feed's first entry when one appears.
-#
-# The feeds: odoo-connect's patient, encounter, lab, saleable and drug, OpenELIS's
-# patient, encounter and lab, and any other feed a bookmark is already kept for.
-# A feed that does not answer 200 within FEED_WAIT_S (default 600 s, while the
-# atomfeed module starts) stops the script, naming it: a bookmark left as it
-# was would replay or stall.
-#
-# odoo-connect must be stopped (it is refused while running: a running job
-# writes its own bookmark back). OpenELIS, if running, is stopped for the
-# parking and started again after it.
-#
-# Reads COMPOSE_PROJECT_NAME, OPENMRS_ATOMFEED_USER and OPENMRS_ATOMFEED_PASSWORD
-# from clinic/.env; the environment overrides. RUNTIME=docker|podman overrides
-# the platform's default runtime.
+# Park feed bookmarks at the newest entries in this clinic's OpenMRS feeds.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR

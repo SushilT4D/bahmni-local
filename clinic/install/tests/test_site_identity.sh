@@ -17,13 +17,13 @@ assert_eq "lab_site_code reads 08 as eight, not octal" "$(lab_site_code 08)" "00
 for bad in "" 0 3a 100000; do lab_site_code "$bad" >/dev/null 2>&1 && { printf '  FAIL lab_site_code accepted %q\n' "$bad"; fails=$((fails+1)); }; done
 printf '  ok   lab_site_code refuses an empty, zero, non-numeric or six-digit site number\n'
 assert_eq "appjson_prefix reads the value" "$(appjson_prefix "$TMP/clinic/extracted/bahmni_config/openmrs/apps/registration/app.json")" "ABC"
-out="$(env -i PATH="$PATH" HOME="$HOME" DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1)"
+out="$(env -i PATH="$PATH" HOME="$HOME" DRY=1 INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1)"
 assert_contains "dry run with no BAHMNI_CONFIG_DIR reads the extracted tree" "$out" "ABC -> AZR"
 assert_contains "dry run prints the idgen hand-step" "$out" "identifierSource"
 assert_contains "dry run writes OpenELIS's site code padded to five digits" "$out" "siteNumber=00007"
 # node-local tree (task 045): a missing app.json is a STOP in a real run, a plain "would" in a dry run
 mkdir -p "$TMP/c2"; printf 'BAHMNI_CONFIG_DIR=%s\n' "$TMP/c2/extracted/bahmni_config" > "$TMP/c2/.env"
-run2(){ env -i PATH="$PATH" HOME="$HOME" DRY="$1" INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/c2" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1; }
+run2(){ env -i PATH="$PATH" HOME="$HOME" DRY="$1" INSTALL_DIR="${HERE}/.." CLINIC_DIR="$TMP/c2" REPO_DIR="$TMP" MRN_PREFIX=AZR SITE_NUMBER=7 RESIDUE=7 COMPOSE_PROJECT_NAME=bahmni-azure bash "${HERE}/../tasks/070-site-identity.sh" 2>&1; }
 out="$(run2 1)"; printf '%s' "$out" | grep -q 'tracked fleet file' && { printf '  FAIL dry run on a node-local tree still says "tracked fleet file"\n'; fails=$((fails+1)); } || printf '  ok   dry run on a node-local tree does not blame a tracked file\n'
 if out="$(trap - ERR; run2 0)"; then rc=0; else rc=$?; fi   # an expected failure: keep lib.sh's ERR trap quiet
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q -- '--from 045'; then printf '  ok   real run without the extraction stops and names task 045\n'; else printf '  FAIL real run without the extraction: rc=%s out=%s\n' "$rc" "$out"; fails=$((fails+1)); fi

@@ -16,7 +16,7 @@ grep -vE '^[[:space:]]*#' "$T20" | grep -q 'DRY-RUN RENDER' && ok_ "020 stamps a
 blk="$(sed -n '/# fresh-only:begin/,/# fresh-only:end/p' "$T00")"
 [ -n "$blk" ] || bad "000 has no fresh-only block"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-run(){ env -i PATH="$PATH" DRY="$1" CLINIC_DIR="$W" PLATFORM=linux bash -c ". '${HERE}/../lib.sh'; ${blk}" 2>&1; }
+run(){ env -i PATH="$PATH" DRY="$1" CLINIC_DIR="$W" bash -c ". '${HERE}/../lib.sh'; ${blk}" 2>&1; }
 
 rm -f "$W"/.env*; out="$(run 0)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "no .env: passes" || bad "no .env exits $rc: $out"

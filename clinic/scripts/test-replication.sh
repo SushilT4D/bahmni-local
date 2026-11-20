@@ -104,12 +104,12 @@ echo ""
 echo -e "${BLUE}Step 3: Checking REMOTE MySQL...${NC}"
 REMOTE_HOST="${REMOTE_MYSQL_HOST}"
 REMOTE_PORT="${REMOTE_MYSQL_PORT:-3306}"
-REMOTE_USER="${REMOTE_MYSQL_USER:-root}"
-REMOTE_PASS="${REMOTE_MYSQL_PASSWORD}"
+REMOTE_USER="${DEBEZIUM_DB_USER:-debezium}"
+REMOTE_PASS="${DEBEZIUM_DB_PASSWORD}"
 
 if [ -z "$REMOTE_HOST" ]; then
     echo -e "${YELLOW}⚠ REMOTE_MYSQL_HOST not set - skipping remote check${NC}"
-    echo "Set REMOTE_MYSQL_HOST, REMOTE_MYSQL_USER, REMOTE_MYSQL_PASSWORD to test remote"
+    echo "Set REMOTE_MYSQL_HOST, DEBEZIUM_DB_USER and DEBEZIUM_DB_PASSWORD (the cloud's) to test remote"
 else
     case "$TABLE" in
         person)
@@ -156,7 +156,7 @@ else
         echo "2. Check remote Kafka topic: cd remote && ./scripts/trace-change.sh $TABLE $TEST_ID"
         echo "3. Check connector status:"
         echo "   - Local: curl -s http://localhost:8083/connectors/mysql-source-connector/status | jq '.'"
-        echo "   - Remote: curl -s http://localhost:8083/connectors/mysql-sink-$TABLE/status | jq '.'"
+        echo "   - Remote: curl -s http://localhost:8083/connectors/${SINK_CONNECTOR:-openmrs-<slug>-sink}/status | jq '.'"
     fi
 fi
 

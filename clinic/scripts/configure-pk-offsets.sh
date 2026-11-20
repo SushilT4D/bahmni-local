@@ -1,34 +1,21 @@
 #!/usr/bin/env bash
 # Configure MySQL AUTO_INCREMENT spacing for this clinic.
-#
-# For Rawach (offset 4, base_id 500000, INCREMENT 10):
-#   SET PERSIST auto_increment_increment = 10
-#   SET PERSIST auto_increment_offset    = 4
-#   ALTER TABLE <t> AUTO_INCREMENT = 500004
-# Next ids on those tables: 500004, 500014, 500024, ...
-#
-# A table whose floor comes from the seed (tables.conf `table:pk:seed`) takes
-# it from SEED_MANIFEST's FLOOR_<TABLE>; with no such value the script stops
-# rather than stride the table from a guess. A table that reads another
-# table's floor (`table:pk:floor=<other>`) has no counter of its own and is
-# never altered.
-#
 # Usage:
 #   ./scripts/configure-pk-offsets.sh
 #   ./scripts/configure-pk-offsets.sh --dry-run
 set -euo pipefail
 
-# How far apart ids are across clinics (must be >= max offset in clinics.txt).
+# Keep IDs on distinct clinic residues.
 INCREMENT=10
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
 CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
-TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/local/tables.conf}"
+TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 SEED_MANIFEST="${SEED_MANIFEST:-}"
-# shellcheck source=../../sync/local/tables-conf.sh
-. "${PROJECT_DIR}/../sync/local/tables-conf.sh"
+# shellcheck source=../../sync/tables/tables.sh
+. "${PROJECT_DIR}/../sync/tables/tables.sh"
 MYSQL_SERVICE="${MYSQL_SERVICE:-bahmni-mysql}"
 # MYSQL_CONTAINER: the exact container name, skipping the lookup below. Compose
 # names containers <project>-<service>-1 (podman-compose: <project>_<service>_1);

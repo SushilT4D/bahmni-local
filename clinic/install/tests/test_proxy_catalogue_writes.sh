@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The clinic proxy refuses OpenELIS's administration actions that write the lab
-# test catalogue (which comes down from the hub), whatever the method, and
+# test catalogue (which the clinic pulls from the cloud server), whatever the method, and
 # passes the pages that show the catalogue and every lab-flow action. First the
 # proxy's own pattern is run (perl, case-insensitive, as nginx's ~*) over the
 # action names the pinned OpenELIS image declares; then, when a container
@@ -9,7 +9,7 @@
 # another copy of the configuration.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; RP="$(cd "${HERE}/../../.." && pwd)"
-C="${PROXY_CONF:-${RP}/clinic/proxy/bahmni-nginx.openelis.conf}"
+C="${PROXY_CONF:-${RP}/clinic/proxy/bahmni-nginx.conf}"
 MSG='The lab test catalogue is maintained at the hub; this change is refused at this clinic'
 fails=0
 ok_(){ printf '  ok   %s\n' "$1"; }

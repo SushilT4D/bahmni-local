@@ -1,29 +1,7 @@
 #!/usr/bin/env bash
-# Recreate the openmrs service on a running clinic node, after the checks
-# installer task 080 runs before it starts OpenMRS. Use it whenever OpenMRS
-# must take a new config tree, forms mount or domain list: after
-# extract-ui-config.sh takes a new config image, after update-forms.sh points
-# the forms mount at the forms repo's clone, after an edit of clinic/.env.
-#
-#   clinic/scripts/recreate-openmrs.sh [--check]
-#
-#   1. clinic/.env's OpenMRS JVM options: the heap cap is pinned, and a
-#      -Dinitializer.domains left in OMRS_JAVA_SERVER_OPTS is taken out
-#      (docker-compose.yml passes the property once, from
-#      OPENMRS_INITIALIZER_DOMAINS);
-#   2. the forms mount (FORMS_DIR, FORMS_READ_ONLY): it exists, holds forms and
-#      translations/, and with a forms repo configured it is that repo's
-#      clone, read-only;
-#   3. the Initializer domain list against the config tree OpenMRS mounts
-#      (BAHMNI_CONFIG_DIR): nothing would load rows the hub owns;
-#   4. recreates openmrs alone (up -d --no-deps --force-recreate openmrs), with
-#      the node's compose setup: from clinic/, clinic/.env's COMPOSE_FILE and
-#      the fleet's profiles, through docker compose, or docker-compose over the
-#      podman socket on a podman node.
-#
-# A refused check stops before anything is recreated; the running OpenMRS is
-# left as it is. --check runs the checks only: it changes neither clinic/.env
-# nor the stack.
+# Recreate OpenMRS after validating its configuration.
+# Usage: clinic/scripts/recreate-openmrs.sh [--check]
+# --check runs validations without changing the stack.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR

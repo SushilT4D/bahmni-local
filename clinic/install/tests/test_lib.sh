@@ -19,7 +19,7 @@ derive_identity azure 7
 assert_eq "COMPOSE_PROJECT_NAME" "$COMPOSE_PROJECT_NAME" "bahmni-azure"
 assert_eq "MYSQL_SERVER_NAME" "$MYSQL_SERVER_NAME" "bahmni-azure"
 assert_eq "LOCAL_CLUSTER_ALIAS" "$LOCAL_CLUSTER_ALIAS" "azure"
-assert_eq "MYSQL_AUTO_INCREMENT_OFFSET" "$MYSQL_AUTO_INCREMENT_OFFSET" "7"
+assert_eq "BHS_LOCATION_OFFSET" "$BHS_LOCATION_OFFSET" "7"
 assert_eq "MYSQL_SERVER_ID" "$MYSQL_SERVER_ID" "7"
 assert_eq "DEBEZIUM_SERVER_ID" "$DEBEZIUM_SERVER_ID" "184057"
 assert_eq "ODOO_DB_VOLUME_NAME" "$ODOO_DB_VOLUME_NAME" "bahmni-azure_odoodb-data"
@@ -151,8 +151,6 @@ assert_eq "has_placeholders lists B and C, honours allowlist" "$(has_placeholder
 ( refuse_inherited_alias ghated ghated ) >/dev/null 2>&1; assert_rc "alias ghated on node ghated accepted (a node may be ghated)" $? 0
 ( refuse_inherited_alias azure azure )  >/dev/null 2>&1; assert_rc "alias azure on node azure accepted" $? 0
 ( refuse_inherited_alias manpur azure ) >/dev/null 2>&1; assert_rc "any alias that is not the slug is refused" $? 1
-( refuse_inherited_alias source ) >/dev/null 2>&1; assert_rc "without a slug, a template name is still refused" $? 1
-( refuse_inherited_alias azure )  >/dev/null 2>&1; assert_rc "without a slug, an unlisted name passes" $? 0
 
 # secrets and ids
 s1="$(gen_secret)"; s2="$(gen_secret)"
@@ -171,10 +169,9 @@ assert_eq "fleet_table" "$(fleet_table | tr '\n' '|')" "  azure      residue 7  
 # answers
 a="$TMP/a.env"; printf 'CLINIC_SLUG=azure\nRESIDUE=7\nMRN_PREFIX=\n' > "$a"
 assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" | head -3 | tr '\n' ' ')" "MRN_PREFIX SITE_NUMBER CLINIC_PHONE "
-( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
-# the twelve answers, and the two with a default: CLINICAL_UP_SYNC (off unless
-# set) and ODOO_ATOMFEED_USER (the hub's feed login)
-assert_eq "answers_write writes fourteen keys" "$(grep -c '^[A-Z_]*=' "$a")" "14"
+( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
+# the eleven answers, and ODOO_ATOMFEED_USER (the hub's feed login) from its default
+assert_eq "answers_write writes twelve keys" "$(grep -c '^[A-Z_]*=' "$a")" "12"
 assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
 assert_eq "an answers file without ODOO_ATOMFEED_USER is not short of it" "$(printf 'CLINIC_SLUG=a\n' > "$TMP/o.env"; answers_missing "$TMP/o.env" | grep -cx ODOO_ATOMFEED_USER)" "0"
 assert_eq "ODOO_ATOMFEED_USER defaults to the hub's feed login" "$( unset ODOO_ATOMFEED_USER; answer_defaults_apply; printf '%s' "$ODOO_ATOMFEED_USER" )" "emrsync"
@@ -194,29 +191,30 @@ X=""; ( ask_secret X "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask_secret 
 out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: echo hello"
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"
 
-# subsystem_tables: one parsing path for sync/subsystems.conf, trimmed + validated
-# (an untrimmed row used to silently leave a table
-# unstrided; see lib.sh's own comment on the function).
-mkdir -p "$REPO_DIR/sync"
-SUBS="$REPO_DIR/sync/subsystems.conf"
-printf 'odoo:all\nclinlims:all\n\nodoo:res_partner   \nodoo:account_move  # trailing inline comment\nodoo:uom_uom\nclinlims:sample\n' > "$SUBS"
+# subsystem_tables: the [up] section of sync/tables/odoo.conf (or openelis.conf),
+# trimmed + validated (an untrimmed row would leave a table unstrided; see
+# lib.sh's own comment on tables_rows).
+mkdir -p "$REPO_DIR/sync/tables"; cp "${HERE}/../../../sync/tables/tables.sh" "$REPO_DIR/sync/tables/"
+ODOO="$REPO_DIR/sync/tables/odoo.conf"
+printf '[up]\n\nres_partner   \naccount_move  # trailing inline comment\nuom_uom\n[down]\nproduct_template\n' > "$ODOO"
+printf '[up]\nsample\n[down]\n' > "$REPO_DIR/sync/tables/openelis.conf"
 assert_eq "subsystem_tables trims trailing whitespace off a row" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "res_partner account_move uom_uom"
 assert_eq "subsystem_tables strips a trailing # comment" "$(subsystem_tables odoo | sed -n 2p)" "account_move"
-assert_eq "subsystem_tables skips the :all row" "$(subsystem_tables odoo | grep -c '^all$')" "0"
-assert_eq "subsystem_tables filters by subsystem prefix" "$(subsystem_tables clinlims)" "sample"
-printf 'odoo:Bad-Name\n' >> "$SUBS"
+assert_eq "subsystem_tables reads only the [up] section" "$(subsystem_tables odoo | grep -c '^product_template$')" "0"
+assert_eq "subsystem_tables reads the subsystem's own file" "$(subsystem_tables clinlims)" "sample"
+printf '[up]\nres_partner\nBad-Name\n[down]\n' > "$ODOO"
 out="$(subsystem_tables odoo 2>&1 1>/dev/null)"; rc=$?
 assert_rc "subsystem_tables fails on a name that is not a bare identifier" "$rc" "1"
 case "$out" in *"Bad-Name"*) named=yes ;; *) named=no ;; esac
 assert_eq "subsystem_tables names the offending row in its failure" "$named" "yes"
 # A file with NO trailing newline on its last line -- bash's `read` returns
 # non-zero there, which would otherwise drop that last row silently.
-printf 'odoo:a\nodoo:b' > "$SUBS"
+printf '[up]\na\nb' > "$ODOO"
 assert_eq "subsystem_tables reads an unterminated last line too" "$(subsystem_tables odoo | tr '\n' ' ' | sed 's/ $//')" "a b"
-printf 'odoo:all\nclinlims:all\n\nodoo:res_partner\nclinlims:sample\n' > "$SUBS"   # leave a clean file behind
+printf '[up]\nres_partner\n[down]\n' > "$ODOO"   # leave a clean file behind
 
 # versions_put: a sync/versions.env with NO trailing newline on its last line
-# (the same unterminated-last-line trap subsystem_tables was fixed for above)
+# (the same unterminated-last-line trap subsystem_tables guards against above)
 # must still land its final key in the rendered target file.
 printf 'A=1\nB=2' > "$TMP/sync/versions.env"
 tgt="$TMP/versions-target.env"; : > "$tgt"
@@ -225,18 +223,6 @@ assert_eq "versions_put reads an unterminated last line too (A)" "$(env_get "$tg
 assert_eq "versions_put reads an unterminated last line too (B)" "$(env_get "$tgt" B)" "2"
 printf 'A=1\nB=2\n' > "$TMP/sync/versions.env"   # leave a clean file behind
 
-# user_in_group_db reads the group DATABASE (id -nG USER), not the process's groups: right
-# after usermod the process list lacks the new group while the database already has it --
-# exactly what task 010 must see to hand over to the runner's `sg docker` re-exec.
-( id(){ case "$*" in "-nG") echo "adm sudo";; "-nG tester") echo "adm sudo docker";; "-un") echo tester;; esac; }
-  USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db sees a group added this minute" "$?" 0
-( id(){ case "$*" in "-nG"|"-nG tester") echo "adm sudo";; "-un") echo tester;; esac; }
-  USER=tester; user_in_group_db docker ); assert_rc "user_in_group_db says no when the database lacks it" "$?" 1
-bare="$(grep -nE 'id -nG' "${HERE}/../tasks/"*.sh "${HERE}/../host-linux.sh" "${HERE}/../host-macos.sh" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*#' | grep -v 'id -nG "\$' || true)"
-assert_eq "no task or host layer reads group membership from the bare process list" "$bare" ""
-# second pass under sg: 010 must reach a FAIL line, never a second silent exit 75
-assert_eq "010 exits 75 only when the group is not yet activated for this run" "$(grep -c '_KRAFT_SG:-}" != 1 \] && \[ "$(detect_runtime)" = docker' "${HERE}/../tasks/010-host.sh")" "1"
-assert_eq "010 names the fault when docker is down after activation" "$(grep -c 'still does not answer after the docker group was activated' "${HERE}/../tasks/010-host.sh")" "1"
 
 # mysql_ready: an authenticated query over TCP, never `mysqladmin ping` -- ping exits 0 even on
 # "Access denied", so it passes against the image's temporary first-boot server (socket-only,

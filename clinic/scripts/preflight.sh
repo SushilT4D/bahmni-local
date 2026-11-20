@@ -1,24 +1,7 @@
 #!/usr/bin/env bash
-# Node-local preflight: VM disk and memory,
-# MySQL wait_timeout floor, PG replication-slot retention, Kafka reachable,
-# connector task states. Exit 1 if any floor is breached.
-#
+# Run node-local preflight checks.
 # Usage: scripts/preflight.sh
-#
-# RUNS ENTIRELY ON THIS NODE. It takes no node name and opens no SSH connection.
-#
-# WHY. A script that fans out to other nodes over SSH carries, in a PUBLIC
-# repo, the hub's hostname and the path to a private key. Nothing the clinic
-# stack runs needs SSH -- the resolved compose config references it zero
-# times -- and a clinic reaches the hub over Kafka, not a shell. That
-# transport is meant to be mTLS with per-site ACLs confining each site to its
-# own topics; shell access from
-# every clinic to the hub is far wider than the architecture grants, and
-# shipping it to six clinics makes the hub shell-reachable from all of them.
-#
-# The three-node fan-out now lives with the operator, in the Bahmni workspace
-# repo (skills/lab-preflight.sh), which SSHes to each node and runs THIS script
-# there. Checks live here, once; only the operator wrapper knows node names.
+# This script does not connect to other hosts.
 set -u
 
 DISK_FLOOR_GB=${DISK_FLOOR_GB:-5}
@@ -40,12 +23,9 @@ rc=0
 bad(){ echo "  FAIL $*"; rc=1; }
 ok(){  echo "  ok   $*"; }
 
-# Container engine: Rawach runs docker, Ghated podman. Detect, never assume.
-CT=${CONTAINER_TOOL:-}
-if [ -z "$CT" ]; then
-  for c in docker podman; do command -v "$c" >/dev/null 2>&1 && { "$c" ps >/dev/null 2>&1 && CT=$c && break; }; done
-fi
-[ -n "$CT" ] || { echo "  FAIL no working container engine (tried docker, podman)"; exit 1; }
+# Container engine: podman (CONTAINER_TOOL overrides, for tests).
+CT=${CONTAINER_TOOL:-podman}
+"$CT" ps >/dev/null 2>&1 || { echo "  FAIL ${CT} is not answering (is the podman machine running?)"; exit 1; }
 echo "== $(hostname -s) ($CT) =="
 
 # Resolve a compose service to its actual container name on this node.
@@ -54,12 +34,7 @@ resolve(){ "$CT" ps --format '{{.Names}}' 2>/dev/null \
 
 MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFKA_SERVICE")
 
-# Find the repo by asking a running container which directory its
-# compose project came from. Works regardless of how this script was invoked --
-# the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
-# Resolved here (not down by the checkout-drift section that originally read
-# it) so the unsynced-tables section below -- which needs sync/subsystems.conf,
-# same as checkout drift needs the git repo -- has it too.
+# Resolve the checkout from Compose labels; this script may be piped over stdin.
 REPO=${PREFLIGHT_REPO:-}
 if [ -z "$REPO" ]; then
   for c in $("$CT" ps --format '{{.Names}}' 2>/dev/null | head -5); do
@@ -67,42 +42,18 @@ if [ -z "$REPO" ]; then
     [ -n "$wd" ] && [ -d "$wd" ] && { REPO="$wd"; break; }
   done
 fi
-# The compose project lives in <repo>/clinic; sync/ is a sibling of clinic/,
-# so the paths below need the repository root, not the compose directory.
+# The compose project lives in <repo>/clinic; sync/ is a sibling of clinic/.
 if [ -n "$REPO" ] && [ ! -d "$REPO/sync" ] && [ -d "$(dirname "$REPO")/sync" ]; then REPO="$(dirname "$REPO")"; fi
 
 # --- VM disk + memory -------------------------------------------------------
-# The container VM, not the host: on macOS the engine runs in a Linux VM and it
-# is that VM's disk that fills. nsenter into pid 1 reads the VM's own view.
-# On a Linux host there is no VM: the engine's data-root sits on a host
-# filesystem and MemAvailable is the host's own. Measure it directly, at the
-# engine's REAL data-root -- the first Linux clinic (manpur) keeps it on a data
-# disk, and /var/lib/docker on the OS disk reported 8 GB free for a node with
-# 120 GB. The nsenter/VM probes below are for macOS engines.
-if [ "$(uname -s)" = Linux ]; then
-  root="$("$CT" info --format '{{.DockerRootDir}}' 2>/dev/null || "$CT" info --format '{{.Store.GraphRoot}}' 2>/dev/null || echo /var/lib/docker)"
-  disk="$(df -Pm "$root" 2>/dev/null | awk 'NR==2{print $4}')"
-  mem="$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')"
-  probe="host ${root}"
-else
+# Measure the podman machine's disk and memory.
 read -r disk mem <<< "$("$CT" run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -n -i \
   sh -c 'echo $(df -m /var/lib/docker 2>/dev/null | tail -1 | awk "{print \$4}") $(free -m | awk "NR==2{print \$7}")' 2>/dev/null)"
 probe="nsenter"
-fi
 
-# ROOTLESS PODMAN CANNOT nsenter INTO PID 1. It fails with
-#   nsenter: can't open '/proc/1/ns/ipc': Permission denied
-# so the read above returns nothing. Skipping both lines silently would leave a
-# whole clinic with no disk or memory floor at all, which reads exactly like a
-# node that passed.
-#
-# `podman info` reports the same numbers without entering any namespace.
-# MUST be memAvailable, NOT memFree: on this node memFree read 182 MB against a
-# memAvailable of 1157 MB, so memFree would have raised a false FAIL against the
-# 1024 MB floor every time.
+# Fall back to podman info when rootless mode blocks nsenter; never skip missing probes.
 if [ -z "${disk:-}" ] || [ -z "${mem:-}" ]; then
-  # A docker CLI pointed at podman's socket answers `info` in Docker's shape,
-  # without these fields: ask podman itself whenever it is installed.
+  # Query podman directly when its socket omits the required resource fields.
   info_ct="$CT"; command -v podman >/dev/null 2>&1 && info_ct=podman
   if read -r d2 m2 <<< "$("$info_ct" info --format json 2>/dev/null | python3 -c '
 import json,sys
@@ -119,10 +70,7 @@ print((alloc-used)//1048576, avail//1048576)
     probe="${info_ct} info"
   fi
 fi
-# A probe that returns nothing must SAY so. Under rootless podman the nsenter
-# above yields nothing; a version of this script that skipped the line silently
-# made a disk floor nobody was measuring read exactly like a disk floor that
-# passed.
+# Fail explicitly when resource probes return no measurements.
 if [ -n "${disk:-}" ]; then
   [ "$disk" -ge $((DISK_FLOOR_GB*1024)) ] \
     && ok "vm disk free ${disk} MB (via ${probe})" || bad "vm disk free ${disk} MB < ${DISK_FLOOR_GB} GB"
@@ -157,50 +105,19 @@ if [ -n "$PG" ]; then
 else bad "postgres service '$PG_SERVICE' not running"; fi
 
 # --- Unsynced tables tied to synced ones -------------------
-# village_village stopped a sink because a table nobody had listed grew rows
-# that referenced, and were referenced by, a synced table. That
-# is a CLASS, not a one-off: a table outside sync/subsystems.conf's synced set
-# that (a) touches a synced table by a foreign key in EITHER direction and
-# (b) has gained rows is a future village_village until a human gives it a
-# verdict in sync/unsynced-allowlist.conf. WARN, not FAIL: this is a
-# data-quality question for a person, not a broken node -- warn_ never
-# touches rc.
-#
-# The functions between the markers below are pure (no psql, no side effects)
-# so clinic/install/tests/test_unsynced_check.sh can pull them out and
-# exercise the SQL-building and the allowlist/subsystems parsing without a
-# database. Not sourced from clinic/install/lib.sh: this script also runs
-# piped over ssh from another host (see the file header), where lib.sh and
-# its REPO_DIR are not on the far side.
+# Warn about unsynced tables linked to synced tables; tests extract the helpers.
 # unsynced-check:begin
 warn_(){ echo "  WARN $*"; }
 
-# subsystems_conf_tables PREFIX CONF : sync/subsystems.conf's <PREFIX>:<table>
-# rows, one per line -- the same parse clinic/install/lib.sh's
-# subsystem_tables does (trim, drop a trailing comment, skip :all, skip
-# blank/comment lines). A missing CONF prints nothing rather than erroring --
-# the caller decides whether that is a note or a real problem.
-subsystems_conf_tables(){ # PREFIX CONF
-  local prefix="$1" conf="$2" line name
-  [ -f "$conf" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in ''|'#'*) continue ;; esac
-    case "$line" in "${prefix}:"*) ;; *) continue ;; esac
-    name="${line#*:}"; name="${name%%#*}"
-    name="$(printf '%s' "$name" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-    [ -z "$name" ] && continue
-    [ "$name" = "all" ] && continue
-    printf '%s\n' "$name"
-  done < "$conf"
+# The [up] tables of one sync/tables/*.conf file (odoo.conf, openelis.conf).
+up_section_tables(){ # CONF : the [up] entries of a sync/tables/*.conf file, one per line; nothing when it is missing
+  [ -f "$1" ] || return 0
+  awk '{ t = $0; gsub(/^[ \t]+|[ \t]+$/, "", t) }
+       t ~ /^\[[a-z]+\]$/ { up = (t == "[up]"); next }
+       up { sub(/#.*/, ""); gsub(/[ \t]/, ""); if ($0 != "") print }' "$1"
 }
 
-# unsynced_check_sql SCHEMA TABLE... : the query that finds a table in SCHEMA
-# that is (a) not one of the given synced TABLEs, (b) linked to one by a
-# foreign key in EITHER direction (an FK FROM it TO a synced table, or an FK
-# FROM a synced table TO it), and (c) has rows. Both directions matter --
-# village_village is pointed TO by res_partner (itself synced), but a future
-# case could equally be a table a synced row points AT. Printed, never eval'd
-# blind here, so a test can inspect it without a database.
+# Find unsynced tables with rows and foreign keys in either direction.
 unsynced_check_sql(){ # SCHEMA TABLE...
   local schema="$1"; shift
   local synced_csv="" t
@@ -231,11 +148,7 @@ ORDER BY c.tbl;
 SQL
 }
 
-# filter_unsynced_allowlist DB ALLOWFILE : reads "table|direction|rows" lines
-# on stdin, drops any whose "DB:table" appears in ALLOWFILE (a bare substring
-# match is not enough -- openelis and odoo can share a table name, e.g.
-# "test"), prints the rest unchanged. A missing ALLOWFILE allowlists nothing
-# (keeps every line), never passes everything through silently.
+# Filter allowlisted DB/table pairs without substring matches.
 filter_unsynced_allowlist(){ # DB ALLOWFILE
   local db="$1" allow="$2" line tbl
   while IFS= read -r line; do
@@ -250,16 +163,16 @@ filter_unsynced_allowlist(){ # DB ALLOWFILE
 # unsynced-check:end
 
 if [ -z "${REPO:-}" ]; then
-  echo "  note unsynced-tables check NOT RUN: no repo checkout found on this node yet (needed for sync/subsystems.conf)"
+  echo "  note unsynced-tables check NOT RUN: no repo checkout found on this node yet (needed for sync/tables/)"
 else
-  CONF_F="${REPO}/sync/subsystems.conf"; ALLOW_F="${REPO}/sync/unsynced-allowlist.conf"
-  if [ ! -f "$CONF_F" ]; then
-    echo "  note unsynced-tables check NOT RUN: ${CONF_F} not found"
+  TABLES_D="${REPO}/sync/tables"; ALLOW_F="${REPO}/sync/unsynced-allowlist.conf"
+  if [ ! -d "$TABLES_D" ]; then
+    echo "  note unsynced-tables check NOT RUN: ${TABLES_D} not found"
   else
-    check_unsynced(){ # LABEL DB SCHEMA PREFIX
-      local label="$1" db="$2" schema="$3" prefix="$4" synced sql out filtered
-      synced="$(subsystems_conf_tables "$prefix" "$CONF_F")"
-      if [ -z "$synced" ]; then echo "  note unsynced-tables check ($label): no ${prefix}: rows in $CONF_F"; return; fi
+    check_unsynced(){ # LABEL DB SCHEMA
+      local label="$1" db="$2" schema="$3" conf="${TABLES_D}/$1.conf" synced sql out filtered
+      synced="$(up_section_tables "$conf")"
+      if [ -z "$synced" ]; then echo "  note unsynced-tables check ($label): no [up] tables in $conf"; return; fi
       if [ -z "$PG" ]; then echo "  note unsynced-tables check ($label): postgres service '$PG_SERVICE' not running"; return; fi
       # shellcheck disable=SC2086
       sql="$(unsynced_check_sql "$schema" $synced)"
@@ -274,8 +187,8 @@ else
         done
       fi
     }
-    check_unsynced odoo odoo public odoo
-    check_unsynced openelis openelis clinlims clinlims
+    check_unsynced odoo odoo public
+    check_unsynced openelis openelis clinlims
   fi
 fi
 
@@ -286,8 +199,7 @@ if [ -n "$KF" ]; then
 else bad "kafka service '$KAFKA_SERVICE' not running"; fi
 
 # --- Connectors -------------------------------------------------------------
-# Judged on TASK state, never connector state: a connector reports RUNNING while
-# its task is dead, so reading connector state passes over a broken sink.
+# Check task state; a connector can report RUNNING while its task has failed.
 st=$(curl -s --max-time 20 "${CONNECT_URL}/connectors?expand=status" | python3 -c "import json,sys
 try: d=json.load(sys.stdin)
 except Exception: print('connect-unreachable'); sys.exit()
@@ -296,13 +208,7 @@ case "$st" in *"not RUNNING: []") ok "$st";; *) bad "$st";; esac
 
 
 # --- odoo-connect -----------------------------------------------------------
-# The image lacks Apache HttpClient 5 and the compose file bind-mounts three
-# jars into its WEB-INF/lib. Two ways for that to silently
-# not apply: the source file missing, so the engine creates an empty DIRECTORY
-# of the jar's name; or a container recreated from an older override. Both
-# leave the error in the log, so the log is judged as well as the file. Only
-# when the container is running: the hub runs no odoo-connect (it receives
-# Odoo rows over CDC, never the atom feed) and says so rather than passing.
+# Check the mounted HttpClient jar and recent logs on nodes running this service.
 OC=$(resolve "odoo-connect")
 if [ -n "$OC" ]; then
   if "$CT" exec "$OC" sh -c 'test -f /run/bahmni-erp-connect/bahmni-erp-connect/WEB-INF/lib/httpclient5-5.1.4.jar' 2>/dev/null; then
@@ -319,21 +225,10 @@ else
 fi
 
 # --- checkout drift ---------------------------------------------------------
-# WHY. A hub can run a sink generator weeks older than the fixed copy on the
-# branch, and nobody would know, because
-# nothing ever compared a node's checkout to its remote. Every other check here
-# asks whether the node is HEALTHY; this one asks whether it is running the code
-# we think it is.
-#
-# Deliberately does NOT fetch by default: this script is node-local and fast, and
-# the operator wrapper is the networked half. But an "up to date" computed from a
-# week-old remote-tracking ref is not evidence of anything, so the age of that
-# ref is checked too -- a stale reference FAILS rather than quietly passing.
-# Set PREFLIGHT_FETCH=yes to refresh it first.
+# Check checkout status and upstream freshness; PREFLIGHT_FETCH=yes refreshes refs.
 REF_MAX_AGE_H=${REF_MAX_AGE_H:-24}
 
-# REPO is resolved once, near the top of this script (the unsynced-tables
-# section below needs it too) -- reused here, not recomputed.
+# Reuse the repository path resolved above.
 if [ -z "${REPO:-}" ] || ! git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1; then
   bad "checkout drift NOT MEASURED: no git repo found (set PREFLIGHT_REPO)"
 else
@@ -345,34 +240,20 @@ else
     || bad "working tree has ${dirty} uncommitted change(s) -- node config diverging off-repo:$(git -C "$REPO" status --porcelain 2>/dev/null | head -5 | sed 's/^/ /' | tr '\n' ';')"
 
   if ! up=$(git -C "$REPO" rev-parse --abbrev-ref '@{u}' 2>/dev/null); then
-    # Not pedantry: the hub had no upstream, so from that node you could not tell
-    # whether your work was pushed or your checkout was stale. Drift is invisible.
+    # Without an upstream, checkout drift cannot be measured.
     bad "no upstream for $(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null) -- drift CANNOT be detected from this node"
   else
     ahead=$(git -C "$REPO" rev-list --count "${up}..HEAD" 2>/dev/null || echo 0)
     behind=$(git -C "$REPO" rev-list --count "HEAD..${up}" 2>/dev/null || echo 0)
 
     age_desc=""
-    # Freshness of the drift REFERENCE, not of any particular transport. The hub
-    # cannot reach GitHub at all -- TCP/443 and SSH both time out from that
-    # network -- so its remote-tracking ref is PUSHED IN by a node that can reach
-    # both (see skills/lab-preflight.sh). FETCH_HEAD therefore never exists there,
-    # and measuring it would report "never fetched" forever on a node whose
-    # reference is in fact current. The ref file's own mtime is true under either
-    # model: it moves when the ref moves, however it got there.
-    # --absolute-git-dir, not --git-dir: the latter returns ".git" relative to the
-    # REPO, and this script runs with an arbitrary CWD when the operator wrapper
-    # pipes it over ssh -- which silently made every mtime lookup miss and every
-    # node report "never fetched".
+    # Check the upstream ref's mtime because FETCH_HEAD may not exist on the hub.
     gd=$(git -C "$REPO" rev-parse --absolute-git-dir 2>/dev/null)
     upref=$(git -C "$REPO" rev-parse --symbolic-full-name '@{u}' 2>/dev/null)
     ref_mtime=0
     for cand in "${gd}/${upref}" "${gd}/FETCH_HEAD" "${gd}/packed-refs"; do
       [ -f "$cand" ] || continue
-      # GNU first: on Linux `stat -f %m FILE` prints FILESYSTEM status to stdout
-      # before failing, and that junk landed in this variable ahead of the
-      # fallback's epoch (manpur: "integer expression expected"). tail -1 keeps
-      # only the last line whatever the order.
+      # Use the final line because BSD stat may print output before failing.
       ref_mtime=$( { stat -c %Y "$cand" 2>/dev/null || stat -f %m "$cand" 2>/dev/null || echo 0; } | tail -1)
       [ "${ref_mtime:-0}" -gt 0 ] && break
     done

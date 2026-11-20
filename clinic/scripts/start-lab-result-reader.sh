@@ -1,36 +1,6 @@
 #!/usr/bin/env bash
-# Starts OpenMRS's reader of OpenELIS's results (the openelis-atomfeed-client
-# module's scheduled tasks), so a result validated in this node's OpenELIS
-# becomes a LAB_RESULT encounter on the patient's dashboard.
-#
-#   clinic/scripts/start-lab-result-reader.sh [--openmrs-container NAME] [--mysql-container NAME] [--database DB]
-#
-# The reader's tasks are defined but not started at boot (start_on_startup 0),
-# so no result reaches OpenMRS; and its bookmark into OpenELIS's patient feed
-# (OpenMRS's markers table) is whatever the database last held, which on a node
-# restored from a copy names another node's feed. In order:
-#   1. reads the newest entry of this node's OpenELIS patient feed, as the
-#      reader reads it (OpenELIS login, then the session cookie), from inside
-#      the OpenMRS container with the reader's own settings, retried while
-#      OpenELIS boots (OPENELIS_BOOT_TIMEOUT_S, default 300 s);
-#   2. parks the reader's bookmark there, so the results already in OpenELIS are
-#      not replayed into OpenMRS;
-#   3. sets exactly one "OpenElis Patient Atom Feed Task" (the lowest id; the
-#      table can hold the same task twice, and two would read every result
-#      twice) and the failed-event task to start at boot, any other copy not;
-#   4. restarts OpenMRS and waits for its session URL (OPENMRS_RESTART_TIMEOUT_S,
-#      default 1800 s);
-#   5. waits until the reader task has run since the restart
-#      (READER_RUN_TIMEOUT_S, default 300 s).
-# Each wait that runs out fails, naming what it last saw. Results validated
-# from then on reach OpenMRS when the sample's source is linked to an OpenMRS
-# location (an external_reference row of type SampleSource in OpenELIS);
-# a sample under an unlinked source fails in OpenMRS with "Location Uuid null".
-#
-# Defaults: <COMPOSE_PROJECT_NAME>-openmrs-1, <COMPOSE_PROJECT_NAME>-bahmni-mysql-1
-# and database openmrs, COMPOSE_PROJECT_NAME from clinic/.env. A node whose
-# containers are named otherwise passes them. RUNTIME=docker|podman overrides
-# the platform's default runtime.
+# Start OpenMRS's OpenELIS patient-result reader.
+# Usage: clinic/scripts/start-lab-result-reader.sh [--openmrs-container NAME] [--mysql-container NAME] [--database DB]
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
@@ -55,11 +25,7 @@ fi
 my(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B "$1"' _ "$DB"; }
 FEED="http://openelis:8052/openelis/ws/feed/patient/recent"
 
-# 1. the newest entry of this node's OpenELIS patient feed (the reader's
-# credentials stay inside the OpenMRS container, read from its own settings).
-# Task 080 parks OpenELIS's bookmarks just before this, which stops OpenELIS and
-# starts it again, so the login and the feed are retried on a named budget
-# (OPENELIS_BOOT_TIMEOUT_S, default 300 s, every 10 s) while it boots.
+# Read the latest feed entry using the reader's credentials inside OpenMRS.
 read_feed(){ ct exec "$OM" sh -c 'F=/openmrs/data/bahmnicore.properties; U=$(sed -n "s/^openelis.user=//p" $F); P=$(sed -n "s/^openelis.password=//p" $F); [ -n "$U" ] && [ -n "$P" ] || { echo "NO-SETTINGS"; exit 0; }; S=$(curl -s -i --data-urlencode "loginName=$U" --data-urlencode "password=$P" http://openelis:8052/openelis/ValidateLogin.do | sed -n "s/^Set-Cookie: JSESSIONID=\([^;]*\).*/\1/p" | head -1); [ -n "$S" ] || { echo "NO-SESSION"; exit 0; }; curl -s -H "Cookie: JSESSIONID=$S" -w "\nHTTP %{http_code}" "$1"' _ "$FEED" < /dev/null 2>/dev/null || true; }
 budget="${OPENELIS_BOOT_TIMEOUT_S:-300}"; s="$(date +%s)"
 while :; do

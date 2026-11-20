@@ -1,17 +1,7 @@
--- The state of each down table's id sequence on the hub, read-only.
---
--- One line per down table with an `id`, in the order passed:
---   <table>|<restart>|<next>|<increment>
--- <restart> is where the hub's striding would restart the sequence if it ran now
--- (residue 0): apply-odoo-sequence-striding.sql's ((max(max id, last_value) / 10)
--- + 1) * 10, and for res_country_state apply-master-sequence-striding.sql's
--- ((max(max id, 1000) / 10) + 1) * 10, which runs after it and wins.
--- <next> is the id the sequence would issue next.
---
--- Refused, naming the table: a down table that does not exist, or one with an
--- `id` and no owning sequence.
---
--- Usage: psql -d odoo -v tables=product_template,uom_uom,... -f down-sequence-state.sql
+-- Read-only: for each Odoo table with an id, where striding would restart its sequence and the id it issues next.
+-- psql -d odoo -v tables=a,b -f down-sequence-state.sql  -> <table>|<restart>|<next>|<increment>
+
+-- Pass the table list; results collect in a temporary table.
 \set ON_ERROR_STOP on
 SELECT set_config('myvars.tables', :'tables', false) \g /dev/null
 CREATE TEMP TABLE down_seq (n int, t text, restart bigint, nxt bigint, inc bigint);
@@ -31,6 +21,7 @@ BEGIN
   IF v_tables IS NULL THEN
     RAISE EXCEPTION 'no down tables passed in (-v tables=...)';
   END IF;
+  -- Each table must exist; one with an id must own a sequence. res_country_state restarts at 1000 or above.
   FOREACH v_t IN ARRAY v_tables LOOP
     v_n := v_n + 1;
     v_rel := to_regclass(format('public.%I', v_t));
@@ -53,4 +44,5 @@ BEGIN
   END LOOP;
 END $do$;
 
+-- One line per table, in the order passed.
 SELECT t || '|' || restart || '|' || nxt || '|' || inc FROM down_seq ORDER BY n;

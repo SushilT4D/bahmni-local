@@ -1,82 +1,30 @@
 #!/usr/bin/env bash
-# Chown bind-mounted data directories to the uid:gid the image runs as, before
-# the stack starts writing to them.
-#
-# On a Linux Docker host, Odoo 16 answers HTTP 500
-# on every request -- PermissionError: [Errno 13] Permission denied:
-# '/var/lib/odoo/.local'. Odoo's image runs as uid 101 ('odoo'); task 030
-# creates CONTAINER_DATA_PATH's bind sources with a plain `mkdir -p`, so they
-# land owned by the login user (1000:1000, mode 775) and uid 101 cannot write.
-# Measured on the same host: Kafka and MirrorMaker (uid 1000) only happened to
-# work because the login user is ALSO 1000; kafka-connect (uid 1001) cannot
-# write /kafka/connect/data. So this is a class of defect, not one directory --
-# every service below is swept the same way.
-#
-# Directories come from the rendered compose config, never from grepping the
-# file by hand, so a new mount is picked up here with no edit to this script.
-# The uid:gid an image runs as is read with a throwaway container (never the
-# real service), and a directory is only touched if its current owner differs.
-#
-# Standalone, on an already-installed node:
-#   cd clinic && CT=docker bash scripts/fix-mount-ownership.sh
-# Wired: called from install/tasks/080-stack.sh, right before the stack starts
-# (images present since task 040, directories created since task 030).
+# Fix ownership of writable bind mounts before services start.
+# Usage: scripts/fix-mount-ownership.sh
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# A fresh `bash scripts/fix-mount-ownership.sh` subprocess never inherits the
-# caller's shell functions (ok/skip/fail/... are not exported) -- source lib.sh
-# whenever they are missing, standalone or wired alike.
+# Load installer helpers when invoked as a standalone subprocess.
 type ok >/dev/null 2>&1 || . "${HERE}/../install/lib.sh"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"
-PLATFORM="${PLATFORM:-$(detect_platform)}"
-
-# Respect an already-exported CT (the documented standalone form pins it
-# explicitly, e.g. CT=docker); only setup_compose's own runtime detection when
-# CT is unset. setup_compose ALWAYS overwrites CT from detect_runtime, which
-# would silently replace an operator's explicit CT=docker with podman on
-# macOS -- so it only runs when there is nothing to preserve.
-if [ -z "${CT:-}" ]; then
-  setup_compose
-elif [ -z "${COMPOSE_CMD:-}" ]; then
-  if [ "${CT}" = docker ]; then
-    COMPOSE_CMD="docker compose"
-  else
-    COMPOSE_CMD="docker-compose"
-    [ -n "${DOCKER_HOST:-}" ] || export DOCKER_HOST="$(podman_socket)"
-  fi
-fi
-export CT COMPOSE_CMD
+setup_compose
 
 begin_task "fix-mount-ownership: bind-mounted data directories"
 
-# The class of service this incident belongs to: any service with a
-# bind-mounted data directory a non-root image user must write. Add a new one
-# here when a new such service is introduced -- the directories themselves
-# always come from the merged compose config, never a hand-maintained list.
+# Services whose writable bind mounts need ownership checks.
 SERVICES="odoo kafka kafka-connect mirrormaker-connect"
 
-# COMPOSE_JSON_FILE is a testability hook: tests feed a fixture through it
-# instead of a real compose config.
+# Allow tests to supply a Compose config fixture.
 json="${COMPOSE_JSON_FILE:-}"
 cleanup_json=0
 if [ -z "$json" ]; then
   json="$(mktemp)"; cleanup_json=1
   ( cd "${CLINIC_DIR}" && compose config --format json ) > "$json" || fail "compose config --format json failed"
 fi
-# `[ cond ] && rm ...` would return the test's own (non-)zero status when
-# cond is false -- fine on its own (guarded), but this runs as the EXIT trap,
-# where a non-zero return re-triggers lib.sh's ERR trap on the way out. An
-# explicit if always returns 0.
+# Keep the EXIT trap successful when no temporary config was created.
 cleanup(){ if [ "$cleanup_json" = 1 ]; then rm -f "$json"; fi; }
 trap cleanup EXIT
 
-# One line per candidate: either "SKIP\t<service>\t<reason>" for a service not
-# in this profile set's merged config, or "DIR\t<service>\t<image>\t<dir>" for
-# an eligible mount -- read-write, type=bind (never a named volume, never a
-# file), realpath under CLINIC_DIR (never outside it), and a DIRECTORY on disk
-# today (a file mount, even a bind one, is left alone). Lines for one service
-# are emitted together, in SERVICES order, so the shell loop below can probe
-# the image's uid:gid once per service.
+# Include only writable, in-tree bind-mounted directories from Compose config.
 mounts="$(SERVICES="$SERVICES" CLINIC_DIR="$CLINIC_DIR" python3 - "$json" <<'PY'
 import json, os, sys
 
@@ -109,34 +57,18 @@ for name in services:
 PY
 )"
 
-# tracked_dir DIR : true if `git` tracks any file under DIR in this checkout.
-# No candidate directory is tracked today (checked: data/*, files/odoo,
-# odoo-addons, config/odoo are all untracked), but a directory that starts
-# tracking files later and gets chowned to a container uid would make the
-# next `git pull` fail for the login user -- so this is checked before every
-# chown, not just today's known-safe set. A node with no `git` binary, or a
-# CLINIC_DIR outside any checkout, has no tracked files by definition; guard
-# the call so either behaves as "no tracked files" rather than failing the
-# whole sweep over an absent binary or a plain (non-git) deployment.
+# Never chown directories containing tracked files.
 tracked_dir(){
   command -v git >/dev/null 2>&1 || return 1
   [ -n "$(git -C "${CLINIC_DIR}" ls-files -- "$1" 2>/dev/null || true)" ]
 }
 
-# stat -c is GNU (Linux); -f is BSD (macOS). Prints "uid gid", empty on error.
-owner_of(){
-  local d="$1" u g
-  u="$(stat -c %u "$d" 2>/dev/null || stat -f %u "$d" 2>/dev/null || true)"
-  g="$(stat -c %g "$d" 2>/dev/null || stat -f %g "$d" 2>/dev/null || true)"
-  printf '%s %s\n' "$u" "$g"
-}
+# owner_of DIR : "uid gid" (macOS stat), empty on error.
+owner_of(){ stat -f '%u %g' "$1" 2>/dev/null || true; }
 
 prev_service=""; svc_uid=""; svc_gid=""; svc_root=0
 while true; do
-  # `read` returning non-zero at end-of-input is how this loop is meant to
-  # end; `|| break` makes that explicit so it can never read as a real
-  # failure to the ERR trap above (unguarded, it does -- see lib.sh's own
-  # comment on _on_err: only if/&&/||/while-guarded failures stay quiet).
+  # EOF ends the generated mount list normally.
   IFS=$'\t' read -r kind a b c || break
   [ -n "$kind" ] || continue
   case "$kind" in
@@ -180,13 +112,11 @@ while true; do
       read -r new_u new_g <<<"$(owner_of "$dir")"
       if [ "$new_u" = "$svc_uid" ] && [ "$new_g" = "$svc_gid" ]; then
         ok "${service}: ${rel} -> ${svc_uid}:${svc_gid}"
-      elif [ "${PLATFORM}" = macos ]; then
+      else
         # Rootless podman over virtiofs does not map host-side ownership 1:1;
         # a chown that does not take here is a known limit, not a defect to
         # stop the install over.
         warn "${service}: ${rel} chown to ${svc_uid}:${svc_gid} did not take (now ${new_u:-?}:${new_g:-?}) -- rootless podman/virtiofs does not map ownership 1:1; leaving as is"
-      else
-        fail "${service}: ${rel} chown to ${svc_uid}:${svc_gid} did not take (now ${new_u:-?}:${new_g:-?}): ${COMPOSE_CMD:-compose} logs ${service}"
       fi
       ;;
   esac

@@ -15,7 +15,7 @@ pick(){ ( unset HUB_CA; [ -n "${1:-}" ] && export HUB_CA="$1"; CLINIC_DIR="$TMP/
 echo kept > "$TMP/repo/clinic/certs/hub-ca.pem"
 [ "$(pick)" = "$TMP/repo/clinic/certs/hub-ca.pem" ] && ok_ "a kept copy wins over the fleet's file" || bad "kept copy not preferred: $(pick)"
 [ "$(pick /given/ca.pem)" = "/given/ca.pem" ] && ok_ "HUB_CA in the environment wins over both" || bad "environment not preferred: $(pick /given/ca.pem)"
-blk="$(sed -n '/keep the certificate this install was given/,/^fi$/p' "${HERE}/../tasks/020-env.sh")"
+blk="$(sed -n '/^if \[ "\$proto" = SASL_SSL \] && \[ "\${DRY}" != 1 \]/,/^fi$/p' "${HERE}/../tasks/020-env.sh")"
 printf '%s' "$blk" | grep -q 'cp "${HUB_CA}" "${HUB_CA_KEPT}.new"' && printf '%s' "$blk" | grep -q 'proto" = SASL_SSL' && printf '%s' "$blk" | grep -q 'DRY}" != 1' \
   && ok_ "task 020 keeps the certificate on a real TLS install only" || bad "020 keep block: $blk"
 exit "$fails"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The macOS/Apple-Silicon path, static + compose-config checks: compose falls
 # back OPENMRS_RUN_IMAGE -> OPENMRS_IMAGE_NAME, task 040 branches on host
-# architecture and no longer references the old openmrs/build.sh fallback,
+# architecture and calls openmrs/build.sh,
 # both pin files carry the new arm64 base image, preflight's macos-facts
 # block (arch line + podman-machine memory gate), and host-macos.sh's new
 # machine-sizing function and dry-run-without-podman fix. Sections below
@@ -22,10 +22,7 @@ grep -qE '^\s*image:\s*\$\{OPENMRS_RUN_IMAGE:-\$\{OPENMRS_IMAGE_NAME:\?\}\}' "$C
 
 T40="${HERE}/../tasks/040-images.sh"
 code40="$(grep -vE '^[[:space:]]*#' "$T40")"
-printf '%s' "$code40" | grep -q 'HOST_ARCH:-\$(uname -m)' && ok_ "040 decides architecture via HOST_ARCH/uname -m" || bad "040 has no HOST_ARCH/uname -m arch decision"
-printf '%s' "$code40" | grep -qF 'arm64|aarch64' && ok_ "040 branches on arm64|aarch64" || bad "040 does not branch on arm64|aarch64"
-printf '%s' "$code40" | grep -q 'openmrs/build\.sh' && bad "040 still references openmrs/build.sh (the pull-failed fallback was supposed to be removed)" || ok_ "040 no longer references openmrs/build.sh"
-printf '%s' "$code40" | grep -q 'openmrs/build-native\.sh' && ok_ "040 calls openmrs/build-native.sh" || bad "040 does not call openmrs/build-native.sh"
+printf '%s' "$code40" | grep -q 'openmrs/build\.sh' && ok_ "040 calls openmrs/build.sh" || bad "040 does not call openmrs/build.sh"
 printf '%s' "$code40" | grep -q 'OPENMRS_RUN_IMAGE' && ok_ "040 writes/reads OPENMRS_RUN_IMAGE" || bad "040 never mentions OPENMRS_RUN_IMAGE"
 printf '%s' "$code40" | grep -q 'bahmni-local/\*' && ok_ "040's pull loop still skips bahmni-local/* (covers the native tag)" || bad "040 lost its bahmni-local/* skip pattern"
 
@@ -40,7 +37,7 @@ if command -v docker >/dev/null 2>&1; then
   TMPENV="$(mktemp)"; trap 'rm -f "$TMPENV"' EXIT
   cat "${HERE}/../../.env.example" > "$TMPENV"
   cat "${HERE}/../../../sync/versions.env" >> "$TMPENV"
-  printf 'CONTAINER_DATA_PATH=/tmp\nKAFKA_CLUSTER_ID=x\nOPENMRS_MEM_LIMIT=6g\nMYSQL_AUTO_INCREMENT_OFFSET=7\nMYSQL_SERVER_ID=7\nODOO_APP_VOLUME_NAME=x\nODOO_DB_VOLUME_NAME=x\nBAHMNI_UI_DIR=/tmp/ui\nBAHMNI_CONFIG_DIR=/tmp/cfg\nBAHMNI_WEB_IMAGE=x/web:1\nBAHMNI_CONFIG_IMAGE=x/config:1\nPHONE_NUMBER=+910000000000\n' >> "$TMPENV"
+  printf 'CONTAINER_DATA_PATH=/tmp\nKAFKA_CLUSTER_ID=x\nOPENMRS_MEM_LIMIT=6g\nBHS_LOCATION_OFFSET=7\nMYSQL_SERVER_ID=7\nODOO_APP_VOLUME_NAME=x\nODOO_DB_VOLUME_NAME=x\nBAHMNI_UI_DIR=/tmp/ui\nBAHMNI_CONFIG_DIR=/tmp/cfg\nBAHMNI_WEB_IMAGE=x/web:1\nBAHMNI_CONFIG_IMAGE=x/config:1\nPHONE_NUMBER=+910000000000\n' >> "$TMPENV"
   openmrs_image(){ # extra env assignments in "$1", "" for none
     ( cd "${HERE}/../.." && env $1 docker compose --env-file "$TMPENV" --profile local --profile debezium --profile openelis config --format json 2>/dev/null ) \
       | python3 -c 'import json,sys
@@ -68,31 +65,29 @@ blk="$(sed -n '/# macos-facts:begin/,/# macos-facts:end/p' "$T00")"
 # podman on the machine running this test can never leak into the "no
 # machine" case below; PREFLIGHT_MACHINE_MIB/PREFLIGHT_HOST_MIB override the
 # rest, the same way PREFLIGHT_CPUS stands in for the host in test_boot_budget.sh.
-runf(){ # PLATFORM RUNTIME ARCH MACHINE_MIB HOST_MIB
-  env -i PATH="/usr/bin:/bin:/usr/sbin:/sbin" PLATFORM="$1" RUNTIME="$2" PREFLIGHT_ARCH="$3" PREFLIGHT_MACHINE_MIB="$4" PREFLIGHT_HOST_MIB="$5" bash -c ". '${LIBSH}'; ${blk}" 2>&1
+runf(){ # ARCH MACHINE_MIB HOST_MIB
+  env -i PATH="/usr/bin:/bin:/usr/sbin:/sbin" PREFLIGHT_ARCH="$1" PREFLIGHT_MACHINE_MIB="$2" PREFLIGHT_HOST_MIB="$3" bash -c ". '${LIBSH}'; ${blk}" 2>&1
 }
 
-out="$(runf linux docker arm64 '' '')"
-printf '%s' "$out" | grep -q 'bahmni/odoo-16' && printf '%s' "$out" | grep -q 'bahmni/atomfeed-console' && ok_ "arm64 names the two emulated images" || bad "arm64 output missing emulated image names: $out"
-printf '%s' "$out" | grep -qi 'rebuilt natively' && ok_ "arm64 names the native-build line" || bad "arm64 output missing the native-build line: $out"
+out="$(runf arm64 '' '')"
+printf '%s' "$out" | grep -q 'builds OpenMRS and Odoo natively' && printf '%s' "$out" | grep -q 'bahmni/atomfeed-console runs emulated' && ok_ "arm64 names the native builds and the emulated image" || bad "arm64 output unclear: $out"
 
-out="$(runf linux docker x86_64 '' '')"
-printf '%s' "$out" | grep -q 'bahmni/odoo-16' && bad "x86_64 output names emulated images" || ok_ "x86_64 does not name emulated images"
-printf '%s' "$out" | grep -qi 'rebuilt natively' && bad "x86_64 output names the native-build line" || ok_ "x86_64 does not name the native-build line"
+out="$(runf x86_64 '' '')"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'Apple Silicon' && ok_ "x86_64 is refused, naming Apple Silicon" || bad "x86_64 was not refused: rc=$rc $out"
 
-out="$(runf macos podman x86_64 8192 24576)"; rc=$?
+out="$(runf arm64 8192 24576)"; rc=$?
 [ "$rc" -ne 0 ] && ok_ "podman machine 8192 MiB < 10240: FAIL" || bad "machine 8192 MiB did not fail: $out"
 printf '%s' "$out" | grep -qi '10 GiB\|10240' && ok_ "FAIL names the 10 GiB floor" || bad "FAIL message unclear: $out"
 
-out="$(runf macos podman x86_64 12288 24576)"; rc=$?
+out="$(runf arm64 12288 24576)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "machine 12288 MiB / host 24576 MiB: passes" || bad "machine 12288/host 24576 failed: $out"
 printf '%s' "$out" | grep -q 'WARN' && bad "machine 12288/host 24576 warns" || ok_ "machine 12288/host 24576: no WARN"
 
-out="$(runf macos podman x86_64 15360 18432)"; rc=$?
+out="$(runf arm64 15360 18432)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "machine 15360 MiB / host 18432 MiB: passes (a warning, not a refusal)" || bad "machine 15360/host 18432 failed: $out"
 printf '%s' "$out" | grep -q 'WARN' && printf '%s' "$out" | grep -q '55%' && ok_ "machine 15360/host 18432: WARN naming 55%" || bad "no WARN naming 55%: $out"
 
-out="$(runf macos podman x86_64 '' 18432)"; rc=$?
+out="$(runf arm64 '' 18432)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "no machine yet: no FAIL" || bad "no machine yet still failed: $out"
 printf '%s' "$out" | grep -qi 'no podman machine yet' && ok_ "no-machine case is named explicitly" || bad "no-machine output unclear: $out"
 

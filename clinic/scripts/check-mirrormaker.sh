@@ -37,9 +37,7 @@ IFS=':' read -r REMOTE_HOST REMOTE_PORT <<< "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}"
 # Test basic connectivity
 echo "1. Testing network connectivity..."
 if [[ "${REMOTE_KAFKA_SECURITY_PROTOCOL}" == *"SSL"* ]]; then
-    # TLS handshake only. Do not require CA verify — remote uses a private/self-signed cert
-    # (MirrorMaker trusts it via kafka.truststore.p12). Close stdin so openssl exits
-    # instead of waiting for interactive input. Avoid GNU timeout (missing on macOS).
+    # Test the TLS handshake without requiring system CA trust or GNU timeout.
     echo "   Testing SSL connectivity to ${REMOTE_HOST}:${REMOTE_PORT:-9092}..."
     # No -brief: macOS LibreSSL rejects it. stdin closed so s_client exits after handshake.
     # openssl often exits non-zero on private/self-signed certs even when TLS succeeded.

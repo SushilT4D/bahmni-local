@@ -15,7 +15,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/../.." && pwd)}"
 REPO_DIR="${REPO_DIR:-$(cd "${CLINIC_DIR}/.." && pwd)}"
-OUT="${CONNECTORS_DIR:-${CLINIC_DIR}/connectors}"
+export CLINIC_DIR REPO_DIR
+OUT="${CLINIC_DIR}/connectors"
 TEMPLATES="${CLINIC_DIR}/scripts/templates"
 die(){ printf 'generate-connectors (postgres): %s\n' "$*" >&2; exit 1; }
 # shellcheck source=../../../sync/tables/tables.sh
@@ -27,10 +28,11 @@ file_get(){ # FILE KEY -> the last value of KEY in FILE, quotes and blanks trimm
   [ -f "$1" ] || return 0
   { grep -E "^$2=" "$1" || true; } | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | tr -d "\"' "
 }
-value_of(){ # KEY -> the environment, else .env, else .install-state
+STATE_FILE="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
+value_of(){ # KEY -> the environment, else .env, else the installer's state file
   local v="${!1:-}"
   [ -n "$v" ] || v="$(file_get "${CLINIC_DIR}/.env" "$1")"
-  [ -n "$v" ] || v="$(file_get "${CLINIC_DIR}/.install-state" "$1")"
+  [ -n "$v" ] || v="$(file_get "${STATE_FILE}" "$1")"
   printf '%s' "$v"
 }
 
@@ -55,13 +57,13 @@ list_vars openelis clinlims CLINLIMS
 for t in ${UP_CLINLIMS_OWN_ROWS}; do
   k="CLINLIMS_FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
   fl="$(value_of "$k")"
-  [ -n "$fl" ] || die "no ${k} is recorded in ${CLINIC_DIR}/.install-state (installer task 060 records it before it strides the OpenELIS ids), so the OpenELIS source cannot tell this clinic's ${t} rows from the hub's"
+  [ -n "$fl" ] || die "no ${k} is recorded in ${STATE_FILE} (installer task 060 records it before it strides the OpenELIS ids), so the OpenELIS source cannot tell this clinic's ${t} rows from the hub's"
   c="$(origin_filter_condition id "$fl" "${RESIDUE}")" || die "the ${t} filter could not be written (reason above)"
   export "CLINLIMS_UP_CONDITION_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')=$c"
 done
 
 # The OpenELIS down sink keeps only this clinic's rows.
-CLINLIMS_DOWN_CONDITION="$(CLINIC_DIR="${CLINIC_DIR}" REPO_DIR="${REPO_DIR}" bash "${CLINIC_DIR}/scripts/clinlims-down-filter.sh")" \
+CLINLIMS_DOWN_CONDITION="$(bash "${CLINIC_DIR}/scripts/clinlims-down-filter.sh")" \
   || die "the OpenELIS down sink's filter cannot be written (reason above), so lab results entered at the hub would never reach this clinic's OpenELIS"
 export CLINLIMS_DOWN_CONDITION
 

@@ -1,67 +1,12 @@
 #!/usr/bin/env bash
-# Before the concept dictionary's down sinks start on a clinic: finds the
-# concept rows this clinic minted for itself, and with --rekey moves the ones
-# the hub also holds to the hub's ids.
+# Check clinic-minted concepts before down sync.
 #
+# Usage:
 #   clinic/scripts/clinic-minted-concepts.sh --hub-query
 #   clinic/scripts/clinic-minted-concepts.sh --hub-ids FILE [--rekey] [--container NAME] [--database DB]
 #
-# The tables are the rows cloud/tables.conf marks `changes` (the concept
-# dictionary): the hub writes them and sends changes only, so a clinic must
-# already hold the hub's rows under the hub's ids. Three kinds of clinic row
-# break that, and each would stop or corrupt a down sink:
-#   twin       the hub holds the row's uuid under another id. OpenMRS mints
-#              such rows at the first start of a new image on a clinic that
-#              keeps its own database: module changesets create concepts,
-#              names and sets with fixed uuids on the clinic's own counter. The
-#              hub's first change to that concept arrives under the hub's id
-#              and stops the sink on the duplicate uuid.
-#   collision  the hub holds the row's id with another uuid, and the row is not
-#              a twin being moved away: the hub's next change to that id would
-#              overwrite a different concept here.
-#   residue    the row's id is above the hub's last id on a residue other than
-#              0 (the hub mints on residue 0 above it) and is not on 0, and the
-#              hub does not hold the row: a concept made here alone.
-#
-# --hub-query prints the read-only query that reads the hub's side: every row's
-# id and uuid, and per table the hub's last id on a residue other than 0. Run
-# it against the hub's OpenMRS MySQL with `mysql -N -B` and save the output as
-# FILE; the same query is run here against this clinic's MySQL.
-#
-# With --hub-ids FILE it prints one line per finding,
-#   twin <table> <clinic id> <hub id> <uuid>
-#   collision <table> <id> <clinic uuid> <hub uuid>
-#   residue <table> <id> <uuid>
-# and exits 0 when there is none, 1 when there is any, 2 when it cannot judge.
-#
-# --rekey moves every twin to the hub's id, in one transaction with binary
-# logging off (the move is not captured and does not travel up), and rewrites
-# every reference to it: the concept tables among themselves, every column the
-# schema declares a foreign key to one of these tables, obs.concept_id,
-# obs.value_coded and obs.value_coded_name_id, and a global property whose
-# value is exactly a moved concept's id and whose name speaks of a concept.
-# Each row is moved through a temporary negative id, so a row may move onto an
-# id another moving row leaves. Before COMMIT it checks, and stops (rolling
-# back) at the first that fails: each table's row count unchanged, each
-# table's set of uuids unchanged, each moved row at the hub's id with its uuid,
-# no negative id left, no reference left to an id that no longer exists, every
-# reference to a moved row finding it. It refuses, changing nothing:
-#   - with any collision (a row is in the way of a move, or would be
-#     overwritten), or when OpenMRS is running (it caches these rows; stop it
-#     first, and its next start rebuilds the search index);
-#   - when a table this clinic sends up (sync/local/tables.conf, obs among
-#     them) refers to a row that would move: its copy at the hub would keep the
-#     old id;
-#   - when another column whose name speaks of a concept, or a global property
-#     other than an exact one named for a concept, holds a moving concept's id:
-#     it is listed for a person to decide.
-# After COMMIT it runs the check again; residue findings are not moved (the hub
-# does not hold those rows) and keep the exit status 1.
-#
-# --container   the MySQL container (default <COMPOSE_PROJECT_NAME>-bahmni-mysql-1,
-#               COMPOSE_PROJECT_NAME from clinic/.env)
-# --database    the OpenMRS schema (default openmrs)
-# RUNTIME=docker|podman overrides the platform's default runtime.
+# --rekey moves matching concepts to hub IDs. It refuses collisions, unsafe
+# references, or a running OpenMRS service.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
@@ -87,10 +32,12 @@ printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || die2 "bad database na
 # concept_numeric rows extend a concept row under the concept's own id and
 # carry no uuid of their own.
 NO_UUID=" concept_numeric "
-SPECS="$(awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }' "${REPO_DIR}/cloud/tables.conf")"
-[ -n "$SPECS" ] || die2 "cloud/tables.conf marks no table \`changes\`: there is no concept table to check"
+# shellcheck source=../../sync/tables/tables.sh
+. "${REPO_DIR}/sync/tables/tables.sh"
+SPECS="$(tables_section "${REPO_DIR}/sync/tables/openmrs.conf" down | awk '{ sub(/#.*/, ""); gsub(/[ \t]/, "") } NF { n = split($0, f, ":"); if (n == 3 && f[3] == "changes") print f[1], f[2] }')"
+[ -n "$SPECS" ] || die2 "sync/tables/openmrs.conf [down] marks no table \`changes\`: there is no concept table to check"
 while read -r t pk; do
-  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "cloud/tables.conf: '$t:$pk:changes' needs a single-column key"
+  printf '%s %s' "$t" "$pk" | grep -qE '^[a-z_][a-z0-9_]* [a-z_][a-z0-9_]*$' || die2 "sync/tables/openmrs.conf [down]: '$t:$pk:changes' needs a single-column key"
 done <<EOF
 $SPECS
 EOF
@@ -225,7 +172,7 @@ for spec in $(awk '{ print $1 ":" $2 }' "$W/mrefs") $(for t in $moved_tables; do
   awk -F'\t' -v t="$t" -v c="$c" '$1 == t && $2 == c && $4 !~ /unsigned/ && $3 ~ /int$/ { f = 1 } END { exit !f }' "$W/cols" \
     || die2 "${t}.${c} is not a signed integer column; the move through a temporary negative id cannot be used; nothing was changed"
 done
-UP_TABLES=" $(sed -e 's/#.*//' "${REPO_DIR}/sync/local/tables.conf" | awk -F: 'NF { gsub(/[ \t]/, "", $1); if ($1 != "") print $1 }' | tr '\n' ' ') "
+UP_TABLES=" $(tables_section "${REPO_DIR}/sync/tables/openmrs.conf" up | sed -e 's/#.*//' | awk -F: 'NF { gsub(/[ \t]/, "", $1); if ($1 != "") print $1 }' | tr '\n' ' ') "
 # what refers to a moving row now, and from where
 refusals=""
 while read -r ch col par; do

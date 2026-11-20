@@ -3,8 +3,7 @@
 # `stat`: only a genuine read-write bind-mounted DIRECTORY under CLINIC_DIR
 # gets chowned, only when its current owner differs from the image's uid:gid,
 # a root-uid image is skipped entirely, DRY never runs a container, and a
-# chown that does not take is a WARN on macOS but a FAIL (non-zero exit) on
-# Linux. See scripts/fix-mount-ownership.sh's header for the manpur incident
+# chown that does not take is a WARN (rootless podman). See scripts/fix-mount-ownership.sh's header for the manpur incident
 # (Odoo uid 101 could not write a dir owned 1000:1000 by mkdir -p).
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,9 +58,7 @@ SH
 chmod +x "$TMP/bin/fakect"
 cat > "$TMP/bin/stat" <<'SH'
 #!/usr/bin/env bash
-# stands in for BOTH GNU `stat -c FMT PATH` and BSD `stat -f FMT PATH`: the
-# script's owner_of() tries -c then -f, and only the format (%u / %g) and the
-# path matter here.
+# stands in for macOS `stat -f '%u %g' PATH`: only the path matters here.
 fmt="$2"; path="$3"
 rp="$(cd "$path" 2>/dev/null && pwd)" || exit 1
 line="$(python3 - "$OWNER_STORE" "$rp" <<'PY'
@@ -79,7 +76,7 @@ print(match)
 PY
 )"
 if [ -z "$line" ]; then u=1000; g=1000; else u="$(printf '%s' "$line" | cut -f2)"; g="$(printf '%s' "$line" | cut -f3)"; fi
-case "$fmt" in %u) printf '%s\n' "$u" ;; %g) printf '%s\n' "$g" ;; *) exit 1 ;; esac
+case "$fmt" in '%u %g') printf '%s %s\n' "$u" "$g" ;; *) exit 1 ;; esac
 SH
 chmod +x "$TMP/bin/stat"
 export FAKE_ROOT="$TMP/fake"; mkdir -p "$FAKE_ROOT"
@@ -137,7 +134,7 @@ printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic/data/odoo" && pwd)" >> "$TMP/owners
 printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic/data/kafka" && pwd)" >> "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic/data/kafka-connect" && pwd)" >> "$TMP/owners.tsv"
 : > "$TMP/calls.log"
-out="$(run "$TMP/clinic" env DRY=0 PLATFORM=linux)"; rc=$?
+out="$(run "$TMP/clinic" env DRY=0)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "normal run exits 0" || bad "normal run rc=$rc: $out"
 printf '%s' "$out" | grep -q 'odoo: data/odoo -> 101:101' && ok_ "odoo's rw dir chowned to 101:101" || bad "no ok line for odoo/data/odoo: $out"
 grep -q 'data/odoo:/fix' "$TMP/calls.log" && ok_ "a chown container ran for data/odoo" || bad "no chown call for data/odoo: $(cat "$TMP/calls.log")"
@@ -153,30 +150,20 @@ grep -q 'data/kafka:/fix' "$TMP/calls.log" && bad "chown ran for an already-corr
 # === scenario 2: DRY=1 -- no run call of any kind, id probe included --------
 mk_fixture "$TMP/clinic2"
 : > "$TMP/calls.log"
-out="$(run "$TMP/clinic2" env DRY=1 PLATFORM=linux)"; rc=$?
+out="$(run "$TMP/clinic2" env DRY=1)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "DRY run exits 0" || bad "DRY run rc=$rc: $out"
 [ -s "$TMP/calls.log" ] && bad "DRY run invoked the container runtime: $(cat "$TMP/calls.log")" || ok_ "DRY run made no container calls at all (id probe included)"
 printf '%s' "$out" | grep -q 'would chown odoo: data/odoo' && ok_ "DRY names the service and directory it would chown" || bad "DRY output missing the would-chown line: $out"
 
-# === scenario 3: a chown that does not take -- macOS WARNs, exits 0 ---------
+# === scenario 3: a chown that does not take -- a WARN, exit 0 ---------------
 mk_fixture "$TMP/clinic3"
 : > "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic3/data/odoo" && pwd)" >> "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic3/data/kafka" && pwd)" >> "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic3/data/kafka-connect" && pwd)" >> "$TMP/owners.tsv"
-out="$(run "$TMP/clinic3" env DRY=0 PLATFORM=macos FAKE_NOOP_CHOWN=1)"; rc=$?
+out="$(run "$TMP/clinic3" env DRY=0 FAKE_NOOP_CHOWN=1)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "macOS: a chown that does not take still exits 0" || bad "macOS no-op chown rc=$rc: $out"
 printf '%s' "$out" | grep -qi 'WARN.*odoo: data/odoo' && ok_ "macOS: a chown that does not take is a WARN" || bad "macOS: no WARN for the no-op chown: $out"
-
-# === scenario 4: the same no-op chown on Linux -- FAIL, non-zero exit -------
-mk_fixture "$TMP/clinic4"
-: > "$TMP/owners.tsv"
-printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic4/data/odoo" && pwd)" >> "$TMP/owners.tsv"
-printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic4/data/kafka" && pwd)" >> "$TMP/owners.tsv"
-printf '%s\t1000\t1000\n' "$(cd "$TMP/clinic4/data/kafka-connect" && pwd)" >> "$TMP/owners.tsv"
-out="$(run "$TMP/clinic4" env DRY=0 PLATFORM=linux FAKE_NOOP_CHOWN=1)"; rc=$?
-[ "$rc" -ne 0 ] && ok_ "Linux: a chown that does not take exits non-zero" || bad "Linux no-op chown rc=$rc (wanted non-zero): $out"
-printf '%s' "$out" | grep -qi 'FAIL.*odoo: data/odoo' && ok_ "Linux: a chown that does not take is a FAIL" || bad "Linux: no FAIL for the no-op chown: $out"
 
 # === scenario 5: a directory holding git-tracked files is never chowned -----
 # (fix-round-1: a tracked dir chowned to a container uid would break the next
@@ -191,7 +178,7 @@ printf '%s\t1000\t1000\n' "$(cd "$GC/data/odoo" && pwd)" >> "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$GC/data/kafka" && pwd)" >> "$TMP/owners.tsv"
 printf '%s\t1000\t1000\n' "$(cd "$GC/data/kafka-connect" && pwd)" >> "$TMP/owners.tsv"
 : > "$TMP/calls.log"
-out="$(run "$GC" env DRY=0 PLATFORM=linux)"; rc=$?
+out="$(run "$GC" env DRY=0)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "a run against a checkout with a tracked dir still exits 0" || bad "rc=$rc: $out"
 printf '%s' "$out" | grep -qi 'skip.*odoo: data/odoo holds git-tracked files' && ok_ "a git-tracked directory is skipped, not chowned, and the login user keeps it" || bad "no skip line for the tracked directory: $out"
 grep -q 'data/odoo:/fix' "$TMP/calls.log" && bad "chown ran for a directory that holds git-tracked files" || ok_ "no chown call for the git-tracked directory"

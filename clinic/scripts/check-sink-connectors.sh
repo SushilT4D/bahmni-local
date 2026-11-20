@@ -33,7 +33,7 @@ fi
 echo ""
 
 # Check specific sink connector
-SINK_CONNECTOR="mysql-sink-${TABLE}"
+SINK_CONNECTOR="${SINK_CONNECTOR:-openmrs-${LOCAL_CLUSTER_ALIAS:-<slug>}-sink}"   # one OpenMRS sink per clinic, for every table
 echo "Checking connector: ${SINK_CONNECTOR}"
 
 # Check if connector exists
@@ -47,7 +47,7 @@ if [ -z "$CONNECTOR_EXISTS" ]; then
     echo ""
     echo "To register connectors, run on remote server:"
     echo "  cd remote"
-    echo "  ./scripts/generate-sink-connectors.sh"
+    echo "  ./scripts/generate-connectors.sh"
     echo "  ./scripts/register-all-sink-connectors.sh"
     exit 1
 fi

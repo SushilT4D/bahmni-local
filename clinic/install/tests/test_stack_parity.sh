@@ -28,14 +28,14 @@ ii="$(svc "$Y" implementer-interface | grep 'profiles:')"
 [ "$(printf '%s' "$ii" | tr -d ' ')" = 'profiles:["implementer-interface"]' ] && ok_ "implementer-interface is only in its own profile, not local or emr" || bad "implementer-interface profiles: $ii"
 grep -q -- '--profile implementer-interface' "$HERE/../tasks/080-stack.sh" && bad "080 starts the implementer-interface profile" || ok_ "080 does not start the form builder"
 # both the conf compose mounts and the one the proxy image bakes in
-for conf in bahmni-nginx.openelis.conf bahmni-nginx.conf; do
+for conf in bahmni-nginx.conf; do
   blk="$(awk '/location \/implementer-interface/{p=1} p{print} p&&/}/{exit}' "$CL/proxy/$conf" | grep -vE '^[[:space:]]*#')"
   printf '%s' "$blk" | grep -qF 'proxy_pass http://$implementer_interface_host;' && ! printf '%s' "$blk" | grep -qF 'proxy_pass http://implementer-interface' \
     && ok_ "proxy/$conf resolves implementer-interface per request, so the proxy starts without it" || bad "proxy/$conf names implementer-interface literally (the proxy would not start without it): $blk"
 done
 if command -v docker >/dev/null 2>&1; then
   { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
-    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
+    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
   } | sort -u | awk '/PATH$|DIR$|BACKUP$/{print $0"=/p"; next} {print $0"=1"}' > "${TMPDIR:-/tmp}/parity.vars.$$"
   svcs="$(cd "$CL" && env CONTAINER_DATA_PATH=/n docker compose --env-file "${TMPDIR:-/tmp}/parity.vars.$$" --profile local --profile emr --profile openelis --profile debezium config --services 2>/dev/null)"
   rm -f "${TMPDIR:-/tmp}/parity.vars.$$"
@@ -60,10 +60,10 @@ svc "$Y" openmrs | grep -qE 'hibernate_(show|format)_sql:.*"true"' && bad "openm
 
 # the proxy's health must mean "a browser gets the UI": IPv4, TLS, the login page
 svc "$Y" proxy | grep -q 'https://127.0.0.1/bahmni/home/index.html' && ok_ "proxy healthcheck asks for the login page over IPv4/TLS" || bad "proxy has no meaningful healthcheck (the image's wget http://localhost can never pass)"
-grep -c 'echo "\$body" >&2' "$CL/connectors/register-odoo.sh" | grep -qx 0 && ok_ "register-odoo.sh never prints an unmasked render" || bad "register-odoo.sh echoes \$body unmasked on a render failure"
+[ -f "$CL/scripts/register-connectors.sh" ] && grep -c 'echo "\$body"' "$CL/scripts/register-connectors.sh" | grep -qx 0 && ok_ "register-connectors.sh never prints an unmasked render" || bad "register-connectors.sh echoes \$body unmasked"
 
 # login stopgap: strip the UI's trailing comma before OpenMRS sees it
-for f in bahmni-nginx.conf bahmni-nginx.openelis.conf; do grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma" || bad "$f has no trailing-comma rewrite"; done
+for f in bahmni-nginx.conf; do grep -vE '^[[:space:]]*#' "$CL/proxy/$f" | grep -qE 'set \$args' && ok_ "$f rewrites the trailing comma" || bad "$f has no trailing-comma rewrite"; done
 
 # landing page: the Odoo tile must use THIS node's own port, not IPLIT's
 # erp-<host> DNS convention (a name that does not resolve)
@@ -75,7 +75,7 @@ has "$CL/docker-compose.yml" "proxy/htdocs/index\.html:/usr/share/nginx/html/ind
 # just the marker round-trip further down the same task
 has "$HERE/../tasks/100-exit-checks.sh" '/web/login' && has "$HERE/../tasks/100-exit-checks.sh" 'odoo\.\$\{N\}' && ok_ "100 checks Odoo's /web/login before the XML-RPC marker" || bad "100 does not check Odoo's /web/login"
 S80="${HERE}/../tasks/080-stack.sh"
-grep -q 'PHASE:-install}" = install' "$S80" && ok_ "080 stops after OpenMRS at install" || bad "080 has no install-sitting exit"
+grep -q 'PHASE' "$S80" && bad "080 still branches on an install phase" || ok_ "080 runs every step in the one install run"
 grep -q 'https://localhost/openmrs/ws/rest/v1/session' "$S80" && ok_ "080 waits on 443" || bad "080 still waits on a non-default port"
 grep -q 'odoo_login_ok' "$S80" && ok_ "080 checks the Odoo atomfeed login before odoo-connect" || bad "no Odoo credential check"
 # the OpenELIS feed account lives in OpenELIS (OpenMRS and odoo-connect log in

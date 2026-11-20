@@ -21,9 +21,7 @@ grep -q "sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' WHE
 grep -q 'could not clear openmrs search.indexVersion' "$T50" && ok_ "050 reads the value back" || bad "050 does not read the cleared value back"
 
 wait80="$(line "$T80" 'SEARCH_INDEX_TIMEOUT_S')"
-early="$(line "$T80" 'if \[ "${PHASE:-install}" = install \]; then')"
 [ -n "$wait80" ] && ok_ "080 waits for patient search on a named budget" || bad "080 has no SEARCH_INDEX_TIMEOUT_S wait"
-[ -n "$wait80" ] && [ -n "$early" ] && [ "$wait80" -gt "$early" ] && ok_ "only in the seed phase" || bad "the search wait is not after the install-phase exit"
 grep -q 'ws/rest/v1/patient?identifier=' "$T80" && ok_ "080 searches by identifier, as staff do" || bad "080 does not search by identifier"
 grep -q 'Resume with --from 080' "$T80" && ok_ "a timeout names the resume" || bad "the timeout does not say how to resume"
 exit $((fails > 0))

@@ -24,7 +24,7 @@ mkdir -p "$CLINIC_DIR"
 . "${HERE}/../lib.sh"; . "${HERE}/../state.sh"
 T="$(printf '\t')"
 TOOL="$(sha256_of "$RP/clinic/scripts/master-checksum.sh")"
-X="$RP/cloud/checksum-exclusions.conf"
+X="$RP/clinic/scripts/checksum-exclusions.conf"
 record(){ # CONTENT-LINES (table<TAB>rest) -> a provenance record on stdout
   printf 'hub\tdump_taken_at\tfixture\n'
   printf 'tool\tmaster-checksum.sh\t%s\n' "$TOOL"

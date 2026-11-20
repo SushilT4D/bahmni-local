@@ -1,5 +1,5 @@
 {
-  "name": "clinlims-ghated-sink-all",
+  "name": "clinlims-${SLUG}-sink",
   "config": {
     "connector.class": "io.debezium.connector.jdbc.JdbcSinkConnector",
     "connection.password": "${CLINLIMS_SINK_PASSWORD}",
@@ -7,7 +7,7 @@
     "connection.pool.timeout": "1800",
     "connection.pool.max_size": "1",
     "connection.pool.min_size": "1",
-    "hibernate.agroal.initialSQL": "SELECT pg_replication_origin_session_setup('clinic_ghated_clinlims')",
+    "hibernate.agroal.initialSQL": "SELECT pg_replication_origin_session_setup('clinic_${SLUG}_clinlims')",
     "//origin": "Every row this sink writes is tagged with the sending clinic's replication origin, so the hub's own source skips it and never publishes it to the other clinics. An origin can be held by one session at a time: tasks.max and the pool stay at one, and each clinic has its own origin per database.",
     "hibernate.agroal.validateOnBorrow": "true",
     "hibernate.agroal.idleValidation_s": "300",
@@ -20,7 +20,7 @@
     "errors.retry.timeout": "-1",
     "primary.key.mode": "record_key",
     "connection.restart.on.errors": "true",
-    "topics": "ghated.bahmni-ghated.clinlims.all",
+    "topics": "${SLUG}.bahmni-${SLUG}.clinlims.all",
     "connection.username": "clinlims_sink",
     "errors.retry.delay.max.ms": "60000",
     "flush.max.retries": "10",
@@ -29,6 +29,6 @@
     "consumer.override.auto.offset.reset": "earliest",
     "value.converter.schemas.enable": "true",
     "errors.tolerance": "none",
-    "connection.url": "jdbc:postgresql://${BASE_ELIS_CONTAINER}:5432/openelis"
+    "connection.url": "jdbc:postgresql://${OPENELIS_DB_HOST}:5432/openelis"
   }
 }

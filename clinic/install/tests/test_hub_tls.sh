@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# The hub's clinic listener is SASL over TLS by default, its key material stays
-# in files, and a clinic's MirrorMaker and installer use TLS with the hub's
-# certificate when sync/hub.env says SASL_SSL.
+# The cloud server's clinic listener is SASL over TLS, its keystore passwords come from .env,
+# and a clinic's MirrorMaker and installer use TLS with its certificate when sync/hub.env says SASL_SSL.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 C="$(cd "${HERE}/../.." && pwd)"; R="$(cd "$C/.." && pwd)"
@@ -9,21 +8,19 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 H="$R/cloud/docker-compose.yml"
 
-# hub
-grep -q '${KAFKA_CLINIC_PROTOCOL:-SASL_SSL}://${REMOTE_KAFKA_HOST' "$H" && ok_ "hub: clinic listener defaults to SASL_SSL" || bad "hub: clinic listener is not SASL_SSL by default"
-grep -q './tls:/etc/kafka/secrets:ro' "$H" && ok_ "hub: keystore read from cloud/tls" || bad "hub: cloud/tls is not mounted at /etc/kafka/secrets"
-grep -qE 'KAFKA_SSL_(KEYSTORE|KEY|TRUSTSTORE)_PASSWORD' "$H" && bad "hub: a TLS password is in the environment" || ok_ "hub: no TLS password in the environment"
-( cd "$R" && git check-ignore -q cloud/tls/kafka.keystore.p12 ) && ok_ "cloud/tls is gitignored" || bad "cloud/tls is not gitignored"
+# cloud server
+grep -q 'KAFKA_LISTENER_SECURITY_PROTOCOL_MAP:.*EXTERNAL:SASL_SSL' "$H" && ok_ "cloud: clinic listener (EXTERNAL) is SASL_SSL" || bad "cloud: clinic listener is not SASL_SSL"
+grep -q 'certs/kafka/kafka.keystore.p12:/etc/kafka/secrets/kafka.keystore.p12:ro' "$H" && ok_ "cloud: keystore mounted read-only from certs/kafka" || bad "cloud: keystore is not mounted from certs/kafka"
+grep -E 'KAFKA_SSL_(KEYSTORE|KEY|TRUSTSTORE)_PASSWORD:' "$H" | grep -qvE ':[[:space:]]*\$\{[A-Z_]+\}[[:space:]]*$' && bad "cloud: a TLS password is written into compose" || ok_ "cloud: TLS passwords come from .env"
+( cd "$R" && git check-ignore -q cloud/certs/kafka/kafka.keystore.p12 ) && ok_ "cloud keystore is gitignored" || bad "cloud keystore is not gitignored"
 
-# clinic MirrorMaker: render start-mm2.sh with the paths moved into a temp dir
-printf 'clusters = local, remote\n' > "$TMP/mm2.properties"
-sed -e "s#/etc/kafka-connect/mm2.properties#$TMP/mm2.properties#" -e "s#RUNTIME=/tmp/mm2-runtime.properties#RUNTIME=$TMP/rt#" \
-    -e 's#exec connect-mirror-maker "$RUNTIME"#cat "$RUNTIME"#' "$C/config/mirrormaker/start-mm2.sh" > "$TMP/start.sh"
-run(){ REMOTE_KAFKA_SECURITY_PROTOCOL="$1" REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD=p REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD=t bash "$TMP/start.sh" 2>&1; }
-out="$(run SASL_SSL)"
-case "$out" in *"remote.security.protocol=SASL_SSL"*"remote.ssl.truststore.location=/etc/kafka-connect/secrets/kafka.truststore.p12"*"remote.ssl.truststore.password=t"*) ok_ "mm2: SASL_SSL adds the truststore" ;; *) bad "mm2: SASL_SSL render lacks the truststore: $out" ;; esac
-out="$(run SASL_PLAINTEXT)"
-case "$out" in *"remote.security.protocol=SASL_PLAINTEXT"*) case "$out" in *truststore*) bad "mm2: SASL_PLAINTEXT render carries a truststore" ;; *) ok_ "mm2: SASL_PLAINTEXT adds no truststore" ;; esac ;; *) bad "mm2: SASL_PLAINTEXT render wrong: $out" ;; esac
+# clinic MirrorMaker: the template reads the cloud login and truststore from the container environment
+T="$C/config/mirrormaker/mm2.properties.template"
+grep -q '^config.providers.env.class = org.apache.kafka.common.config.provider.EnvVarConfigProvider$' "$T" && ok_ "mm2: env config provider enabled" || bad "mm2: no env config provider in the template"
+grep -q '^remote.security.protocol = ${env:REMOTE_KAFKA_SECURITY_PROTOCOL}$' "$T" && ok_ "mm2: protocol from the environment" || bad "mm2: protocol not read from the environment"
+grep -q 'password="${env:REMOTE_KAFKA_PASSWORD}"' "$T" && ok_ "mm2: password from the environment" || bad "mm2: password not read from the environment"
+grep -q '^remote.ssl.truststore.password = ${env:REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}$' "$T" && ok_ "mm2: truststore password from the environment" || bad "mm2: truststore password not read from the environment"
+grep -q 'command: \["connect-mirror-maker", "/etc/kafka-connect/mm2.properties"\]' "$C/docker-compose.yml" && ok_ "compose runs connect-mirror-maker on mm2.properties" || bad "compose does not run connect-mirror-maker directly"
 grep -q 'REMOTE_KAFKA_SECURITY_PROTOCOL: ${REMOTE_KAFKA_SECURITY_PROTOCOL:-SASL_PLAINTEXT}' "$C/docker-compose.yml" && ok_ "compose passes the protocol to MirrorMaker; a node without the setting keeps plaintext" || bad "compose does not pass REMOTE_KAFKA_SECURITY_PROTOCOL to MirrorMaker"
 grep -qE '^REMOTE_KAFKA_SECURITY_PROTOCOL=' "$R/sync/hub.env" && ok_ "sync/hub.env names the hub's protocol" || bad "sync/hub.env has no REMOTE_KAFKA_SECURITY_PROTOCOL"
 

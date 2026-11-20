@@ -1,31 +1,7 @@
--- The hub's Odoo down publication: what the hub's Odoo source sends to every clinic.
---
--- It publishes INSERT, UPDATE and DELETE, never TRUNCATE (a TRUNCATE ignores row
--- filters). It holds exactly the down tables passed in (sync/hub-down.conf, read through
--- sync/hub-down.sh), plus public.dbz_heartbeat when it exists, and nothing else:
--- SET TABLE replaces whatever the publication held before, so a table that is
--- not on the list leaves it.
---
--- A down table with an `id` column carries the row filter
---     (id < <floor> OR id % 10 = 0)
--- Rows below the hub's floor predate striding and are the hub's; above it the
--- hub mints residue 0 and each clinic its own residue. A row a clinic minted
--- that reached the hub therefore stays at the hub, whoever edits it there. A
--- bare id % 10 = 0 would drop the hub's edits to every legacy row whose id does
--- not end in 0. A table without `id` (the link tables) carries no filter.
---
--- Refused, naming the table, before the publication is touched:
---   - a down table that does not exist;
---   - a down table with `id` and no floor, or a floor that is not a multiple of 10;
---   - a floor for a table that is not a down table, or that has no `id`;
---   - a filtered table whose replica identity does not cover `id`: with a row
---     filter, PostgreSQL refuses every UPDATE and DELETE on such a table, so the
---     hub's Odoo could no longer edit it;
---   - a server older than PostgreSQL 15 (no row filters).
---
--- Usage: psql -d odoo -v pub=dbz_odoo_owned -v tables=product_template,uom_uom,... \
---             -v floors=product_template:4520,uom_uom:40,... -f apply-down-publication.sql
--- Prints one line per published table: "<table> <row filter>", "-" for none.
+-- Sets the cloud Odoo publication: the [down] tables its source captures for clinics to pull.
+-- psql -d odoo -v pub=dbz_odoo_owned -v tables=a,b -v floors=a:4520,b:40 -f apply-down-publication.sql
+
+-- Pass the psql variables into the DO block.
 \set ON_ERROR_STOP on
 SELECT set_config('myvars.pub', :'pub', false) \g /dev/null
 SELECT set_config('myvars.tables', :'tables', false) \g /dev/null
@@ -45,6 +21,7 @@ DECLARE
   v_ri     "char";
   v_ri_ok  boolean;
 BEGIN
+  -- Refuse: PostgreSQL older than 15, no tables, or a malformed or misplaced floor.
   IF current_setting('server_version_num')::int < 150000 THEN
     RAISE EXCEPTION 'row filters need PostgreSQL 15 or newer; this server is %', current_setting('server_version');
   END IF;
@@ -56,10 +33,11 @@ BEGIN
       RAISE EXCEPTION 'floor entry "%" is not <table>:<whole number>', v_f;
     END IF;
     IF NOT split_part(v_f, ':', 1) = ANY (v_tables) THEN
-      RAISE EXCEPTION 'a floor is recorded for %, which the hub does not send down', split_part(v_f, ':', 1);
+      RAISE EXCEPTION 'a floor is recorded for %, which clinics do not pull', split_part(v_f, ':', 1);
     END IF;
   END LOOP;
 
+  -- A table with an id gets the floor filter (id < floor OR id % 10 = 0); one without is captured whole.
   FOREACH v_t IN ARRAY v_tables LOOP
     v_rel := to_regclass(format('public.%I', v_t));
     IF v_rel IS NULL THEN
@@ -72,7 +50,7 @@ BEGIN
     END LOOP;
     IF v_has_id THEN
       IF v_floor IS NULL THEN
-        RAISE EXCEPTION 'no floor recorded for %: it has an id column, so it is sent down only with the filter (id < floor OR id %% 10 = 0); record the floors when the hub''s ids are strided', v_t;
+        RAISE EXCEPTION 'no floor recorded for %: it has an id column, so it is captured only with the filter (id < floor OR id %% 10 = 0); record the floors when the hub''s ids are strided', v_t;
       END IF;
       IF v_floor % 10 <> 0 THEN
         RAISE EXCEPTION 'the floor recorded for % is %, not a multiple of 10: the hub mints residue 0 from its floor', v_t, v_floor;
@@ -88,16 +66,16 @@ BEGIN
       v_parts := v_parts || format('public.%I WHERE (id < %s OR id %% 10 = 0)', v_t, v_floor);
     ELSE
       IF v_floor IS NOT NULL THEN
-        RAISE EXCEPTION 'a floor is recorded for %, which has no id column (it is sent down unfiltered)', v_t;
+        RAISE EXCEPTION 'a floor is recorded for %, which has no id column (it is captured unfiltered)', v_t;
       END IF;
       v_parts := v_parts || format('public.%I', v_t);
     END IF;
   END LOOP;
 
+  -- Include the heartbeat table, then create the publication or replace its table list.
   IF to_regclass('public.dbz_heartbeat') IS NOT NULL THEN
     v_parts := v_parts || 'public.dbz_heartbeat'::text;
   END IF;
-  -- TRUNCATE ignores row filters, so it is never published.
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = v_pub) THEN
     EXECUTE format('ALTER PUBLICATION %I SET TABLE %s', v_pub, array_to_string(v_parts, ', '));
     EXECUTE format('ALTER PUBLICATION %I SET (publish = %L)', v_pub, 'insert, update, delete');

@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test script to verify Kafka endpoint authentication.
-
-This script tests:
-1. Connection without credentials (should fail) [SASL mode only]
-2. Connection with credentials (should succeed)
-3. Basic producer/consumer operations (with or without authentication)
-
-Usage:
-    python3 test-kafka-auth.py --bootstrap-servers kafka.example.com:9092 \
-        --username mirrormaker --password secret-password --sasl
-
-Or set environment variables:
-    export KAFKA_BOOTSTRAP_SERVERS=kafka.example.com:9092
-    export KAFKA_USERNAME=mirrormaker
-    export KAFKA_PASSWORD=secret-password
-    python3 test-kafka-auth.py --sasl
-"""
+"""Check Kafka authentication and basic producer/consumer operations."""
 
 import argparse
 import os

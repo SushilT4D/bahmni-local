@@ -3,7 +3,7 @@
 # vhost is the explicit default; no port or name is written into the config.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-C="${HERE}/../../proxy/bahmni-nginx.openelis.conf"; Y="${HERE}/../../docker-compose.yml"
+C="${HERE}/../../proxy/bahmni-nginx.conf"; Y="${HERE}/../../docker-compose.yml"
 fails=0; ok_(){ printf '  ok   %s\n' "$1"; }; bad(){ printf '  FAIL %s\n' "$1"; fails=$((fails+1)); }
 grep -q 'listen 444' "$C" && bad "a 444 listener remains" || ok_ "no 444 listener"
 grep -q 'listen 443 ssl default_server;' "$C" && ok_ "main vhost is the default" || bad "main vhost is not default_server"
@@ -56,7 +56,7 @@ blk="$(awk '/location = \/openmrs\/ws\/rest\/v1\/bahmniie\/form\/translations /{
 [ -n "$blk" ] && ok_ "an exact route for the form translations" || bad "no exact route for /openmrs/ws/rest/v1/bahmniie/form/translations"
 printf '%s\n' "$blk" | grep -qF 'proxy_pass http://openmrs_app;' && ok_ "it asks OpenMRS first, URI unchanged" || bad "the translations route does not proxy_pass to openmrs_app without a URI"
 printf '%s\n' "$blk" | grep -qF 'error_page 500 = @no_form_translations;' && ok_ "a 500 goes to the no-translations answer" || bad "the translations route does not send a 500 to @no_form_translations"
-printf '%s\n' "$blk" | grep -qF 'error_page 501 502 =500 /internalError.html;' && printf '%s\n' "$blk" | grep -qF 'error_page 503 /maintenance.html;' \
+printf '%s\n' "$blk" | grep -qF 'error_page 501 502 =500 /internalError.html;' \
   && ok_ "the server's other error pages are kept" || bad "the translations route drops the server's other error pages"
 blk="$(awk '/location @no_form_translations /{p=1} p{print} p&&/}/{exit}' "$C")"
 printf '%s\n' "$blk" | grep -qF "return 200 '[]';" && printf '%s\n' "$blk" | grep -qF 'default_type application/json;' \

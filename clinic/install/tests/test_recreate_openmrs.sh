@@ -17,7 +17,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/bin"
 for b in docker docker-compose podman; do
-  printf '#!/usr/bin/env bash\necho "%s $* | cwd=$(pwd) | COMPOSE_FILE=${COMPOSE_FILE:-} DOCKER_HOST=${DOCKER_HOST:-}" >> "$FAKE_LOG"\nexit 0\n' "$b" > "$TMP/bin/$b"
+  printf '#!/usr/bin/env bash\necho "%s $* | cwd=$(pwd) | DOCKER_HOST=${DOCKER_HOST:-}" >> "$FAKE_LOG"\nexit 0\n' "$b" > "$TMP/bin/$b"
 done
 chmod +x "$TMP/bin/"*
 export FAKE_LOG="$TMP/calls.log"
@@ -36,9 +36,9 @@ OMRS_JAVA_MEMORY_OPTS='-Xms512m -Xmx2048m'
 OMRS_JAVA_SERVER_OPTS='-server -Dinitializer.domains=!bahmniforms -Dfile.encoding=UTF-8'
 EOF
 }
-run(){ # DIR [ARGS...] ; RT= runtime (default docker)
+run(){ # DIR [ARGS...] ; DH= DOCKER_HOST (default the podman socket)
   local d="$1"; shift
-  env -i PATH="$TMP/bin:$PATH" HOME="$TMP" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$d" RUNTIME="${RT:-docker}" ${DH:+DOCKER_HOST="$DH"} bash "$S" "$@" 2>&1
+  env -i PATH="$TMP/bin:$PATH" HOME="$TMP" FAKE_LOG="$FAKE_LOG" CLINIC_DIR="$d" DOCKER_HOST="${DH:-unix:///run/podman.sock}" bash "$S" "$@" 2>&1
 }
 envv(){ ( . "${HERE}/../lib.sh"; env_get "$1/.env" "$2" ); }
 calls(){ cat "$FAKE_LOG" 2>/dev/null; }
@@ -47,7 +47,7 @@ up_line='--profile local --profile debezium --profile openelis up -d --no-deps -
 # --- a node whose checks pass ---------------------------------------------------------------
 N="$TMP/n"; node "$N"; : > "$FAKE_LOG"
 out="$(run "$N")"; rc=$?
-[ "$rc" -eq 0 ] && calls | grep -qF "docker compose ${up_line} | cwd=$N" && ok_ "checks pass: openmrs alone is recreated, from clinic/, with the fleet's profiles" || bad "good node: rc=$rc out=$out calls=$(calls)"
+[ "$rc" -eq 0 ] && calls | grep -qF "docker-compose ${up_line} | cwd=$N" && ok_ "checks pass: openmrs alone is recreated, from clinic/, with the fleet's profiles" || bad "good node: rc=$rc out=$out calls=$(calls)"
 printf '%s' "$out" | grep -q 'ok   forms: 1 form files .*(mounted read-write)' && printf '%s' "$out" | grep -q 'ok   initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' \
   && ok_ "it says what it checked: the forms mount and the domain list" || bad "check lines: $out"
 [ "$(envv "$N" OMRS_JAVA_SERVER_OPTS)" = "-server -Dfile.encoding=UTF-8" ] && ok_ "a -Dinitializer.domains left in OMRS_JAVA_SERVER_OPTS is taken out first, so the property is passed once" || bad "jvm opts: $(envv "$N" OMRS_JAVA_SERVER_OPTS)"
@@ -87,11 +87,10 @@ out="$(run "$N6" --check)"; rc=$?
   && ok_ "--check runs the checks, says what a run would repair, and changes neither clinic/.env nor the stack" || bad "--check: rc=$rc out=$out calls=$(calls)"
 
 # --- a podman node ----------------------------------------------------------------------------------------
-N7="$TMP/n7"; node "$N7"; touch "$N7/docker-compose.yml" "$N7/docker-compose.macos.yml"
-printf 'COMPOSE_FILE=docker-compose.yml:docker-compose.macos.yml\n' >> "$N7/.env"; : > "$FAKE_LOG"
-out="$(RT=podman DH=unix:///run/podman.sock run "$N7")"; rc=$?
-[ "$rc" -eq 0 ] && calls | grep -qF "docker-compose ${up_line} | cwd=$N7 | COMPOSE_FILE=docker-compose.yml:docker-compose.macos.yml DOCKER_HOST=unix:///run/podman.sock" \
-  && ok_ "on podman: docker-compose over the podman socket, with clinic/.env's COMPOSE_FILE" || bad "podman: rc=$rc out=$out calls=$(calls)"
+N7="$TMP/n7"; node "$N7"; : > "$FAKE_LOG"
+out="$(DH=unix:///run/podman.sock run "$N7")"; rc=$?
+[ "$rc" -eq 0 ] && calls | grep -qF "docker-compose ${up_line} | cwd=$N7 | DOCKER_HOST=unix:///run/podman.sock" \
+  && ok_ "on podman: docker-compose over the podman socket" || bad "podman: rc=$rc out=$out calls=$(calls)"
 
 # --- the documented paths name it -----------------------------------------------------------------------------
 grep -q 'scripts/recreate-openmrs.sh' "$CL/scripts/update-forms.sh" && ok_ "update-forms.sh's hint names recreate-openmrs.sh" || bad "update-forms.sh does not name recreate-openmrs.sh"

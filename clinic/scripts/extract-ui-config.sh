@@ -1,41 +1,11 @@
 #!/usr/bin/env bash
-# Fill clinic/extracted/ from IPLIT's two images, so the clinic's one nginx
-# serves IPLIT's UI and every service reads IPLIT's config -- without running a
-# second web server, and without a hand-taken copy committed to the repo.
-#
-#   extracted/htdocs/        <- BAHMNI_WEB_IMAGE:/usr/local/apache2/htdocs   (bahmni/ is the UI)
-#   extracted/bahmni_config/ <- BAHMNI_CONFIG_IMAGE:/etc/bahmni_config       (openmrs, masterdata, openelis)
-#   extracted/.source        <- what was extracted: image@id, one line each
-#
-# Both tags are pinned in sync/versions.env (the hub moves first, then the
-# clinics). To take an IPLIT fix: change the tag there, run this, restart proxy
-# and openelis, and recreate openmrs with scripts/recreate-openmrs.sh (which
-# runs the checks the installer runs before OpenMRS starts). An unchanged
-# source is skipped; a changed one replaces extracted/ and keeps the last one
-# at extracted.prev/. Nothing is left running: `create` + `cp` + `rm`, the
-# container never starts.
-#
-# A config tree OpenMRS would load hub-owned rows from is refused: the
-# Initializer domain check (install/initializer.sh) runs on the new tree, with
-# the domain list this node runs (OPENMRS_INITIALIZER_DOMAINS from the
-# environment, else clinic/.env, else the clinic default) and, while an openmrs
-# container exists, with the list that container was created with (a plain
-# restart starts it with that one), before it replaces extracted/. On a refusal extracted/ stays exactly as it was and the run exits
-# non-zero, naming the folder. The skip path runs the same check on the tree in
-# place.
-#
-# The tree is node-local and gitignored, so the node's own registration prefix
-# (MRN_PREFIX) is written into it here -- re-applied on every extraction. So is
-# the one rewrite of the UI's own code the clinic needs (fix_program_edit), and
-# the home page loses its form builder tile: forms are made on the hub, and the
-# clinic stack does not run the form builder (docker-compose.yml).
-#
-# usage: [CT=docker|podman] [MRN_PREFIX=MAN] scripts/extract-ui-config.sh [--force]
+# Extract and validate the clinic UI and config images.
+# Usage: [MRN_PREFIX=MAN] scripts/extract-ui-config.sh [--force]
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"
 VERSIONS_FILE="${VERSIONS_FILE:-${CLINIC_DIR}/../sync/versions.env}"
-CT="${CT:-docker}"; FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
+CT="${CT:-podman}"; FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
 say(){ printf '  %s\n' "$*"; }; die(){ printf '  FAIL %s\n' "$*" >&2; exit 1; }
 pin(){ # KEY : the environment wins, then sync/versions.env
   local v="${!1:-}"
@@ -57,10 +27,7 @@ env_file_get(){ # KEY : clinic/.env's value (the last line for KEY, as compose a
 }
 DOMAINS="${OPENMRS_INITIALIZER_DOMAINS:-$(env_file_get OPENMRS_INITIALIZER_DOMAINS)}"
 DOMAINS="${DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}"
-# container_domains : one line per openmrs container of this node, the domain
-# list it was created with -- what a plain restart (a reboot, the restart
-# policy) starts it with, whatever clinic/.env says now. A container created
-# with no -Dinitializer.domains loads every domain, written as all of them.
+# Read the Initializer domains configured in each existing OpenMRS container.
 container_domains(){
   local project id opts d
   project="${COMPOSE_PROJECT_NAME:-$(env_file_get COMPOSE_PROJECT_NAME)}"
@@ -111,7 +78,7 @@ apply_landing(){ # DIR : point the landing page's Odoo tile at odoo.<LAN_NAME>
   local wl="$1/bahmni_config/openmrs/apps/home/whiteLabel.json" t disable="${LANDING_DISABLE:-metabase crater}"
   [ -f "$wl" ] || return 0
   t="$(mktemp "${wl}.XXXXXX")"
-  jq --arg lan "${LAN_NAME:-}" --arg disable "$disable" '
+  jq --arg lan "${LAN_NAME:-bahmni.clinic}" --arg disable "$disable" '
     ($disable | split(" ") | map(select(length > 0))) as $dis
     | .landingPage = ((.landingPage // []) | map(
         (if $lan != "" and .name == "odoo" then (.linkHost = ("odoo." + $lan)) | del(.linkPrefix, .linkPort) else . end)
@@ -131,14 +98,7 @@ no_form_builder_tile(){ # DIR : the home page offers no form builder at a clinic
 }
 
 hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
-  # The config image ships OCL export zips under masterdata/configuration/ocl.
-  # The Initializer imports any zip it has no checksum for -- a full CIEL load,
-  # 282,699 items, and OpenMRS answers nothing until it ends. IPLIT's own stack
-  # never runs it (the hub's live ocl/ dir is empty, no import row after the
-  # seed's); a clinic's checksum dir starts empty, so it would: ~110 items a
-  # minute on one vCPU = about two days. The seed
-  # already carries the dictionary (54,700 CIEL-mapped concepts on hub and clinic
-  # alike). The zips are moved, not deleted: KEEP_OCL_ZIPS=1 leaves them in place.
+  # Hold OCL archives to prevent an unintended full dictionary import.
   local d="$1/bahmni_config/masterdata/configuration/ocl" z
   [ "${KEEP_OCL_ZIPS:-0}" = 1 ] && return 0
   [ -d "$d" ] || return 0
@@ -146,16 +106,7 @@ hold_ocl(){ # DIR : keep the CIEL dictionary zips OUT of the tree OpenMRS reads
 }
 
 fix_program_edit(){ # DIR : enrolment edits send states the REST module accepts
-  # Editing an enrolment (a new state, or an outcome) posts every state back as
-  # the full GET returned it: each carries its workflow state's whole concept and
-  # the enrolment itself, nested. The REST module sets every nested property it
-  # is given and refuses the concept's name (an object, where it takes a
-  # string), so every edit is refused with a 400. The server needs only the uuid
-  # of a state it already holds, and the workflow state and start date of a new
-  # one; the UI's mapper is rewritten to send just that. Remove this when the
-  # pinned UI image builds the states that way itself. Until then a clinical
-  # bundle with neither the old mapper nor this fix is refused, so a new image
-  # is never silently left unfixed.
+  # Send only the state fields accepted by the OpenMRS REST endpoint.
   local d="$1/htdocs/bahmni" f n
   local mark='/*clinic: states sent by uuid*/'
   local from='states: patientProgram.states,'

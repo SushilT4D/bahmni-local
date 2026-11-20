@@ -22,11 +22,11 @@ docker_answers || { printf '  skip docker does not answer here within %ss; this 
 TMP="$(mktemp -d)"; P="kboottest$$"; CK="${P}-kafka"; export KBOOT_CONTAINER="$CK"
 mkdir -p "$TMP/clinic" "$TMP/sync"
 cp "$C/.env.example" "$TMP/clinic/.env.example"; cp "$C/../sync/versions.env" "$C/../sync/hub.env" "$TMP/sync/"
-env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="$C/install" CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" PLATFORM=linux RUNTIME=docker \
+env -i PATH="$PATH" HOME="$HOME" DRY=1 ENV_SKIP_COMPOSE=1 INSTALL_DIR="$C/install" CLINIC_DIR="$TMP/clinic" REPO_DIR="$TMP" \
   CLINIC_SLUG=kboot RESIDUE=9 MRN_PREFIX=KBT SITE_NUMBER=9 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=kboot.test \
   REMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.test:9092 REMOTE_KAFKA_USERNAME=m REMOTE_KAFKA_PASSWORD=p \
   OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c \
-  BHS_LOCATION=kboot COMPOSE_PROJECT_NAME=$P MYSQL_SERVER_NAME=bahmni-kboot LOCAL_CLUSTER_ALIAS=kboot MYSQL_AUTO_INCREMENT_OFFSET=9 MYSQL_SERVER_ID=9 DEBEZIUM_SERVER_ID=184059 ODOO_DB_VOLUME_NAME=${P}_o ODOO_APP_VOLUME_NAME=${P}_a \
+  BHS_LOCATION=kboot COMPOSE_PROJECT_NAME=$P MYSQL_SERVER_NAME=bahmni-kboot LOCAL_CLUSTER_ALIAS=kboot BHS_LOCATION_OFFSET=9 MYSQL_SERVER_ID=9 DEBEZIUM_SERVER_ID=184059 ODOO_DB_VOLUME_NAME=${P}_o ODOO_APP_VOLUME_NAME=${P}_a \
   bash "$C/install/tasks/020-env.sh" >/dev/null 2>&1 || { bad "could not render a .env to boot with"; rm -rf "$TMP"; exit 1; }
 sed -i.bak '1{/^# DRY-RUN RENDER/d;}' "$TMP/clinic/.env"; rm -f "$TMP/clinic/.env.bak"
 mkdir -p "$TMP/clinic/data/kafka"; chmod 777 "$TMP/clinic/data/kafka"

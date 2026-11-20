@@ -18,7 +18,7 @@ cleanup(){ [ -n "$MYC" ] && docker rm -f -v "$MYC" >/dev/null 2>&1; rm -rf "$TMP
 trap cleanup EXIT
 T="$(printf '\t')"
 # the recorded FKs into the three tables, as the query prints them
-awk -v T="$T" '{ sub(/#.*/, "") } NF == 4 { print $1 T $2 T $3 T $4 T $1 "_fk" }' "$R/cloud/clinical-fks-in.conf" > "$TMP/in.tsv"
+awk -v T="$T" '{ sub(/#.*/, "") } NF == 4 { print $1 T $2 T $3 T $4 T $1 "_fk" }' "$R/cloud/scripts/clinical-fks-in.conf" > "$TMP/in.tsv"
 [ "$(grep -c . "$TMP/in.tsv")" = 11 ] && ok_ "the recorded list holds the 11 FKs into the clinical tables" || bad "recorded list: $(grep -c . "$TMP/in.tsv") lines"
 check(){ # FIXTURE-FILE : runs the check; output in $TMP/out, status in $TMP/rc
   bash "$S" --from "$1" > "$TMP/out" 2>&1; echo $? > "$TMP/rc"

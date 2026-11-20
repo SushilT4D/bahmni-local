@@ -30,10 +30,8 @@ grep -q 'config/mysql/sync-tuning.cnf:/etc/mysql/conf.d/sync-tuning.cnf:ro' "$CL
 REPO="$(cd "${HERE}/../../.." && pwd)"
 ( cd "$REPO" && git check-ignore -q clinic/config/mysql/sync-tuning.cnf ) && ok_ "the rendered file is gitignored" || bad "the rendered file is not gitignored"
 
-# node_mem_mb: linux reads the host; macos reads the podman machine (the database server runs inside it)
-out="$(env -i PATH="$PATH" PLATFORM=linux NODE_MEM_MB= bash -c ". '$LIB'; node_mem_mb" 2>&1)"
-case "$out" in ''|*[!0-9]*) bad "node_mem_mb on linux is not a number: $out" ;; *) ok_ "node_mem_mb on linux: $out" ;; esac
-out="$(env -i PATH="$PATH" PLATFORM=macos NODE_MEM_MB=6144 bash -c ". '$LIB'; node_mem_mb" 2>&1)"
+# node_mem_mb reads the podman machine (the database server runs inside it)
+out="$(env -i PATH="$PATH" NODE_MEM_MB=6144 bash -c ". '$LIB'; node_mem_mb" 2>&1)"
 eq "node_mem_mb honours NODE_MEM_MB (the tests' and operator's override)" "$out" 6144
 # task 050 reads the value back from the running server (a mounted file proves nothing by itself)
 grep -vE '^[[:space:]]*#' "${HERE}/../tasks/050-databases.sh" | grep -q 'select @@innodb_buffer_pool_size' && ok_ "050 reads innodb_buffer_pool_size back from the server" || bad "050 does not read the buffer pool back"

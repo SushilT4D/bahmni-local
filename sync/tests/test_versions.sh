@@ -5,7 +5,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; REPO="$(cd "$HERE/../.." &
 ok(){ printf '  ok   %s\n' "$*"; }; bad(){ printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 V="$REPO/sync/versions.env"
 [ -f "$V" ] && ok "versions.env exists" || bad "sync/versions.env missing"
-for k in KAFKA_IMAGE MM2_IMAGE DEBEZIUM_CONNECT_IMAGE DEBEZIUM_SCRIPTING_VERSION GROOVY_VERSION OPENMRS_IMAGE_NAME MYSQL_IMAGE POSTGRES_IMAGE ODOO_IMAGE_NAME ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG BAHMNI_WEB_IMAGE BAHMNI_CONFIG_IMAGE IMPLEMENTER_INTERFACE_IMAGE_TAG PATIENT_DOCUMENTS_TAG ATOMFEED_CONSOLE_IMAGE_TAG; do
+for k in KAFKA_IMAGE MM2_IMAGE DEBEZIUM_CONNECT_IMAGE DEBEZIUM_SCRIPTING_VERSION GROOVY_VERSION OPENMRS_IMAGE_NAME MYSQL_IMAGE POSTGRES_IMAGE ODOO_LOCAL_IMAGE ODOO_BAHMNI_IMAGE ODOO_BASE_IMAGE ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG BAHMNI_WEB_IMAGE BAHMNI_CONFIG_IMAGE IMPLEMENTER_INTERFACE_IMAGE_TAG PATIENT_DOCUMENTS_TAG ATOMFEED_CONSOLE_IMAGE_TAG; do
   grep -qE "^${k}=." "$V" && ok "key $k" || bad "key $k missing from versions.env"
 done
 # the exact pins the spec (§10.2) fixes -- value must match exactly, but the
@@ -34,12 +34,12 @@ cat "$V" >> "$TMPENV"
 # blank on purpose (clinic/install/tasks/*.sh derives and writes them per
 # clinic); compose config still needs some value to interpolate, so stub them
 # here -- none of these are what this test is verifying.
-printf 'CONTAINER_DATA_PATH=/tmp\nKAFKA_CLUSTER_ID=x\nOPENMRS_MEM_LIMIT=6g\nMYSQL_AUTO_INCREMENT_OFFSET=7\nMYSQL_SERVER_ID=7\nODOO_APP_VOLUME_NAME=x\nODOO_DB_VOLUME_NAME=x\n' >> "$TMPENV"
+printf 'CONTAINER_DATA_PATH=/tmp\nKAFKA_CLUSTER_ID=x\nOPENMRS_MEM_LIMIT=6g\nBHS_LOCATION_OFFSET=7\nMYSQL_SERVER_ID=7\nODOO_APP_VOLUME_NAME=x\nODOO_DB_VOLUME_NAME=x\n' >> "$TMPENV"
 ( cd "$REPO/clinic" && docker compose --env-file "$TMPENV" --profile local --profile debezium --profile openelis config --images 2>/dev/null ) > "$TMPIMGS"
 grep -q '^confluentinc/cp-kafka:8.3.2$' "$TMPIMGS" && ok "clinic compose resolves cp-kafka:8.3.2" || bad "clinic compose does not resolve cp-kafka:8.3.2: $(tr '\n' ' ' <"$TMPIMGS")"
 grep -q '^quay.io/debezium/connect:3.6.2.Final$' "$TMPIMGS" && ok "clinic compose resolves debezium 3.6.2" || bad "clinic compose does not resolve debezium 3.6.2"
-# The clinic project resolves odoo-16 cleanly now that no odoo-10 override exists.
-grep -q '^bahmni/odoo-16:1.0.0$' "$TMPIMGS" && ok "clinic compose resolves bahmni/odoo-16:1.0.0" || bad "clinic compose does not resolve bahmni/odoo-16:1.0.0: $(tr '\n' ' ' <"$TMPIMGS")"
+# The clinic runs the locally built Odoo 16 image.
+grep -q '^bahmni-local/odoo-16:1.0.0$' "$TMPIMGS" && ok "clinic compose resolves bahmni-local/odoo-16:1.0.0" || bad "clinic compose does not resolve bahmni-local/odoo-16:1.0.0: $(tr '\n' ' ' <"$TMPIMGS")"
 grep -q '^bahmni/odoo-10' "$TMPIMGS" && bad "clinic compose still resolves a bahmni/odoo-10 image: $(tr '\n' ' ' <"$TMPIMGS")" || ok "no bahmni/odoo-10 image in clinic compose"
 [ -f "$REPO/cloud/scripts/install-jdbc-connector.sh" ] && bad "install-jdbc-connector.sh still present (unused Confluent JDBC)" || ok "Confluent JDBC installer gone"
 printf '%s failure(s)\n' "$fails"; exit $((fails>0))

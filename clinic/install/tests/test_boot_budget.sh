@@ -21,7 +21,7 @@ printf '%s' "$code80" | grep -q 'still starting' && ok_ "080 tells a slow boot (
 # the CPU block runs in isolation against lib.sh; PREFLIGHT_CPUS stands in for the host
 blk="$(sed -n '/# cpu-budget:begin/,/# cpu-budget:end/p' "$T00")"
 [ -n "$blk" ] || bad "000 has no cpu-budget block"
-run(){ env -i PATH="$PATH" PREFLIGHT_CPUS="$1" PLATFORM=linux bash -c ". '${HERE}/../lib.sh'; ${blk}" 2>&1; }
+run(){ env -i PATH="$PATH" PREFLIGHT_CPUS="$1" bash -c ". '${HERE}/../lib.sh'; ${blk}" 2>&1; }
 out="$(run 1)"; rc=$?
 [ "$rc" -eq 0 ] && ok_ "one CPU is a warning, not a refusal" || bad "one CPU exits $rc"
 printf '%s' "$out" | grep -q 'WARN' && printf '%s' "$out" | grep -q 'OPENMRS_BOOT_TIMEOUT_S' && ok_ "one CPU warns and names the budget knob" || bad "one CPU: no WARN naming OPENMRS_BOOT_TIMEOUT_S: $out"

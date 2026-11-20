@@ -4,9 +4,9 @@
 # translations/ where the form module reads them, never creating a missing
 # source, and nothing into the config tree. Task 075 makes the folder a clone
 # of the forms repo, mounted read-only, or with none configured keeps the
-# frozen copy, read-write; at seed it checks the concepts (warnings only) and
-# that every published form has its file. Task 080 does not start the stack
-# without the folder, or at seed while a form lacks its file. A local git
+# frozen copy, read-write; it checks the concepts (warnings only) and that
+# every published form has its file. Task 080 does not start the stack
+# without the folder, or while a form lacks its file. A local git
 # repository stands in for the forms repo; a rows file, or a fake runtime
 # answering the real query, for the database.
 set -u
@@ -42,18 +42,18 @@ printf '%s' "$om" | grep -qF 'source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bah
 printf '%s' "$om" | grep -q 'FORMS_MOUNT_MODE' && bad "openmrs still reads FORMS_MOUNT_MODE" || ok_ "FORMS_MOUNT_MODE is gone"
 if command -v docker >/dev/null 2>&1; then
   { grep -E '^[A-Z_0-9]+=' "$CL/.env.example" | cut -d= -f1
-    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" "$CL/docker-compose.macos.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
+    grep -ohE '\$\{[A-Z_0-9]+:\?' "$CL/docker-compose.yml" | sed -E 's/.*\{([A-Z_0-9]+):\?/\1/'
   } | sort -u | awk '/PATH$|DIR$|BACKUP$/{print $0"=/p"; next} {print $0"=1"}' > "$TMP/render.vars"
-  render(){ # COMPOSE_FILE [VAR=value...]
-    local cf="$1"; shift
-    ( cd "$CL" && env HOME="$REAL_HOME" CONTAINER_DATA_PATH=/n COMPOSE_FILE="$cf" "$@" docker compose --env-file "$TMP/render.vars" --profile local config --format json 2>/dev/null ) \
+  render(){ # SET [VAR=value...]
+    shift
+    ( cd "$CL" && env HOME="$REAL_HOME" CONTAINER_DATA_PATH=/n "$@" docker compose --env-file "$TMP/render.vars" --profile local config --format json 2>/dev/null ) \
       | python3 -c 'import json,sys
 d=json.load(sys.stdin)
 for v in d["services"]["openmrs"]["volumes"]:
     t=v.get("target","")
     if t in ("/home/bahmni/clinical_forms","/var/www/bahmni_config/openmrs/apps/forms/translations") or "bahmniforms" in t:
         print(t, v.get("type"), v.get("source"), v.get("read_only", False), (v.get("bind") or {}).get("create_host_path", False))' 2>/dev/null; }
-  for set in docker-compose.yml docker-compose.yml:docker-compose.macos.yml; do
+  for set in docker-compose.yml; do
     got="$(render "$set")"
     want="/home/bahmni/clinical_forms bind /n/bahmni_home/clinical_forms False False
 /var/www/bahmni_config/openmrs/apps/forms/translations bind /n/bahmni_home/clinical_forms/translations False False"
@@ -175,7 +175,8 @@ G="$TMP/g"; mkdir -p "$G"
 out="$(g080 "$G")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '^FAIL .*bahmni_home/clinical_forms does not exist' && ok_ "080 stops on a missing forms folder" || bad "080, missing: rc=$rc out=$out"
 mkdir -p "$G/bahmni_home/clinical_forms/translations"; echo '{}' > "$G/bahmni_home/clinical_forms/$U1.json"
-out="$(g080 "$G")"; rc=$?
+r "$U1" Vitals 2 1 0 "${P}$U1.json" > "$TMP/rows-080-frozen"
+out="$(g080 "$G" FORMS_ROWS_FILE="$TMP/rows-080-frozen")"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK forms: 1 form files .*(mounted read-write)' && ok_ "080 passes the frozen copy when no forms repo is configured" || bad "080, frozen: rc=$rc out=$out"
 out="$(g080 "$G" FORMS_REPO_URL=git@h:o/r.git)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q '^FAIL clinic/.env names a forms repo, but the forms mount is .*not its clone' && ok_ "080 stops when a forms repo is configured but the mount is not its clone" || bad "080, repo vs mount: rc=$rc out=$out"
@@ -183,33 +184,33 @@ out="$(g080 "$G" FORMS_READ_ONLY=yes)"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "FORMS_READ_ONLY is 'yes'" && ok_ "080 stops on a FORMS_READ_ONLY other than true or false" || bad "080, read-only value: rc=$rc out=$out"
 mkdir -p "$G/forms/clinical_forms/translations"; echo '{}' > "$G/forms/clinical_forms/$U1.json"
 { r "$U1" Vitals 2 1 0 "${P}$U1.json"; r "$U2" ANC 5 1 0 "${P}$U2.json"; } > "$TMP/rows-080"
-out="$(g080 "$G" PHASE=seed FORMS_REPO_URL=git@h:o/r.git FORMS_DIR="$G/forms/clinical_forms" FORMS_READ_ONLY=true FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "missing $U2.json (ANC v5)" && printf '%s' "$out" | grep -q '^FAIL row/file check' && ok_ "080 at seed stops while a published row lacks its file (forms repo)" || bad "080, seed missing: rc=$rc out=$out"
-out="$(g080 "$G" PHASE=seed FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^WARN row/file check' && ok_ "080 at seed only warns on the frozen copy" || bad "080, seed frozen: rc=$rc out=$out"
+out="$(g080 "$G" FORMS_REPO_URL=git@h:o/r.git FORMS_DIR="$G/forms/clinical_forms" FORMS_READ_ONLY=true FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "missing $U2.json (ANC v5)" && printf '%s' "$out" | grep -q '^FAIL row/file check' && ok_ "080 stops while a published row lacks its file (forms repo)" || bad "080, seed missing: rc=$rc out=$out"
+out="$(g080 "$G" FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^WARN row/file check' && ok_ "080 only warns on the frozen copy" || bad "080, seed frozen: rc=$rc out=$out"
 echo '{}' > "$G/forms/clinical_forms/$U2.json"
-out="$(g080 "$G" PHASE=seed FORMS_REPO_URL=git@h:o/r.git FORMS_DIR="$G/forms/clinical_forms" FORMS_READ_ONLY=true FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK row/file check: 2 published forms, 2 with their file' && ok_ "080 at seed passes when every published row has its file" || bad "080, seed ok: rc=$rc out=$out"
+out="$(g080 "$G" FORMS_REPO_URL=git@h:o/r.git FORMS_DIR="$G/forms/clinical_forms" FORMS_READ_ONLY=true FORMS_ROWS_FILE="$TMP/rows-080")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '^OK row/file check: 2 published forms, 2 with their file' && ok_ "080 passes when every published row has its file" || bad "080, seed ok: rc=$rc out=$out"
 
 # --- task 075 --------------------------------------------------------------------------------------
 [ -f "$T075" ] || { bad "no tasks/075-forms.sh"; exit "$fails"; }
-[ "$(sed -n 2p "$T075")" = "# phase: both" ] && ok_ "075 runs at install and at seed" || bad "075 is not '# phase: both'"
 node(){ # DIR : a clinic dir with a frozen copy and a clinic/.env
   mkdir -p "$1/bahmni_home/clinical_forms/translations"; echo '{}' > "$1/bahmni_home/clinical_forms/$U1.json"
   printf 'COMPOSE_PROJECT_NAME=bahmni-t\n' > "$1/.env"
 }
 envv(){ ( . "${HERE}/../lib.sh"; env_get "$1/.env" "$2" ); }
-t075(){ # DIR PHASE [VAR=value...]
-  local d="$1" p="$2"; shift 2
-  env CLINIC_DIR="$d" PHASE="$p" DRY=0 COMPOSE_PROJECT_NAME=bahmni-t FORMS_REPO_URL= FORMS_REPO_KEY= "$@" bash "$T075" 2>&1
+: > "$TMP/rows-none"
+t075(){ # DIR [VAR=value...] : no published form rows unless FORMS_ROWS_FILE says otherwise
+  local d="$1"; shift
+  env CLINIC_DIR="$d" DRY=0 COMPOSE_PROJECT_NAME=bahmni-t FORMS_REPO_URL= FORMS_REPO_KEY= FORMS_ROWS_FILE="$TMP/rows-none" "$@" bash "$T075" 2>&1
 }
 N1="$TMP/n1"; node "$N1"
-out="$(t075 "$N1" install)"; rc=$?
+out="$(t075 "$N1")"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(envv "$N1" FORMS_DIR)" = "$N1/bahmni_home/clinical_forms" ] && [ "$(envv "$N1" FORMS_READ_ONLY)" = false ] && [ ! -e "$N1/forms" ] \
   && ok_ "no forms repo: 075 points the mount at the frozen copy, read-write, and makes no clinic/forms" || bad "frozen: rc=$rc out=$out env=$(cat "$N1/.env")"
-grep -qx 'FORMS_REPO_URL=' "$N1/.env" && grep -qx 'FORMS_REPO_KEY=' "$N1/.env" && ok_ "075 records the (empty) forms repo settings in clinic/.env for the seed sitting" || bad "clinic/.env lacks FORMS_REPO_URL/FORMS_REPO_KEY: $(cat "$N1/.env")"
+grep -qx 'FORMS_REPO_URL=' "$N1/.env" && grep -qx 'FORMS_REPO_KEY=' "$N1/.env" && ok_ "075 records the (empty) forms repo settings in clinic/.env for update-forms.sh" || bad "clinic/.env lacks FORMS_REPO_URL/FORMS_REPO_KEY: $(cat "$N1/.env")"
 N2="$TMP/n2"; mkdir -p "$N2"; printf 'COMPOSE_PROJECT_NAME=bahmni-t\n' > "$N2/.env"
-out="$(t075 "$N2" install)"; rc=$?
+out="$(t075 "$N2")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'bahmni_home/clinical_forms does not exist' && ok_ "no forms repo and no frozen copy: 075 refuses" || bad "no frozen copy: rc=$rc out=$out"
 
 # a forms repo. The concept checker is a stand-in that records its arguments
@@ -232,23 +233,23 @@ push(){ ( cd "$W" && git add -A && git commit -qm "$1" && git push -q origin mai
 printf 'c1\nc2\n' > "$TMP/concepts.txt"; printf '%s\n' "$U1" > "$TMP/published.txt"
 export CHECKER_ARGS="$TMP/checker.args"
 N3="$TMP/n3"; node "$N3"; mkdir -p "$N3/forms"   # an empty clinic/forms is replaced
-out="$(t075 "$N3" install FORMS_REPO_URL="$B")"; rc=$?
+out="$(t075 "$N3" FORMS_REPO_URL="$B")"; rc=$?
 [ "$rc" -eq 0 ] && [ -d "$N3/forms/.git" ] && [ -f "$N3/forms/clinical_forms/$U1.json" ] \
   && [ "$(envv "$N3" FORMS_DIR)" = "$N3/forms/clinical_forms" ] && [ "$(envv "$N3" FORMS_READ_ONLY)" = true ] \
   && ok_ "with a forms repo: 075 clones it into clinic/forms and points the mount at its clinical_forms, read-only" || bad "clone at install: rc=$rc out=$out env=$(cat "$N3/.env")"
 grep -qx "FORMS_REPO_URL=${B}" "$N3/.env" && ok_ "the forms repo URL is kept in clinic/.env" || bad "FORMS_REPO_URL not in clinic/.env"
-printf '%s' "$out" | grep -q 'row/file check runs at seed' && [ ! -e "$CHECKER_ARGS" ] && ok_ "install checks neither concepts nor rows against the baseline it replaces at seed" || bad "install-phase checks: $out"
+printf '%s' "$out" | grep -q 'row/file check: 0 published forms' && ok_ "075 runs the row/file check against the restored database" || bad "row/file check: $out"
 [ ! -e "$N3/.forms.lock" ] && ok_ "the forms lock is released after the run" || bad "the forms lock was left behind"
-out="$(t075 "$N3" install)"; rc=$?
+out="$(t075 "$N3")"; rc=$?
 [ "$rc" -ne 0 ] && [ -d "$N3/forms/.git" ] && printf '%s' "$out" | grep -q 'no forms repo is configured' && ok_ "a clone with no forms repo configured is refused, not dropped" || bad "clone with empty URL: rc=$rc out=$out"
 N4="$TMP/n4"; node "$N4"; mkdir -p "$N4/forms"; echo mine > "$N4/forms/notes.txt"
-out="$(t075 "$N4" install FORMS_REPO_URL="$B")"; rc=$?
+out="$(t075 "$N4" FORMS_REPO_URL="$B")"; rc=$?
 [ "$rc" -ne 0 ] && [ -f "$N4/forms/notes.txt" ] && printf '%s' "$out" | grep -q 'did not put there' && ok_ "files 075 did not put in clinic/forms are refused and left alone" || bad "foreign clinic/forms: rc=$rc out=$out"
 printf '%s' "$out" | grep -q 'move clinic/forms aside, then at once run clinic/scripts/update-forms.sh' && ! printf '%s' "$out" | grep -q 'move it aside and run again' \
   && ok_ "the refusal says to take a fresh clone at once, since nothing can recreate OpenMRS without one" || bad "refusal advice: $out"
 # a relative deploy key path is kept absolute, from where the installer ran
 N8="$TMP/n8"; node "$N8"; mkdir -p "$TMP/run/keys"; echo k > "$TMP/run/keys/k"; chmod 600 "$TMP/run/keys/k"
-out="$(cd "$TMP/run" && t075 "$N8" install FORMS_REPO_URL="$B" FORMS_REPO_KEY=keys/k)"; rc=$?
+out="$(cd "$TMP/run" && t075 "$N8" FORMS_REPO_URL="$B" FORMS_REPO_KEY=keys/k)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(envv "$N8" FORMS_REPO_KEY)" = "$(cd "$TMP/run" && pwd -P)/keys/k" ] && ok_ "a relative FORMS_REPO_KEY is kept in clinic/.env as an absolute path" || bad "relative key: rc=$rc out=$out env=$(cat "$N8/.env")"
 
 # a symlink in the forms folder is refused before OpenMRS starts on it
@@ -256,39 +257,39 @@ FS="$TMP/fs"; mkdir -p "$FS/translations"; echo '{}' > "$FS/$U1.json"; ln -s /pr
 v="$( . "${HERE}/../lib.sh" >/dev/null 2>&1; . "${HERE}/../forms.sh"; forms_folder_verdict "$FS")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$v" | grep -q 'holds a symlink' && ok_ "a forms folder holding a symlink is refused" || bad "symlink folder: rc=$rc v=$v"
 
-# seed: concepts warn, rows gate
-seed75(){ local d="$1" rows="$2"; shift 2; t075 "$d" seed FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" FORMS_ROWS_FILE="$rows" "$@"; }
+# concepts warn, rows gate
+seed75(){ local d="$1" rows="$2"; shift 2; t075 "$d" FORMS_REPO_URL="$B" FORMS_CONCEPTS_FILE="$TMP/concepts.txt" FORMS_KNOWN_FORMS_FILE="$TMP/published.txt" FORMS_ROWS_FILE="$rows" "$@"; }
 echo '{"name":"ANC"}' > "$W/clinical_forms/$U2.json"
 push "ANC v5"
 { r "$U1" Vitals 2 1 0 "${P}$U1.json"; r "$U2" ANC 5 1 0 "${P}$U2.json"; } > "$TMP/rows-seed"
 out="$(seed75 "$N3" "$TMP/rows-seed" CHECKER_SAY="missing concept 9bb0795c-0000-0000-0000-000000000020 (ANC: Temperature)" CHECKER_RC=1)"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q '9bb0795c' && printf '%s' "$out" | grep -q 'WARN concept check (rc=1)' && [ "$(git -C "$N3/forms" rev-parse HEAD)" = "$(git -C "$B" rev-parse main)" ] \
-  && ok_ "seed: a failing concept check is a warning, named; the forms are taken" || bad "seed concept warning: rc=$rc out=$out"
+  && ok_ "a failing concept check is a warning, named; the forms are taken" || bad "seed concept warning: rc=$rc out=$out"
 grep -qE -- '^--repo [^ ]+ --known [^ ]+ --known-forms [^ ]+$' "$CHECKER_ARGS" 2>/dev/null && ok_ "the checker is called as --repo <tree> --known <concepts> --known-forms <forms>" || bad "checker args: $(cat "$CHECKER_ARGS" 2>/dev/null)"
 [ ! -e "$REPO_TOOL_RAN" ] && ok_ "nothing from the forms repo is executed (its own tools/check-concepts.sh never runs)" || bad "the forms repo's tool ran"
-printf '%s' "$out" | grep -q 'ok   row/file check: 2 published forms, 2 with their file, 0 missing' && ok_ "seed: every published row has its file in the clone" || bad "seed row/file pass: $out"
+printf '%s' "$out" | grep -q 'ok   row/file check: 2 published forms, 2 with their file, 0 missing' && ok_ "every published row has its file in the clone" || bad "seed row/file pass: $out"
 echo '{"name":"ANC","v":6}' > "$W/clinical_forms/$U3.json"; push "ANC v6"
 out="$(seed75 "$N3" "$TMP/rows-seed" CHECKER_SAY="usage: check-concepts.sh --known <file> [--known-forms <file>]" CHECKER_RC=2)"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'WARN concept check (rc=2): the checker could not run' && printf '%s' "$out" | grep -q 'concepts NOT checked' \
-  && ok_ "seed: a checker that cannot run (exit 2) is a warning too, saying the concepts were NOT checked" || bad "seed checker rc=2: rc=$rc out=$out"
+  && ok_ "a checker that cannot run (exit 2) is a warning too, saying the concepts were NOT checked" || bad "seed checker rc=2: rc=$rc out=$out"
 # retired rows pointing at old-style files that exist nowhere are not required
 { r f-v1 Vitals 1 1 1 "${P}Vitals_1.json"; r "$U1" Vitals 2 1 0 "${P}$U1.json"; r "$U2" ANC 5 1 0 "${P}$U2.json"; } > "$TMP/rows-old"
 out="$(seed75 "$N3" "$TMP/rows-old")"; rc=$?
 [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'row/file check: 2 published forms, 2 with their file, 0 missing' && printf '%s' "$out" | grep -q 'WARN row/file check: 1 retired form versions have no file here (first: f-v1)' \
-  && ok_ "seed: a retired row whose file exists nowhere is not required, only warned about" || bad "seed retired old-style: rc=$rc out=$out"
+  && ok_ "a retired row whose file exists nowhere is not required, only warned about" || bad "seed retired old-style: rc=$rc out=$out"
 { r "$U1" Vitals 2 1 0 "${P}$U1.json"; r "$U2" ANC 5 1 0 "${P}$U2.json"; r f-pnc PNC 2 1 0 "${P}pnc-2.json"; } > "$TMP/rows-seed2"
 out="$(seed75 "$N3" "$TMP/rows-seed2")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "missing pnc-2.json (PNC v2)" && printf '%s' "$out" | grep -q 'FAIL row/file check: 3 published forms, 2 with their file, 1 missing' \
-  && ok_ "seed: a published row whose file the forms repo lacks stops the seed, with the list" || bad "seed row/file refusal: rc=$rc out=$out"
+  && ok_ "a published row whose file the forms repo lacks stops the install, with the list" || bad "seed row/file refusal: rc=$rc out=$out"
 N5="$TMP/n5"; node "$N5"
-out="$(t075 "$N5" seed FORMS_ROWS_FILE="$TMP/rows-seed2")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "missing $U2.json (ANC v5)" && printf '%s' "$out" | grep -q 'WARN row/file check' && ok_ "seed on the frozen copy: missing files are a warning" || bad "seed frozen: rc=$rc out=$out"
+out="$(t075 "$N5" FORMS_ROWS_FILE="$TMP/rows-seed2")"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "missing $U2.json (ANC v5)" && printf '%s' "$out" | grep -q 'WARN row/file check' && ok_ "on the frozen copy: missing files are a warning" || bad "seed frozen: rc=$rc out=$out"
 # a forms repo without clinical_forms/translations
 B2="$TMP/bare2.git"; W2="$TMP/work2"
 git -c init.defaultBranch=main init -q --bare "$B2"; git -c init.defaultBranch=main init -q "$W2"; mkdir -p "$W2/clinical_forms"
 echo '{}' > "$W2/clinical_forms/$U1.json"; ( cd "$W2" && git add -A && git commit -qm one && git remote add origin "$B2" && git push -q origin main ) || bad "fixture repo 2"
 N6="$TMP/n6"; node "$N6"
-out="$(t075 "$N6" install FORMS_REPO_URL="$B2")"; rc=$?
+out="$(t075 "$N6" FORMS_REPO_URL="$B2")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'no translations/ folder' && [ -z "$(envv "$N6" FORMS_DIR)" ] && ok_ "a forms repo without clinical_forms/translations is refused before the mount is pointed at it" || bad "repo without translations: rc=$rc out=$out"
 
 # --- the answers keep the forms repo settings ------------------------------------------
