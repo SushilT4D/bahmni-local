@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Check both sync table lists against cloud/table-verdicts.conf:
 #
-#   openmrs.conf [down]          an unmarked row, or one marked `changes`, must
+#   [down] of openmrs.conf   an unmarked row, or one marked `changes`, must
 #                            have verdict DOWN, a row marked `relay` must have
 #                            verdict relay, a row marked `hub-rows` verdict
 #                            SHARED;
-#   openmrs.conf [up]   every row must have verdict UP, relay or SHARED, and
-#                            the file must pass sync/tables/tables.sh's
+#   [up] of openmrs.conf     every row must have verdict UP, relay or SHARED, and
+#                            the list must pass sync/tables/tables.sh's
 #                            reader, which every script that reads it uses;
 #   UP_NEVER_TABLES          the tables that reader never lets a clinic
 #                            capture must have verdict DOWN or OUT.
@@ -21,7 +21,7 @@
 # repo-dir defaults to the checkout this script is in. Reads files only.
 # Exit 0 when both lists agree with the verdicts, 1 naming every row that
 # does not, 2 when a file is missing, the verdict file is malformed or
-# openmrs.conf [up] has a line its reader refuses.
+# the [up] list has a line its reader refuses.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 R="${1:-$(cd "${HERE}/../.." && pwd)}"
@@ -50,7 +50,7 @@ verdict_of(){ printf '%s\n' "$verdicts" | awk -v t="$1" '$1 == t { print $2; exi
 fails=0
 bad(){ printf '  FAIL %s\n' "$1" >&2; fails=$((fails+1)); }
 
-# openmrs.conf [down]: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
+# the [down] list: table:pk[,pk2...][:relay|:hub-rows|:changes|:clinic=<column>]
 n=0
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%%#*}"; line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
@@ -75,7 +75,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   fi
 done < <(tables_section "$DOWN" down)
 
-# openmrs.conf [up], through the reader every script that captures,
+# the [up] list, through the reader every script that captures,
 # mirrors, strides or sinks it uses: a line that reader refuses is refused here
 # too, so this check never passes a list the sync layer cannot run
 recs="$(up_tables_read "$UP" 2>&1)" || { printf '  FAIL openmrs.conf [up] is refused by its reader (sync/tables/tables.sh): %s\n' "$recs" >&2; exit 2; }

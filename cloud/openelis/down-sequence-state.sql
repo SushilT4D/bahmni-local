@@ -1,5 +1,5 @@
 -- The state of the id sequence of each OpenELIS down table the hub's
--- publication filters on its floor (sync/tables/tables.sh hub-down --unrouted clinlims),
+-- publication filters on its floor (tables.sh hub-down --unrouted clinlims),
 -- read-only: it creates nothing, so it runs in a read-only session too.
 --
 -- One line per table, in the order passed:
@@ -20,9 +20,8 @@
 -- The sequence is the id column's own, else the one OpenELIS's mappings name
 -- where that is not clinlims.<table>_seq (the list in `names` below; the same
 -- list is in cloud/openelis/apply-sequence-striding.sql and
--- clinic/scripts/sql/openelis/apply-sequence-striding.sql, and a test fails when they
--- differ), else clinlims.<table>_seq. A table with
--- an id and no sequence at all (OpenELIS never issues ids for it) reads
+-- clinic/scripts/sql/openelis/apply-sequence-striding.sql, and a test fails
+-- when they differ), else clinlims.<table>_seq. A table with an id and no sequence at all (OpenELIS never issues ids for it) reads
 -- <restart> and <next> as the first multiple of 10 above its largest id and
 -- <increment> as 0. A table with no id column (a link table, keyed otherwise)
 -- takes no floor: it prints no line, or with detail=1

@@ -209,28 +209,14 @@ env_get(){
   printf '%s' "$v"
 }
 gen_secret(){ python3 -c 'import secrets,string; print("".join(secrets.choice(string.ascii_letters+string.digits) for _ in range(32)))'; }
-# subsystem_tables SUBSYSTEM : prints the table names of SUBSYSTEM's [up] list
-# (odoo: sync/tables/odoo.conf, clinlims: sync/tables/openelis.conf), one per line -- the ONE parsing path task 050 (publications)
-# and task 060 (striding) both call, instead of each carrying its own
-# `grep | cut`. An untrimmed row --
-# trailing whitespace, or an inline `#` comment left on the line -- used to come
-# out with embedded whitespace in the table name. `pg_get_serial_sequence` then
-# returns NULL for that name, and the striding SQL only logged a NOTICE and
-# skipped it: a synced table silently left unstrided, with no failing check
-# anywhere -- two nodes could mint the same id for that table.
-# Now: strip a trailing `#...` comment, trim surrounding whitespace, skip the
-# `:all` aggregate row, and `fail` on any surviving name that is not a bare
-# lowercase identifier (naming the offending row) -- a typo'd or unquoted name
-# is a defect to catch here, not something to carry forward as a silent NOTICE.
+# subsystem_tables SUBSYSTEM : the table names of SUBSYSTEM's [up] list (odoo:
+# sync/tables/odoo.conf, clinlims: sync/tables/openelis.conf), one per line, for tasks
+# 050 and 060. A name that is not a bare identifier fails here, naming its row: the
+# striding SQL would only skip it with a NOTICE, and two nodes could mint the same id.
 subsystem_tables(){
   local subsystem="$1" line name
   type subsystems_list >/dev/null 2>&1 || . "${REPO_DIR}/sync/tables/tables.sh"
-  # `|| [ -n "$line" ]` : bash's `read` returns non-zero on a final line with no
-  # trailing newline, which would otherwise drop that last row silently --
-  # the exact gap this function exists to close,
-  # just moved one line down. the Odoo and OpenELIS [up] lists (sync/tables/) ends in a newline today, so this
-  # was dormant, but a hand-edit that saves without one must not silently lose the
-  # last odoo:/clinlims: row.
+  # `|| [ -n "$line" ]` keeps a last row that has no trailing newline.
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in "${subsystem}:"*) ;; *) continue ;; esac
     name="${line#*:}"                                                    # drop "<subsystem>:"
@@ -242,9 +228,9 @@ subsystem_tables(){
     printf '%s\n' "$name"
   done < <(subsystems_list)
 }
-# down_tables : the table of every the OpenMRS [down] list (sync/tables/openmrs.conf) row, one per line, in file
-# order -- every table the clinic's down sinks write, relayed ones included
-# (clinic/scripts/generate/mysql-sinks.sh reads the same rows). The
+# down_tables : the table of each row of the [down] list of sync/tables/openmrs.conf,
+# one per line, in file order -- every table the clinic's down sinks write, relayed
+# ones included (clinic/scripts/generate/mysql-sinks.sh reads the same rows). The
 # sink user's grants come from this list, so a table added there is granted
 # wherever the grants are applied: seed task 050, or
 # clinic/scripts/grant-down-tables.sh on a node seeded before. A name that is
@@ -263,8 +249,8 @@ down_tables(){
     printf '%s\n' "$name"
   done < <(tables_section "$conf" down)
 }
-# master_down_tables : the down tables that are master data -- every row of
-# the OpenMRS [down] list (sync/tables/openmrs.conf) except those marked `clinic=<column>`. Those carry the hub's
+# master_down_tables : the down tables that are master data -- every row of the
+# OpenMRS [down] list except those marked `clinic=<column>`. Those carry the hub's
 # rows for one clinic (lab results), which differ on every node by design, so
 # they are never compared between a clinic and the hub.
 master_down_tables(){
@@ -377,12 +363,8 @@ FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
 HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
 ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
 ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
-# Answers with a default: an answers file without one takes the default, and is
-# not short of an answer for lacking it. ODOO_ATOMFEED_USER
-# is the hub's own Odoo feed login: the clinic's Odoo is a copy of the hub's, so
-# odoo-connect logs in with the hub's user and that user's password
-# (ODOO_ATOMFEED_PASSWORD); both come from the hub's passwords file, and a hub
-# whose file names no user uses emrsync, the feed login of the hub's Odoo image.
+# Answers with a default, never missing from an answers file. The clinic's Odoo is a copy
+# of the hub's, so odoo-connect logs in as the hub's feed user (emrsync unless the hub names one).
 ANSWER_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"
 answer_defaults_apply(){ local kv k; for kv in $ANSWER_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
@@ -525,8 +507,7 @@ wait_for_http(){ # URL SECONDS : 200 or 401 counts as answering
 
 # wait_for_http_or_restart URL SECONDS CONTAINER : like wait_for_http, but a
 # container Docker has restarted meanwhile is a crash loop, not a slow boot:
-# return 2 at once with its last log lines instead of burning the timeout
-# (first live clinic, manpur: OpenMRS looped for 25 min behind "Running").
+# return 2 at once with its last log lines instead of burning the timeout.
 wait_for_http_or_restart(){
   local url="$1" secs="${2:-300}" c="$3" i code r0 r
   r0="$(ct inspect --format '{{.RestartCount}}' "$c" 2>/dev/null || printf 0)"
@@ -634,9 +615,7 @@ VERSIONS_FILE="${VERSIONS_FILE:-${REPO_DIR:-$(cd "${INSTALL_DIR}/../.." && pwd)}
 versions_put(){
   local f="$1" line k v
   [ -f "${VERSIONS_FILE}" ] || fail "version pins missing: ${VERSIONS_FILE}"
-  # `|| [ -n "$line" ]` : a versions.env saved without a trailing newline on its
-  # last line would otherwise drop that last KEY=value silently (the same class
-  # of bug subsystem_tables's own comment above documents for the Odoo and OpenELIS [up] lists (sync/tables/)).
+  # `|| [ -n "$line" ]` keeps a last KEY=value saved without a trailing newline.
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in ''|'#'*) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"; v="${v%%#*}"; v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+$//')"
@@ -854,14 +833,14 @@ signal_table_verdict(){
   rows="$(cat)"
   cols="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="col" {s=$1" "$2" "$3" "$4; if ($5 != "") s=s" "$5; print s}')"
   if [ -z "$cols" ]; then
-    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (from task050) or call the operator.\n' "$t"; return 1
+    printf 'the signal table %s does not exist, so no catch-up of rows written before a table was captured can be asked for. Rerun the seed from its databases step (task 050) or call the operator.\n' "$t"; return 1
   fi
   if [ "$cols" != "$SIGNAL_TABLE_WANT" ]; then
     printf '%s is not the signal table the source connector reads (columns: %s; want: %s). Call the operator.\n' "$t" "$(printf '%s' "$cols" | sed 's/^col //' | tr '\n' ';')" "$(printf '%s' "$SIGNAL_TABLE_WANT" | sed 's/^col //' | tr '\n' ';')"; return 1
   fi
   privs="$(printf '%s\n' "$rows" | awk -F'\t' '$1=="priv" {print $2}' | tr '\n' ' ')"
   for p in SELECT INSERT UPDATE DELETE; do
-    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (from task050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
+    case " $privs" in *" $p "*) ;; *) printf 'the debezium user lacks %s on %s, so an incremental snapshot cannot record its progress there. Rerun the seed from its databases step (task 050) or call the operator.\n' "$p" "$t"; return 1 ;; esac
   done
   printf 'ok signal table %s (id, type, data), writable by the debezium user\n' "$t"
 }

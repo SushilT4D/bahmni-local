@@ -20,7 +20,7 @@ setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -
 if [ "$(stamp_get SYNC_STARTED)" = 1 ]; then
   info "sync already started on this machine: the master tables were compared with the seed before it did, and the hub's changes have arrived since; not compared again"
 else
-  [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the seed from its gate (from task 005) or call the operator."
+  [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the seed from its gate (task 005) or call the operator."
   [ "$(sha256_of "${PROVENANCE_COPY}")" = "$(stamp_get PROVENANCE_SHA)" ] || fail "the seed provenance record on this machine (${PROVENANCE_COPY}) is not the one the seed gate kept; call the operator."
   lines="$(provenance_content_lines "${PROVENANCE_COPY}" "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not checksum this clinic's master tables (clinic/scripts/master-checksum.sh failed above)"
   v="$(provenance_content_verdict "${PROVENANCE_COPY}" "$lines" "$(sha256_of "${REPO_DIR}/clinic/scripts/master-checksum.sh")" "${REPO_DIR}/cloud/checksum-exclusions.conf")" || fail "$v"
@@ -76,20 +76,15 @@ bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 # clinic's OpenELIS source, which decodes with origin=none, never sends those
 # rows back up. The floors are recorded by task 060 before it strides; without
 # them (or the residue) the filter cannot be written and this task stops.
-# The OpenELIS source publishes a lab account or signature only when this
-# clinic minted it (UP_CLINLIMS_OWN_ROWS, sync/tables/tables.sh), and the
-# OpenELIS down sink keeps only this clinic's rows: generate/postgres.sh writes
-# both filters from the floors task 060 recorded and refuses without them.
+# The OpenELIS source publishes only the lab accounts and signatures this clinic
+# minted (UP_CLINLIMS_OWN_ROWS); scripts/generate/postgres.sh writes both filters.
 pg_out="$(SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/generate-connectors.sh postgres 2>&1)" \
   || fail "the Odoo and OpenELIS connectors cannot be written, so this clinic's Odoo and lab data would not sync: $(printf '%s\n' "$pg_out" | tail -1)"
 bash scripts/register-connectors.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all >/dev/null
 bash scripts/register-connectors.sh clinlims-clinic-sink-all >/dev/null
 ok "OpenELIS down sink registered: keeps the hub's lab test catalogue and lab accounts, and the result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
-# after the Postgres connectors are registered, not before: the heartbeat script patches the two PG
-# source connectors' configs (GET then PUT), so they must exist, and it takes
-# BOTH source names (first live clinic, manpur: it was called with one name
-# and one line too early -- "$5: unbound variable"). Its DB half (heartbeat
-# table + publication membership) is idempotent; the seed already carries both.
+# After the Postgres connectors are registered: the heartbeat script patches both
+# source connectors' configs (GET then PUT), so it needs both to exist and both names.
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/generate-connectors.sh mysql-sinks >/dev/null
 down_sinks="$(cd connectors && ls mysql-local-sink-*.json 2>/dev/null | sed 's/\.json$//')"

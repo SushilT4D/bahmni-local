@@ -7,14 +7,15 @@
 #
 # Every clinic receives the same stream: the result, analysis and sample rows a
 # hub lab user wrote, the hub's lab accounts and the hub's lab test catalogue
-# (the [down] list of sync/tables/openelis.conf). A lab row names its clinic by a routing column
-# (sync/tables/tables.sh hub-down --routes clinlims): a result by the analysis it answers, an
-# analysis or a sample by its own id. A record is kept when
+# (the [down] list of sync/tables/openelis.conf). A lab row names its clinic by
+# a routing column (sync/tables/tables.sh hub-down --routes clinlims): a result
+# by the analysis it answers, an analysis or a sample by its own id. A record is
+# kept when
 #   - it is not a delete (a delete at the hub stays at the hub; the clinic's
 #     copy is the clinic's; a catalogue row the hub deletes is kept here, and
 #     the hub retires a test rather than deleting it), and
-#   - it is a table that goes to every clinic (sync/tables/tables.sh hub-down --unrouted
-#     clinlims: the hub's lab accounts, which a sample the hub moved on names,
+#   - it is a table that goes to every clinic (sync/tables/tables.sh hub-down
+#     --unrouted clinlims: the hub's lab accounts, which a sample the hub moved on names,
 #     and the catalogue a lab order is matched to), or its routing column is a
 #     number, at or above this clinic's floor for the table it names, and ends
 #     in this clinic's residue.

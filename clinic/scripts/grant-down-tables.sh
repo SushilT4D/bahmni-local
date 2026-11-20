@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Grant this clinic's sink database user what the down sinks need on every
-# table the OpenMRS [down] list (sync/tables/openmrs.conf) names: SELECT,
-# INSERT, UPDATE and DELETE, table by table, then read the grants back. Seed
+# table the [down] list of sync/tables/openmrs.conf names: SELECT, INSERT,
+# UPDATE and DELETE, table by table, then read the grants back. Seed
 # task 050 does the same on a node it seeds; this is for a node seeded before a
 # table joined that list, whose new down sink would otherwise be refused its
 # first INSERT. Safe to re-run.
@@ -32,7 +32,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 begin_task "grant the sink user the down tables$( [ "$DRYRUN" = 1 ] && printf ' (dry run: nothing changes)')"
-sql="$(sink_grant_sql)" || fail "could not build the grants from the OpenMRS [down] list (sync/tables/openmrs.conf)"
+sql="$(sink_grant_sql)" || fail "could not build the grants from the [down] list of sync/tables/openmrs.conf"
 if [ "$DRYRUN" = 1 ]; then
   printf '%s\n' "$sql" | sed 's/^/    /'
   log "dry run: nothing changed."
@@ -51,7 +51,7 @@ users="$(printf "select count(*) from mysql.user where User='sink' and Host='%%'
 have="$(printf "select table_name from information_schema.tables where table_schema='openmrs'\n" | mysql_root)"
 absent=""
 for t in $(down_tables); do printf '%s\n' "$have" | grep -qx "$t" || absent="${absent} ${t}"; done
-[ -z "$absent" ] || fail "openmrs in ${MY} has no table:${absent}. the OpenMRS [down] list names a table this database lacks; nothing was granted"
+[ -z "$absent" ] || fail "openmrs in ${MY} has no table:${absent}. The OpenMRS [down] list names a table this database lacks; nothing was granted"
 printf '%s\nFLUSH PRIVILEGES;\n' "$sql" | mysql_root || fail "the grants failed in ${MY}"
 missing="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | mysql_root | sink_grants_missing)" || fail "could not read back the sink user's grants"
 [ -z "$missing" ] || fail "after granting, the sink user still lacks SELECT, INSERT, UPDATE or DELETE on: $(printf '%s' "$missing" | tr '\n' ' ')"

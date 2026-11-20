@@ -1,8 +1,8 @@
 -- The hub's Odoo down publication: what the hub's Odoo source sends to every clinic.
 --
 -- It publishes INSERT, UPDATE and DELETE, never TRUNCATE (a TRUNCATE ignores row
--- filters). It holds exactly the down tables passed in (the [down] lists in sync/tables/, read through
--- sync/tables/tables.sh hub-down), plus public.dbz_heartbeat when it exists, and nothing else:
+-- filters). It holds exactly the down tables passed in (the [down] list of
+-- sync/tables/odoo.conf), plus public.dbz_heartbeat when it exists, and nothing else:
 -- SET TABLE replaces whatever the publication held before, so a table that is
 -- not on the list leaves it.
 --

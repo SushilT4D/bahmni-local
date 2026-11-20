@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Print a row count and a content checksum for every table the OpenMRS [down]
-# list (sync/tables/openmrs.conf) names, from one OpenMRS MySQL. Run it on the hub and on a clinic seeded from
-# that hub and compare the two outputs line by line: a table whose line differs
+# Print a row count and a content checksum for every table the [down] list of
+# sync/tables/openmrs.conf names, from one OpenMRS MySQL. Run it on the hub and
+# on a clinic seeded from that hub and compare the two outputs line by line: a table whose line differs
 # holds different rows.
 #
 #   clinic/scripts/master-checksum.sh [--reseed] [--container NAME] [--database DB]

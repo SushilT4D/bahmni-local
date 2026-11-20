@@ -18,15 +18,7 @@ umask 077
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
 
-# These sinks apply UP-direction data: they consume <clinic>.<server>.openmrs.*
-# topics and write clinic-authored rows into the cloud. So the table list is the
-# CLINIC's ([up] in sync/tables/openmrs.conf), NOT the [down] list -- which
-# lists the tables that flow the other way.
-#
-# Generating up-direction sinks from the [down] list instead would
-# produce sinks for users/role/role_privilege/role_role/user_property/user_role/
-# provider, all subscribed to topics the clinic never publishes: inert, but
-# reporting RUNNING and inflating any "all sinks green" check.
+# Up sinks follow the [up] list; a sink for a down-only table would sit RUNNING on a topic no clinic writes.
 TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 DOWN_TABLES_CONF="${DOWN_TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 ENV_FILE="${PROJECT_DIR}/.env"

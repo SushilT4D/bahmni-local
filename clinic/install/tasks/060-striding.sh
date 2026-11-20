@@ -26,7 +26,7 @@ inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' |
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 # seed-counters:begin
 # obs and orders: a clinic writes both from its first consultation, whether or
-# not the OpenMRS [up] list (sync/tables/openmrs.conf) lists them yet, and an id below the seed's floor
+# not the OpenMRS [up] list names them yet, and an id below the seed's floor
 # is one the hub's own rows use. Each counter moves to the first id on this
 # clinic's residue at or above the floor the seed gate recorded from the
 # manifest (it refuses a seed without them), and is read back. A counter
@@ -35,13 +35,13 @@ check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 sc_ai(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | mysql_root 2>/dev/null | tail -1 || true; }
 for t in ${SEED_COUNTER_TABLES}; do
   fl="$(stamp_get "$(floor_key "$t")")"
-  [ -n "$fl" ] || fail "no ${t} floor is recorded on this machine, so its id counter cannot be set above the hub's rows. Rerun the seed from its gate (from task005) or call the operator."
+  [ -n "$fl" ] || fail "no ${t} floor is recorded on this machine, so its id counter cannot be set above the hub's rows. Rerun the seed from its gate (task 005) or call the operator."
   # floor-residue:begin
   v="$(seed_floor_residue_verdict "$t" "$fl" "$(seed_floor_residue_sql "$t" "$fl" | mysql_root 2>/dev/null | tail -1 || true)")" || fail "$v"
   ok "${v#ok }"
   # floor-residue:end
   plan="$(seed_counter_plan "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$plan"
-  if [ "$plan" != keep ]; then printf 'ALTER TABLE openmrs.`%s` AUTO_INCREMENT = %s;\n' "$t" "${plan#set }" | mysql_root >/dev/null || fail "could not set the ${t} id counter to ${plan#set }: the database did not take the change. Rerun the striding step (from task060) or call the operator."; fi
+  if [ "$plan" != keep ]; then printf 'ALTER TABLE openmrs.`%s` AUTO_INCREMENT = %s;\n' "$t" "${plan#set }" | mysql_root >/dev/null || fail "could not set the ${t} id counter to ${plan#set }: the database did not take the change. Rerun the striding step (task 060) or call the operator."; fi
   v="$(counter_floor_verdict "$t" "$(sc_ai "$t")" "$fl" "${RESIDUE}")" || fail "$v"
   if [ "$plan" = keep ]; then ok "${v#ok } (counter already there, unchanged)"; else ok "${v#ok } (counter set to ${plan#set })"; fi
 done
@@ -91,10 +91,7 @@ EOF
 o="$(ct exec -i "$PG" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -v residue="${RESIDUE}" -qAt -f /dev/stdin < scripts/sql/openelis/apply-sequence-striding.sql 2>&1)" \
   || fail "the OpenELIS sequences could not be strided above their rows: $(printf '%s\n' "$o" | sed -n 's/^.*ERROR: *//p' | head -1)"
 ok "$(printf '%s\n' "$o" | grep '^clinlims sequences step 10' | tail -1)"
-# Same table list the publication and MirrorMaker whitelist use (the [up] list of
-# sync/tables/odoo.conf, trimmed and validated by subsystem_tables)
-# -- one source of truth, passed to the SQL as a comma-separated psql variable rather
-# than duplicated as a second hard-coded array.
+# The [up] list of sync/tables/odoo.conf, the same tables the publication and MirrorMaker use.
 ODOO_TABLES="$(subsystem_tables odoo | tr '\n' ',' | sed 's/,$//')"
 [ -n "${ODOO_TABLES}" ] || fail "no tables in the [up] list of ${REPO_DIR}/sync/tables/odoo.conf"
 ct exec -i "$PG" psql -U postgres -d odoo -v residue="${RESIDUE}" -v tables="${ODOO_TABLES}" -q -f /dev/stdin < scripts/sql/odoo/apply-odoo-sequence-striding.sql

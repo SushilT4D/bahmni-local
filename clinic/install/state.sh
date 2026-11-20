@@ -92,7 +92,7 @@ seed_manifest_verdict(){
   printf 'ok %s\n' "$taken"
 }
 
-# seed_floor_tables TABLES_CONF : the tables whose floor the OpenMRS [up] list (sync/tables/openmrs.conf)
+# seed_floor_tables TABLES_CONF : the tables whose floor the [up] list of TABLES_CONF
 # takes from the seed (table:pk:seed), one per line. A list the reader refuses
 # fails, with the reader's reason on stderr.
 seed_floor_tables(){
@@ -104,7 +104,7 @@ seed_floor_tables(){
 
 # The clinical tables whose id counter the seed lifts above the manifest's
 # floor whenever the manifest carries one (FLOOR_OBS, FLOOR_ORDERS), whether
-# or not the OpenMRS [up] list (sync/tables/openmrs.conf) lists them. A clinic writes obs and orders from
+# or not the OpenMRS [up] list names them. A clinic writes obs and orders from
 # its first consultation. With the counter the dump restored, those ids fall
 # below the floor, among ids the hub's own rows use, so once the tables are
 # synced the hub could not tell the clinic's rows from its own, and a row
@@ -179,7 +179,7 @@ seed_floors_verdict(){
 seed_counter_plan(){
   local t="$1" ai="$2" fl="$3" r="$4" first
   case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
-  case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (from task005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'the %s floor '"'"'%s'"'"' is not a number, so the first %s id this clinic may write cannot be known. Rerun the seed from its gate (task 005) or call the operator.\n' "$t" "$fl" "$t"; return 1 ;; esac
   case "$r" in [1-9]) ;; *) printf 'residue %s is not a clinic residue (1 to 9)\n' "${r:-none}"; return 1 ;; esac
   first=$(( fl + (r - fl % 10 + 10) % 10 ))
   if [ "$ai" -lt "$first" ]; then printf 'set %s\n' "$first"; else printf 'keep\n'; fi
@@ -193,10 +193,10 @@ seed_counter_plan(){
 counter_floor_verdict(){
   local t="$1" ai="$2" fl="$3" r="$4" next
   case "$ai" in ''|*[!0-9]*) printf 'could not read the %s id counter (got '"'"'%s'"'"'); the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n' "$t" "$ai"; return 1 ;; esac
-  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (from task005) or call the operator.\n' "$t"; return 1 ;; esac
+  case "$fl" in ''|*[!0-9]*) printf 'no %s floor is recorded on this machine, so its id counter cannot be checked. Rerun the seed from its gate (task 005) or call the operator.\n' "$t"; return 1 ;; esac
   next=$(( ai + (r - ai % 10 + 10) % 10 ))
   if [ "$next" -lt $((fl + r)) ]; then
-    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (from task060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
+    printf 'the %s id counter is below this clinic'"'"'s floor: the next %s id would be %s, and clinic-written %s ids start at %s (floor %s + residue %s). Ids below that belong to the hub'"'"'s own rows. Rerun the striding step (task 060) or call the operator.\n' "$t" "$t" "$next" "$t" "$((fl + r))" "$fl" "$r"
     return 1
   fi
   printf 'ok %s next id %s, at or above floor %s + residue %s\n' "$t" "$next" "$fl" "$r"
@@ -234,7 +234,7 @@ mysql_stride_verdict(){
   case "$1" in
     "10 $2") printf 'ok MySQL issues ids 10 apart on residue %s\n' "$2" ;;
     '') printf 'could not read MySQL'"'"'s id increment and offset; the database is not answering. Wait a minute and run the same command again; if it persists, call the operator.\n'; return 1 ;;
-    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (from task060) or call the operator.\n' "$1" "$2"; return 1 ;;
+    *) printf 'MySQL issues ids with increment and offset %s, not 10 %s: new rows would land on another node'"'"'s residue. Rerun the striding step (task 060) or call the operator.\n' "$1" "$2"; return 1 ;;
   esac
 }
 
@@ -317,9 +317,9 @@ order_seed_verdict(){
   local v="$1" r="$2" rg lo hi
   rg="$(order_seed_range "$r")" || { printf '%s\n' "$rg"; return 1; }
   lo="${rg% *}"; hi="${rg#* }"
-  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (from task060) or call the operator.\n' "$v"; return 1 ;; esac
+  case "$v" in ''|*[!0-9]*) printf 'could not read order.nextOrderNumberSeed (got '"'"'%s'"'"'); without it OpenMRS starts order numbers at 1, in the hub'"'"'s range. Rerun the striding step (task 060) or call the operator.\n' "$v"; return 1 ;; esac
   if [ "$v" -lt "$lo" ] || [ "$v" -gt "$hi" ]; then
-    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (from task060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
+    printf 'order.nextOrderNumberSeed is %s, in %s, not this clinic'"'"'s (%s to %s): the next order number would duplicate another node'"'"'s. Rerun the striding step (task 060) or call the operator.\n' "$v" "$(order_seed_owner "$v")" "$lo" "$hi"
     return 1
   fi
   if [ $(( hi - v )) -lt "${ORDER_RANGE_MARGIN}" ]; then
@@ -522,9 +522,9 @@ node_fk_verdict(){
 }
 
 # --- OpenELIS floors: where this clinic's own ids of a table begin ------------
-# The hub sends every clinic the OpenELIS rows its lab users wrote
-# (the [down] lists in sync/tables/); each clinic keeps a row only when its routing column
-# names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh). The
+# The hub sends every clinic the OpenELIS rows its lab users wrote (the [down]
+# list of sync/tables/openelis.conf); each clinic keeps a row only when its routing
+# column names an id this clinic minted (clinic/scripts/clinlims-down-filter.sh). The
 # clinic's OpenELIS source, in turn, publishes a lab account or signature only
 # when this clinic minted it (UP_CLINLIMS_OWN_ROWS).
 # Every id of a table the seed restored is the hub's, on any residue; this

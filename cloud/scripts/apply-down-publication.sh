@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # apply-down-publication.sh FLOORS-FILE -- PSQL-COMMAND...
 #
-# Converges the hub's Odoo down publication, dbz_odoo_owned, to exactly the down
-# list (the [down] lists in sync/tables/, through sync/tables/tables.sh hub-down), each table with an `id`
-# filtered with (id < <floor> OR id % 10 = 0) from FLOORS-FILE (the hub's
+# Converges the hub's Odoo down publication, dbz_odoo_owned, to exactly the
+# [down] list of sync/tables/odoo.conf, each table with an `id` filtered with (id < <floor> OR id % 10 = 0) from FLOORS-FILE (the hub's
 # cloud/odoo-down-floors.local), plus public.dbz_heartbeat. cloud/odoo/
 # apply-down-publication.sql does the work and refuses, naming the table, a
 # missing floor, a missing table, or a replica identity that does not cover

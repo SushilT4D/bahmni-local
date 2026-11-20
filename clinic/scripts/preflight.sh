@@ -57,9 +57,7 @@ MY=$(resolve "$MYSQL_SERVICE"); PG=$(resolve "$PG_SERVICE"); KF=$(resolve "$KAFK
 # Find the repo by asking a running container which directory its
 # compose project came from. Works regardless of how this script was invoked --
 # the operator wrapper pipes it over stdin, so BASH_SOURCE is not a path here.
-# Resolved here (not down by the checkout-drift section that originally read
-# it) so the unsynced-tables section below -- which needs the Odoo and OpenELIS [up] lists (sync/tables/),
-# same as checkout drift needs the git repo -- has it too.
+# Resolved here because the unsynced-tables section below reads sync/tables/ from it too.
 REPO=${PREFLIGHT_REPO:-}
 if [ -z "$REPO" ]; then
   for c in $("$CT" ps --format '{{.Names}}' 2>/dev/null | head -5); do
@@ -157,14 +155,10 @@ if [ -n "$PG" ]; then
 else bad "postgres service '$PG_SERVICE' not running"; fi
 
 # --- Unsynced tables tied to synced ones -------------------
-# village_village stopped a sink because a table nobody had listed grew rows
-# that referenced, and were referenced by, a synced table. That
-# is a CLASS, not a one-off: a table outside the Odoo and OpenELIS [up] lists' synced set
-# that (a) touches a synced table by a foreign key in EITHER direction and
-# (b) has gained rows is a future village_village until a human gives it a
-# verdict in sync/unsynced-allowlist.conf. WARN, not FAIL: this is a
-# data-quality question for a person, not a broken node -- warn_ never
-# touches rc.
+# A table outside the synced set (the [up] lists of sync/tables/odoo.conf and
+# openelis.conf) that is linked to a synced table by a foreign key in EITHER
+# direction and has rows can stop a sink, until a person gives it a verdict in
+# sync/unsynced-allowlist.conf. WARN, not FAIL: warn_ never touches rc.
 #
 # The functions between the markers below are pure (no psql, no side effects)
 # so clinic/install/tests/test_unsynced_check.sh can pull them out and
@@ -175,11 +169,8 @@ else bad "postgres service '$PG_SERVICE' not running"; fi
 # unsynced-check:begin
 warn_(){ echo "  WARN $*"; }
 
-# subsystems_conf_tables PREFIX CONF : CONF's <PREFIX>:<table> rows (the
-# output of sync/tables/tables.sh subsystems), one per line -- the same parse
-# clinic/install/lib.sh's subsystem_tables does (trim, drop a trailing comment,
-# skip :all, skip blank/comment lines). A missing CONF prints nothing rather
-# than erroring -- the caller decides whether that is a note or a real problem.
+# subsystems_conf_tables PREFIX CONF : the <PREFIX>:<table> rows of CONF (the output of
+# sync/tables/tables.sh subsystems), parsed as lib.sh's subsystem_tables does; a missing CONF prints nothing.
 subsystems_conf_tables(){ # PREFIX CONF
   local prefix="$1" conf="$2" line name
   [ -r "$conf" ] || return 0

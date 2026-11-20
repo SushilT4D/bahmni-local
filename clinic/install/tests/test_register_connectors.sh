@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
-# scripts/register-connectors.sh must never leave a connector config -- with
-# its plaintext database.password / connection.password -- in a file under
-# /tmp, and must never print a password. A fake curl on PATH stands in for
-# Kafka Connect: it answers normally for the first connector and fails outright
-# (a process crash, not just a non-2xx HTTP response) for the second, so an
-# early abort cannot skip a cleanup and leave the first connector's password on
-# disk. A third fixture (conn-badmask) exercises the masking sed itself against
-# a password containing an escaped quote and an escaped backslash: a naive
-# [^"]* value pattern stops at the embedded \" and leaks the remainder.
+# scripts/register-connectors.sh never leaves a connector config (with its
+# password) under /tmp and never prints a password, even when curl crashes or
+# Connect echoes a password holding an escaped quote and backslash.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../../.." && pwd)"
@@ -17,17 +11,14 @@ assert_ne(){ if [ "$2" -ne "$3" ]; then printf '  ok   %s\n' "$1"; else printf '
 assert_eq(){ if [ "$2" = "$3" ]; then printf '  ok   %s\n' "$1"; else printf '  FAIL %s: got %q want %q\n' "$1" "$2" "$3"; fails=$((fails+1)); fi; }
 assert_not_contains(){ if printf '%s' "$2" | grep -q -- "$3"; then printf '  FAIL %s: output contains %q\n' "$1" "$3"; fails=$((fails+1)); else printf '  ok   %s\n' "$1"; fi; }
 
-# The script reads the configs from CONNECTORS_DIR and the passwords from
-# CLINIC_DIR/.env; it is run from the repository as it is.
 mkdir -p "$TMP/connectors"
 : > "$TMP/.env"
 printf '{"name":"conn-ok","config":{"connector.class":"io.debezium.connector.mysql.MySqlConnector","database.password":"irrelevant-A"}}\n' > "$TMP/connectors/conn-ok.json"
 printf '{"name":"conn-bad","config":{"connector.class":"io.debezium.connector.mysql.MySqlConnector","database.password":"irrelevant-B"}}\n' > "$TMP/connectors/conn-bad.json"
 printf '{"name":"conn-badmask","config":{"connector.class":"io.debezium.connector.mysql.MySqlConnector","database.password":"irrelevant-C"}}\n' > "$TMP/connectors/conn-badmask.json"
 
-# Fake curl: Connect is reachable, no connector exists yet, and the PUT for
-# conn-bad crashes (nonzero exit) while conn-badmask gets an HTTP 500 whose
-# echoed config carries a JSON-escaped quote and backslash in its password.
+# Fake curl: no connector exists yet; the PUT for conn-bad crashes, and conn-badmask
+# gets an HTTP 500 echoing a password with a JSON-escaped quote and backslash.
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash

@@ -172,8 +172,7 @@ assert_eq "fleet_table" "$(fleet_table | tr '\n' '|')" "  azure      residue 7  
 a="$TMP/a.env"; printf 'CLINIC_SLUG=azure\nRESIDUE=7\nMRN_PREFIX=\n' > "$a"
 assert_eq "answers_missing lists empty and absent keys" "$(answers_missing "$a" | head -3 | tr '\n' ' ')" "MRN_PREFIX SITE_NUMBER CLINIC_PHONE "
 ( CLINIC_SLUG=azure RESIDUE=7 MRN_PREFIX=AZR SITE_NUMBER=7 CLINIC_PHONE=+910000000000 CERT_HOSTNAME=h REMOTE_KAFKA_BOOTSTRAP_SERVERS=b:9092 REMOTE_KAFKA_USERNAME=u REMOTE_KAFKA_PASSWORD='p w' OPENMRS_ATOMFEED_PASSWORD=a OPENELIS_ATOMFEED_PASSWORD=b ODOO_ATOMFEED_PASSWORD=c answers_write "$a" )
-# the twelve answers, and the one with a default: ODOO_ATOMFEED_USER (the hub's
-# feed login)
+# the twelve answers and ODOO_ATOMFEED_USER, the one with a default
 assert_eq "answers_write writes thirteen keys" "$(grep -c '^[A-Z_]*=' "$a")" "13"
 assert_eq "answers_write nothing missing" "$(answers_missing "$a" | tr '\n' ' ')" ""
 assert_eq "an answers file without ODOO_ATOMFEED_USER is not short of it" "$(printf 'CLINIC_SLUG=a\n' > "$TMP/o.env"; answers_missing "$TMP/o.env" | grep -cx ODOO_ATOMFEED_USER)" "0"
@@ -194,9 +193,7 @@ X=""; ( ask_secret X "here" </dev/null ) >/dev/null 2>&1; assert_rc "ask_secret 
 out="$(run echo hello)"; assert_eq "run in dry mode prints" "$out" "  would: echo hello"
 DRY=0; out="$(run echo hello)"; assert_eq "run in live mode executes" "$out" "hello"
 
-# subsystem_tables: one parsing path for the Odoo and OpenELIS [up] lists, trimmed
-# + validated (an untrimmed row used to silently leave a table
-# unstrided; see lib.sh's own comment on the function).
+# subsystem_tables: the [up] lists of odoo.conf and openelis.conf, trimmed and validated
 mkdir -p "$REPO_DIR/sync/tables"
 cp "${HERE}/../../../sync/tables/tables.sh" "$REPO_DIR/sync/tables/"
 SUBS="$REPO_DIR/sync/tables/odoo.conf"

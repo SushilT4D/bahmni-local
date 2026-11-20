@@ -1,9 +1,5 @@
-# Reader for the table lists in sync/tables/ (openmrs.conf, odoo.conf,
-# openelis.conf), sourced by every script that reads them, so the source
-# connector, MirrorMaker, the striding script and the hub's sinks all accept the
-# same lines and agree on what each one means. A line one reader skips and
-# another accepts is a table captured with no sink, or sunk with no striding; a
-# line this reader cannot place is refused, never skipped.
+# The one reader of the table lists in sync/tables/: every script reads them through it, so
+# no table is captured by one script and skipped by another. A line it cannot place is refused.
 # As a command: tables.sh <openmrs|odoo|openelis> <up|down> | subsystems | hub-down [args of hub_down]
 #
 # up_tables_read FILE prints one record per table line of FILE's [up] section
@@ -13,43 +9,17 @@
 #   <table> <pk> floor <other>     table:pk:floor=<other>  no counter of its own; reads <other>'s floor
 #   <table> <pk> sync -            table:pk                sync only, no floor
 # and on a line it refuses prints the reason to stderr and returns 1.
+# A floor=<other> line shares <other>'s key column and floor (drug_order and test_order on
+# orders.order_id); a sync-only line on a floored table's key is refused.
 #
-# A floor=<other> line names a table with a floor of its own (base or seed)
-# and the same key column: drug_order's key is orders.order_id, and so is
-# test_order's, so their rows are on a clinic's residue exactly when the orders
-# row is, and the capture filter and catch-up read the orders floor. A sync-only line whose key column
-# is a floored table's key is refused for the same reason: without a floor
-# source nothing can tell its legacy rows from the clinic's own.
-#
-# Some tables are never captured at a clinic, whatever the line says: users and
-# user_property are written at the hub and reach a clinic through its down
-# sinks, and global_property is each node's own configuration (it holds, among
-# others, the next order number this node issues). A line for one is refused.
+# Refused as lines: users and user_property come down from the hub; global_property is per node.
 UP_NEVER_TABLES="users user_property global_property"
-#
-# The source connector's signal table (Debezium's source signal channel: a row
-# inserted there asks the connector for an incremental snapshot) is captured
-# on every clinic, outside this file: it is not clinical data, is never sent to
-# the hub and has no sink. Every reader puts it in the connector's include list
-# (up_signal_collection) and refuses a line that names it, so it can never
-# acquire a topic in MirrorMaker's list or a sink on the hub.
+# Debezium's signal table: put in every include list, refused as a line, so it never gets a topic or sink.
 UP_SIGNAL_TABLE=debezium_signal
-#
-# The clinical tables. Their rows below the floor are the hub's, copied to
-# every clinic by the seed, so a line for one must say where its floor comes
-# from (seed, or floor=<table>): read as sync-only or with a fixed base_id, it
-# would carry no capture filter and every clinic would publish its edits to
-# the hub's rows. Such a line is refused.
+# Their rows below the floor are the hub's (from the seed): a line must be seed or floor=<table>.
 UP_CLINICAL_TABLES="obs orders drug_order test_order"
-#
-# The OpenELIS tables a clinic's OpenELIS source publishes only for rows this
-# clinic minted: id at or above the clinic's floor for the table (recorded by
-# installer task 060 before it strides, CLINLIMS_FLOOR_<TABLE>) and on its
-# residue. The seed copies the hub's lab accounts and signatures to every
-# clinic; an edit a clinic makes to one of those stays at the clinic, as an
-# edit to a hub obs does. Each has a filter step in
-# clinic/scripts/templates/clinlims-source-connector.json, in this order, before the
-# step that routes every table into the one ordered topic.
+# Published only for rows this clinic minted (CLINLIMS_FLOOR_<TABLE>, own residue); each has a
+# filter step, in this order, in clinic/scripts/templates/clinlims-source-connector.json.
 UP_CLINLIMS_OWN_ROWS="system_user result_signature"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #

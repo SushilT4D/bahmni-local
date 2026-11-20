@@ -4,7 +4,7 @@
 # longer than the hub keeps changes).
 #
 # The source starts with snapshot.mode no_data, so a table added to
-# sync/tables/openmrs.conf later is captured from that moment on; rows written
+# the OpenMRS up list later is captured from that moment on; rows written
 # before it never travel. This script asks the running source connector for an
 # incremental snapshot of each such table, through its signal table
 # (openmrs.debezium_signal), limited to the rows this clinic owns:
@@ -18,7 +18,7 @@
 #   scripts/catch-up-clinical.sh --dry-run [--id RUN] [TABLE ...]   print what would be signalled; touches nothing
 #   scripts/catch-up-clinical.sh [--id RUN] [TABLE ...]             count the rows, then insert one signal per table
 #   scripts/catch-up-clinical.sh --status                           what the connector's offsets say is in progress
-# TABLE defaults to every table of sync/tables/openmrs.conf whose floor comes
+# TABLE defaults to every table of the OpenMRS up list whose floor comes
 # from the seed or from another table. RUN names the signal rows
 # (catch-up-<table>-<RUN>); it defaults to the UTC time.
 #

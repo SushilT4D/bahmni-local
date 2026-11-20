@@ -165,11 +165,9 @@ printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' 
   && ok "openmrs search index set to rebuild on its next start" || fail "could not clear openmrs search.indexVersion"
 if [ "${PHASE:-install}" = seed ]; then
 # sink-grants:begin
-# The sink user writes only the tables the down sinks write: every
-# the OpenMRS [down] list (sync/tables/openmrs.conf) row (lib.sh down_tables), each granted on its own and read
-# back, so a table added to that file is granted here and a sink is never
-# refused its first INSERT.
-grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from the OpenMRS [down] list (sync/tables/openmrs.conf)"
+# The sink user gets each table of the OpenMRS [down] list (lib.sh down_tables), granted
+# and read back one by one, so a sink is never refused its first INSERT.
+grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from the [down] list of sync/tables/openmrs.conf"
 mysql_root <<SQL
 CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
@@ -201,7 +199,7 @@ DO \$\$ BEGIN
   -- The seed dumps carry GRANTs to these sink roles, so they must exist BEFORE the
   -- restore (bare here; the sink-role scripts below set passwords + table grants).
   -- poc_sink appears in the OpenELIS dump but the fleet has no script for it -- a
-  -- bare role satisfies the grant. (first live clinic, manpur)
+  -- bare role satisfies the grant.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='odoo_sink')     THEN CREATE ROLE odoo_sink     LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='clinlims_sink') THEN CREATE ROLE clinlims_sink LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='poc_sink')      THEN CREATE ROLE poc_sink      LOGIN; END IF;
@@ -228,7 +226,7 @@ ok "odoo: dropped ${n:-0} asset-bundle attachment row(s) from the seed; Odoo reb
 # odoo-assets:end
 # sink roles AFTER the databases exist and are restored: they connect with
 # `psql -d odoo` / `-d openelis` and GRANT ON ALL TABLES, so the DBs and their
-# tables must exist first (first live clinic, manpur: they ran before createdb).
+# tables must exist first.
 # Always call these -- they are idempotent (reuse the .env password, CREATE-or-
 # ALTER the role). The old `grep .env ||` guard skipped them when the password was
 # present, which stranded a node whose earlier run appended the password but failed
@@ -240,17 +238,9 @@ fi
 partners="$(printf 'select count(*) from res_partner' | ct exec -i "$PG" psql -U postgres -d odoo -At)"
 [ "${partners:-0}" -gt 0 ] && ok "odoo restored: res_partner=${partners}" || fail "res_partner is empty after restore"
 
-# Publications are created by the installer, not expected inside the dump:
-# a dump seeded from the hub carries no
-# publication at all -- staging has 0. The table list is derived at run time from
-# the Odoo and OpenELIS [up] lists' odoo:/clinlims: rows, the same file the striding SQL (task 060)
-# and the MirrorMaker whitelist read, so there is exactly one place that says which
-# tables are synced. dbz_heartbeat is deliberately left OUT of this list: task 080 runs
-# scripts/apply-slot-heartbeat.sh once Connect is up, and that script creates the
-# heartbeat table and ALTER PUBLICATION ... ADD TABLE's it in itself (idempotent, checks
-# NOT EXISTS first) -- adding it here too would just mean this ALTER strips it back out
-# on the next re-run of this task, only for the heartbeat script to re-add it. One owner
-# per piece of the publication.
+# Publications are created here (a dump from the hub carries none), over the [up] lists of
+# sync/tables/odoo.conf and openelis.conf. dbz_heartbeat is left out: task 090's
+# apply-slot-heartbeat.sh adds it, and SET TABLE here would strip it on a re-run.
 if [ "${PHASE:-install}" = seed ]; then
 sync_publication(){ # db  subsystems-prefix  pg-schema  pubname
   local db="$1" prefix="$2" schema="$3" pub="$4" tables t parts=""

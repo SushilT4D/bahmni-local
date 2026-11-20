@@ -2,8 +2,8 @@
 # generate/mysql-sinks.sh — render the DOWN-direction (cloud → clinic) sinks.
 #
 # One connector per cloud-owned table from the [down] list of
-# sync/tables/openmrs.conf. These run ON THE
-# CLINIC and write into the clinic's OpenMRS DB.
+# sync/tables/openmrs.conf. These run ON THE CLINIC and write into the clinic's
+# OpenMRS DB.
 #
 # Deliberate choices, each one closing a defect a generator can have:
 #   - the template is a FILE and substitution is explicit, so the RegexRouter
@@ -116,16 +116,16 @@ done
 
 (( ${#TABLES[@]} )) || { echo "no tables found in $TABLES_CONF" >&2; exit 1; }
 
-# A `hub-written` row (a clinic's down list, never the OpenMRS [down] list (sync/tables/openmrs.conf)) carries the
-# hub's staff to a clinic that keeps its own OpenMRS database: the logins,
-# roles, providers and people the hub created. Below the hub's floor such a
+# A `hub-written` row (in a clinic's own down list, never in the [down] list of
+# sync/tables/openmrs.conf) carries the hub's staff to a clinic that keeps its
+# own OpenMRS database: the logins, roles, providers and people the hub created. Below the hub's floor such a
 # clinic's rows and the hub's are two histories that share ids, so this clinic
 # keeps only rows whose <column> is at or above the floor of the table it
 # points at and ends in 0, the hub's residue. The column is the table's own key,
 # or `hub-written=user_id` for a link row (user_role, user_property), judged
 # by the user it belongs to.
 #
-# Floors: a table with a base in the OpenMRS [up] list (sync/tables/openmrs.conf) (person, person_name)
+# Floors: a table with a base in the OpenMRS [up] list (person, person_name)
 # uses that base, the same value the hub's source filter uses; any other
 # (users, provider) takes the hub's recorded floor from HUB_STAFF_FLOORS, a
 # file of "<table> <floor>" lines (clinic/scripts/clinic-minted-staff.sh
@@ -314,8 +314,8 @@ if hw:
         os.environ['CHANGES'] = '1'
 
 if os.environ.get('CHANGES') == '1':
-    # a `changes` table (the OpenMRS [down] list (sync/tables/openmrs.conf)): inserts and updates are applied,
-    # never a delete. The hub retires such a row rather than deleting it, and a
+    # a `changes` table (marked so in the OpenMRS [down] list): inserts and
+    # updates are applied, never a delete. The hub retires such a row rather than deleting it, and a
     # delete here would fail on, or orphan, the clinic's own rows that point to
     # it. Tombstones carry no row and are dropped with the deletes.
     cfg = doc['config']

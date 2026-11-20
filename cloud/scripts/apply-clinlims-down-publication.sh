@@ -2,10 +2,9 @@
 # apply-clinlims-down-publication.sh FLOORS-FILE -- PSQL-COMMAND...
 #
 # Converges the hub's OpenELIS down publication, dbz_clinlims_owned, to exactly
-# the OpenELIS rows of the down list (the [down] list of sync/tables/openelis.conf, through
-# sync/tables/tables.sh hub-down clinlims), plus clinlims.dbz_heartbeat: the rows routed to
-# one clinic with no row filter, the rows that go to every clinic
-# (sync/tables/tables.sh hub-down --unrouted clinlims: the lab accounts and the lab test
+# the [down] list of sync/tables/openelis.conf, plus clinlims.dbz_heartbeat: the
+# rows routed to one clinic with no row filter, the rows that go to every clinic
+# (tables.sh hub-down --unrouted clinlims: the lab accounts and the lab test
 # catalogue) with (id < <floor> OR id % 10 = 0) on this hub's floor from
 # FLOORS-FILE (cloud/clinlims-down-floors.local), each of those without an id
 # column (a link table) with no row filter.

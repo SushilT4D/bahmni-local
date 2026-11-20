@@ -34,16 +34,16 @@ filling in the passwords from `.env`. Before any down sink it reads the
 when any down sink's table lacks SELECT, INSERT, UPDATE or DELETE.
 
 **Down-table grants** — `grant-down-tables.sh` grants the clinic's `sink`
-database user SELECT, INSERT, UPDATE and DELETE on every table
-`sync/tables/openmrs.conf` lists, and reads the grants back. Seed task 050 does the same
-when it seeds; run this on a node seeded before a table joined that file, then
+database user SELECT, INSERT, UPDATE and DELETE on every table the [down]
+list of `sync/tables/openmrs.conf` names, and reads the grants back. Seed task 050 does the same
+when it seeds; run this on a node seeded before a table joined that list, then
 regenerate and register the down sinks. `--dry-run` prints the grants.
 
-**Table verdicts** — `check-table-verdicts.sh` holds `sync/tables/openmrs.conf` and
+**Table verdicts** — `check-table-verdicts.sh` holds the [down] and [up] lists of
 `sync/tables/openmrs.conf` to `cloud/table-verdicts.conf`, the one record of which
 node writes each table: a down row must be a hub-written table (DOWN) or a
 relayed one, a clinic capture row must be one a clinic writes (UP or relay).
-It reads `sync/tables/openmrs.conf` with `sync/tables/tables.sh`, the reader
+It reads the [up] list with `sync/tables/tables.sh`, the reader
 every capture, mirror, striding and sink script uses, so a line those scripts
 refuse fails here too; and the tables that reader never lets a clinic capture
 must be DOWN or OUT in the verdicts. It names every row that breaks a rule and
@@ -79,7 +79,8 @@ count the run logged for each table.
 **OpenELIS down filter** — `clinlims-down-filter.sh` prints the condition of
 the clinic's OpenELIS down sink (`connectors/clinlims-clinic-sink-all.json`).
 The hub sends every clinic the `result`, `analysis` and `sample` rows its lab
-users wrote, its lab accounts and its lab test catalogue (`sync/tables/`);
+users wrote, its lab accounts and its lab test catalogue (the [down] list of
+`sync/tables/openelis.conf`);
 the condition keeps every account and catalogue row the hub sends (a sample the
 hub moved on names an account; a lab order is matched to the catalogue), and a
 lab row only when its
@@ -93,8 +94,8 @@ what is missing, and the installer stops. The
 sink claims replication origin `hub_2` so this clinic's OpenELIS source never
 sends those rows back up.
 
-**Content checksum** — `master-checksum.sh` prints, per table `sync/tables/openmrs.conf`
-lists (with `--reseed`, also the RESEED tables of `cloud/table-verdicts.conf`),
+**Content checksum** — `master-checksum.sh` prints, per table the [down] list of
+`sync/tables/openmrs.conf` names (with `--reseed`, also the RESEED tables of `cloud/table-verdicts.conf`),
 the row count and a checksum over every column of every row except those
 `cloud/checksum-exclusions.conf` names. Run it on the hub (`--container <name>`)
 and on a clinic seeded from it and compare the outputs: a row edited in place
@@ -140,8 +141,8 @@ Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
 4 another run holds `clinic/forms`.
 
 **Concepts minted at this clinic** — `clinic-minted-concepts.sh --hub-ids
-<file>` compares this clinic's concept dictionary (the tables `sync/tables/openmrs.conf`
-marks `changes`) with the hub's, read on the hub with `--hub-query`, and lists
+<file>` compares this clinic's concept dictionary (the tables the OpenMRS
+[down] list marks `changes`) with the hub's, read on the hub with `--hub-query`, and lists
 every row this clinic minted for itself: a `twin` (the hub holds its uuid under
 another id), a `collision` (the hub holds its id with another uuid) or a
 `residue` row (on a residue other than the hub's, above the hub's last legacy

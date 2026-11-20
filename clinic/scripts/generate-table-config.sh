@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from the OpenMRS [up] list (sync/tables/openmrs.conf) or the OpenMRS [down] list (sync/tables/openmrs.conf).
+# Print TABLE_INCLUDE_LIST and KAFKA_TOPICS from the [up] or [down] list of sync/tables/openmrs.conf.
 #
 # Usage:
 #   ./scripts/generate-table-config.sh local
@@ -35,8 +35,6 @@ case "${SIDE}" in
   *) usage; echo "Error: unknown side '${SIDE}' (use local or cloud)" >&2; exit 1 ;;
 esac
 
-# This script lives in clinic/scripts/; the table lists are in sync/tables/, a
-# sibling of PROJECT_DIR (clinic/).
 TABLES_CONF="${PROJECT_DIR}/../sync/tables/openmrs.conf"
 [[ -f "${TABLES_CONF}" ]] || { echo "Error: ${TABLES_CONF} not found"; exit 1; }
 # shellcheck source=../../sync/tables/tables.sh

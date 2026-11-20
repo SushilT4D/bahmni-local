@@ -15,16 +15,16 @@ repository, and attaches to that stack's Docker network through
 - **Postgres (Odoo, OpenELIS), 16 or newer**: `wal_level=logical`,
   `max_wal_senders>=4`, `max_replication_slots` at least 4 and at least the
   number of replication origins the instance holds (below), and every synced
-  sequence incrementing by 10 on residue 0. The synced tables are listed in
-  `sync/tables/`. 16 is the first version whose `pgoutput` accepts the
+  sequence incrementing by 10 on residue 0. The synced tables are the `[up]`
+  lists of `sync/tables/odoo.conf` and `openelis.conf`. 16 is the first version whose `pgoutput` accepts the
   `origin` option the Odoo and OpenELIS sources decode with.
 - **Accounts**: a MySQL account for the sinks and one for Debezium; Postgres
   roles `odoo_sink` and `clinlims_sink`, each with `EXECUTE` on
   `pg_replication_origin_session_setup`, `pg_replication_origin_session_reset`
   and `pg_replication_origin_session_is_setup` in its own database;
   `REPLICATION` on the roles the Odoo and OpenELIS sources log in as.
-- **Publication** `dbz_odoo_owned` over exactly the down list,
-  `sync/tables/`, built by `scripts/apply-down-publication.sh`. Each
+- **Publication** `dbz_odoo_owned` over exactly the `[down]` list
+  of `sync/tables/odoo.conf`, built by `scripts/apply-down-publication.sh`. Each
   table with an `id` carries the row filter `(id < <floor> OR id % 10 = 0)`,
   with this hub's floors in `cloud/odoo-down-floors.local` (below).
 - **Publication** `dbz_clinlims_owned` over the OpenELIS rows of the down list,
@@ -54,8 +54,8 @@ clinic's sample, and the people the hub creates (the `person` and `person_name`
 behind a user or provider made at the hub); of those, only the rows written at
 the hub.
 
-The clinics send up every table in `sync/tables/`. The hub sends down
-only `sync/tables/`: products, categories, units of measure and the
+The clinics send up every table in the `[up]` lists of `sync/tables/`. The hub
+sends down only the `[down]` lists: products, categories, units of measure and the
 address tables, plus the three product link tables and the central-transfer
 tables; the OpenELIS `result`, `analysis` and `sample` rows, each routed to
 one clinic; and, to every clinic, the OpenELIS lab accounts and lab test
@@ -90,8 +90,8 @@ another clinic or back to its sender.
 OpenMRS gets the same result from the MySQL source's table list, which holds
 only tables the hub writes, and from a row filter on the tables both sides
 write: `person` and `person_name` (marked `hub-rows` in `tables.conf`) are
-published only for a key at or above the table's floor (its base in
-`sync/tables/openmrs.conf`) that ends in 0. The filter judges the record's key, so
+published only for a key at or above the table's floor (its base in the
+`[up]` list of `sync/tables/openmrs.conf`) that ends in 0. The filter judges the record's key, so
 updates, deletes and tombstones are treated alike, and the source's first
 snapshot reads only those rows. A clinic does the same in the other direction.
 
@@ -99,7 +99,7 @@ A clinic that keeps its own OpenMRS database takes the hub's staff (`users`,
 `user_role`, `user_property`, `provider`, `person`, `person_name`, and changes
 to the roles) only for rows the hub wrote, filtered at its own receivers: below
 the hub's floor its rows and the hub's share ids. The floors of `person` and
-`person_name` are their bases in `sync/tables/openmrs.conf`; those of `users` and
+`person_name` are their bases in the `[up]` list of `sync/tables/openmrs.conf`; those of `users` and
 `provider` are this hub's, recorded once in `cloud/openmrs-staff-floors.local`
 (never committed) from the output of
 `clinic/scripts/clinic-minted-staff.sh --derive-floors`, run against this hub's
@@ -161,9 +161,10 @@ on loopback only; reach them over an SSH tunnel.
 - Down direction, hub to clinics: `scripts/generate-cloud-source-connector.sh`
   renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
   registers the Odoo source, `odoo-cloud-source`, filling its table list and
-  aggregate regex from `sync/tables/`, and the OpenELIS source,
-  `clinlims-cloud-source` (slot `dbz_clinlims_down`), filling its table list
-  and aggregate regex from the same file's OpenELIS rows. Each decodes with
+  aggregate regex from the `[down]` list of `sync/tables/odoo.conf`, and the
+  OpenELIS source, `clinlims-cloud-source` (slot `dbz_clinlims_down`), filling
+  its table list and aggregate regex from the `[down]` list of
+  `sync/tables/openelis.conf`. Each decodes with
   `origin=none` and starts with `snapshot.mode=no_data`: nothing written
   before it is registered is sent.
 - A table added to `tables.conf` after the MySQL source first started: the

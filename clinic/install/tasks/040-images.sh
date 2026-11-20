@@ -10,13 +10,9 @@ setup_compose; mk_podman_shim
 cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"
 omrs="$(env_get "$E" OPENMRS_IMAGE_NAME)"
-# OpenMRS: IPLIT's image is linux/amd64 only. On an arm64 host it is rebuilt
-# natively (openmrs/build.sh -- 2.3s bare Tomcat+WAR on Ghated vs 26s
-# emulated, ~11x; the PREVIOUS pinned image took 51 minutes under QEMU with
-# modules loading) and the result is written to OPENMRS_RUN_IMAGE, which
-# docker-compose.yml prefers over OPENMRS_IMAGE_NAME. x86 clinics are
-# untouched: OPENMRS_IMAGE_NAME runs as-is, pulled like every other image.
-# HOST_ARCH overrides `uname -m` for tests.
+# IPLIT's OpenMRS image is linux/amd64 only, and emulated it starts about ten times
+# slower: on arm64 openmrs/build.sh rebuilds it natively into OPENMRS_RUN_IMAGE, which
+# docker-compose.yml prefers. HOST_ARCH overrides `uname -m` for tests.
 arch="${HOST_ARCH:-$(uname -m)}"
 case "$arch" in
   arm64|aarch64)

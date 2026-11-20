@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The [down] list of sync/tables/openmrs.conf is the one list of what travels
-# hub -> clinic. Each reader is
-# run on a copy of the repo files it needs (no node's .env is read): the hub's
+# hub -> clinic. Each reader is run on a copy of the repo files it needs (no
+# node's .env is read): the hub's
 # capture list, the clinic's down sinks and MirrorMaker's down topics all carry
 # the observation form tables, and the sinks for them are configured exactly
 # like the down sinks already running.

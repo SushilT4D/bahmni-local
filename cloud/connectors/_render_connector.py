@@ -36,10 +36,7 @@ down_left = [k for k, v in cfg.items() if isinstance(v, str) and '${HUB_DOWN_' i
 if down_left:
     sys.exit('  the down list was not rendered into: ' + ','.join(down_left))
 
-# A source that reads one of the hub's down publications sends down exactly the
-# down list of its subsystem (HUB_DOWN_ODOO_TABLES / HUB_DOWN_CLINLIMS_TABLES,
-# from sync/tables/tables.sh hub-down): any other table in its table list or aggregate regex
-# is refused, whatever the template says.
+# A source on a hub down publication may name only its subsystem's down tables, whatever the template says.
 DOWN_PUBLICATIONS = {'dbz_odoo_owned': 'HUB_DOWN_ODOO_TABLES', 'dbz_clinlims_owned': 'HUB_DOWN_CLINLIMS_TABLES'}
 if cfg.get('publication.name') in DOWN_PUBLICATIONS:
     var = DOWN_PUBLICATIONS[cfg['publication.name']]

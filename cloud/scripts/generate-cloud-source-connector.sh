@@ -2,7 +2,7 @@
 # generate-cloud-source-connector.sh — render the DOWN-direction Debezium source that
 # runs ON THE CLOUD and publishes cloud-owned admin tables as bahmni-cloud.openmrs.*
 #
-# table.include.list comes from the OpenMRS [down] list via generate-table-config.sh,
+# table.include.list comes from the [down] list of sync/tables/openmrs.conf,
 # so the whitelist can never drift from the declared ownership split.
 set -euo pipefail
 # The file this script writes carries DEBEZIUM_DB_PASSWORD in plaintext, so it
@@ -111,29 +111,28 @@ changes = set()
 # publishes only the hub's: key at or above the table's floor, ending in 0. The
 # floor is the table's base in the OpenMRS [up] list, read below.
 hubrows = {}
-if True:
-    for line in section(TABLES, 'down'):
-        line = line.split('#', 1)[0].strip()
-        parts = line.split(':')
-        if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes', 'hub-rows') or parts[2].startswith('clinic=')):
-            sys.exit(f"the OpenMRS [down] list: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
-        if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
-            plain.add(parts[0])
-        if line and len(parts) == 3 and parts[2] == 'changes':
-            changes.add(parts[0])
-        if line and len(parts) == 3 and parts[2] == 'hub-rows':
-            if ',' in parts[1]:
-                sys.exit(f"the OpenMRS [down] list: {line}: a hub-rows table is filtered on its key, which must be a single column")
-            hubrows[parts[0]] = parts[1]
-        if len(parts) == 3 and parts[2].startswith('clinic='):
-            col = parts[2][len('clinic='):]
-            if parts[0] not in ROUTE:
-                sys.exit(f"the OpenMRS [down] list: {line}: only encounter and obs carry the hub's lab results to a clinic; "
-                         "no other table may be published under clinic=")
-            if col != ROUTE[parts[0]] or ',' in parts[1]:
-                sys.exit(f"the OpenMRS [down] list: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
-                         f"({parts[0]}:<key>:clinic={ROUTE[parts[0]]}), on a single-column key")
-            routed[parts[0]] = (parts[1], col)
+for line in section(TABLES, 'down'):
+    line = line.split('#', 1)[0].strip()
+    parts = line.split(':')
+    if line and len(parts) == 3 and not (parts[2] in ('relay', 'changes', 'hub-rows') or parts[2].startswith('clinic=')):
+        sys.exit(f"the OpenMRS [down] list: {line}: unknown role '{parts[2]}' (relay, hub-rows, changes or clinic=<column>)")
+    if line and not (len(parts) == 3 and parts[2].startswith('clinic=')):
+        plain.add(parts[0])
+    if line and len(parts) == 3 and parts[2] == 'changes':
+        changes.add(parts[0])
+    if line and len(parts) == 3 and parts[2] == 'hub-rows':
+        if ',' in parts[1]:
+            sys.exit(f"the OpenMRS [down] list: {line}: a hub-rows table is filtered on its key, which must be a single column")
+        hubrows[parts[0]] = parts[1]
+    if len(parts) == 3 and parts[2].startswith('clinic='):
+        col = parts[2][len('clinic='):]
+        if parts[0] not in ROUTE:
+            sys.exit(f"the OpenMRS [down] list: {line}: only encounter and obs carry the hub's lab results to a clinic; "
+                     "no other table may be published under clinic=")
+        if col != ROUTE[parts[0]] or ',' in parts[1]:
+            sys.exit(f"the OpenMRS [down] list: {line}: {parts[0]} goes to a clinic by {ROUTE[parts[0]]} "
+                     f"({parts[0]}:<key>:clinic={ROUTE[parts[0]]}), on a single-column key")
+        routed[parts[0]] = (parts[1], col)
 
 # Orders and their drug and test details are written at the clinics only. obs is published only
 # through its clinic= row above: an unmarked obs row, even beside it, is refused.
@@ -146,14 +145,13 @@ if never:
 
 up = set()
 base = {}
-if True:
-    for line in section(TABLES, 'up'):
-        line = line.strip()
-        if line and not line.startswith('#'):
-            f = line.split()[0].split(':')
-            up.add(f[0])
-            if len(f) >= 3 and f[2].isdigit():
-                base[f[0]] = int(f[2])
+for line in section(TABLES, 'up'):
+    line = line.strip()
+    if line and not line.startswith('#'):
+        f = line.split()[0].split(':')
+        up.add(f[0])
+        if len(f) >= 3 and f[2].isdigit():
+            base[f[0]] = int(f[2])
 down = {t.split('.')[-1] for t in inc.split(',')}
 # A hub-rows table is published behind its floor filter, or not at all: a floor
 # that cannot be read refuses the whole source, never a source without the filter.
@@ -170,8 +168,8 @@ for t, pk in sorted(hubrows.items()):
 clash = sorted((down & up) - set(routed) - set(floor))
 if clash:
     sys.exit(
-        f"REFUSING to generate: these tables appear in BOTH direction files: {clash}\n"
-        "  (clinic-owned per the OpenMRS [up] list, and cloud-owned per this one)\n"
+        f"REFUSING to generate: these tables appear in BOTH OpenMRS lists: {clash}\n"
+        "  (clinic-owned per the [up] list, and hub-owned per the [down] list)\n"
         "\n"
         "  A table the clinics write is published by the hub only under a mark in\n"
         "  the OpenMRS [down] list that gives it a row filter: `hub-rows` (the hub's own rows of a\n"

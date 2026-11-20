@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
 # Registers the hub's Postgres CDC connectors (the Odoo and OpenELIS down
 # sources and the per-clinic Odoo and OpenELIS up-sinks), substituting credentials from
-# .env at registration time so no committed file holds a literal secret. The four
-# clinlims connector JSONs predate this and DO carry literals -- see the note in
-# f74613f; do not copy their pattern.
+# .env at registration time so no committed file holds a literal secret.
 set -euo pipefail
 CONNECT_URL="${CONNECT_URL:-http://localhost:8083}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/.env"; set +a
 
-# The hub's down sources take their table lists and aggregate regexes from the
-# down list (the [down] lists in sync/tables/): HUB_DOWN_ODOO_* for the Odoo source (schema
-# public), HUB_DOWN_CLINLIMS_* for the OpenELIS source (schema clinlims). Read
-# before anything is registered, and only when a template asks for that
-# subsystem; a list it refuses stops every registration.
+# Read before anything is registered, so a down list the reader refuses stops every registration.
 down_vars(){ # SUBSYSTEM PG_SCHEMA : exports HUB_DOWN_<SUB>_TABLES, _TABLE_INCLUDE_LIST, _ALTERNATION
   local sub="$1" schema="$2" up down
   up="$(printf '%s' "$sub" | tr '[:lower:]' '[:upper:]')"
@@ -43,13 +37,7 @@ for name in "$@"; do
     printf '%s\n' "$body" | sed -E 's/("(database|connection)\.password"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*(")/\1***\4/g' >&2
     exit 1
   }
-  # Connect's response echoes the connector config back, database.password and
-  # connection.password included -- so the body is never written to disk (was
-  # /tmp/.reg.out, a fixed, world-readable path -- the same fix as
-  # clinic/scripts/register-connectors.sh). It's held
-  # only in this shell's own memory, split on the trailing newline curl's -w
-  # appends, and on a non-2xx it's printed with any password value masked
-  # before the human ever sees it.
+  # Connect echoes the config back, passwords included: keep the reply in memory, never on disk.
   resp=$(printf '%s' "$body" | curl -s -w '\n%{http_code}' \
          -X PUT -H 'Content-Type: application/json' \
          --data-binary @- "$CONNECT_URL/connectors/${name}/config")
