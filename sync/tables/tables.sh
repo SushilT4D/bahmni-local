@@ -24,7 +24,8 @@ UP_CLINLIMS_OWN_ROWS="system_user result_signature"
 up_signal_collection(){ printf '%s.%s\n' "${1:-openmrs}" "${UP_SIGNAL_TABLE}"; }
 #
 TABLES_DIR="${TABLES_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
-tables_has_sections(){ grep -qE '^[[:space:]]*\[[a-z]+\][[:space:]]*$' "$1" 2>/dev/null; }
+tables_has_sections(){ grep -qE '^[[:space:]]*\[[a-z]+\][[:space:]]*(#.*)?$' "$1" 2>/dev/null; }
+tables_conf(){ [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; return 1; }; }
 # Lines outside [SECTION] are blanked, not dropped, so a reader's line numbers stay the file's own.
 tables_section(){
   if ! tables_has_sections "$1"; then cat "$1"; return; fi
@@ -33,23 +34,71 @@ tables_section(){
 }
 tables_lines(){ tables_section "$1" "$2" | sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | grep -v '^$' || true; }
 tables_list(){ # DB SECTION -> table names
-  [ -f "${TABLES_DIR}/$1.conf" ] || { printf 'no such file: %s\n' "${TABLES_DIR}/$1.conf" >&2; return 1; }
+  tables_conf "$1" || return 1
   tables_lines "${TABLES_DIR}/$1.conf" "$2" | cut -d: -f1
 }
 subsystems_list(){ # <schema>:<table> rows, each schema's aggregate topic first
+  tables_conf openelis && tables_conf odoo || return 1
   printf 'clinlims:all\nodoo:all\n'
   tables_lines "${TABLES_DIR}/openelis.conf" up | sed 's/^/clinlims:/'
   tables_lines "${TABLES_DIR}/odoo.conf" up | sed 's/^/odoo:/'
 }
 hub_down_list(){
+  tables_conf odoo && tables_conf openelis || return 1
   tables_lines "${TABLES_DIR}/odoo.conf" down | sed 's/^/odoo:/'
   tables_lines "${TABLES_DIR}/openelis.conf" down | sed 's/^/clinlims:/'
 }
+# Written at the clinics, so never sent down: a hub write to one would reach every clinic.
+HUB_NEVER_DOWN_ODOO="res_partner res_partner_attributes sale_order sale_order_line account_move account_move_line stock_quant"
+# The only OpenELIS tables that go down: what a hub lab user completes for one clinic's sample
+# (routed by clinic=<column>), the lab accounts that work names, and the hub-only test catalogue.
+HUB_DOWN_CLINLIMS_ROUTED="result analysis sample"
+HUB_DOWN_CLINLIMS_ALL="system_user"
+HUB_DOWN_CLINLIMS_CATALOGUE="scriptlet label method test_formats test_trailer type_of_test_result org_mls_lab_type organization organization_type organization_organization_type dictionary_category dictionary unit_of_measure test_section type_of_sample analyte test test_result test_analyte result_limits panel panel_item sampletype_test sampletype_panel"
+# hub_down_rows: the [down] rows, or the first row it refuses and 1; a caller never renders from half a list.
+hub_down_rows(){
+  local rows synced
+  rows="$(hub_down_list)" && synced="$(subsystems_list | tr '\n' ' ')" || return 1
+  printf '%s\n' "$rows" | awk -F: -v synced="$synced" -v never="$HUB_NEVER_DOWN_ODOO" -v routed="$HUB_DOWN_CLINLIMS_ROUTED" \
+      -v accounts="$HUB_DOWN_CLINLIMS_ALL" -v catalogue="$HUB_DOWN_CLINLIMS_CATALOGUE" '
+    function set(str, a, sep,   n, i, p) { n = split(str, p, sep); for (i = 1; i <= n; i++) a[p[i]] = 1 }
+    function no(msg) { print "the [down] lists: " $0 ": " msg > "/dev/stderr"; bad = 1; exit 1 }
+    BEGIN { set(synced, up, " "); set(never, nv, " "); set(routed, rt, " "); set(accounts, al, " "); set(catalogue, ct, " ") }
+    $0 == "" { next }
+    {
+      s = $1; t = $2; col = ""
+      if (NF > 3 || s !~ /^[a-z0-9_]+$/ || t !~ /^[a-z0-9_]+$/) no("not <schema>:<table>[:clinic=<column>] with bare lowercase names")
+      if (NF == 3) { if ($3 !~ /^clinic=[a-z_][a-z0-9_]*$/) no("the third field is clinic=<column> or nothing"); col = substr($3, 8) }
+      if (t == "all") no("all is the aggregate topic, not a table")
+      if (s == "odoo" && (t in nv)) no("written at the clinics, so it never goes down")
+      if (s == "odoo" && col != "") no("an Odoo row goes to every clinic and takes no clinic=<column>")
+      if (s == "clinlims") {
+        if (!((t in rt) || (t in al) || (t in ct))) no("written at the clinics, so it never goes down; only result, analysis and sample, the lab accounts (system_user) and the lab test catalogue go down")
+        if ((t in rt) && col == "") no("it goes to one clinic, so the row names the column that routes it (clinic=<column>)")
+        if (!(t in rt) && col != "") no("it goes to every clinic and takes no clinic=<column>")
+      }
+      if (s == "clinlims" && (t in ct)) { if ((s ":" t) in up) no("the lab test catalogue is written only at the hub, so it is never in an [up] list too") }
+      else if (!((s ":" t) in up)) no("not a synced table (no " s ":" t " in the [up] lists)")
+      if ((s ":" t) in seen) no("listed twice")
+      seen[s ":" t] = 1; row[++n] = $0; rcol[s ":" t] = col
+    }
+    END {
+      if (bad) exit 1
+      for (i = 1; i <= n; i++) {
+        split(row[i], f, ":"); c = rcol[f[1] ":" f[2]]
+        if (c == "" || c == "id") continue
+        ft = c; sub(/_id$/, "", ft)
+        if (c !~ /_id$/ || rcol[f[1] ":" ft] == "") { print "the [down] lists: " row[i] ": clinic=" c " is id or <table>_id naming another routed row of the same schema" > "/dev/stderr"; exit 1 }
+      }
+      for (i = 1; i <= n; i++) print row[i]
+    }'
+}
 # hub_down SCHEMA | --unrouted SCHEMA | --routes SCHEMA (<table> <column> <floor table>) | --subsystems
 hub_down(){
-  local mode=tables s="${1:-}" out
+  local mode=tables s="${1:-}" out rows
   case "${1:-}" in --routes|--unrouted) mode="${1#--}"; s="${2:-}" ;; --subsystems) mode=subsystems ;; esac
-  out="$(hub_down_list | awk -F: -v m="$mode" -v s="$s" '
+  rows="$(hub_down_rows)" || return 1
+  out="$(printf '%s\n' "$rows" | awk -F: -v m="$mode" -v s="$s" '
     m == "subsystems" { if (!seen[$1]++) print $1; next }
     $1 != s { next }
     m == "tables" { print $2 }
@@ -63,7 +112,7 @@ hub_down(){
 up_tables_read(){
   local f="$1" line n=0 t pk third kind arg recs="" re
   re='^([A-Za-z0-9_]+):([A-Za-z0-9_,]+)(:([^:[:space:]]+))?$'
-  [ -f "$f" ] || { printf 'tables.conf not found: %s\n' "$f" >&2; return 1; }
+  [ -f "$f" ] || { printf 'table list not found: %s\n' "$f" >&2; return 1; }
   while IFS= read -r line || [ -n "$line" ]; do
     n=$((n+1))
     [[ "$line" =~ ^[[:space:]]*# ]] && continue

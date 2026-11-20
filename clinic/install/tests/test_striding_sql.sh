@@ -102,7 +102,7 @@ AI_ORDERS=299991; out="$(cvs "$CLINIC_DIR/tables.conf")"; rc=$?; AI_ORDERS=30000
 [ "$rc" = 1 ] && case "$out" in "the orders id counter is below this clinic's floor"*) true ;; *) false ;; esac && ! printf '%s' "$out" | grep -q '^ok ' \
   && ok_ "counter_floor_verdicts: one counter below its floor refuses, with only the refusal" || bad "one below: rc=$rc $out"
 out="$(cvs "$CLINIC_DIR/no-such.conf")"; rc=$?
-[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read, so no id counter was checked: tables.conf not found"*) true ;; *) false ;; esac \
+[ "$rc" = 1 ] && case "$out" in "the clinic table list cannot be read, so no id counter was checked: table list not found"*) true ;; *) false ;; esac \
   && ok_ "counter_floor_verdicts: a missing table list refuses, not zero tables checked" || bad "missing list: rc=$rc $out"
 printf 'obs:obs_id:seed   # a trailing note\n' > "$CLINIC_DIR/bad.conf"
 out="$(cvs "$CLINIC_DIR/bad.conf")"; rc=$?
