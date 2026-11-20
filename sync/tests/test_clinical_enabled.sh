@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# The committed clinic list carries obs, orders, drug_order and test_order. A clinic
-# installed with CLINICAL_UP_SYNC=test sends them, and every piece that rides on
-# those lines comes with them; a clinic left at the default (off) sends none:
+# The committed clinic list carries obs, orders, drug_order and test_order. Every
+# clinic sends them, and every piece that rides on those lines comes with them:
 #   - the lines take their floors from the seed (drug_order and test_order
 #     from orders);
 #   - the source connector rendered from the committed list carries a capture
@@ -10,9 +9,7 @@
 #   - the hub renders one up sink per table per clinic, on the clinical
 #     profile (errors not tolerated, upsert on the record key, deletes applied,
 #     the hub's schema never altered), and the validator accepts them;
-#   - the hub's own list never names them (the hub does not publish them);
-#   - at an off clinic the source, its include list and MirrorMaker carry none
-#     of them, and the hub renders no clinical sink for an unmarked clinic.
+#   - the hub's own list never names them (the hub does not publish them).
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; R="$(cd "$HERE/../.." && pwd)"
 fails=0
@@ -26,9 +23,9 @@ done
 C="$TMP/repo"; mkdir -p "$C/clinic/config" "$C/cloud"
 cp -R "$R/clinic/scripts" "$C/clinic/"; cp -R "$R/clinic/config/mirrormaker" "$C/clinic/config/"; cp -R "$R/sync" "$C/"
 cp -R "$R/cloud/scripts" "$R/cloud/connectors" "$C/cloud/"; cp "$R/cloud/tables.conf" "$C/cloud/"
-printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\nCLINICAL_UP_SYNC=test\n' > "$C/clinic/.env"
+printf 'MYSQL_SERVER_NAME=bahmni-t\nBHS_LOCATION=alpha\nRESIDUE=3\nREMOTE_KAFKA_BOOTSTRAP_SERVERS=hub.invalid:9092\nMYSQL_ROOT_PASSWORD=x\n' > "$C/clinic/.env"
 printf 'REMOTE_MYSQL_HOST=h\nREMOTE_MYSQL_PORT=3306\nREMOTE_MYSQL_DATABASE=openmrs\nREMOTE_MYSQL_USER=u\nREMOTE_MYSQL_PASSWORD=p\nDEBEZIUM_DB_PASSWORD=x\n' > "$C/cloud/.env"
-printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha:clinical\n' > "$TMP/clinics.conf"
+printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"
 printf 'FLOOR_OBS=5000000\nFLOOR_ORDERS=300000\n' > "$TMP/manifest.env"
 SEED_MANIFEST="$TMP/manifest.env" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/gc" 2>&1 || bad "the source does not render from the committed list: $(tail -2 "$TMP/gc")"
 python3 - "$C/clinic/connectors/mysql-local-source-connector.json" > "$TMP/src" 2>&1 <<'PY'
@@ -62,17 +59,4 @@ done
 [ -z "$vbad" ] && ok_ "validate-sink-config.py accepts every rendered hub sink, the four on the clinical profile" || bad "validator refused:${vbad}"
 grep -qE '^[[:space:]]*(orders|drug_order|test_order):' "$R/cloud/tables.conf" && bad "cloud/tables.conf names orders, drug_order or test_order" || ok_ "cloud/tables.conf names none of orders, drug_order, test_order"
 grep -E '^[[:space:]]*obs:' "$R/cloud/tables.conf" | grep -vqE '^[[:space:]]*obs:obs_id:clinic=order_id[[:space:]]*$' && bad "cloud/tables.conf names obs other than as the hub's lab results, routed by order" || ok_ "cloud/tables.conf names obs only as the hub's lab results, routed by order"
-# --- the same committed list at a clinic left at the default ---------------------
-sed -i.bak '/^CLINICAL_UP_SYNC=/d' "$C/clinic/.env"; rm -f "$C/clinic/.env.bak"
-rm -rf "$C/clinic/connectors"
-SEED_MANIFEST="$TMP/manifest.env" bash "$C/clinic/scripts/generate-connectors.sh" > "$TMP/gc" 2>&1 || bad "the source does not render at an off clinic: $(tail -2 "$TMP/gc")"
-python3 -c 'import json,sys; c=json.load(open(sys.argv[1]))["config"]; inc=c["table.include.list"].split(","); sys.exit(any(("openmrs." + t) in inc for t in ("obs","orders","drug_order","test_order")) or bool(c.get("transforms")))' "$C/clinic/connectors/mysql-local-source-connector.json" \
-  && ok_ "off (the default): the source captures none of the four and carries no filter" || bad "an off clinic captures a clinical table"
-if command -v envsubst >/dev/null 2>&1; then
-  bash "$C/clinic/scripts/setup-mirrormaker.sh" > "$TMP/mm" 2>&1
-  grep -E -- '->remote\.topics' "$C/clinic/config/mirrormaker/mm2.properties" | grep -qE 'openmrs\\\.(obs|orders|drug_order|test_order)[|)]' && bad "an off clinic's MirrorMaker forwards a clinical topic" || ok_ "off: MirrorMaker forwards none of them"
-fi
-printf 'alpha:mysql-sink-alpha-:alpha:bahmni-alpha\n' > "$TMP/clinics.conf"; rm -f "$C/cloud/connectors"/mysql-sink-alpha-*
-CLINICS_CONF="$TMP/clinics.conf" bash "$C/cloud/scripts/generate-sink-connectors.sh" > "$TMP/hs" 2>&1
-ls "$C/cloud/connectors"/mysql-sink-alpha-obs.json >/dev/null 2>&1 && bad "the hub renders an obs sink for an unmarked clinic" || ok_ "hub: no clinical sink for a clinic not marked clinical"
 exit $((fails > 0))
