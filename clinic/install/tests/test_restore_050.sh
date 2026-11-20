@@ -73,4 +73,14 @@ grep -q 'BASELINE_SHA' "$T50" && ok_ "a changed baseline is dropped and restored
 # a module changeset id longer than 63 characters cannot be recorded in a
 # varchar(63) changelog: the module then fails to start on every boot
 grep -q 'MODIFY ID VARCHAR(255)' "$T50" && ok_ "050 widens liquibasechangelog.ID so long changeset ids can be recorded" || bad "050 leaves liquibasechangelog.ID at the dump's width"
+# a seed run by hand refuses before its drop on a syncing or seeded clinic
+seedbr="$(sed -n '/^if \[ "${PHASE:-install}" = seed \]; then/,/drop_all_dbs/p' "$T50")"
+guard="$(printf '%s\n' "$seedbr" | grep 'stamp_gate_verdict')"
+[ -n "$guard" ] && ok_ "the seed branch checks the stamp before its drop" || bad "the seed branch drops without checking the stamp"
+TS="$(mktemp -d)"
+g(){ printf "$1" > "$TS/st"; env -i PATH="$PATH" CLINIC_DIR="$TS" STATE_FILE="$TS/st" INSTALL_DIR="${HERE}/.." bash -c ". '${HERE}/../lib.sh'; . '${HERE}/../state.sh'; ${guard}; echo passed" 2>&1; }
+case "$(g 'STATE=SEEDING\nSYNC_STARTED=1\n')" in *"Nothing was dropped"*) ok_ "a seed after the sync layer started is refused before the drop" ;; *) bad "sync started: $(g 'STATE=SEEDING\nSYNC_STARTED=1\n')" ;; esac
+case "$(g 'STATE=SEEDED\n')" in *"Nothing was dropped"*) ok_ "a seed on a seeded clinic is refused before the drop" ;; *) bad "seeded: $(g 'STATE=SEEDED\n')" ;; esac
+case "$(g 'STATE=SEEDING\n')" in *passed) ok_ "a seed that passed its gate goes on to the drop" ;; *) bad "seeding: $(g 'STATE=SEEDING\n')" ;; esac
+rm -rf "$TS"
 exit "$fails"

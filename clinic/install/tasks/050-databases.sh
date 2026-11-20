@@ -92,6 +92,8 @@ definer_sql(){
 D="$(dump_dir)"
 . "${INSTALL_DIR}/state.sh"
 if [ "${PHASE:-install}" = seed ]; then
+  # Run by hand too, so the drop checks for itself that no clinic data and no replication state is lost.
+  v="$(stamp_gate_verdict "$(stamp_get STATE)" "$(stamp_get SYNC_STARTED)")" || fail "${v% Call the operator.} Nothing was dropped. Call the operator."
   drop_all_dbs "the baseline goes; restoring the seed"
 else
   # A different baseline (a --baseline folder given on a rerun, or new pins)
