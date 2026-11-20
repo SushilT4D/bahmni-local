@@ -14,7 +14,7 @@ remote.bootstrap.servers = ${REMOTE_KAFKA_BOOTSTRAP_SERVERS}
 local->remote.enabled = true
 
 # Topics to replicate (regex pattern)
-# Generated from tables.conf - use specific topics for better control
+# Filled by clinic/scripts/setup-mirrormaker.sh from the [up] lists in sync/tables/
 # Format: server-name.database.table1,server-name.database.table2
 # Example: bahmni-local\.openmrs\.(person|patient|visit)
 local->remote.topics = ${KAFKA_TOPIC_PATTERNS:-.*}

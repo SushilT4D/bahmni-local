@@ -7,7 +7,8 @@ One branch for every node of the Bahmni local-cloud sync lab. Three trees:
   templates, the ops scripts). A clinic node runs `docker compose` from here
   with `clinic/.env` holding that node's identity.
 - `cloud/` -- the hub's sync layer as its own compose project: Kafka, Kafka
-  Connect, the connector generators, and its own `clinics.<hub>.conf`/`tables.conf`.
+  Connect, the connector generators, and its own `clinics.<hub>.conf`. The table
+  lists both sides read are in `sync/tables/`.
   It runs beside the hub's Bahmni application stack, which is not in this
   repository.
 - `sync/` -- shared definitions both sides read: the table lists, up and down,

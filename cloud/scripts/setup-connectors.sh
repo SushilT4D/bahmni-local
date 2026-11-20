@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to generate sink connector configurations from tables.conf
+# Script to generate sink connector configurations from the OpenMRS [up] list (sync/tables/openmrs.conf)
 # For REMOTE setup - generates individual sink connector configs for each table
 
 set -e
@@ -10,7 +10,7 @@ PROJECT_DIR="${SCRIPT_DIR}/.."
 
 echo "Setting up sink connector configurations..."
 echo ""
-echo "This script generates individual connector configs from tables.conf"
+echo "This script generates individual connector configs from the OpenMRS [up] list (sync/tables/openmrs.conf)"
 echo "For better control and isolation, each table gets its own connector."
 echo ""
 

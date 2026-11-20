@@ -19,7 +19,7 @@ ${LOCAL_CLUSTER_ALIAS}->remote.topics = ${KAFKA_TOPIC_PATTERNS}
 refresh.topics.interval.seconds = 60
 
 # Topics to replicate (regex pattern)
-# Generated from tables.conf - use specific topics for better control
+# Filled by scripts/setup-mirrormaker.sh from the [up] lists in sync/tables/
 # Format: server-name.database.table1,server-name.database.table2
 # Example: bahmni-local\.openmrs\.(person|patient|visit)
 

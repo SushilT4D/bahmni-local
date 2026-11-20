@@ -89,7 +89,7 @@ every row they apply is tagged, and the Odoo source decodes with
 another clinic or back to its sender.
 OpenMRS gets the same result from the MySQL source's table list, which holds
 only tables the hub writes, and from a row filter on the tables both sides
-write: `person` and `person_name` (marked `hub-rows` in `tables.conf`) are
+write: `person` and `person_name` (marked `hub-rows` in the `[down]` list of `sync/tables/openmrs.conf`) are
 published only for a key at or above the table's floor (its base in the
 `[up]` list of `sync/tables/openmrs.conf`) that ends in 0. The filter judges the record's key, so
 updates, deletes and tombstones are treated alike, and the source's first
@@ -159,7 +159,7 @@ on loopback only; reach them over an SSH tunnel.
 ## Connectors
 
 - Down direction, hub to clinics: `scripts/generate-cloud-source-connector.sh`
-  renders the MySQL source from `tables.conf`; `connectors/register-odoo.sh`
+  renders the MySQL source from the `[down]` list of `sync/tables/openmrs.conf`; `connectors/register-odoo.sh`
   registers the Odoo source, `odoo-cloud-source`, filling its table list and
   aggregate regex from the `[down]` list of `sync/tables/odoo.conf`, and the
   OpenELIS source, `clinlims-cloud-source` (slot `dbz_clinlims_down`), filling
@@ -167,7 +167,7 @@ on loopback only; reach them over an SSH tunnel.
   `sync/tables/openelis.conf`. Each decodes with
   `origin=none` and starts with `snapshot.mode=no_data`: nothing written
   before it is registered is sent.
-- A table added to `tables.conf` after the MySQL source first started: the
+- A table added to that `[down]` list after the MySQL source first started: the
   source records the structure of only the tables it captures
   (`schema.history.internal.store.only.captured.tables.ddl=true`) and resumes
   from its offsets, so it has no structure for the new table and stops at that

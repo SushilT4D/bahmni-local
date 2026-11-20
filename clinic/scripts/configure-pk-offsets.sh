@@ -7,7 +7,7 @@
 #   ALTER TABLE <t> AUTO_INCREMENT = 500004
 # Next ids on those tables: 500004, 500014, 500024, ...
 #
-# A table whose floor comes from the seed (tables.conf `table:pk:seed`) takes
+# A table whose floor comes from the seed (`table:pk:seed` in the OpenMRS [up] list) takes
 # it from SEED_MANIFEST's FLOOR_<TABLE>; with no such value the script stops
 # rather than stride the table from a guess. A table that reads another
 # table's floor (`table:pk:floor=<other>`) has no counter of its own and is

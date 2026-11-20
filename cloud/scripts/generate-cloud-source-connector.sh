@@ -65,10 +65,7 @@ if not inc or '*' in inc:
 # UP-direction sink write. If any clinic-owned table appears in this whitelist, the
 # cloud captures rows that just arrived FROM a clinic and MirrorMaker sends them
 # straight back down -- an infinite loop.
-# This is not hypothetical: a cloud tables.conf once grew from 7 to 19 tables
-# (its header still said "Cloud -> local sync"),
-# so this generator produced a whitelist containing person/patient/visit/encounter.
-# A comment cannot prevent that. A computed intersection can.
+# A comment in the list cannot prevent that; a computed intersection can.
 # Clinical rows are written at the clinics, each on its own residue, and the
 # hub's tables receive them from the up sinks. Capturing one of them here would
 # publish every clinic's rows to every other clinic, and back to the clinic

@@ -39,10 +39,9 @@ connector_exists=$(echo "${all_connectors}" | grep -Fx "${CONNECTOR_NAME}")
 if [ -z "${connector_exists}" ]; then
     echo "✗ Connector '${CONNECTOR_NAME}' not found"
     echo ""
-    echo "To register it locally:"
-    echo "  cd local"
-    echo "  ./scripts/setup-connectors.sh"
-    echo "  ./scripts/register-connectors.sh mysql-local-source-connector"
+    echo "To register it, from clinic/:"
+    echo "  bash scripts/generate-connectors.sh mysql-source"
+    echo "  bash scripts/register-connectors.sh mysql-local-source-connector"
     exit 1
 fi
 

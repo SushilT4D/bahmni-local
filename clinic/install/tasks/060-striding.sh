@@ -13,7 +13,7 @@ begin_task "60 · striding + replication origins (residue ${RESIDUE})"
 if [ "${DRY}" = 1 ]; then
   . "${INSTALL_DIR}/state.sh"
   ft="$(clinlims_floor_tables 2>&1)" || ft="<the down list could not be read: ${ft}>"
-  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
+  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (scripts/sql/openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
   exit 0
 fi
 setup_compose; mk_podman_shim; cd "${CLINIC_DIR}"

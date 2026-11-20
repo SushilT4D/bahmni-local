@@ -3,7 +3,7 @@
 #
 # Creates the clinlims_sink login role. The JDBC sinks MUST connect as a role the
 # OpenELIS application itself never uses: it is the role that claims a replication
-# origin (openelis/apply-replication-origin.sql grants the origin functions to it and
+# origin (scripts/sql/apply-replication-origin.sql grants the origin functions to it and
 # to nobody else), which is what stops a replicated write from being republished.
 #
 # PASSWORD HANDLING. The DDL is written to a file inside the container and run with -f,

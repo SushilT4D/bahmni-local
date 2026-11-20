@@ -14,7 +14,7 @@ load-bearing. Check the runbooks before concluding anything here is dead.
 
 ## Groups
 
-**Render config** — read `debezium/{local,cloud}/tables.conf` plus `.env` and
+**Render config** — read the table lists in `../sync/tables/` plus `.env` and
 emit connector/topic definitions.
 
 | script | renders |
@@ -195,12 +195,12 @@ forms mount or `clinic/.env` setting; a refused check recreates nothing.
 
 - Run from `clinic/` (the compose project directory), not from inside `scripts/`.
   Paths resolve relative to `clinic/`, the scripts read `clinic/.env`, and the
-  shared sync definitions are `../sync/` (tables, subsystems, templates, the
-  clinics ledger) with the hub tree at `../cloud/`.
+  shared sync definitions are `../sync/` (the table lists in `tables/`, templates,
+  the clinics ledger) with the hub tree at `../cloud/`.
 - `.env` is gitignored; `.env.example` enumerates every variable.
 - Rendered connector JSON is gitignored by design — `.gitignore` covers
   `cloud/connectors/mysql-sink-*.json`, `cloud/connectors/generated/` and
-  `sync/local/connectors/generated/`. Templates are tracked, output
+  `clinic/connectors/*.json`. Templates are tracked, output
   is not: a rendered config carries a live password, so it must never be
   committed. Regenerate rather than copy.
 
