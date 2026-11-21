@@ -171,11 +171,29 @@ EOF
     kept=1
 
   else
-    # first striding: record the floors before anything is strided
-    rec="$(bash "$HERE/record-down-floors.sh" openelis --out "$OUT" -- "$@" 2>&1)" \
-      || { printf '%s\n' "$rec" >&2; die "the floors could not be recorded (above); nothing was strided"; }
-    printf '%s\n' "$rec"
+    # no floors yet: on a first striding, record them before anything is strided; on a hub
+    # strided before, stride (lifting sequences behind their rows), then record them from the rows
     kept=0
+    late=0
+    if ! rec="$(bash "$HERE/record-down-floors.sh" openelis --out "$OUT" -- "$@" 2>&1)"; then
+      case "$rec" in
+        *"were strided before"*)
+          p="$("$@" -v ON_ERROR_STOP=1 -qAt \
+                 -c "select count(*) from pg_replication_origin_status where external_id like 'clinic\_%' and (remote_lsn <> '0/0' or local_lsn <> '0/0')" \
+                 < /dev/null 2>&1)" \
+            || die "the replication origins could not be read; nothing was strided: $p"
+          [ "$p" = 0 ] \
+            || die "no floors file at $OUT, and $p clinic replication origin(s) show progress: a floor read from the rows could sit above clinics' rows; nothing was strided. Record the floors captured when the hub was first strided: cloud/scripts/record-down-floors.sh openelis --from-file <file> -- <psql command>"
+          late=1
+          ;;
+        *)
+          printf '%s\n' "$rec" >&2
+          die "the floors could not be recorded (above); nothing was strided"
+          ;;
+      esac
+    else
+      printf '%s\n' "$rec"
+    fi
   fi
 
   # ---- stride
@@ -185,6 +203,17 @@ EOF
 
   printf '%s\n' "$o" | sed -n -E 's/^.*NOTICE: +//p; /^sequences step 10: /p' | sed 's/^/  /'
   [ "$kept" = 0 ] || echo "  floors kept: $OUT is unchanged"
+
+  # ---- a hub strided before: its floors, read from the rows now that every sequence is clear of them
+
+  if [ "${late:-0}" = 1 ]; then
+    tmp="$OUT.derived.$$"
+    bash "$HERE/record-down-floors.sh" openelis --derive --out "$OUT" -- "$@" > "$tmp" \
+      || { rm -f "$tmp"; die "the hub was strided but its floors could not be derived (above); no floors were written"; }
+    bash "$HERE/record-down-floors.sh" openelis --from-file "$tmp" --out "$OUT" -- "$@" \
+      || { rm -f "$tmp"; die "the hub was strided but its floors could not be recorded (above); no floors were written"; }
+    rm -f "$tmp"
+  fi
 }
 
 
