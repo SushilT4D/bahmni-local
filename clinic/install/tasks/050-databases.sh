@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Starts MySQL and Postgres, loads the three databases from the seed, then creates the sync users and publications.
+# Starts MySQL and Postgres, loads each database from the seed unless it is already there, records the id floors, then creates the sync users and publications.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "50 · databases"
-[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; drop any earlier restore, restore ${SEED_DIR:-?}, create sync users, roles and publications"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; restore from ${SEED_DIR:-?} each database that is not there yet; record the obs and orders floors in .install-state (kept if already recorded); create sync users, roles and publications"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
@@ -31,27 +31,6 @@ ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offse
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
 
-# drop-dbs:begin
-drop_all_dbs(){
-  local db
-  ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} ${PROFILES} stop openmrs odoo odoo-connect openelis proxy >/dev/null 2>&1 ) || true
-  printf 'SET sql_log_bin=0; DROP DATABASE IF EXISTS openmrs;\n' | mysql_root
-  [ "$(printf 'select count(*) from information_schema.schemata where schema_name="openmrs"' | mysql_root)" = 0 ] \
-    || fail "database openmrs is still there after the drop: ${CT} logs ${MY}"
-  for db in odoo openelis; do
-    printf "select pg_terminate_backend(pid) from pg_stat_activity where datname='%s' and pid<>pg_backend_pid();\n" "$db" | ct exec -i "$PG" psql -U postgres -q >/dev/null
-    printf 'DROP DATABASE IF EXISTS %s;\n' "$db" | ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q \
-      || fail "could not drop database ${db} (a replication slot or a live connection holds it): ${CT} exec ${PG} psql -U postgres -c 'select slot_name, database from pg_replication_slots'"
-    [ "$(printf "select count(*) from pg_database where datname='%s'" "$db" | ct exec -i "$PG" psql -U postgres -At)" = 0 ] \
-      || fail "database ${db} is still there after the drop"
-  done
-
-  rm -f "${CLINIC_DIR}/.openmrs-restore.done"
-  ok "databases dropped ($1)"
-}
-
-# drop-dbs:end
-
 # restore-rules:begin
 
 restore_pool_mb(){ mysql_pool_mb "$1"; }   # the node's standing size (lib.sh); the restore adds the redo log and relaxed flush
@@ -78,7 +57,6 @@ definer_sql(){
 # restore-rules:end
 D="${SEED_DIR}"
 . "${INSTALL_DIR}/state.sh"
-drop_all_dbs "restoring the hub's seed from the start"
 
 DONE="${CLINIC_DIR}/.openmrs-restore.done"
 has_person="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_name="person"' | mysql_root)"
@@ -128,6 +106,15 @@ esac
 persons="$(printf 'select count(*) from openmrs.person' | mysql_root)"
 obs="$(printf 'select count(*) from openmrs.obs' | mysql_root)"
 [ "${persons:-0}" -gt 0 ] && ok "openmrs restored: person=${persons} obs=${obs}" || fail "openmrs.person is empty after restore"
+
+# seed-floors:begin
+max_id(){ printf 'select ifnull(max(`%s`), 0) from openmrs.`%s`' "$2" "$1" | mysql_root 2>/dev/null | tail -1; }
+v="$(record_seed_floors "${REPO_DIR}/sync/tables/openmrs.conf" max_id)" || fail "$v"
+while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
+$v
+EOF
+
+# seed-floors:end
 
 printf 'SET sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog MODIFY ID VARCHAR(255) NOT NULL;\n' | mysql_root
 [ "$(printf 'select character_maximum_length from information_schema.columns where table_schema="openmrs" and table_name="liquibasechangelog" and column_name="ID"' | mysql_root)" = 255 ] \

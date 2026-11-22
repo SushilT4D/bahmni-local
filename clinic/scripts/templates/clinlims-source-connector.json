@@ -43,7 +43,6 @@
     "transforms.agg.replacement": "${MYSQL_SERVER_NAME}.clinlims.all",
     "table.include.list": "${CLINLIMS_UP_TABLE_INCLUDE_LIST},clinlims.dbz_heartbeat",
     "snapshot.mode": "no_data",
-    "schemas.enable": "true",
     "slot.stream.params": "origin=none"
   }
 }

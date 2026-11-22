@@ -171,7 +171,7 @@ on loopback only; reach them over an SSH tunnel.
   structure on its first start and needs none of this.
 - Down direction topics: every source routes its tables into one ordered topic per
   database, `<server>.openmrs.all`, `<server>.odoo.all`, `<server>.clinlims.all`.
-- Up direction, three sinks per clinic in `sync/clinics.txt`, written by
+- Up direction, three sinks per clinic in `sync/clinics.json`, written by
   `scripts/generate-sink-connectors.sh [slug]` into `connectors/`:
   `openmrs-<slug>-sink`, `odoo-<slug>-sink` and `clinlims-<slug>-sink`, reading
   `<slug>.bahmni-<slug>.<db>.all`. Register with

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Generates the hub's up sinks for every clinic in sync/clinics.txt, three per clinic, into
+# Generates the hub's up sinks for every clinic in sync/clinics.json, three per clinic, into
 # ./connectors/:
 #   openmrs-<slug>-sink   reads <slug>.bahmni-<slug>.openmrs.all, writes each record to its own table
 #   odoo-<slug>-sink      reads <slug>.bahmni-<slug>.odoo.all, claims origin clinic_<slug>_odoo
 #   clinlims-<slug>-sink  reads <slug>.bahmni-<slug>.clinlims.all, claims origin clinic_<slug>_clinlims
-# usage: generate-sink-connectors.sh [slug ...]   (default: every clinic in sync/clinics.txt)
+# usage: generate-sink-connectors.sh [slug ...]   (default: every clinic in sync/clinics.json)
 set -e
 
 # the configs hold the hub's database passwords: written mode 600
@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${SCRIPT_DIR}/.."
 
 TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
-CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
+CLINICS_JSON="${CLINICS_JSON:-${PROJECT_DIR}/../sync/clinics.json}"
 ENV_FILE="${ENV_FILE:-$PWD/.env}"
 TEMPLATES_DIR="${PROJECT_DIR}/scripts/templates"
 OUT_DIR="${OUT_DIR:-$PWD/connectors}"
@@ -23,7 +23,7 @@ OUT_DIR="${OUT_DIR:-$PWD/connectors}"
 # ---- inputs: the clinic's [up] list, the clinics and cloud/.env -----------------
 
 [ -f "${TABLES_CONF}" ]  || { echo "Error: ${TABLES_CONF} not found"; exit 1; }
-[ -f "${CLINICS_FILE}" ] || { echo "Error: ${CLINICS_FILE} not found"; exit 1; }
+[ -f "${CLINICS_JSON}" ] || { echo "Error: ${CLINICS_JSON} not found"; exit 1; }
 [ -f "${ENV_FILE}" ]     || { echo "Error: ${ENV_FILE} not found"; exit 1; }
 
 # the [up] list, read by the shared reader (a refused list stops the run)
@@ -64,14 +64,15 @@ WANTED="$*"
 total=0
 
 
-# ---- the clinics: every <slug>:<residue> row of sync/clinics.txt but the cloud's --
+# ---- the clinics: every clinic in sync/clinics.json with a site number, but the cloud
 
-clinics="$(awk -F: '{ sub(/#.*/, "") } NF == 2 && $1 != "cloud" { print $1 }' "${CLINICS_FILE}")"
-[ -n "$clinics" ] || { echo "Error: ${CLINICS_FILE} lists no clinic"; exit 1; }
+clinics="$(jq -r 'to_entries[] | select(.key != "cloud" and .value.site_number != null) | .key' "${CLINICS_JSON}")" \
+  || { echo "Error: ${CLINICS_JSON} is not valid JSON"; exit 1; }
+[ -n "$clinics" ] || { echo "Error: ${CLINICS_JSON} lists no clinic with a site number"; exit 1; }
 
 if [ -n "$WANTED" ]; then
   for w in $WANTED; do
-    printf '%s\n' "$clinics" | grep -qx "$w" || { echo "Error: ${w} is not a clinic in ${CLINICS_FILE}"; exit 1; }
+    printf '%s\n' "$clinics" | grep -qx "$w" || { echo "Error: ${w} is not a clinic with a site number in ${CLINICS_JSON}"; exit 1; }
   done
   clinics="$WANTED"
 fi

@@ -70,7 +70,7 @@ printf '%s' "$out" | grep -q 'ALTER TABLE `obs`' && bad "obs strided with no man
 printf 'FLOOR_OBS=5000005\nFLOOR_ORDERS=300000\n' > "$T/odd.env"
 out="$(stride env SEED_MANIFEST="$T/odd.env")"; 
 printf '%s' "$out" | grep -q 'not a multiple of 10' && ! printf '%s' "$out" | grep -q 'ALTER TABLE `obs`' && ok_ "a floor off the multiple of 10 stops striding" || bad "odd floor: $out"
-grep -q 'SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh' "${HERE}/../tasks/060-striding.sh" && ok_ "060 strides from the seed's manifest" || bad "060 does not pass the manifest"
+grep -q 'SEED_MANIFEST="${STATE_FILE}" bash scripts/configure-pk-offsets.sh' "${HERE}/../tasks/060-striding.sh" && ok_ "060 strides from the floors in .install-state" || bad "060 does not pass the recorded floors"
 grep -q 'counter_floor_verdict' "${HERE}/../tasks/060-striding.sh" && grep -q 'counter_floor_verdict' "${HERE}/../tasks/100-exit-checks.sh" \
   && ok_ "060 and the exit checks read the counters back against the floors" || bad "counters are not read back in 060 and 100"
 rm -rf "$T"

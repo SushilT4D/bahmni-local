@@ -71,7 +71,37 @@ PY2
 
 bash scripts/park-feed-markers.sh || fail "the feed bookmarks were not parked (reason above); odoo-connect is not started"
 
+# The seed carries the hub's password for OpenELIS's feed login; login_user is node-local, so it is set to this node's
+# OPENELIS_ATOMFEED_PASSWORD, encrypted by OpenELIS's own phl.util.Crypto (the value its login compares against).
+OE="${COMPOSE_PROJECT_NAME}-openelis-1"; oe_user="${OPENELIS_ATOMFEED_USER:-atomfeed}"
+enc="$(ct exec -e PW="${OPENELIS_ATOMFEED_PASSWORD}" "$OE" sh -c 'jrunscript -cp /run/bahmni-lab/bahmni-lab/WEB-INF/lib/crypto.jar -e "print(new Packages.phl.util.Crypto().getEncrypt(java.lang.System.getenv(\"PW\")))"' < /dev/null 2>/dev/null | tr -d '\r\n' || true)"
+case "$enc" in ''|*[!A-Za-z0-9+/=]*) fail "OpenELIS's phl.util.Crypto in ${OE} did not encrypt OPENELIS_ATOMFEED_PASSWORD (got '${enc}')" ;; esac
+have="$(ct exec "$OD" psql -U postgres -d openelis -Atc "select password from clinlims.login_user where login_name = '${oe_user}'" < /dev/null)"
+[ -n "$have" ] || fail "OpenELIS has no login_user '${oe_user}' (OPENELIS_ATOMFEED_USER): the seed's openelis database lacks the feed login"
+if [ "$have" = "$enc" ]; then skip "OpenELIS login ${oe_user} already has OPENELIS_ATOMFEED_PASSWORD"
+else
+  ct exec "$OD" psql -U postgres -d openelis -v ON_ERROR_STOP=1 -qc "update clinlims.login_user set password = '${enc}' where login_name = '${oe_user}'" < /dev/null \
+    || fail "could not set OpenELIS login ${oe_user}'s password"
+  ok "OpenELIS login ${oe_user} set to OPENELIS_ATOMFEED_PASSWORD (the seed held the hub's)"
+fi
+
 bash scripts/start-lab-result-reader.sh || fail "OpenMRS's lab-result reader was not started (reason above); odoo-connect is not started"
+
+# res_users is node-local (sync/unsynced-allowlist.conf), so the feed login's password is set to this node's
+# ODOO_ATOMFEED_PASSWORD, hashed by Odoo's own passlib context.
+ODC="${COMPOSE_PROJECT_NAME}-odoo-1"
+up=0; for i in $(seq 1 12); do curl -s --max-time 5 -o /dev/null "http://localhost:${ODOO_PORT:-8069}/web/webclient/version_info" -H 'Content-Type: application/json' -d '{}' && { up=1; break; }; sleep 10; done
+[ "$up" = 1 ] || fail "Odoo is not answering on :${ODOO_PORT:-8069}: ${COMPOSE_CMD} logs odoo"
+n_user="$(ct exec "$OD" psql -U postgres -d odoo -Atc "select count(*) from res_users where login = '${ODOO_ATOMFEED_USER}' and active" < /dev/null)"
+[ "$n_user" = 1 ] || fail "Odoo has no active login '${ODOO_ATOMFEED_USER}' (ODOO_ATOMFEED_USER in clinic/.env)"
+if odoo_login_ok; then skip "Odoo login ${ODOO_ATOMFEED_USER} already has ODOO_ATOMFEED_PASSWORD"
+else
+  hash="$(ct exec -e PW="${ODOO_ATOMFEED_PASSWORD}" "$ODC" python3 -c 'import os; from passlib.context import CryptContext; print(CryptContext(["pbkdf2_sha512"]).hash(os.environ["PW"]))' < /dev/null 2>/dev/null | tr -d '\r\n' || true)"
+  case "$hash" in '$pbkdf2-sha512$'*) ;; *) fail "passlib in ${ODC} did not hash ODOO_ATOMFEED_PASSWORD" ;; esac
+  ct exec "$OD" psql -U postgres -d odoo -v ON_ERROR_STOP=1 -qc "update res_users set password = '${hash}' where login = '${ODOO_ATOMFEED_USER}'" < /dev/null \
+    || fail "could not set Odoo login ${ODOO_ATOMFEED_USER}'s password"
+  ok "Odoo login ${ODOO_ATOMFEED_USER} set to ODOO_ATOMFEED_PASSWORD (the seed held the hub's)"
+fi
 ok_odoo=0; for i in $(seq 1 12); do odoo_login_ok && { ok_odoo=1; break; }; sleep 10; done
 [ "$ok_odoo" = 1 ] && ok "Odoo accepts ODOO_ATOMFEED_USER" \
   || fail "Odoo refuses the Odoo feed user's password in clinic/.env (or Odoo is not answering on :${ODOO_PORT:-8069}): the hub's credential may have changed after install. Call the operator"

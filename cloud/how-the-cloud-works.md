@@ -536,12 +536,12 @@ reporting RUNNING and inflating any "all sinks green" check.
 
 > Before: `TABLES_CONF="${TABLES_CONF:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"`
 
-The clinics come from sync/clinics.txt: every <slug>:<residue> row except the
-cloud's. Every name derives from the slug: topics <slug>.bahmni-<slug>.<db>.all,
+The clinics come from sync/clinics.json: every clinic with a site number
+except the cloud. Every name derives from the slug: topics <slug>.bahmni-<slug>.<db>.all,
 sinks openmrs-, odoo- and clinlims-<slug>-sink, origins clinic_<slug>_odoo and
 clinic_<slug>_clinlims.
 
-> Before: `CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"`
+> Before: `CLINICS_JSON="${CLINICS_JSON:-${PROJECT_DIR}/../sync/clinics.json}"`
 
 The clinic's list is read by the reader every script of it shares, so a line
 the clinic captures is never one this generator skips: a skipped line is a

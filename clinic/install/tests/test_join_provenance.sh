@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The seed's provenance record, checked at the seed gate and compared at join:
+# The seed's provenance record, checked and kept by task 050 and compared at join:
 #   - the gate refuses a seed whose manifest names no record, whose record is
 #     missing or altered, or that lacks the content lines, the tool line or
 #     the foreign key set; a good record passes and the gate keeps a copy;
@@ -41,7 +41,7 @@ seed(){ # CONTENT [MANIFEST-EXTRA] : a seed folder in $TMP/seed whose manifest b
   printf 'PROVENANCE=provenance.tsv\nSHA256_PROVENANCE=%s\n%s' "$(sha256_of "$TMP/seed/provenance.tsv")" "${2:-}" > "$TMP/seed/manifest.env"
 }
 
-# --- the seed gate ------------------------------------------------------------------
+# --- the record in the seed folder ------------------------------------------------------------------
 seed "$CONTENT"
 out="$(seed_provenance_verdict "$TMP/seed")" && [ "$out" = "ok 3 master tables, 2 foreign keys" ] && ok_ "a good record passes: $out" || bad "good record: $out"
 printf 'SEED_TAKEN_AT=x\n' > "$TMP/seed/manifest.env"
@@ -57,9 +57,10 @@ seed ""
 out="$(seed_provenance_verdict "$TMP/seed")"; [ $? = 1 ] && case "$out" in *"no master table content"*) true ;; *) false ;; esac && ok_ "a record without content lines is refused" || bad "no content: $out"
 printf 'PROVENANCE=../x\n' > "$TMP/seed/manifest.env"
 out="$(seed_provenance_verdict "$TMP/seed")"; [ $? = 1 ] && ok_ "a record named outside the seed folder is refused" || bad "path: $out"
-G="${HERE}/../tasks/005-seed-gate.sh"
-grep -q 'seed_provenance_verdict "${SEED_DIR}")" || refuse' "$G" && ok_ "005 refuses a seed whose record fails" || bad "005 does not check the record"
-awk '/DRY}" = 1 \]/ {d=NR} /cp "\$\{SEED_DIR\}\/\$\{prov\}" "\$\{PROVENANCE_COPY\}"/ {c=NR} END {exit !(d && c > d)}' "$G" && ok_ "005 keeps a copy of the record, after the dry-run exit" || bad "005 does not keep the record (or keeps it in a dry run)"
+G="${HERE}/../tasks/050-databases.sh"
+grep -q 'seed_provenance_verdict "${D}")" || fail' "$G" && ok_ "050 refuses a seed whose record fails" || bad "050 does not check the record"
+awk '/DRY}" = 1 \]/ {d=NR} /cp "\$\{D\}\/.*"\$\{PROVENANCE_COPY\}"/ {c=NR} END {exit !(d && c > d)}' "$G" && ok_ "050 keeps a copy of the record, after the dry-run exit" || bad "050 does not keep the record (or keeps it in a dry run)"
+grep -q 'if \[ -s "${PROVENANCE_COPY}" \]; then' "$G" && ok_ "050 keeps a record it kept before (a re-run does not replace it)" || bad "050 replaces the kept record on a re-run"
 
 # --- the join comparison ------------------------------------------------------------
 seed "$CONTENT"; R="$TMP/seed/provenance.tsv"

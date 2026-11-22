@@ -15,9 +15,8 @@ bash 3.2 compatible.
 > Before: `DNS_UPSTREAMS="${DNS_UPSTREAMS:-1.1.1.1 8.8.8.8}"`
 
 dnsmasq on macOS listens on the addresses the machine has when it starts; the
-router's DHCP reservation keeps this machine's address fixed (README), and a
-machine that moves anyway is caught by the seed gate. local-service answers
-only hosts on its own subnets.
+router's DHCP reservation keeps this machine's address fixed (README).
+local-service answers only hosts on its own subnets.
 
 > Before: `printf 'local-service\nno-resolv\n'`
 
@@ -429,27 +428,26 @@ leave it loading.
 
 ## `install.sh`
 
-missing, and keeps them in ~/clinic-<slug>.env (mode 600) for resumes.
+missing; clinic/.env holds them all from task 020 on.
 
 > Before: `set -euo pipefail`
 
---clinic: the answers come from the repo, --secrets and the terminal, and are
-kept for resumes. Nothing secret is printed.
+clinic/.env first; a value it lacks comes from sync/clinics.json or
+--secrets, and a missing feed password is generated. Nothing secret
+is printed.
 
-> Before: `compose_answers(){`
+> Before: `load_inputs(){ # SLUG`
 
 the defaults, and --versions, so the prompt shows what this run would use
 
 > Before: `set -a; . "${VERSIONS_FILE}"; set +a`
 
-The twelve answers. Sourced (same quoting contract as .env); every key must be
-present and non-empty. Secrets are never printed.
+Every key must have a value. Secrets are never printed.
 
 > Before: `REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE CERT_HOSTNAME REMOTE_KAFKA_BOOTSTRAP_SERVERS`
 
-The fleet's image pins (sync/versions.env) win over anything an answers file
-carries, except the application images (lib.sh IMAGE_KEYS): those come from
-the answers file, then --versions. Every task sees the same values.
+The fleet's image pins (sync/versions.env), then --versions for the
+application images (lib.sh IMAGE_KEYS). Every task sees the same values.
 
 > Before: `set -a; . "${VERSIONS_FILE}"; set +a`
 
@@ -463,16 +461,15 @@ under pipefail still sees only this script's own exit status, not tee's --
 and it works under bash 3.2 (macOS stock), verified on /bin/bash. A dry run
 never touches $HOME: it logs under ${TMPDIR:-/tmp} instead. Secrets never
 reach the log beyond what already reaches the terminal (nothing here prints
-one) -- the answers file itself is never logged.
+one).
 _INSTALL_LOG_STARTED stops a run that is already logging from printing a
 second header into the same file; INSTALL_LOG is exported so it resolves to
 the same path.
 
 > Before: `if [ "$DRY" = 1 ]; then`
 
-Never over an installed machine, whatever --from says; --from and --only
-(which skip the gate task) only resume a run that passed it. Once the sync
-layer has started, a resume that would drop the databases again is refused.
+Every task is idempotent, so a machine already installed runs the whole
+install again, or any part of it with --from and --only.
 
 > Before: `. "${INSTALL_DIR}/state.sh"`
 
@@ -659,11 +656,13 @@ starting with a letter. Residue: 1-9 (10 is the cloud's).
 
 > Before: `derive_identity(){`
 
-The residue ledger: sync/clinics.txt, `slug:offset` per line, whole-line
-comments only, slug matched case-insensitively (configure-pk-offsets.sh's
-parser does the same).
+The fleet: sync/clinics.json, one object per clinic keyed by its lower-case
+slug (site_number, which is also the residue, and mrn_prefix; null = not yet
+allocated),
+read with jq (configure-pk-offsets.sh and the cloud's sink generator read it
+the same way).
 
-> Before: `ledger_residue(){ awk -F: -v s="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" '$0 !~ /^[[:space:]]*#/ && NF==2 && tolo`
+> Before: `clinic_get(){ # SLUG FIELD -> the field from sync/clinics.json; nothing when absent or null`
 
 has_placeholders FILE ALLOWLIST : prints every key whose value is empty or
 <placeholder>, except keys in the space-separated allowlist.
@@ -677,27 +676,22 @@ without it, the names other nodes and the templates use are refused.
 
 > Before: `if [ -n "${2:-}" ]; then`
 
---- fleet registry -----------------------------------------------------------
-sync/fleet/<slug>.env holds a clinic's non-secret identity (MRN prefix, site
-number, phone, cert hostname); sync/hub.env the hub endpoint. The residue stays
-in the ledger alone (one source). Secrets are never in the repo: they come from
-<seed>/secrets.env or a hidden prompt. install.sh --clinic <slug> composes the
-twelve answers from these; --answers <file> remains the hand-written path.
+sync/clinics.json holds a clinic's non-secret identity; clinic/.env the hub
+endpoint. Secrets are never in the repo: they come from --secrets or
+clinic/.env, which wins over all of these.
 
-> Before: `FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"`
-
-Answers with a default: an answers file without one takes the default, and is
-not short of an answer for lacking it. ODOO_ATOMFEED_USER
+Values with a default: a clinic/.env without one takes the default.
+ODOO_ATOMFEED_USER
 is the hub's own Odoo feed login: the clinic's Odoo is a copy of the hub's, so
 odoo-connect logs in with the hub's user and that user's password
 (ODOO_ATOMFEED_PASSWORD); both come from the hub's passwords file, and a hub
 whose file names no user uses emrsync, the feed login of the hub's Odoo image.
 
-> Before: `ANSWER_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"`
+> Before: `INPUT_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"`
 
 --- the hub link --------------------------------------------------------------
 hub_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
-environment, else sync/hub.env.
+environment, else clinic/.env.
 
 > Before: `hub_protocol(){`
 
@@ -732,27 +726,18 @@ the containers run inside the podman machine, so its memory is the ceiling
 
 > Before: `local m; m="$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || true)"`
 
-fleet_table : one line per registered clinic -- slug, residue ("-" = none), MRN prefix.
+clinic_table : one line per clinic in sync/clinics.json -- slug, site number ("-" = none), MRN prefix.
 
-> Before: `fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s`
+> Before: `clinic_table(){ jq -r 'to_entries[] | select(.key != "cloud")`
 
-answers_missing FILE : prints every answer key that is absent or empty.
-
-> Before: `answers_missing(){ local k; for k in $ANSWER_KEYS; do case " $ANSWER_DEFAULTS" in *" $k="*) continue ;; esac; `
-
-Answers a clinic may leave out: the forms repo (task 075; empty = the node
+Values a clinic may leave out: the forms repo (task 075; empty = the node
 runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
 Initializer domain list (task 020 writes it into clinic/.env; empty = the
-clinic default, initializer.sh). They come from --secrets or the answers file.
+clinic default, initializer.sh). They come from clinic/.env or --secrets.
 
-> Before: `OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"`
+> Before: `OPTIONAL_INPUT_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"`
 
-answers_write FILE : the twelve keys from the current environment, plus each
-optional one that is set, mode 600.
-
-> Before: `answers_write(){`
-
-interactive : stdin is a terminal, or INSTALL_INTERACTIVE=1 (tests pipe answers in).
+interactive : stdin is a terminal, or INSTALL_INTERACTIVE=1 (tests pipe input in).
 
 > Before: `interactive(){ [ -t 0 ] || [ "${INSTALL_INTERACTIVE:-0}" = 1 ]; }`
 
@@ -843,8 +828,7 @@ the application images this node chose (see IMAGE_KEYS) replace the defaults
 IPLIT's and Bahmni's application images. sync/versions.env holds the default
 for each; the person installing a clinic may choose another version of any of
 them: install.sh --versions <file> (KEY=value lines), or the prompt. The
-choice is kept in the answers file for resumes, written into clinic/.env, and
-read back from there by later tasks. The sync layer (Kafka, MirrorMaker,
+choice is written into clinic/.env and read back from there by later tasks. The sync layer (Kafka, MirrorMaker,
 Debezium) is not here: every node runs the same.
 
 > Before: `IMAGE_KEYS="OPENMRS_IMAGE_NAME ODOO_LOCAL_IMAGE ODOO_CONNECT_IMAGE_TAG OPENELIS_IMAGE_TAG BAHMNI_WEB_IMAGE BAH`
@@ -885,11 +869,6 @@ each image, Enter keeping the value shown
 
 > Before: `image_choose(){`
 
-image_choices_write FILE : records in FILE each application image that differs
-from its default (an answers file, so a resume makes the same choice)
-
-> Before: `image_choices_write(){`
-
 image_choices_report : names each application image that differs from its
 default, and warns where that breaks lockstep with the hub
 
@@ -918,8 +897,7 @@ capture_filter_check : the source connector's capture filter as Kafka
 Connect holds it (GET .../config of the registered connector, never the
 generated file), against this node: its residue must be the
 auto_increment_offset the running MySQL issues ids on, and its floors the
-ones the seed's manifest gives (the seed folder's, or else the copy the seed
-gate recorded on this machine). sync/origin-filter.sh holds the rules.
+ones task 050 recorded on this machine (.install-state). sync/origin-filter.sh holds the rules.
 Prints "ok ..." lines, or the refusal and returns 1. CONNECT_URL overrides
 the Connect address.
 
@@ -973,57 +951,13 @@ answers now.
 
 > Before: `clinlims_down_sink_check(){`
 
-provenance_content_lines RECORD CONTAINER : clinic/scripts/master-checksum.sh
-run on this clinic's MySQL over exactly the tables the seed's provenance
-record holds content lines for (the tool checksums the tables the OpenMRS [down]
-lists, so it runs from a scratch copy whose list is the record's).
-
-> Before: `provenance_content_lines(){`
-
-clinic_fk_rows CONTAINER : CLINIC_FK_READ_SQL (state.sh) on this clinic's
-MySQL. Returns 1 when nothing comes back: a schema with no foreign key at
-all is not an OpenMRS schema, and an empty read is never compared.
-
-> Before: `clinic_fk_rows(){`
-
 ## `state.sh`
 
-Machine state (none -> SEEDING -> SEEDED) and the rules the installer checks
-before it loads the hub's data. Pure functions: no runtime is touched here,
+Machine state (none -> SEEDED), the obs and orders floors measured from the
+restored data, and the rules the installer checks on the seed and the databases. Pure functions: no runtime is touched here,
 so every rule is tested without one. bash 3.2 compatible.
 
 > Before: `STATE_FILE="${STATE_FILE:-${CLINIC_DIR}/.install-state}"`
-
-stamp_gate_verdict STATE [SYNC_STARTED] : the hub's data is loaded once. A
-fresh machine (or one left INSTALLED by the old two-step install) may load
-it. SEEDING is allowed: an earlier run stopped part-way and its databases
-hold nothing anyone entered, so it is redone from the start -- unless it got
-as far as the sync layer, whose replication slots and connector positions a
-database drop would leave pointing at nothing.
-
-> Before: `stamp_gate_verdict(){`
-
-run_gate_verdict STATE FROM ONLY : --from and --only skip tasks, and past
-the gate (005) they may only resume a run that already passed it and stopped
-part-way (SEEDING). A run that starts at or before the gate goes through it,
-so --from 000/005 and --only 000/005 are allowed on a fresh machine. On an
-installed machine only --only 010 (the name service, which touches no data)
-may run.
-
-> Before: `run_gate_verdict(){`
-
-resume_redoes_drop FROM ONLY : does this run reach task 050, which drops the
-databases? Only such a run is dangerous once the sync layer has started.
-
-> Before: `resume_redoes_drop(){`
-
-seed_manifest_verdict DIR NOW_EPOCH MAX_DAYS
-The hub keeps a limited window of changes; a clinic learns what the hub
-wrote after the dump only from that window, so an old dump silently loses
-the gap. The age comes from the manifest, never from file times, which a
-copy rewrites.
-
-> Before: `seed_manifest_verdict(){`
 
 seed_floor_tables TABLES_CONF : the tables whose floor sync/tables/openmrs.conf [up]
 takes from the seed (table:pk:seed), one per line. A list the reader refuses
@@ -1031,9 +965,9 @@ fails, with the reader's reason on stderr.
 
 > Before: `seed_floor_tables(){`
 
-The clinical tables whose id counter the seed lifts above the manifest's
-floor whenever the manifest carries one (FLOOR_OBS, FLOOR_ORDERS), whether
-or not sync/tables/openmrs.conf [up] lists them. A clinic writes obs and orders from
+The clinical tables whose id counter the striding step lifts above the floor
+task 050 records for them (FLOOR_OBS, FLOOR_ORDERS), whether or not
+sync/tables/openmrs.conf [up] lists them. A clinic writes obs and orders from
 its first consultation. With the counter the dump restored, those ids fall
 below the floor, among ids the hub's own rows use, so once the tables are
 synced the hub could not tell the clinic's rows from its own, and a row
@@ -1056,18 +990,30 @@ while the dump runs, so this is read, not assumed.
 
 > Before: `seed_floor_residue_verdict(){`
 
-seed_floors_verdict MANIFEST TABLES_CONF
-Each table whose floor comes from the seed needs FLOOR_<TABLE> in the
-manifest: the id below which every row is the hub's, measured on the hub when
-the dump was cut. A clinic strides the table to start above it, and the sync
-layer tells this clinic's rows from the hub's by it, so a seed without it
-cannot be used. The SEED_COUNTER_TABLES floors are required whether or not
-the list takes those tables from the seed: the striding step lifts their
-counters by them, and a seed cut without them (an older seed) is refused.
-Every floor is a multiple of 10, so floor + residue is on the residue.
-Prints "ok" and the floors (TABLE=FLOOR ...), or the refusal.
+seed_floor_pk TABLE TABLES_CONF : the primary key a floor is measured on:
+obs_id and order_id for the counter tables, otherwise the table's own line.
 
-> Before: `seed_floors_verdict(){`
+> Before: `seed_floor_pk(){ # TABLE CONF`
+
+seed_floor_plan TABLE RECORDED MAX_ID : a floor is the id below which every
+row is the hub's: the next multiple of 10 above the highest id the restored
+table holds, so floor + residue is on this clinic's residue. "set FLOOR" when
+none is recorded; "keep FLOOR" when one is. A recorded floor is never moved:
+once this clinic writes rows, a floor measured again would rise above them,
+and the sync layer, which tells this clinic's rows from the hub's by the
+floor, would stop publishing them. A recorded floor that is not a positive
+multiple of 10 is refused.
+
+> Before: `seed_floor_plan(){ # TABLE RECORDED MAX_ID`
+
+record_seed_floors TABLES_CONF READER : seed_floor_plan for every table whose
+floor comes from the seed and each SEED_COUNTER_TABLES table, recorded in
+.install-state as FLOOR_<TABLE>. READER TABLE PK prints the restored table's
+highest id; it is read only when no floor is recorded, so a re-run reads
+nothing and changes nothing. Prints one "ok ..." line per table, or the
+refusal.
+
+> Before: `record_seed_floors(){ # CONF READER -- READER TABLE PK prints the restored table's highest id`
 
 seed_counter_plan TABLE AUTO_INCREMENT FLOOR RESIDUE : what the striding step
 does with a SEED_COUNTER_TABLES counter. The first id this clinic may write is
@@ -1076,10 +1022,8 @@ the first id on its residue at or above the floor (floor 5000000, residue 3:
 hub's max + 1 from below the floor); "keep" when it is at or above FIRST,
 whatever its last digit: MySQL, striding 10 apart on this residue, issues the
 next id on this residue at or above the counter (the counter_floor_verdict
-arithmetic). Such a counter is normal: the hub measures the floor before it
-dumps and keeps writing its own rows, on its own residue, above the floor
-during the dump; and after a restart MySQL derives the counter from the
-largest id, so it need not be on this residue. Moving it back would never be
+arithmetic). Such a counter is normal: after a restart MySQL derives the
+counter from the largest id, so it need not be on this residue. Moving it back would never be
 right: a rerun after this clinic wrote rows must not reissue their ids.
 
 > Before: `seed_counter_plan(){`
@@ -1094,7 +1038,7 @@ legacy rows, and a row written there could carry an id the hub already has.
 
 counter_floor_verdicts TABLES_CONF RESIDUE READER : counter_floor_verdict for
 every table whose floor comes from the seed, against the floor this machine
-recorded at the seed gate: each table the list takes from the seed, and each
+recorded by task 050: each table the list takes from the seed, and each
 SEED_COUNTER_TABLES table with a recorded floor, listed or not. READER TABLE
 prints that table's AUTO_INCREMENT. Prints one "ok ..." line per table, or
 the first refusal and returns 1. A table list that cannot be read is a
@@ -1115,7 +1059,7 @@ AUTO_INCREMENT; READER --stride prints MySQL's "increment offset". On a
 seeded machine every floored counter must still be at or above its floor and
 MySQL must stride on this residue: a restored database or a reset counter
 would hand out ids that rows written elsewhere already carry. Any other
-machine has no floors yet (the seed gate records them and the striding step
+machine has no floors yet (task 050 records them and the striding step
 checks the counters itself), so it prints "skip" and the reason.
 
 > Before: `node_counters_verdict(){`
@@ -1160,87 +1104,6 @@ on stderr: the range is nearly used up, and past its top the numbers would be
 the next clinic's.
 
 > Before: `order_seed_verdict(){`
-
-seed_shape_verdict DIR : the dumps come from the pinned OpenMRS and Odoo
-versions, and the hub had partitioned its address and customer-attribute
-ids before it was dumped (a seed taken earlier would hand this clinic ids
-the hub also uses, and a clinic-minted village row can stop a sink).
-Streamed straight from the gz, never unpacked to disk.
-
-> Before: `seed_shape_verdict(){`
-
-`{ gzip ... || true; }`: grep -m1 closes the pipe at its first match, gzip
-then dies of SIGPIPE, and pipefail would report the whole pipeline failed
-
-> Before: `{ gzip -dc "$dir/openmrs.sql.gz" 2>/dev/null || true; } | grep -qm1 '20251223-drop-default-value-from-column' `
-
-pg_dump names a serial id's sequence either as CREATE SEQUENCE ... INCREMENT BY n
-or inside a multi-line ADD GENERATED ... AS IDENTITY ( ... INCREMENT BY n ... ):
-take the first INCREMENT BY within the lines after the first line naming it
-
-> Before: `out="$({ gzip -dc "$dir/odoo.sql.gz" 2>/dev/null || true; } | awk '`
-
-The seed's provenance record (provenance.tsv, named by PROVENANCE in the
-manifest and bound to it by SHA256_PROVENANCE): what the hub's master tables
-and foreign keys held when the dumps were cut, read on the hub before and
-after them. Tab-separated; the lines read here:
-  tool     master-checksum.sh <sha256 of the script that computed the content lines>
-  exclude  <table>.<column> left out of every content checksum
-  content  <table> <rows> <checksum> <columns>   (clinic/scripts/master-checksum.sh's line)
-  fk       set <count> <sha256>  |  fk <table> <column> <referenced table> <referenced column> <constraint>
-The seed gate checks it and keeps a copy on the machine (PROVENANCE_COPY),
-so the join and every later check compare against the seed this machine was
-built from, after the seed folder is gone.
-
-> Before: `PROVENANCE_COPY="${PROVENANCE_COPY:-${CLINIC_DIR}/.seed-provenance.tsv}"`
-
-seed_provenance_verdict DIR : the record is named, present, unaltered, and
-carries what the later checks compare: the content checksums, the tool that
-computed them, and the foreign key set. Prints "ok ..." or the refusal.
-
-> Before: `seed_provenance_verdict(){`
-
-provenance_content_verdict RECORD CLINIC_LINES TOOL_SHA EXCLUSIONS_FILE
-CLINIC_LINES is master-checksum.sh's output on this clinic for the record's
-tables, TOOL_SHA the sha256 of this checkout's master-checksum.sh. Every
-table's line must equal the record's: a clinic seeded from another dump, or
-whose master rows changed after the seed, differs, and the first differing
-table (in name order) is named. A different tool or exclusion list is
-refused first: the lines would differ for that reason alone.
-
-> Before: `provenance_content_verdict(){`
-
-The foreign keys of this clinic's openmrs schema, as information_schema
-lists them: table, column, referenced table, referenced column, constraint.
-
-> Before: `CLINIC_FK_READ_SQL="select table_name, column_name, referenced_table_name, referenced_column_name, constraint_`
-
-lines_not_in A B : the lines of B that are not lines of A, in B's order. A
-pipe, not process substitution: a /dev/fd that closes before the reader
-opens it reads as empty, and the difference would be lost now and then.
-
-> Before: `lines_not_in(){`
-
-provenance_fk_verdict RECORD CLINIC_FK_ROWS : this clinic's foreign keys
-against the hub's, as the seed's provenance record holds them; the hub is the
-reference. A key out of obs, orders, drug_order or test_order to a table a
-clinic writes is refused whatever the hub has: the hub's up sinks write those
-tables in arrival order, and such a key would stop its sink whenever a row
-arrives before its parent. A key to a table only the hub writes (DOWN in
-cloud/table-verdicts.conf) or only changesets and the seed write (RESEED) is
-not: its rows are at the hub before any clinic names one.
-Otherwise the two sets (table, column, referenced table and column; the
-constraint's name aside) must be equal: a clinic with a key the hub lacks ran
-a schema change ahead of the hub, and one lacking a hub key is behind it.
-The first table that differs is named, with what differs.
-
-> Before: `provenance_fk_verdict(){`
-
-node_fk_verdict STATE RECORD READER : provenance_fk_verdict on a machine in
-service (SEEDED), its rows from READER (prints CLINIC_FK_READ_SQL's rows);
-"skip ..." on any other machine, which holds no record of the hub's keys yet.
-
-> Before: `node_fk_verdict(){`
 
 --- OpenELIS floors: where this clinic's own ids of a table begin ------------
 Every clinic pulls from the cloud server the OpenELIS rows its lab users wrote
@@ -1297,7 +1160,7 @@ Everything that can refuse, refuses here, before a machine is touched.
 
 1. identity is allocated, and only to us (a node with no residue cannot join)
 
-> Before: `r="$(ledger_residue "${CLINIC_SLUG}")"`
+> Before: `r="$(clinic_residue "${CLINIC_SLUG}")"`
 
 clinical data to the hub: off (the default) or test, nothing else
 
@@ -1314,13 +1177,6 @@ TABLE -> its AUTO_INCREMENT; --stride -> "increment offset".
 PREFLIGHT_AUTO_INCREMENT ("table=n ...") and PREFLIGHT_STRIDE stand in for MySQL.
 
 > Before: `preflight_mysql_read(){`
-
-1c. a machine in service: its foreign keys are the hub's, as recorded when
-its data came from the hub (the hub is the reference), and none points out
-of obs, orders, drug_order or test_order. PREFLIGHT_FK_ROWS (a file of the read's rows)
-stands in for MySQL.
-
-> Before: `preflight_fk_read(){`
 
 2. fresh install only
 A dry run renders a real clinic/.env (later tasks read it to say what they
@@ -1358,30 +1214,6 @@ host-macos.sh's own rule) and is not a FAIL.
 
 > Before: `machine_mib="${PREFLIGHT_MACHINE_MIB:-}"`
 
-## `tasks/005-seed-gate.sh`
-
-Everything that can refuse the hub's data refuses here, before anything is installed.
-
-> Before: `set -euo pipefail`
-
-the id floors the seed was cut with: obs and orders always, and every other
-table whose floor comes from the seed
-
-> Before: `v="$(seed_floors_verdict "${SEED_DIR}/manifest.env" "${REPO_DIR}/sync/tables/openmrs.conf")" || refuse "$v"`
-
-the provenance record: what the hub's master tables and foreign keys held
-when the dumps were cut; the join and later checks compare against it
-
-> Before: `v="$(seed_provenance_verdict "${SEED_DIR}")" || refuse "$v"`
-
-later checks (striding, exit checks) compare the id counters with these
-
-> Before: `for tf in $floors; do stamp_put "FLOOR_$(printf '%s' "${tf%%=*}" | tr '[:lower:]' '[:upper:]')" "${tf#*=}"; do`
-
-a copy of the provenance record stays on the machine after the seed folder goes
-
-> Before: `prov="$(env_get "${SEED_DIR}/manifest.env" PROVENANCE)"`
-
 ## `tasks/020-env.sh`
 
 Render clinic/.env: derived identity, the ten absolute path keys at clinic/,
@@ -1406,8 +1238,8 @@ identity (derived by install.sh; never the example's values)
 
 > Before: `for k in BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SER`
 
-the answers later tasks and scripts need, kept on the node: nobody re-types
-them and no answers file travels with the machine
+the values later tasks and scripts need, kept on the node: clinic/.env is
+their source of truth
 
 > Before: `put CLINIC_SLUG "${CLINIC_SLUG}"; put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "$`
 
@@ -1526,7 +1358,9 @@ the served tree rather than trusting the extraction script's own move.
 
 ## `tasks/050-databases.sh`
 
-Databases up and restored from the hub's seed, then the sync users, roles and
+Databases up, each restored from the hub's seed unless it is already there
+(a re-run keeps what it finds; no database is ever dropped), the obs and
+orders floors recorded from the restored data, then the sync users, roles and
 publications. Roles BEFORE restore so the
 dumps' OWNER TO / GRANT lines resolve; sql_log_bin=0 so the restore is not
 replayed to Kafka (the source connector starts later with snapshot no_data).
@@ -1544,14 +1378,6 @@ the rendered conf.d file must be in force in the RUNNING server, not just on dis
 the flags must be in Config.Cmd, not only in the compose file
 
 > Before: `ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offset=${RESIDUE}" && ok "mysql run`
-
-drop_all_dbs WHY : the applications first (so nothing holds a connection or
-writes mid-drop), then the three databases and the restore marker. The
-MySQL drop is kept out of the binlog (a capture reading it would record a
-schema that no longer exists), and every drop is read back: a database left
-behind would be skipped by the restore below as "already there".
-
-> Before: `drop_all_dbs(){`
 
 Stock MySQL (128 MB buffer pool, 100 MB redo log) checkpoints constantly
 while loading a multi-gigabyte dump, and on a small cloud disk (about 500
@@ -1571,10 +1397,6 @@ locked: nobody logs in as them, they only own the objects.
 
 > Before: `definer_sql(){`
 
-a run that stopped part-way is redone from the start
-
-> Before: `drop_all_dbs "restoring the hub's seed from the start"`
-
 --- MySQL: openmrs
 
 > Before: `DONE="${CLINIC_DIR}/.openmrs-restore.done"`
@@ -1582,6 +1404,13 @@ a run that stopped part-way is redone from the start
 a node restored before this marker existed, or an interrupted restore: count to tell them apart
 
 > Before: `info "openmrs exists with no completion marker; counting the dump's tables to tell a finished restore from an `
+
+The obs and orders floors, measured from the restored openmrs once and kept
+in .install-state (state.sh record_seed_floors). The striding step lifts the
+counters above them and the sync layer tells this clinic's rows from the
+hub's by them.
+
+> Before: `v="$(record_seed_floors "${REPO_DIR}/sync/tables/openmrs.conf" max_id)" || fail "$v"`
 
 The dumps carry liquibasechangelog.ID as varchar(63). A module changeset
 whose id is longer cannot be recorded -- not even as MARK_RAN -- so that
@@ -1650,8 +1479,8 @@ per piece of the publication.
 
 Per-row ownership before the first application write: MySQL striding (server flags are
 set; this moves the captured tables' AUTO_INCREMENT above their floors, and the
-obs and orders counters above the seed's floors whether or not they are
-captured yet), the order-number counter in this clinic's own range,
+obs and orders counters above the floors task 050 recorded, whether or not
+they are captured yet), the order-number counter in this clinic's own range,
 Postgres sequences at the residue (mandatory even though the dumps carry
 INCREMENT BY 10 -- the restored last_value sits in Rawach's residue), and the
 replication origins the customizer jar needs.
@@ -1659,10 +1488,10 @@ replication origins the customizer jar needs.
 > Before: `set -euo pipefail`
 
 obs and orders: a clinic writes both from its first consultation, whether or
-not sync/tables/openmrs.conf [up] lists them yet, and an id below the seed's floor
+not sync/tables/openmrs.conf [up] lists them yet, and an id below the floor
 is one the hub's own rows use. Each counter moves to the first id on this
-clinic's residue at or above the floor the seed gate recorded from the
-manifest (it refuses a seed without them), and is read back. A counter
+clinic's residue at or above the floor task 050 recorded from the restored
+data, and is read back. A counter
 already at or above that id is left as it is.
 
 > Before: `. "${INSTALL_DIR}/state.sh"`
@@ -1751,7 +1580,7 @@ node-local tree: the prefix is this node's to write (task 045 normally has)
 ## `tasks/075-forms.sh`
 
 The forms folder OpenMRS mounts at /home/bahmni/clinical_forms (forms.sh).
-With a forms repo (FORMS_REPO_URL, FORMS_REPO_KEY in the answers): a clone of
+With a forms repo (FORMS_REPO_URL, FORMS_REPO_KEY in clinic/.env or --secrets): a clone of
 it in clinic/forms, fast-forwarded on every run, whose clinical_forms/ is
 mounted read-only. Without one: the frozen copy in
 clinic/bahmni_home/clinical_forms, read-write. clinic/.env gets FORMS_DIR and
@@ -1762,7 +1591,7 @@ stops the seed. Safe to re-run.
 
 > Before: `set -euo pipefail`
 
-The answers name the forms repo; clinic/.env keeps it for
+clinic/.env names the forms repo for
 scripts/update-forms.sh, which reads nothing else. A relative key path is
 taken from where the installer runs, and kept absolute: the schedule runs
 update-forms.sh from elsewhere.
@@ -1875,22 +1704,6 @@ TASK state, never connector state.
 
 > Before: `set -euo pipefail`
 
-Before the sync layer takes any of the hub's changes: this clinic's master
-tables are still the ones of the seed it was built from (same rows, same
-content, read with the same tool the hub's record was computed with), and its
-foreign keys are the hub's. A clinic seeded from another dump, one whose
-masters were changed locally after the restore, or one whose schema moved
-ahead of or behind the hub's is refused here, naming the first table that
-differs. Once sync has started the hub's own master changes arrive here, so a
-resume past that point does not compare again.
-
-> Before: `if [ "$(stamp_get SYNC_STARTED)" = 1 ]; then`
-
-From here on a seed that stops cannot be redone by dropping databases: the
-replication slots and connector positions would point at what was dropped.
-
-> Before: `stamp_put SYNC_STARTED 1`
-
 kafka-ui is NOT in this first up: it is gated on kafka-connect's health, and
 compose gives up on a slow Connect long before Connect does (manpur, 1 vCPU:
 "dependency failed to start: container kafka-connect is unhealthy"). The wait
@@ -1904,10 +1717,11 @@ started only when asked for (CLINIC_KAFKA_UI=1), or by hand later.
 > Before: `if [ "${CLINIC_KAFKA_UI:-0}" = 1 ]; then`
 
 Every connector config, from sync/tables/ and scripts/templates/, with passwords
-left as placeholders (scripts/generate-connectors.sh). Each group is uploaded
-below once what it depends on is in place.
+left as placeholders (scripts/generate-connectors.sh), the floors from
+.install-state. Each group is uploaded below once what it depends on is in
+place.
 
-> Before: `SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/generate-connectors.sh >/dev/null \`
+> Before: `SEED_MANIFEST="${STATE_FILE}" bash scripts/generate-connectors.sh >/dev/null \`
 
 The capture filter as Connect holds it, not as the file says (lib.sh
 capture_filter_check): a wrong residue drops every change this clinic makes,
@@ -1921,11 +1735,18 @@ the hub's lab test catalogue and lab accounts whole, and of the result,
 analysis and sample rows a hub lab user wrote for a sample a clinic sent out
 only this clinic's (clinic/scripts/clinlims-down-filter.sh: the routing
 column at or above this clinic's floor, on its residue; deletes dropped). It
-claims replication origin hub_2 (the Odoo
-down sink holds hub_1; an origin is held by one session at a time), so this
+claims replication origin cloud_openelis (the Odoo
+down sink holds cloud_odoo; an origin is held by one session at a time), so this
 clinic's OpenELIS source, which decodes with origin=none, never sends those
 rows back up. The floors are recorded by task 060 before it strides; without
 them (or the residue) the filter cannot be written and this task stops.
+The OpenELIS down sink never applies a delete (`delete.enabled` false, and
+the filter drops every delete), unlike the Odoo down sink. A delete event
+carries only the row's `id` (the hub's tables keep the default replica
+identity), so a `result` delete cannot be routed by its `analysis_id`. A
+catalogue row the hub deleted may still be referenced by this clinic's own
+analyses; its delete would fail on the foreign key and stop the sink. The
+hub retires a test rather than deleting it.
 The OpenELIS source publishes a lab account or signature only when this
 clinic minted it, and the OpenELIS down sink keeps only this clinic's rows:
 generate/postgres.sh wrote both filters from the floors task 060 recorded.
@@ -2057,56 +1878,21 @@ the OpenELIS down sink, read from Connect (lib.sh clinlims_down_sink_check)
 
 > Before: `v="$(clinlims_down_sink_check)" || fail "$v"`
 
-foreign keys, read now that OpenMRS has started (a module changeset that
-adds one at this clinic shows here), against the hub's in the seed's record
-
-> Before: `. "${INSTALL_DIR}/state.sh"`
-
 the order-number counter, read now that OpenMRS has started (a start that
 loads global properties over it shows here)
 
 > Before: `seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSe`
 
-The probe is a row this node OWNS: an insert takes the next id from the
-strided sequence, so it lands on this node's residue and no other node can
-write the same hub row. An update of the oldest row would touch a legacy
-id every clinic shares, so each clinic's probe would overwrite the last
-one's on the hub. The marker carries the slug so the hub can look for this
-clinic's marker and no other's.
-
-> Before: `mark="INSTALL-PROBE-${CLINIC_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"`
-
-Wrapped so a dead Odoo (HTTP 500, refused connection, auth failure, ...)
-never dumps a 20-line xmlrpc.client.ProtocolError traceback into the log --
-lib.sh's ERR trap already dumped the whole heredoc TWICE the first time
-this broke. Any exception becomes exactly one line on stderr, caught below
-and turned into a single named fail().
-
-> Before: `xmlrpc_err="$(mktemp)"`
-
 ## `tasks/110-hub-join.sh`
 
-The clinic's authority ends here. The hub side is the operator's: the fleet's
-join tool, install-clinic.sh join <slug>. Printed, never executed.
+The clinic's authority ends here. The hub side is the operator's: "Per clinic"
+in cloud/SETUP.md. Printed, never executed.
 
 > Before: `set -euo pipefail`
-
-This clinic's master tables and foreign keys were compared with the seed's
-provenance record at the start of task 090, before its sync layer took any of
-the hub's changes. They are not compared again here: from 090 on the hub's
-master changes arrive by sync, so a difference now is expected, not a fault.
-
-> Before: `if [ "${DRY}" = 1 ]; then`
 
 nothing is installed or syncing in a dry run, so the join steps are not printed as if it were
 
 > Before: `info "would: print the steps the operator runs to join this clinic to the hub"`
-
-The hub this node was seeded from: the seed's manifest names it. The join is
-made against that hub, and only it: a join to another one would leave this
-node's changes with nobody receiving them.
-
-> Before: `seed_hub=""`
 
 ## `scripts/create-clinlims-sink-role.sh` and `scripts/create-odoo-sink-role.sh`
 

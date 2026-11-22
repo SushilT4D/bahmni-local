@@ -29,40 +29,65 @@ dns_wrong_answer(){ # NAME -> why NAME, asked at this machine's LAN address, is 
   [ -n "$ip" ] && [ "$got" = "$ip" ] || printf "%s answers '%s', this machine is '%s'" "$1" "${got:-nothing}" "${ip:-unknown}"
 }
 
+dns_main_conf_ok(){ # PREFIX : the main dnsmasq.conf holds only the conf-dir line; any other setting (an old listen-address, address=) overrides the rendered file
+  local main="$1/etc/dnsmasq.conf"
+  [ "$(grep -vE '^[[:space:]]*(#|$)' "$main" 2>/dev/null)" = "conf-dir=$1/etc/dnsmasq.d/,*.conf" ]
+}
+
+dns_restart_reason(){ # NAME : why dnsmasq needs a (root) restart; nothing when it does not
+  local name="$1" prefix ifc new
+  command -v brew >/dev/null 2>&1 && brew list --formula dnsmasq >/dev/null 2>&1 || { printf 'dnsmasq not installed'; return 0; }
+  prefix="$(brew --prefix)"; ifc="$(lan_iface)"
+  dns_main_conf_ok "$prefix" || { printf 'main config changes'; return 0; }
+  new="$(dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}")"
+  [ "$new" = "$(cat "${prefix}/etc/dnsmasq.d/bahmni-clinic.conf" 2>/dev/null)" ] || { printf 'config changes'; return 0; }
+  pgrep -x dnsmasq >/dev/null 2>&1 || { printf 'dnsmasq not running'; return 0; }
+  dns_wrong_answer "$name"
+}
+
+dns_resolver_ok(){ # NAME
+  grep -qxF 'nameserver 127.0.0.1' "${DNS_ETC}/resolver/${1##*.}" 2>/dev/null
+}
+
+dns_root_pending(){ # NAME : the dnsmasq steps that need sudo, comma-separated; nothing when none
+  local r out=''
+  r="$(dns_restart_reason "$1")"; [ -z "$r" ] || out="dnsmasq restart (${r})"
+  dns_resolver_ok "$1" || out="${out:+${out}, }${DNS_ETC}/resolver/${1##*.}"
+  printf '%s' "$out"
+}
+
 dns_install_macos(){ # NAME
-  local name="$1" ifc prefix d conf new res why=''
+  local name="$1" ifc prefix d main conf why
   if [ "${DRY}" = 1 ]; then
-    info "would: brew install dnsmasq; write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq unless the config is unchanged and ${name} already answers with this machine's address; /etc/resolver/${name##*.} -> 127.0.0.1 unless it already says so"
+    info "would: brew install dnsmasq; reduce \$(brew --prefix)/etc/dnsmasq.conf to its conf-dir line (old one kept as dnsmasq.conf.bak); write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq unless the config is unchanged and ${name} already answers with this machine's address; /etc/resolver/${name##*.} -> 127.0.0.1 unless it already says so"
     return 0
   fi
 
   ifc="$(lan_iface)"; [ -n "$ifc" ] || fail "no default network interface: connect this Mac to the clinic network (Ethernet) and re-run --from 010"
+  why="$(dns_restart_reason "$name")"
   if brew list --formula dnsmasq >/dev/null 2>&1; then skip "dnsmasq installed"; else run brew install dnsmasq; fi
   prefix="$(brew --prefix)"
-  d="${prefix}/etc/dnsmasq.d"
+  d="${prefix}/etc/dnsmasq.d"; main="${prefix}/etc/dnsmasq.conf"; conf="${d}/bahmni-clinic.conf"
   mkdir -p "$d"
-  grep -qxF "conf-dir=${d}/,*.conf" "${prefix}/etc/dnsmasq.conf" 2>/dev/null || printf 'conf-dir=%s/,*.conf\n' "$d" >> "${prefix}/etc/dnsmasq.conf"
-  conf="${d}/bahmni-clinic.conf"
-  new="$(mktemp "${TMPDIR:-/tmp}/bahmni-clinic.XXXXXX")"
-  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" > "$new"
-  if cmp -s "$new" "$conf"; then :; else cat "$new" > "$conf"; why="config changed"; fi
-  rm -f "$new"
+  if ! dns_main_conf_ok "$prefix"; then
+    [ ! -s "$main" ] || [ -e "${main}.bak" ] || cp "$main" "${main}.bak"
+    printf 'conf-dir=%s/,*.conf\n' "$d" > "$main"
+    ok "${main} holds only conf-dir (earlier settings kept in ${main}.bak)"
+  fi
+  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" > "$conf"
 
-  [ -n "$why" ] || pgrep -x dnsmasq >/dev/null 2>&1 || why="dnsmasq not running"
-  [ -n "$why" ] || why="$(dns_wrong_answer "$name")"
   if [ -z "$why" ]; then
     skip "dnsmasq restart: config unchanged, dnsmasq running, ${name} already answers with this machine's address"
   else
-    info "dnsmasq restarts (${why}); it listens on port 53, which needs root: macOS asks for your password"
-    sudo brew services restart dnsmasq >/dev/null
+    info "dnsmasq restarts (${why})"
+    sudo -n brew services restart dnsmasq >/dev/null || fail "sudo brew services restart dnsmasq needs a password: the installer asks for it when it starts; run it from a terminal"
   fi
 
-  res="${DNS_ETC}/resolver/${name##*.}"
-  if grep -qxF 'nameserver 127.0.0.1' "$res" 2>/dev/null; then
-    skip "${res} already sends .${name##*.} to 127.0.0.1"
+  if dns_resolver_ok "$name"; then
+    skip "${DNS_ETC}/resolver/${name##*.} already sends .${name##*.} to 127.0.0.1"
   else
-    sudo mkdir -p "${DNS_ETC}/resolver"
-    printf 'nameserver 127.0.0.1\n' | sudo tee "$res" >/dev/null
+    { sudo -n mkdir -p "${DNS_ETC}/resolver" && printf 'nameserver 127.0.0.1\n' | sudo -n tee "${DNS_ETC}/resolver/${name##*.}" >/dev/null; } \
+      || fail "writing ${DNS_ETC}/resolver/${name##*.} needs sudo: the installer asks for it when it starts; run it from a terminal"
   fi
 
   ok "dnsmasq answers for ${name} and odoo.${name} on ${ifc}"

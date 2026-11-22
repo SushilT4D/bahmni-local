@@ -11,7 +11,7 @@ INCREMENT=10
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ENV_FILE="${ENV_FILE:-${PROJECT_DIR}/.env}"
-CLINICS_FILE="${CLINICS_FILE:-${PROJECT_DIR}/../sync/clinics.txt}"
+CLINICS_JSON="${CLINICS_JSON:-${PROJECT_DIR}/../sync/clinics.json}"
 TABLES_FILE="${TABLES_FILE:-${PROJECT_DIR}/../sync/tables/openmrs.conf}"
 SEED_MANIFEST="${SEED_MANIFEST:-}"
 # shellcheck source=../../sync/tables/tables.sh
@@ -99,7 +99,7 @@ next_in_series() {
 # Load config
 # -----------------------------
 [[ -f "${ENV_FILE}" ]] || fail "Missing ${ENV_FILE}"
-[[ -f "${CLINICS_FILE}" ]] || fail "Missing ${CLINICS_FILE}"
+[[ -f "${CLINICS_JSON}" ]] || fail "Missing ${CLINICS_JSON}"
 [[ -f "${TABLES_FILE}" ]] || fail "Missing ${TABLES_FILE}"
 TABLE_RECS="$(up_tables_read "${TABLES_FILE}")" || fail "${TABLES_FILE} cannot be read as the clinic's table list (reason above)"
 command -v podman >/dev/null 2>&1 || fail "podman not found"
@@ -114,26 +114,11 @@ DB_NAME="${DB_NAME:-openmrs}"
 [[ -n "${ROOT_PASSWORD}" ]] || fail "MYSQL_ROOT_PASSWORD not set in ${ENV_FILE}"
 
 LOCATION_LC="$(printf '%s' "${BHS_LOCATION}" | tr '[:upper:]' '[:lower:]')"
-CLINIC_NAME=""
-OFFSET=""
-while IFS= read -r line || [[ -n "$line" ]]; do
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${line// }" ]] && continue
-  if [[ "$line" =~ ^([^:]+):([0-9]+)$ ]]; then
-    name="${BASH_REMATCH[1]}"
-    off="${BASH_REMATCH[2]}"
-    name_lc="$(printf '%s' "${name}" | tr '[:upper:]' '[:lower:]')"
-    if [[ "${name_lc}" == "${LOCATION_LC}" ]]; then
-      CLINIC_NAME="${name}"
-      OFFSET="${off}"
-      break
-    fi
-  else
-    warn "Skipping malformed clinics.txt line: ${line}"
-  fi
-done < "${CLINICS_FILE}"
+CLINIC_NAME="${LOCATION_LC}"
+OFFSET="$(jq -r --arg s "${LOCATION_LC}" '.[$s].site_number // empty' "${CLINICS_JSON}")" \
+  || fail "${CLINICS_JSON} is not valid JSON"
 
-[[ -n "${OFFSET}" ]] || fail "BHS_LOCATION='${BHS_LOCATION}' not found in ${CLINICS_FILE}"
+[[ -n "${OFFSET}" ]] || fail "BHS_LOCATION='${BHS_LOCATION}' has no site_number in ${CLINICS_JSON}"
 [[ "${OFFSET}" -ge 1 && "${OFFSET}" -le "${INCREMENT}" ]] \
   || fail "offset ${OFFSET} must be between 1 and INCREMENT (${INCREMENT})"
 

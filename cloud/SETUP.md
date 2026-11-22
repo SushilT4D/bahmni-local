@@ -163,12 +163,11 @@ for j in ${BASE_DIR}/clinic/config/kafka-connect/ext/*.jar; do docker cp "$j" ka
 docker restart kafka-connect
 ```
 
-**Publish the CA and fix the clinic login settings** (on a checkout that can push)
+**Publish the CA and give clinics their login settings** (on a checkout that can push)
 ```bash
 cp certs/ca/ca.crt ${BASE_DIR}/sync/hub-ca.pem
-sed -i "s/^REMOTE_KAFKA_USERNAME=.*/REMOTE_KAFKA_USERNAME=app/; s/^REMOTE_KAFKA_SECURITY_PROTOCOL=.*/REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL/; s/^REMOTE_KAFKA_BOOTSTRAP_SERVERS=.*/REMOTE_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_CLOUD_HOST}:9092/" ${BASE_DIR}/sync/hub.env
-git -C ${BASE_DIR} add sync/hub-ca.pem sync/hub.env && git -C ${BASE_DIR} commit -m "Cloud Kafka CA and clinic login" && git -C ${BASE_DIR} push
-echo "Clinics' REMOTE_KAFKA_PASSWORD: $KAFKA_APP_PASSWORD"
+git -C ${BASE_DIR} add sync/hub-ca.pem && git -C ${BASE_DIR} commit -m "Cloud Kafka CA" && git -C ${BASE_DIR} push
+echo "Each clinic's clinic/.env: REMOTE_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_CLOUD_HOST}:9092 REMOTE_KAFKA_USERNAME=app REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL REMOTE_KAFKA_PASSWORD=$KAFKA_APP_PASSWORD"
 ```
 
 **Create the cloud's OpenMRS topic**
@@ -196,7 +195,7 @@ done
 
 ## Per clinic
 
-Every name comes from the clinic's slug, which is already in `sync/clinics.txt`.
+Every name comes from the clinic's slug, which is already in `sync/clinics.json`.
 
 **Set the slug**
 ```bash

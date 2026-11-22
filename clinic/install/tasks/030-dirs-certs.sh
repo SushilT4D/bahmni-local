@@ -14,6 +14,14 @@ done
 n="$(compose config 2>/dev/null | awk '/^ *source: /{print $2}' | grep -cE "^${CLINIC_DIR}/")"
 ok "bind sources present for ${n} mount(s)"
 C="${CLINIC_DIR}/certs"; mkdir -p "$C/kafka"
+# A self-signed certificate that does not name the LAN name and odoo.<LAN name> is replaced; the old pair is kept as *.pem.old.
+if [ -f "$C/cert.pem" ]; then
+  old_san="$(openssl x509 -noout -text -in "$C/cert.pem" 2>/dev/null | grep -A1 'Subject Alternative Name' | tail -1 | sed 's/^ *//')"
+  if ! printf '%s,' "$old_san" | grep -q "DNS:${LAN_NAME}," || ! printf '%s,' "$old_san" | grep -q "DNS:odoo.${LAN_NAME},"; then
+    mv "$C/cert.pem" "$C/cert.pem.old"; [ ! -f "$C/key.pem" ] || mv "$C/key.pem" "$C/key.pem.old"
+    info "certificate named ${old_san:-nothing}, not ${LAN_NAME}: replaced (old pair kept as cert.pem.old, key.pem.old)"
+  fi
+fi
 if [ -f "$C/cert.pem" ] && [ -f "$C/key.pem" ]; then skip "certificate exists"; else
   err="$(openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes -keyout "$C/key.pem" -out "$C/cert.pem" \
     -subj "/CN=${LAN_NAME}" -addext "subjectAltName=DNS:${LAN_NAME},DNS:odoo.${LAN_NAME},DNS:localhost,IP:127.0.0.1" 2>&1 >/dev/null)" \

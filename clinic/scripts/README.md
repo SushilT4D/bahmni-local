@@ -109,7 +109,7 @@ is `CLINLIMS_FLOOR_<TABLE>` (environment, `.env`, `SEED_MANIFEST` or
 `.install-state`), which installer task 060 records once, from each sequence
 before it strides. Without the residue or a floor it prints nothing and names
 what is missing, and the installer stops. The
-sink claims replication origin `hub_2` so this clinic's OpenELIS source never
+sink claims replication origin `cloud_openelis` so this clinic's OpenELIS source never
 sends those rows back up.
 
 **Content checksum** — `master-checksum.sh` prints, per table `sync/tables/openmrs.conf [down]`
@@ -122,7 +122,8 @@ shows even when its id and uuid are unchanged. Read-only.
 **Verify** — read live state and judge it. `preflight.sh` (VM disk and memory,
 MySQL `wait_timeout` floor, PG slot retention, Kafka, connector task states),
 `check-sink-tasks.sh`, `check-sink-connectors.sh`, `check-source-connectors.sh`,
-`check-mirrormaker.sh`, `check-schema-history.sh`,
+`check-mirrormaker.sh`, `check-schema-history.sh`, `check-odoo-roundtrip.sh`
+(writes one partner and reads it back through Odoo's API),
 `trace-change.sh`, `test-replication.sh`.
 
 > `preflight.sh` runs **entirely on this node** and opens no connections. The

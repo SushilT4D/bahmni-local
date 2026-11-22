@@ -1,0 +1,9 @@
+{
+  "manpur":   { "site_number": 1,    "mrn_prefix": "MAN" },
+  "bedawal":  { "site_number": 2,    "mrn_prefix": "BED" },
+  "ghated":   { "site_number": 3,    "mrn_prefix": "GHA" },
+  "rawach":   { "site_number": 4,    "mrn_prefix": "RAW" },
+  "bagdunda": { "site_number": 5,    "mrn_prefix": "BAD"},
+  "kojawada": { "site_number": 6,    "mrn_prefix": "KOJ" },
+  "cloud":    { "site_number": 10,   "note": "the hub" }
+}

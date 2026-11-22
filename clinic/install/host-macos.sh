@@ -11,9 +11,36 @@ podman_machine_size(){
   MACHINE_CPUS="$cpus"
 }
 
+autorestart_state(){ # -> on | off | unsupported
+  case "$(pmset -g 2>/dev/null | awk '$1=="autorestart"{print $2}')" in 1) echo on ;; 0) echo off ;; *) echo unsupported ;; esac
+}
+
+root_steps_pending(){ # : the host steps that need sudo, comma-separated; nothing when none
+  local out='' d
+  command -v brew >/dev/null 2>&1 || out="Homebrew install"
+  [ "$(autorestart_state)" != off ] || out="${out:+${out}, }pmset autorestart"
+  . "${INSTALL_DIR}/dns.sh"
+  d="$(dns_root_pending "${LAN_NAME}")"; [ -z "$d" ] || out="${out:+${out}, }${d}"
+  printf '%s' "$out"
+}
+
+sudo_upfront(){ # : asks for the sudo password once, before any task runs, when a host step needs root; keeps it valid for the run
+  local why
+  [ "${DRY}" != 1 ] || return 0
+  why="$(root_steps_pending)"
+  [ -n "$why" ] || { skip "no host step needs sudo"; return 0; }
+  if ! sudo -n true 2>/dev/null; then
+    [ -t 0 ] || fail "these steps need sudo: ${why}. Run the installer from a terminal, which asks for the password once at the start"
+    info "these steps need sudo: ${why}; asking for the password now, so the rest runs unattended"
+    sudo -v || fail "sudo refused"
+  fi
+  ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 50; done ) >/dev/null 2>&1 &
+  ok "sudo ready for: ${why}"
+}
+
 host_macos(){
   if [ "${DRY}" = 1 ]; then
-    info "would install Homebrew + podman/docker-compose/jq via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login, and set power-on after a power failure"
+    info "would install Homebrew + podman/docker-compose/jq/gettext via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login, and set power-on after a power failure"
     return 0
   fi
 
@@ -24,7 +51,7 @@ host_macos(){
   fi
 
   require_cmd brew
-  for pkg in podman docker-compose jq; do
+  for pkg in podman docker-compose jq gettext; do   # gettext: envsubst, for the connector generators
     if brew list --formula "$pkg" >/dev/null 2>&1; then skip "$pkg installed"; else run brew install "$pkg"; fi
   done
 
@@ -82,8 +109,12 @@ EOF"
     run launchctl load "$plist"
     ok "LaunchAgent installed: ${plist}"
   else skip "LaunchAgent present"; fi
-  # A portable has no autorestart setting; pmset refuses it and the install goes on.
-  sudo pmset -a autorestart 1 2>/dev/null && ok "powers on after a power failure" || warn "this Mac does not offer power-on after a power failure (pmset autorestart)"
+  # A portable has no autorestart setting; the install goes on without it.
+  case "$(autorestart_state)" in
+    on)  skip "powers on after a power failure" ;;
+    off) sudo -n pmset -a autorestart 1 2>/dev/null && ok "powers on after a power failure" || warn "pmset autorestart needs sudo: the installer asks for it when it starts; run it from a terminal" ;;
+    *)   warn "this Mac does not offer power-on after a power failure (pmset autorestart)" ;;
+  esac
   [ -n "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)" ] && ok "automatic login is on" \
     || warn "automatic login is off: after a power cut nothing starts until someone logs in. Turn it on in System Settings > Users & Groups"
   case "$(fdesetup status 2>/dev/null || true)" in *"FileVault is Off"*) true ;; *) false ;; esac && ok "FileVault is off" \
@@ -93,7 +124,8 @@ EOF"
   # ip_unprivileged_port_start (1024 by default); lower it to 80 there, and
   # persist it. A rootful machine is not the fix: its storage is separate,
   # and this node's databases live on the rootless one's volumes.
-  run podman machine ssh "printf 'net.ipv4.ip_unprivileged_port_start=80\n' | sudo tee /etc/sysctl.d/90-clinic-low-ports.conf >/dev/null && sudo sysctl -q --system"
+  # sysctl --system applies /etc/sysctl.conf last, so a value set there is rewritten too.
+  run podman machine ssh "printf 'net.ipv4.ip_unprivileged_port_start=80\n' | sudo tee /etc/sysctl.d/90-clinic-low-ports.conf >/dev/null && sudo sed -i 's/^net.ipv4.ip_unprivileged_port_start=.*/net.ipv4.ip_unprivileged_port_start=80/' /etc/sysctl.conf && sudo sysctl -q --system"
   # The machine has no swap by default: when the stack's peak (a restore, a
   # first boot) outgrows the machine, the kernel kills a database instead of
   # slowing down. A 4 GiB swapfile, persisted in fstab.

@@ -54,8 +54,7 @@ clinic/config/kafka-connect/*.jar
 # docker-compose.yml:453. Docker creates a DIRECTORY at a bind-mount source
 # that does not exist, so `setup-mirrormaker.sh` must run BEFORE the first
 # `docker compose up` on a new node -- otherwise MirrorMaker starts against an
-# empty directory. (That failure is what the old install-clinic.sh warning was
-# describing when it called this path "an empty DIRECTORY in the tree".)
+# empty directory.
 # Rendered MirrorMaker config, both paths. setup-mirrormaker.sh produces these
 # from the .template files beside them; they are per-node OUTPUT carrying a real
 # broker host and this node's consumer group ids, so they must never be

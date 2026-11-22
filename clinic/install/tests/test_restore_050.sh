@@ -43,8 +43,7 @@ code="$(grep -vE '^[[:space:]]*#' "$T50")"
 printf '%s' "$code" | grep -q 'restore_state ' && ok_ "050 decides through restore_state" || bad "050 does not call restore_state"
 printf '%s' "$code" | grep -q 'restore_revert_sql' && printf '%s' "$code" | grep -q 'trap ' && ok_ "050 reverts the settings on any exit" || bad "050 has no revert trap"
 printf '%s' "$code" | grep -q 'still restoring' && ok_ "050 reports progress while it restores" || bad "050 restores in silence"
-outside="$(sed '/# drop-dbs:begin/,/# drop-dbs:end/d' "$T50" | grep -vE '^[[:space:]]*#')"
-printf '%s' "$outside" | grep -qE 'DROP DATABASE' && bad "050 drops a database outside its one checked drop routine" || ok_ "050 drops databases only in its checked drop routine"
+printf '%s' "$code" | grep -qE 'DROP DATABASE' && bad "050 drops a database" || ok_ "050 never drops a database: one already there is kept"
 
 # the dumps come from the seed folder
 grep -q '^D="${SEED_DIR}"$' "$T50" && ok_ "050 restores from the seed folder" || bad "050 does not restore from SEED_DIR"
@@ -57,14 +56,10 @@ printf '%s' "$ds" | grep -qF "'app'@'localhost'" && ok_ "every distinct definer 
 [ "$(printf '%s\n' "$ds" | grep -c 'CREATE USER')" = 2 ] && ok_ "each definer once" || bad "duplicates: $ds"
 [ -z "$(printf 'INSERT INTO x VALUES (1);\n' | call definer_sql)" ] && ok_ "a dump with no definer yields nothing" || bad "no-definer dump produced output"
 grep -q 'definer_sql' "$T50" && grep -q 'gunzip -c "${D}/openmrs.sql.gz" | definer_sql' "$T50" && ok_ "050 creates the definers before the load" || bad "050 does not create definer accounts"
-# a run that stopped part-way is redone: every run drops before it restores
-grep -q '^drop_all_dbs "restoring the hub' "$T50" && ok_ "050 drops any earlier restore before it restores" || bad "050 does not drop before restoring"
-# the drop is checked, never replicated
-drop="$(sed -n '/# drop-dbs:begin/,/# drop-dbs:end/p' "$T50")"
-[ -n "$drop" ] && ok_ "050 has one drop routine" || bad "050 has no drop-dbs block"
-printf '%s' "$drop" | grep -q 'sql_log_bin=0' && ok_ "the MySQL drop is kept out of the binlog" || bad "the MySQL drop would be replicated"
-printf '%s' "$drop" | grep -q 'ON_ERROR_STOP=1' && ok_ "a failed Postgres drop stops the task" || bad "a failed Postgres drop passes silently"
-printf '%s' "$drop" | grep -q 'still there after the drop' && ok_ "each drop is read back" || bad "the drop is not read back"
+# a re-run keeps what is there: openmrs is skipped by its marker, odoo and openelis when they exist
+printf '%s' "$code" | grep -q 'skip "database $db exists"' && ok_ "050 keeps an existing odoo or openelis database" || bad "050 does not skip an existing Postgres database"
+# the floors are measured from the restored data once, then kept
+printf '%s' "$code" | grep -q 'record_seed_floors "${REPO_DIR}/sync/tables/openmrs.conf" max_id' && ok_ "050 records the obs and orders floors from the restored data" || bad "050 does not record the floors"
 # a module changeset id longer than 63 characters cannot be recorded in a
 # varchar(63) changelog: the module then fails to start on every boot
 grep -q 'MODIFY ID VARCHAR(255)' "$T50" && ok_ "050 widens liquibasechangelog.ID so long changeset ids can be recorded" || bad "050 leaves liquibasechangelog.ID at the dump's width"

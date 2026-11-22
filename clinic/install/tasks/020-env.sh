@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Writes clinic/.env: the clinic's identity, paths, generated passwords, image versions and hub settings.
+# Writes clinic/.env: the clinic's identity, paths, generated passwords, image versions and hub settings; every value an existing clinic/.env holds is kept.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "20 · clinic/.env"
 E="${CLINIC_DIR}/.env"
 X="${CLINIC_DIR}/.env.example"
 [ -f "$X" ] || fail "no ${X}"
-[ ! -e "$E" ] || fail "${E} exists -- fresh install only"
 T="$(mktemp "${CLINIC_DIR}/.env.render.XXXXXX")"; cp "$X" "$T"
 put(){ env_put "$T" "$1" "$2"; }
 
@@ -25,7 +24,8 @@ mkdir -p "${CLINIC_DIR}/config/mysql"
 mysql_tuning_cnf "$pool_mb" > "${CLINIC_DIR}/config/mysql/sync-tuning.cnf"
 ok "mysql tuning: buffer pool ${pool_mb} MB (node memory ${mem_mb} MB), redo log 512 MB -> config/mysql/sync-tuning.cnf"
 
-for k in BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME; do
+IDENTITY_KEYS="BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME"
+for k in $IDENTITY_KEYS; do
   eval "put $k \"\${$k}\""
 done
 
@@ -44,7 +44,7 @@ put REMOTE_SERVER_NAME bahmni-cloud
 put MM2_REMOTE_ALIAS remote
 put ODOO_HOST odoo; put ODOO_PORT 8069
 versions_put "$T"   # every fleet pin from sync/versions.env, the one place they live
-put ODOO_ATOMFEED_USER "${ODOO_ATOMFEED_USER:-emrsync}"   # the hub's own Odoo feed login, an answer (lib.sh ANSWER_DEFAULTS)
+put ODOO_ATOMFEED_USER "${ODOO_ATOMFEED_USER:-emrsync}"   # the hub's own Odoo feed login (lib.sh INPUT_DEFAULTS)
 put HEIGHT_CONCEPT_UUID 5090AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put WEIGHT_CONCEPT_UUID 5089AAAAAAAAAAAAAAAAAAAAAAAAAAAA
 put MAIL_USER ""; put MAIL_PASSWORD ""; put MAIL_FROM none@localhost
@@ -79,6 +79,27 @@ put LOCAL_MYSQL_PASSWORD "$(gen_secret)"
 
 put ODOO_SINK_PASSWORD "$(gen_secret)"; put CLINLIMS_SINK_PASSWORD "$(gen_secret)"
 
+DERIVED_KEYS="${IDENTITY_KEYS} CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER LAN_NAME $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "${VERSIONS_FILE}" | tr '\n' ' ')"
+RETIRED_KEYS="KAFKA_TOPICS KAFKA_TOPIC_PATTERNS"   # setup-mirrormaker.sh derives both from MYSQL_SERVER_NAME; an older .env's copies name the old server
+if [ -f "$E" ] && ! head -n 1 "$E" | grep -q '^# DRY-RUN RENDER'; then
+  n=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in [A-Za-z_]*=*) ;; *) continue ;; esac
+    k="${line%%=*}"; v="${line#*=}"
+    case "$v" in
+      \"*\") v="${v#\"}"; v="${v%\"}" ;;   # env_put re-quotes
+      \'*\') v="${v#\'}"; v="${v%\'}" ;;
+      *) v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+#.*$//')" ;;   # an unquoted value's inline comment is not part of it (compose reads it the same way)
+    esac
+    [ -n "$v" ] || continue
+    case " ${DERIVED_KEYS} ${RETIRED_KEYS} " in *" $k "*) continue ;; esac   # derived from CLINIC_SLUG and RESIDUE, or pinned in sync/versions.env
+    put "$k" "$v"; n=$((n + 1))
+  done < "$E"
+  ok "kept ${n} values from the existing ${E}"
+  if [ "${DRY}" = 1 ]; then rm -f "$T"; ok "would re-render ${E}, its values kept (dry run: left as it is)"; exit 0; fi
+  cp -p "$E" "${E}.prev"
+fi
+
 left="$(has_placeholders "$T" "MAIL_USER MAIL_PASSWORD" | tr '\n' ' ')"
 [ -z "$left" ] || { rm -f "$T"; fail "placeholders left unfilled: ${left}"; }
 chmod 600 "$T"
@@ -96,8 +117,9 @@ setup_compose
 mv "$T" "$E"
 if ! compose config >/dev/null 2>"${CLINIC_DIR}/.env.render.err"; then
   mv "$E" "${CLINIC_DIR}/.env.rejected"
-  fail "compose config rejected the rendered env (kept as .env.rejected): $(head -c 300 "${CLINIC_DIR}/.env.render.err")"
+  [ ! -f "${E}.prev" ] || mv "${E}.prev" "$E"
+  fail "compose config rejected the rendered env (kept as .env.rejected; the previous .env is back in place): $(head -c 300 "${CLINIC_DIR}/.env.render.err")"
 fi
 
-rm -f "${CLINIC_DIR}/.env.render.err"
+rm -f "${CLINIC_DIR}/.env.render.err" "${E}.prev"
 ok "rendered ${E}; compose config passes; COMPOSE_PROJECT_NAME=$(env_get "$E" COMPOSE_PROJECT_NAME)"

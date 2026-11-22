@@ -49,5 +49,11 @@ for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect
 J="${CLINIC_DIR}/config/kafka-connect"
 GV="$(env_get "$E" GROOVY_VERSION)"
 DSV="$(env_get "$E" DEBEZIUM_SCRIPTING_VERSION)"
-if ls "$J/ext/groovy-${GV}.jar" "$J/ext/groovy-jsr223-${GV}.jar" "$J/ext/debezium-scripting-${DSV}.jar" >/dev/null 2>&1; then skip "scripting jars present"; else bash "$J/ext/fetch-scripting-jars.sh" >/dev/null; fi
-ok "jars: 3 scripting"
+jars="$J/ext/groovy-${GV}.jar $J/ext/groovy-jsr223-${GV}.jar $J/ext/debezium-scripting-${DSV}.jar"
+jars_ok(){ local j; for j in $jars; do [ -f "$j" ] && [ -s "$j" ] || return 1; done; }
+if jars_ok; then skip "scripting jars present"; else
+  for j in $jars; do [ ! -d "$j" ] || rmdir "$j" || fail "${j} is a non-empty directory where the jar belongs"; done   # podman makes an empty directory for a bind source that is missing
+  bash "$J/ext/fetch-scripting-jars.sh" >/dev/null || fail "the scripting jars could not be fetched from Maven Central"
+  ! ct container exists kafka-connect || { ct rm -f kafka-connect >/dev/null && info "kafka-connect removed: it mounted the jars' old paths; task 090 starts it again"; }
+fi
+jars_ok && ok "jars: 3 scripting" || fail "scripting jars missing or empty after the fetch: ${jars}"

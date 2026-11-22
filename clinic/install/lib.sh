@@ -20,7 +20,7 @@ port_in_use(){
 INSTALL_BRANCH="${INSTALL_BRANCH:-main}"
 CLINIC_DIR="${CLINIC_DIR:-$(cd "${INSTALL_DIR}/.." && pwd)}"
 REPO_DIR="${REPO_DIR:-$(cd "${CLINIC_DIR}/.." && pwd)}"
-LEDGER="${LEDGER:-${REPO_DIR}/sync/clinics.txt}"
+CLINICS_JSON="${CLINICS_JSON:-${REPO_DIR}/sync/clinics.json}"
 DRY="${DRY:-0}"
 PROFILES="--profile local --profile debezium --profile openelis"
 
@@ -71,9 +71,12 @@ ct(){ "${CT:?setup_compose first}" "$@"; }
 compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILES} "$@" ); }
 
 env_put(){
-  local f="$1" k="$2" v="$3"
+  local f="$1" k="$2" v="$3" bare
+  bare="$(printf '%s' "$v" | sed -E 's/\$\{[A-Za-z_][A-Za-z0-9_]*\}//g')"   # ${NAME} references stay unquoted so compose expands them
   case "$v" in
     *"'"*) fail "env_put: ${k}: a value containing a single quote cannot be stored in .env (bash and docker compose disagree on its meaning); choose another value" ;;
+  esac
+  case "$bare" in
     *[!A-Za-z0-9_./:@+=-]*) v="'$v'" ;;
   esac
 
@@ -206,8 +209,14 @@ derive_identity(){
   export BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME
 }
 
-ledger_residue(){ awk -F: -v s="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" '$0 !~ /^[[:space:]]*#/ && NF==2 && tolower($1)==s {print $2; exit}' "${LEDGER}"; }
-ledger_conflicts(){ awk -F: -v s="$(printf '%s' "$1" | tr 'A-Z' 'a-z')" -v r="$2" '$0 !~ /^[[:space:]]*#/ && NF==2 && $2==r && tolower($1)!=s {print tolower($1)}' "${LEDGER}"; }
+clinic_get(){ # SLUG FIELD -> the field from sync/clinics.json; nothing when absent or null
+  jq -r --arg s "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" --arg f "$2" '.[$s][$f] // empty' "${CLINICS_JSON}" || fail "${CLINICS_JSON} is not valid JSON"
+}
+clinic_known(){ jq -e --arg s "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" 'has($s)' "${CLINICS_JSON}" >/dev/null; }
+clinic_residue(){ clinic_get "$1" site_number; }   # a clinic's site number is its residue
+residue_conflicts(){ # SLUG RESIDUE -> every other clinic whose site number is RESIDUE
+  jq -r --arg s "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" --argjson r "$2" 'to_entries[] | select(.key != $s and .value.site_number == $r) | .key' "${CLINICS_JSON}"
+}
 
 has_placeholders(){
   local f="$1" allow=" ${2:-} " k
@@ -222,18 +231,16 @@ refuse_inherited_alias(){ # ALIAS SLUG
   [ "$1" = "$2" ] || fail "LOCAL_CLUSTER_ALIAS '$1' is not this node's slug '$2' -- an alias inherited from another node's env; a node takes its own slug"
 }
 
-FLEET_DIR="${FLEET_DIR:-${REPO_DIR}/sync/fleet}"
-HUB_ENV="${HUB_ENV:-${REPO_DIR}/sync/hub.env}"
-ANSWERS_DIR="${ANSWERS_DIR:-${HOME}}"
-ANSWER_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
+INPUT_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
 
-ANSWER_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"
-answer_defaults_apply(){ local kv k; for kv in $ANSWER_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
+INPUT_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"
+input_defaults_apply(){ local kv k; for kv in $INPUT_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+HUB_KEYS="REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_SECURITY_PROTOCOL"   # the hub endpoint, from clinic/.env
 
 hub_protocol(){
   local p="${REMOTE_KAFKA_SECURITY_PROTOCOL:-}"
-  [ -n "$p" ] || p="$(env_get "${HUB_ENV}" REMOTE_KAFKA_SECURITY_PROTOCOL 2>/dev/null || true)"
+  [ -n "$p" ] || p="$(env_get "${CLINIC_DIR}/.env" REMOTE_KAFKA_SECURITY_PROTOCOL 2>/dev/null || true)"
   printf '%s\n' "${p:-SASL_SSL}"
 }
 
@@ -257,7 +264,7 @@ hub_truststore(){
   case "$listing" in *"hub, "*) return 0 ;; *) fail "the truststore does not open with REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD or holds no hub certificate" ;; esac
 }
 
-fleet_slugs(){ local f; for f in "${FLEET_DIR}"/*.env; do [ -f "$f" ] || continue; basename "$f" .env; done; }
+clinic_slugs(){ jq -r 'keys_unsorted[] | select(. != "cloud")' "${CLINICS_JSON}"; }
 
 node_mem_mb(){ # memory the database server can see, in MB; NODE_MEM_MB overrides
   if [ -n "${NODE_MEM_MB:-}" ]; then printf '%s\n' "$NODE_MEM_MB"; return; fi
@@ -281,38 +288,28 @@ mysql_tuning_cnf(){ # POOL_MB -> the conf.d file's text
 
 mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -N -e "select 1"' 2>/dev/null)" = 1 ]; }
 
-fleet_file(){ local f="${FLEET_DIR}/$(printf '%s' "$1" | tr 'A-Z' 'a-z').env"; [ -f "$f" ] && printf '%s\n' "$f"; }
+clinic_table(){ jq -r 'to_entries[] | select(.key != "cloud") | "  \(.key | . + "          " | .[0:10]) site \(.value.site_number // "-" | tostring | . + "  " | .[0:2])  MRN \(.value.mrn_prefix // "-")"' "${CLINICS_JSON}"; }
 
-fleet_table(){ local s r; for s in $(fleet_slugs); do r="$(ledger_residue "$s")"; printf '  %-10s residue %-2s  MRN %s\n' "$s" "${r:--}" "$(env_get "$(fleet_file "$s")" MRN_PREFIX)"; done; return 0; }
+OPTIONAL_INPUT_KEYS="REMOTE_KAFKA_SECURITY_PROTOCOL FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"
 
-answers_missing(){ local k; for k in $ANSWER_KEYS; do case " $ANSWER_DEFAULTS" in *" $k="*) continue ;; esac; [ -n "$(env_get "$1" "$k")" ] || printf '%s\n' "$k"; done; return 0; }
-
-OPTIONAL_ANSWER_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"
-
-answers_write(){
-  local f="$1" k v; ( umask 077; : > "$f" ); chmod 600 "$f"
-  for k in $ANSWER_KEYS; do eval "v=\${$k:-}"; env_put "$f" "$k" "$v"; done
-  for k in $OPTIONAL_ANSWER_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || env_put "$f" "$k" "$v"; done
-}
-
-interactive(){ [ -t 0 ] || [ "${INSTALL_INTERACTIVE:-0}" = 1 ]; }
+gen_password(){ python3 -c 'import secrets,string
+while True:
+    p = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
+    if any(c.islower() for c in p) and any(c.isupper() for c in p): print(p); break'; }
 
 ask(){
-  local var="$1" prompt="$2" def="${3:-}" where="$4" v
+  local var="$1" def="${3:-}" where="$4" v
   eval "v=\${$var:-}"; [ -z "$v" ] || return 0
-  interactive || fail "${var} is not set and there is no terminal to ask on: set it in ${where}"
-  printf '  %s [%s]: ' "$prompt" "$def" >&2; IFS= read -r v || v=""
-  [ -n "$v" ] || v="$def"
-  [ -n "$v" ] || fail "${var} needs a value (${where})"
+  v="$def"
+  [ -n "$v" ] || fail "${var} needs a value: set it in ${where}"
   eval "$var=\$v"; export "$var"
 }
 
 ask_secret(){
-  local var="$1" where="$2" v
+  local var="$1" v
   eval "v=\${$var:-}"; [ -z "$v" ] || return 0
-  interactive || fail "${var} is not set and there is no terminal to ask on: put it in ${where}"
-  printf '  %s (hidden): ' "$var" >&2; IFS= read -r -s v || v=""; printf '\n' >&2
-  [ -n "$v" ] || fail "${var} needs a value (${where})"
+  v="$(gen_password)"
+  info "${var}: none given; generated a new one"
   eval "$var=\$v"; export "$var"
 }
 
@@ -460,30 +457,6 @@ image_choices_load(){
   done < "$f"
 }
 
-image_keys_from(){
-  local f="$1" k v
-  for k in $IMAGE_KEYS; do v="$(env_get "$f" "$k")"; [ -z "$v" ] || { eval "$k=\$v"; export "$k"; }; done
-}
-
-image_choose(){
-  local a k v cur
-  interactive || return 0
-  printf '  application image versions (sync/versions.env): keep the defaults? [Y/n]: ' >&2
-  IFS= read -r a || a=""
-  case "$a" in n|N|no|NO|No) ;; *) return 0 ;; esac
-  printf '  for each image, Enter keeps the value shown; a bare tag keeps the image name\n' >&2
-  for k in $IMAGE_KEYS; do
-    eval "cur=\${$k:-}"; [ -n "$cur" ] || cur="$(pin_get "$k")"
-    printf '  %s [%s]: ' "$k" "$cur" >&2; IFS= read -r v || v=""
-    image_set "$k" "${v:-$cur}"
-  done
-}
-
-image_choices_write(){
-  local f="$1" k v
-  for k in $IMAGE_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || [ "$v" = "$(pin_get "$k")" ] || env_put "$f" "$k" "$v"; done
-}
-
 image_choices_report(){
   local k v p n=0
   for k in $IMAGE_KEYS; do
@@ -539,7 +512,7 @@ capture_filter_check(){
   fi
 
   off="$(printf 'select @@global.auto_increment_offset' | ct exec -i "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
-  floors="${SEED_DIR:-}/manifest.env"; [ -f "$floors" ] || floors="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
+  floors="${STATE_FILE:-${CLINIC_DIR}/.install-state}"
   v="$(origin_filter_verdict "$reg" "${REPO_DIR}/sync/tables/openmrs.conf" "$floors" "$off")"
   rc=$?
   rm -f "$reg"
@@ -641,24 +614,5 @@ clinlims_down_sink_check(){
   curl -s --max-time 10 "${CONNECT_URL:-http://localhost:8083}/connectors/clinlims-clinic-sink-all/config" > "$c" 2>/dev/null || true
   clinlims_down_sink_verdict "$s" "$c"; rc=$?
   rm -f "$s" "$c"; return "$rc"
-}
-
-provenance_content_lines(){
-  local rec="$1" my="$2" d rc=0
-  d="$(mktemp -d)"; mkdir -p "$d/clinic/scripts" "$d/clinic/install" "$d/cloud" "$d/sync/tables"
-  cp "${REPO_DIR}/clinic/scripts/master-checksum.sh" "${REPO_DIR}/clinic/scripts/checksum-exclusions.conf" "$d/clinic/scripts/"
-  cp "${REPO_DIR}/clinic/install/lib.sh" "$d/clinic/install/"
-  cp "${REPO_DIR}/sync/tables/tables.sh" "$d/sync/tables/"
-  cp "${REPO_DIR}/cloud/table-verdicts.conf" "$d/cloud/"
-  { printf '[up]\n[down]\n'; awk -F'\t' '$1=="content" {print $2}' "$rec"; } > "$d/sync/tables/openmrs.conf"
-  REPO_DIR="$d" CLINIC_DIR="$d/clinic" CT="${CT:-}" bash "$d/clinic/scripts/master-checksum.sh" --container "$my" || rc=$?
-  rm -rf "$d"; return "$rc"
-}
-
-clinic_fk_rows(){
-  local rows
-  rows="$(printf '%s\n' "${CLINIC_FK_READ_SQL}" | ct exec -i "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -B' 2>/dev/null || true)"
-  [ -n "$rows" ] || return 1
-  printf '%s\n' "$rows"
 }
 

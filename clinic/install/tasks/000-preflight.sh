@@ -4,12 +4,12 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "00 · preflight"
 
-r="$(ledger_residue "${CLINIC_SLUG}")"
-[ -n "$r" ] || fail "no row for '${CLINIC_SLUG}' in ${LEDGER}. the operator allocates first (skills/install-clinic.sh allocate ${CLINIC_SLUG} ${RESIDUE} -- the row is ${CLINIC_SLUG}:${RESIDUE}), commits, pushes, and this checkout pulls"
-[ "$r" = "${RESIDUE}" ] || fail "ledger says ${CLINIC_SLUG}:${r} but the answers say RESIDUE=${RESIDUE}; the ledger wins -- fix the answers"
-c="$(ledger_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
-[ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.txt"
-ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in the ledger"
+r="$(clinic_residue "${CLINIC_SLUG}")"
+[ -n "$r" ] || fail "'${CLINIC_SLUG}' has no site_number in ${CLINICS_JSON}: the operator sets it there, commits, pushes, and this checkout pulls"
+[ "$r" = "${RESIDUE}" ] || fail "sync/clinics.json gives ${CLINIC_SLUG} site_number ${r}, but clinic/.env says RESIDUE=${RESIDUE}; sync/clinics.json wins -- fix RESIDUE in clinic/.env"
+c="$(residue_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
+[ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.json"
+ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in sync/clinics.json"
 refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
 
 # counters:begin
@@ -37,17 +37,6 @@ $v
 EOF
 
 # counters:end
-# fk-set:begin
-preflight_fk_read(){
-  if [ -n "${PREFLIGHT_FK_ROWS:-}" ]; then cat "${PREFLIGHT_FK_ROWS}"; return 0; fi
-  [ -n "${CT:-}" ] || setup_compose
-  clinic_fk_rows "$(env_get "${CLINIC_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null || true)-bahmni-mysql-1"
-}
-
-v="$(node_fk_verdict "$(stamp_get STATE)" "${PROVENANCE_COPY}" preflight_fk_read)" || fail "$v"
-case "$v" in skip\ *) ok "${v#skip }" ;; *) ok "${v#ok }" ;; esac
-
-# fk-set:end
 
 # fresh-only:begin
 if [ -e "${CLINIC_DIR}/.env" ]; then
@@ -60,11 +49,11 @@ if [ -e "${CLINIC_DIR}/.env" ]; then
       info "clinic/.env was a dry-run leftover; moved aside to ${aside}"
     fi
   else
-    fail "${CLINIC_DIR}/.env already exists -- this installer does fresh installs only; remove it consciously if this node is being rebuilt"
+    ok "clinic/.env exists: task 020 keeps every value it holds"
   fi
+else
+  ok "no clinic/.env yet"
 fi
-
-ok "no live clinic/.env yet"
 
 # fresh-only:end
 
@@ -106,11 +95,14 @@ else
 fi
 
 # macos-facts:end
-for p in 80 443 5433 8052 8083 9092; do
-  port_in_use "$p" && fail "port $p is already in use on this host (netstat -an | grep LISTEN names the holder's address)"
+published="$(podman ps --format '{{.Names}} {{.Ports}}' 2>/dev/null || true)"
+for p in 80 443 5432 8052 8083 9092; do
+  holder="$(printf '%s\n' "$published" | awk -v p=":${p}->" 'index($0, p) {print $1; exit}')"
+  if [ -n "$holder" ]; then ok "port $p held by this node's container ${holder}"
+  elif port_in_use "$p"; then fail "port $p is already in use on this host (netstat -an | grep LISTEN names the holder's address)"
+  else ok "port $p free"; fi
 done
 
-ok "ports 80 443 5433 8052 8083 9092 free"
 want_br="${EXPECTED_BRANCH:-${INSTALL_BRANCH}}"
 br="$(git -C "${REPO_DIR}" branch --show-current 2>/dev/null || true)"
 [ "$br" = "$want_br" ] && ok "checkout on ${want_br} ($(git -C "${REPO_DIR}" rev-parse --short HEAD))" || fail "checkout is on '${br}', expected ${want_br} (EXPECTED_BRANCH overrides, e.g. to install from a branch under test)"

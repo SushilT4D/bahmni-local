@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Final checks: every page answers, the counters are in range, and a test value round-trips through the apps.
+# Final checks: every page answers and the counters are in range.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "100 · exit checks"
-[ "${DRY}" = 1 ] && { info "would: fetch the OpenMRS, OpenELIS and Odoo login pages through ${LAN_NAME}; at seed also run preflight.sh and a marker round-trip"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: fetch the OpenMRS, OpenELIS and Odoo login pages through ${LAN_NAME}; at seed also run preflight.sh"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 
 N="${LAN_NAME}"
@@ -69,45 +69,7 @@ v="$(clinlims_down_sink_check)" || fail "$v"
 ok "${v#ok }"
 
 . "${INSTALL_DIR}/state.sh"
-fk_rows="$(clinic_fk_rows "$MY")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
-v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
-ok "${v#ok }"
 
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
 v="$(order_seed_verdict "$seed_now" "${RESIDUE}")" || fail "$v"
 ok "${v#ok }"
-PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
-
-# probe-row:begin
-mark="INSTALL-PROBE-${CLINIC_SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
-probe_id="$(printf "insert into res_partner (name, active, comment, create_date, write_date) values ('Install probe %s', true, '%s', now(), now()) returning id" "${CLINIC_SLUG}" "$mark" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null | head -1)"
-case "$probe_id" in ''|*[!0-9]*) fail "could not insert the install probe into res_partner (got '${probe_id:-nothing}')" ;; esac
-[ $(( probe_id % 10 )) -eq "${RESIDUE}" ] && ok "install probe row ${probe_id} on this node's residue ${RESIDUE}" || fail "install probe row ${probe_id} is not on residue ${RESIDUE}: res_partner_id_seq is not strided for this node"
-
-# probe-row:end
-xmlrpc_err="$(mktemp)"
-if got="$(python3 - "$mark" "${ODOO_ATOMFEED_USER}" "${ODOO_ATOMFEED_PASSWORD}" "${ODOO_PORT:-8069}" 2>"$xmlrpc_err" <<'PY'
-# xmlrpc-marker:begin
-# res.partner.comment is an HTML field in Odoo 16: "=" is compared against the
-# sanitised form (<p>...</p>) and never matches a value written as plain text,
-# so the search uses "like"; the value read back is still compared exactly.
-import sys, xmlrpc.client
-mark, user, pw, port = sys.argv[1:5]
-url = f"http://localhost:{port}"
-try:
-    uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common").authenticate("odoo", user, pw, {})
-    rows = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object").execute_kw("odoo", uid, pw, "res.partner", "search_read", [[["comment", "like", mark]]], {"fields": ["comment"], "limit": 1})
-    sys.stdout.write((rows[0]["comment"] if rows else "") + "\n")
-except Exception as e:
-    sys.stderr.write("odoo xml-rpc: %s: %s\n" % (type(e).__name__, str(e)[:200]))
-    sys.exit(1)
-# xmlrpc-marker:end
-PY
-)"; then
-  rm -f "$xmlrpc_err"
-else
-  xmlrpc_line="$(cat "$xmlrpc_err")"; rm -f "$xmlrpc_err"
-  fail "Odoo XML-RPC did not answer: ${xmlrpc_line:-no output} -- ${COMPOSE_CMD} logs odoo"
-fi
-
-check_eq "marker read back through Odoo XML-RPC" "$got" "$mark"

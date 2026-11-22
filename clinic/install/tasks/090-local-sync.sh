@@ -7,23 +7,6 @@ begin_task "90 · local sync"
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 . "${INSTALL_DIR}/state.sh"
 
-# provenance:begin
-if [ "$(stamp_get SYNC_STARTED)" = 1 ]; then
-  info "sync already started on this machine: the master tables were compared with the seed before it did, and the hub's changes have arrived since; not compared again"
-else
-  [ -s "${PROVENANCE_COPY}" ] || fail "no seed provenance record on this machine (${PROVENANCE_COPY}); the seed gate keeps one. Rerun the install from its seed gate (install.sh ... --from 005) or call the operator."
-  [ "$(sha256_of "${PROVENANCE_COPY}")" = "$(stamp_get PROVENANCE_SHA)" ] || fail "the seed provenance record on this machine (${PROVENANCE_COPY}) is not the one the seed gate kept; call the operator."
-  lines="$(provenance_content_lines "${PROVENANCE_COPY}" "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not checksum this clinic's master tables (clinic/scripts/master-checksum.sh failed above)"
-  v="$(provenance_content_verdict "${PROVENANCE_COPY}" "$lines" "$(sha256_of "${REPO_DIR}/clinic/scripts/master-checksum.sh")" "${REPO_DIR}/clinic/scripts/checksum-exclusions.conf")" || fail "$v"
-  ok "${v#ok }"
-  fk_rows="$(clinic_fk_rows "${COMPOSE_PROJECT_NAME}-bahmni-mysql-1")" || fail "could not read this clinic's foreign keys from MySQL; the database is not answering"
-  v="$(provenance_fk_verdict "${PROVENANCE_COPY}" "$fk_rows")" || fail "$v"
-  ok "${v#ok }"
-fi
-
-# provenance:end
-stamp_put SYNC_STARTED 1
-
 ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d kafka kafka-connect >/dev/null )
 connect_s="${CONNECT_BOOT_TIMEOUT_S:-1800}"
 info "waiting up to $((connect_s/60)) min for Kafka Connect's REST port (it scans every plugin first; CONNECT_BOOT_TIMEOUT_S overrides)"
@@ -41,7 +24,7 @@ plugins="$(curl -s localhost:8083/connector-plugins | jq -r '.[].class' | grep -
 til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
 [ -n "$til" ] && env_put "$E" TABLE_INCLUDE_LIST "$til"
 
-SEED_MANIFEST="${SEED_DIR:+${SEED_DIR}/manifest.env}" bash scripts/generate-connectors.sh >/dev/null \
+SEED_MANIFEST="${STATE_FILE}" bash scripts/generate-connectors.sh >/dev/null \
   || fail "the connector configs could not be generated (reason above)"
 bash scripts/register-connectors.sh mysql-source-connector >/dev/null
 

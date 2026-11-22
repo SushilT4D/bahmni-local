@@ -6,7 +6,7 @@ begin_task "60 · striding + replication origins (residue ${RESIDUE})"
 if [ "${DRY}" = 1 ]; then
   . "${INSTALL_DIR}/state.sh"
   ft="$(clinlims_floor_tables 2>&1)" || ft="<the down list could not be read: ${ft}>"
-  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the seed's floors; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (scripts/sql/openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
+  info "would: configure-pk-offsets.sh; lift the obs and orders id counters above the floors recorded in .install-state; set order.nextOrderNumberSeed in this clinic's range; record $(for t in $ft; do printf '%s ' "$(clinlims_floor_key "$t")"; done)in .install-state from each sequence's last value before the stride (kept if already recorded); stride clinlims sequences above their rows (scripts/sql/openelis/apply-sequence-striding.sql) and odoo sequences; apply-replication-origin.sql on odoo and openelis"
   exit 0
 fi
 
@@ -16,7 +16,8 @@ MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 
-CLINICS_FILE="${LEDGER}" MYSQL_CONTAINER="$MY" SEED_MANIFEST="${SEED_DIR}/manifest.env" bash scripts/configure-pk-offsets.sh >/dev/null
+. "${INSTALL_DIR}/state.sh"
+CLINICS_JSON="${CLINICS_JSON}" MYSQL_CONTAINER="$MY" SEED_MANIFEST="${STATE_FILE}" bash scripts/configure-pk-offsets.sh >/dev/null
 inc_off="$(printf 'select @@auto_increment_increment, @@auto_increment_offset' | mysql_root | tr '\t' ' ')"
 check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 
@@ -25,7 +26,7 @@ check_eq "mysql increment/offset" "$inc_off" "10 ${RESIDUE}"
 sc_ai(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | mysql_root 2>/dev/null | tail -1 || true; }
 for t in ${SEED_COUNTER_TABLES}; do
   fl="$(stamp_get "$(floor_key "$t")")"
-  [ -n "$fl" ] || fail "no ${t} floor is recorded on this machine, so its id counter cannot be set above the hub's rows. Rerun the install from its seed gate (install.sh ... --from 005) or call the operator."
+  [ -n "$fl" ] || fail "no ${t} floor is recorded on this machine, so its id counter cannot be set above the hub's rows. Rerun the databases step (install.sh ... --from 050) or call the operator."
 
   # floor-residue:begin
   v="$(seed_floor_residue_verdict "$t" "$fl" "$(seed_floor_residue_sql "$t" "$fl" | mysql_root 2>/dev/null | tail -1 || true)")" || fail "$v"
@@ -93,5 +94,5 @@ done
 [ -z "$address_seq_bad" ] && ok "address odoo sequences: increment 10, residue ${RESIDUE}" || fail "address odoo sequences off-residue:${address_seq_bad}"
 
 for db in odoo openelis; do ct exec -i "$PG" psql -U postgres -d "$db" -q -f /dev/stdin < scripts/sql/apply-replication-origin.sql >/dev/null; done
-origins="$(printf "select count(*) from pg_replication_origin where roname like 'hub_%%'" | ct exec -i "$PG" psql -U postgres -At)"
-[ "${origins:-0}" -ge 8 ] && ok "replication origins hub_1.. (${origins})" || fail "replication origins missing (${origins})"
+origins="$(printf "select count(*) from pg_replication_origin where roname in ('cloud_odoo','cloud_openelis')" | ct exec -i "$PG" psql -U postgres -At)"
+[ "${origins:-0}" -eq 2 ] && ok "replication origins cloud_odoo and cloud_openelis" || fail "replication origins missing: ${origins:-0} of cloud_odoo, cloud_openelis"

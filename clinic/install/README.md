@@ -26,14 +26,14 @@ names with its current address; the clinic router must hand out this machine as 
 ONLY DNS server and reserve its address. To test from another computer without the
 router, point both names at the machine in that computer's hosts file.
 
-`--clinic` composes the twelve answers itself: identity from `sync/fleet/<slug>.env`
-(MRN prefix, site number, phone), the residue from `sync/clinics.txt` (the only
-place it lives), the hub endpoint from `sync/hub.env`, and the four hub credentials
-from `--secrets` (the operator's hub secrets file). Whatever
-is still missing is asked on the terminal, and the result is kept in `~/clinic-<slug>.env` (mode
-600) so a resume needs nothing typed again. With no terminal and a value missing
-it fails naming the file to put it in. `--answers <file>` remains the hand-written
-path for a clinic that is not registered (`clinic.env.example`).
+`clinic/.env` is the source of truth: every value it holds is used as it is. A
+value it lacks comes from `sync/clinics.json` (site number, which is also the
+residue, and MRN prefix) or `--secrets` (the hub credentials); a feed
+password still missing is generated. Task 020 writes them all into `clinic/.env`,
+so a resume reads them back from there. The hub endpoint
+(`REMOTE_KAFKA_BOOTSTRAP_SERVERS`, `REMOTE_KAFKA_USERNAME`,
+`REMOTE_KAFKA_SECURITY_PROTOCOL`) must be in `clinic/.env`. A `clinic/.env` whose
+`BHS_LOCATION` names another clinic stops the install.
 
 ## Application image versions
 
@@ -66,10 +66,10 @@ Two ways to choose, like the hub secrets:
   `keep the defaults? [Y/n]`; answering `n` shows each image with its default, and
   Enter keeps it.
 
-Each image that differs from its default is kept in `~/clinic-<slug>.env`, so a
-resume makes the same choice; it is written into `clinic/.env`, and later tasks read
-it from there. The run log names every image that differs. To choose again, pass
-`--versions`, or delete the answers file.
+An image that differs from its default is written into `clinic/.env`, and later
+tasks read it from there. Task 020 writes the defaults again on a run without
+`--versions`, so the resume command the installer prints carries `--versions`.
+The run log names every image that differs.
 
 OpenMRS, Odoo and OpenELIS change their database schema when they start, and the
 hub holds the same tables. A version of these three that differs from the hub's
@@ -80,15 +80,15 @@ domains"; the master data itself comes from the hub), so a config version
 other than the hub's needs its changes read first, and a new folder in it is
 refused before the stack starts.
 
-The hub link is SASL over TLS when `sync/hub.env` says
+The hub link is SASL over TLS when `clinic/.env` says
 `REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`: task 090 builds MirrorMaker's
 truststore from the hub's certificate in `sync/hub-ca.pem`, and task 020 stops
 if that file is missing. `SASL_PLAINTEXT` is for a hub that has no certificate;
 the password and every record then cross the network unencrypted.
 
-Registered today: manpur, bedawal, ghated, rawach, bagdunda, kojawada (residues
-1–6), azure (7, the test clinic), and morwal, which has no residue and is refused
-until the operator allocates one. Secrets are never in the repo: it is public.
+Registered today: manpur, bedawal, ghated, rawach, bagdunda, kojawada (site
+numbers 1–6), and morwal, which has no site number and is refused until the
+operator sets one in `sync/clinics.json`. Secrets are never in the repo: it is public.
 
 Tasks run in order and each ends with a check read back from the live system;
 a failing check stops the run and prints how to resume (`--from NNN`); a bare
@@ -101,14 +101,14 @@ a crash loop: it fails at once with the log lines instead of after 25 minutes. E
 task is idempotent (it skips what is already done), but this is a FRESH-INSTALL
 tool: an existing `clinic/.env` is a refusal.
 
-It refuses to start when: the slug is not registered, or has no row in
-`sync/clinics.txt`, or another row holds its residue (the operator allocates,
+It refuses to start when: the slug is not in `sync/clinics.json`, or has no
+site number there, or another clinic holds its site number (the operator allocates,
 commits, pushes first); `clinic/.env` exists;
 the alias would be another node's; disk < 45 GB (`CLINIC_MIN_DISK_GB`), RAM < 8 GB (a Mac needs 16 GB: its podman machine gets 10 GB), or a stack port is
 taken.
 
 It never touches the hub, the ledgers or GitHub. Task 110 prints the hub join
-for the operator (`skills/install-clinic.sh join <slug>` in the workspace).
+for the operator ("Per clinic" in `cloud/SETUP.md`, run on the hub).
 
 Not in this version: upgrades of an existing node, per-site certificates (mTLS) or ACLs (unmet fleet-wide),
 a per-node registration `defaultIdentifierPrefix` (task 070 prints the edit).
@@ -155,20 +155,19 @@ author them:
   that write (see "Master data writes refused at the proxy" below).
 - **No forms from the Initializer** (see "Initializer domains" below).
 
-Two answers name the forms repo:
+Two values name the forms repo:
 
 | Key | Value |
 |---|---|
 | `FORMS_REPO_URL` | the repo's SSH clone address |
 | `FORMS_REPO_KEY` | the path on this machine to the repo's read-only deploy key, mode 600 (one key per clinic, so one clinic can be revoked alone) |
 
-They go in a hand-written answers file or, with `--clinic`, in the `--secrets`
-file (and are then kept in `~/clinic-<slug>.env`). Task 075 writes both into
+They go in `clinic/.env` or in the `--secrets` file. Task 075 writes both into
 `clinic/.env`, where later tasks and `update-forms.sh` read them, together
 with the folder `docker-compose.yml` mounts and whether it is read-only
 (`FORMS_DIR`, `FORMS_READ_ONLY`). Git gets the key by path; nothing prints its
 contents. The key path must be absolute and plain (letters, digits, `. _ / -`);
-a relative path in the answers is kept as an absolute one, from where the
+a relative path is kept as an absolute one, from where the
 installer runs. Git trusts the git host's key the first time it sees it; to pin
 it, put the host's key in the installing user's `~/.ssh/known_hosts` first.
 
