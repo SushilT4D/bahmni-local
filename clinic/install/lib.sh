@@ -4,6 +4,9 @@ set -o pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
+# Homebrew's bin (brew, podman, podman-compose, jq) is on PATH in every task, whatever shell started the installer.
+case ":${PATH}:" in *:/opt/homebrew/bin:*) ;; *) [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)" ;; esac
+
 port_in_use(){
   local p="$1"
   if command -v netstat >/dev/null 2>&1; then
