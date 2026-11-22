@@ -177,7 +177,10 @@ repo's `check-form-concepts.py`. Write access to the forms repo therefore
 decides which forms a clinic shows, but cannot run code on a clinic.
 
 **Without a forms repo** (both empty) the node mounts the frozen copy tracked
-in this repo, `clinic/bahmni_home/clinical_forms`, read-write. That is a
+in this repo, `clinic/bahmni_home/clinical_forms`, read-write. Its source is the
+hub's `/home/bahmni/clinical_forms` (the form builder writes there; no image
+carries the files): `clinic/scripts/pull-clinical-forms.sh <hub ssh host> <hub
+openmrs container>` adds the hub's new and changed files, then commit them. That is a
 transition: it goes once every node runs from the forms repo.
 
 `clinic/forms` only moves forward. A checkout with local edits, with commits the
