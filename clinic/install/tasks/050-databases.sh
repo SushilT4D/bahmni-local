@@ -61,6 +61,11 @@ D="${SEED_DIR}"
 DONE="${CLINIC_DIR}/.openmrs-restore.done"
 has_person="$(printf 'select count(*) from information_schema.tables where table_schema="openmrs" and table_name="person"' | mysql_root)"
 has_done=0; [ -f "$DONE" ] && has_done=1
+# No openmrs dump in the seed: an openmrs already here is this node's own data, kept as it is.
+if [ "$has_person" = 1 ] && [ "$has_done" = 0 ] && [ ! -f "${D}/openmrs.sql.gz" ]; then
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$DONE"; has_done=1
+  ok "openmrs kept as it is: the seed has no openmrs.sql.gz"
+fi
 db_tables=0
 dump_tables=0
 if [ "$has_person" = 1 ] && [ "$has_done" = 0 ]; then
