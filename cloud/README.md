@@ -171,12 +171,13 @@ on loopback only; reach them over an SSH tunnel.
   structure on its first start and needs none of this.
 - Down direction topics: every source routes its tables into one ordered topic per
   database, `<server>.openmrs.all`, `<server>.odoo.all`, `<server>.clinlims.all`.
-- Up direction, three sinks per clinic in `sync/clinics.json`, written by
-  `scripts/generate-sink-connectors.sh [slug]` into `connectors/`:
+- Up direction, three sinks per clinic in `sync/clinics.json`:
   `openmrs-<slug>-sink`, `odoo-<slug>-sink` and `clinlims-<slug>-sink`, reading
-  `<slug>.bahmni-<slug>.<db>.all`. Register with
-  `HUB_MYSQL_CONTAINER=<hub mysql> scripts/register-all-sink-connectors.sh`, which checks the
-  clinical tables' foreign keys first. `scripts/register-odoo.sh` registers the cloud's
+  `<slug>.bahmni-<slug>.<db>.all`.
+  `HUB_MYSQL_CONTAINER=<hub mysql> scripts/setup-connectors.sh [--db openmrs,odoo,clinlims] [slug ...]`
+  generates them into `connectors/` (`scripts/generate-sink-connectors.sh`) and registers
+  exactly those (`scripts/register-all-sink-connectors.sh`, which checks the clinical tables'
+  foreign keys before any OpenMRS sink). `scripts/register-odoo.sh` registers the cloud's
   own Odoo and OpenELIS sources.
 
 Rendered connector files hold passwords and are gitignored.

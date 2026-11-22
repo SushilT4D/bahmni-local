@@ -506,7 +506,10 @@ other hub-side values live in cloud/.env, not at the repo root.
 
 Generate the hub's UP-direction JDBC sink configs, one per clinic per table.
 
-Usage: generate-sink-connectors.sh [clinic ...]     (default: every clinic)
+Usage: generate-sink-connectors.sh [--db openmrs,odoo,clinlims] [clinic ...]
+(default: all three databases, every clinic). Only the chosen databases'
+settings are required in cloud/.env, so a hub without Odoo or OpenELIS
+generates its OpenMRS sinks with `--db openmrs`.
 
 Every connector is named from the clinic's slug (openmrs-, odoo- and
 clinlims-<slug>-sink): a name without the slug would let a second clinic's run
@@ -661,16 +664,16 @@ sequence issues next (it cannot be where that sequence restarted).
 
 ## `scripts/register-all-sink-connectors.sh`
 
-Script to register all sink connectors from generated configs
-
-Find all connector JSON files
+Registers the sink configs given as arguments, or every generated one in
+connectors/.
 
 > Before: `connector_files=("${CONNECTORS_DIR}"/*-sink.json)`
 
 Every up sink writes obs, orders, drug_order and test_order in arrival order, so a
 clinic's row can land before its parent. That is safe only while no foreign
 key points out of those tables on the hub: one would stop the sink at every
-early arrival. Before any sink is registered, check-clinical-fks.sh reads
+early arrival. Before any sink is registered, when the list holds an OpenMRS
+sink, check-clinical-fks.sh reads
 the hub's keys (HUB_MYSQL_CONTAINER names the hub's OpenMRS MySQL container)
 and a key out of a clinical table stops the registration. A change in the
 keys pointing into them is shown and does not stop it.
@@ -683,12 +686,13 @@ Check if connector already exists
 
 ## `scripts/setup-connectors.sh`
 
-Script to generate sink connector configurations from sync/tables/openmrs.conf
-For REMOTE setup - generates individual sink connector configs for each table
+Usage: setup-connectors.sh [--db openmrs,odoo,clinlims] [clinic ...]
 
-Use the dedicated script
+Generates the chosen sinks with generate-sink-connectors.sh and registers
+exactly those files with register-all-sink-connectors.sh, so sinks generated
+earlier for other databases or clinics are left alone.
 
-> Before: `"${SCRIPT_DIR}/generate-sink-connectors.sh"`
+> Before: `"${SCRIPT_DIR}/generate-sink-connectors.sh" "${gen_args[@]}" "$@"`
 
 ## `scripts/stride.sh odoo`
 

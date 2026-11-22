@@ -4,8 +4,20 @@
 #   openmrs-<slug>-sink   reads <slug>.bahmni-<slug>.openmrs.all, writes each record to its own table
 #   odoo-<slug>-sink      reads <slug>.bahmni-<slug>.odoo.all, claims origin clinic_<slug>_odoo
 #   clinlims-<slug>-sink  reads <slug>.bahmni-<slug>.clinlims.all, claims origin clinic_<slug>_clinlims
-# usage: generate-sink-connectors.sh [slug ...]   (default: every clinic in sync/clinics.json)
+# usage: generate-sink-connectors.sh [--db openmrs,odoo,clinlims] [slug ...]
+#   --db    the databases to generate sinks for (default: all three); only their settings are required
+#   slug    the clinics (default: every clinic in sync/clinics.json)
 set -e
+
+DBS="openmrs,odoo,clinlims"
+if [ "${1:-}" = "--db" ]; then
+  [ -n "${2:-}" ] || { echo "Error: --db needs a comma-separated list of openmrs, odoo, clinlims"; exit 1; }
+  DBS="$2"; shift 2
+fi
+for d in ${DBS//,/ }; do
+  case "$d" in openmrs|odoo|clinlims) ;; *) echo "Error: --db ${d}: not one of openmrs, odoo, clinlims"; exit 1 ;; esac
+done
+want_db() { case ",${DBS}," in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 
 # the configs hold the hub's database passwords: written mode 600
 umask 077
@@ -39,16 +51,22 @@ set +a
 
 # ---- settings from cloud/.env -------------------------------------------------
 
-export OPENMRS_DB_HOST="${OPENMRS_DB_HOST:?OPENMRS_DB_HOST is not set in .env}"
-export OPENMRS_DB_PORT="${OPENMRS_DB_PORT:-3306}"
 export OPENMRS_DB_NAME="${OPENMRS_DB_NAME:?OPENMRS_DB_NAME is not set in .env}"
-export DEBEZIUM_DB_USER="${DEBEZIUM_DB_USER:-debezium}"
-export DEBEZIUM_DB_PASSWORD="${DEBEZIUM_DB_PASSWORD:?DEBEZIUM_DB_PASSWORD is not set in .env}"
-export ODOO_DB_HOST="${ODOO_DB_HOST:?ODOO_DB_HOST is not set in .env}"
-export ODOO_DB_NAME="${ODOO_DB_NAME:?ODOO_DB_NAME is not set in .env}"
-export ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:?ODOO_SINK_PASSWORD is not set in .env}"
-export OPENELIS_DB_HOST="${OPENELIS_DB_HOST:?OPENELIS_DB_HOST is not set in .env}"
-export CLINLIMS_SINK_PASSWORD="${CLINLIMS_SINK_PASSWORD:?CLINLIMS_SINK_PASSWORD is not set in .env}"
+if want_db openmrs; then
+  export OPENMRS_DB_HOST="${OPENMRS_DB_HOST:?OPENMRS_DB_HOST is not set in .env}"
+  export OPENMRS_DB_PORT="${OPENMRS_DB_PORT:-3306}"
+  export DEBEZIUM_DB_USER="${DEBEZIUM_DB_USER:-debezium}"
+  export DEBEZIUM_DB_PASSWORD="${DEBEZIUM_DB_PASSWORD:?DEBEZIUM_DB_PASSWORD is not set in .env}"
+fi
+if want_db odoo; then
+  export ODOO_DB_HOST="${ODOO_DB_HOST:?ODOO_DB_HOST is not set in .env}"
+  export ODOO_DB_NAME="${ODOO_DB_NAME:?ODOO_DB_NAME is not set in .env}"
+  export ODOO_SINK_PASSWORD="${ODOO_SINK_PASSWORD:?ODOO_SINK_PASSWORD is not set in .env}"
+fi
+if want_db clinlims; then
+  export OPENELIS_DB_HOST="${OPENELIS_DB_HOST:?OPENELIS_DB_HOST is not set in .env}"
+  export CLINLIMS_SINK_PASSWORD="${CLINLIMS_SINK_PASSWORD:?CLINLIMS_SINK_PASSWORD is not set in .env}"
+fi
 
 USE_SSL_UPPER=$(echo "${REMOTE_MYSQL_USE_SSL:-false}" | tr '[:lower:]' '[:upper:]')
 case "${USE_SSL_UPPER}" in
@@ -154,7 +172,8 @@ import json, os, re, sys
 raw = open(sys.argv[1]).read()
 keys = ('SLUG', 'ODOO_DB_HOST', 'ODOO_DB_NAME', 'ODOO_SINK_PASSWORD', 'OPENELIS_DB_HOST', 'CLINLIMS_SINK_PASSWORD')
 for k in keys:
-    raw = raw.replace('${%s}' % k, os.environ[k])
+    if '${%s}' % k in raw:
+        raw = raw.replace('${%s}' % k, os.environ[k])
 left = sorted(set(re.findall(r'\$\{(\w+)\}', raw)) - {'source'})
 if left:
     sys.exit(f"{sys.argv[1]}: unfilled placeholder(s): {left}")
@@ -165,17 +184,18 @@ PY
 }
 
 
-# ---- one set of sinks per clinic ---------------------------------------------------
+# ---- the chosen sinks per clinic ---------------------------------------------------
 
 for slug in $clinics; do
   rm -f "${OUT_DIR}"/*-"${slug}"-sink.json
+  names=""
+  for d in ${DBS//,/ }; do
+    if [ "$d" = openmrs ]; then write_openmrs_sink "$slug"; else write_postgres_sink "$d" "$slug"; fi
+    names="${names:+${names}, }${d}-${slug}-sink"
+  done
 
-  write_openmrs_sink "$slug"
-  write_postgres_sink odoo "$slug"
-  write_postgres_sink clinlims "$slug"
-
-  echo "== ${slug}: openmrs-${slug}-sink, odoo-${slug}-sink, clinlims-${slug}-sink"
-  echo "   openmrs tables: $(printf '%s ' $tables)"
+  echo "== ${slug}: ${names}"
+  want_db openmrs && echo "   openmrs tables: $(printf '%s ' $tables)"
   total=$((total + 1))
 done
 
@@ -184,5 +204,6 @@ done
 
 echo ""
 echo "Generated sinks for ${total} clinic(s) in ${OUT_DIR}."
-echo "Before a clinic's sinks start, create its replication origins (cloud/postgres/apply-sink-origin.sql)."
-echo "Register with: HUB_MYSQL_CONTAINER=<the hub's OpenMRS MySQL container> ./scripts/register-all-sink-connectors.sh"
+if want_db odoo || want_db clinlims; then
+  echo "Before a clinic's Odoo or OpenELIS sink starts, create its replication origins (cloud/postgres/apply-sink-origin.sql)."
+fi

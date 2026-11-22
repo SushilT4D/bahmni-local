@@ -7,16 +7,18 @@ Here are the cloud setup steps as commands. Run them on the cloud server.
 
 ```bash
 cd /App/bahmni-std-cloud-package-master
-export BASE_DIR=/home/ubuntu/bahmni-local
-set -a; . ./.env; . "${BASE_DIR}/sync/versions.env"; set +a   # versions.env: the image pins docker compose reads
+export BASE_DIR=/home/ubuntu/bahmni-local-public
+git -C "$BASE_DIR" pull --ff-only
+[ -f "$BASE_DIR/sync/versions.env" ] || echo "ERROR: $BASE_DIR/sync/versions.env missing: BASE_DIR is not a current bahmni-local checkout"
+set -a; . ./.env; . "${BASE_DIR}/sync/versions.env"; set +a
 export BASE_PG_CONTAINER=bahmni-std-cloud-package-master-odoodb-1
 export BASE_ELIS_CONTAINER=bahmni-std-cloud-package-master-openelisdb-1
 export BASE_MYSQL_CONTAINER=bahmni-std-cloud-package-master-openmrsdb-1
 C="${KAFKA_CONNECT_URL:-http://localhost:8083}"
-my()      { docker exec -i "$BASE_MYSQL_CONTAINER" sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t'; }
-pg_odoo() { docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
-pg_elis() { docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis -v ON_ERROR_STOP=1 "$@"; }
-kt()      { docker exec kafka kafka-topics --bootstrap-server kafka:29092 "$@"; }
+my()      { sudo docker exec -i "$BASE_MYSQL_CONTAINER" sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -t'; }
+pg_odoo() { sudo docker exec -i "$BASE_PG_CONTAINER" psql -U "$ODOO_DB_USER" -d "$ODOO_DB_NAME" -v ON_ERROR_STOP=1 "$@"; }
+pg_elis() { sudo docker exec -i "$BASE_ELIS_CONTAINER" psql -U "$OPENELIS_DB_USER" -d openelis -v ON_ERROR_STOP=1 "$@"; }
+kt()      { sudo docker exec kafka kafka-topics --bootstrap-server kafka:29092 "$@"; }
 ```
 
 ## One-time
@@ -197,12 +199,15 @@ done
 
 Every name comes from the clinic's slug, which is already in `sync/clinics.json`.
 
-**Set the slug**
+**Set the slug and the databases**
+
+`DBS` is `openmrs` until Odoo and OpenELIS run on the hub, then `openmrs,odoo,clinlims`.
 ```bash
 SLUG=<slug>
+DBS=openmrs
 ```
 
-**Create the replication origins**
+**Create the replication origins** (only with Odoo and OpenELIS)
 ```bash
 pg_odoo -v origin="clinic_${SLUG}_odoo"     -v role=odoo_sink     < postgres/apply-sink-origin.sql
 pg_elis -v origin="clinic_${SLUG}_clinlims" -v role=clinlims_sink < postgres/apply-sink-origin.sql
@@ -210,15 +215,14 @@ pg_elis -v origin="clinic_${SLUG}_clinlims" -v role=clinlims_sink < postgres/app
 
 **Create the topics**
 ```bash
-for db in openmrs odoo clinlims; do
+for db in ${DBS//,/ }; do
   kt --create --if-not-exists --topic "$SLUG.bahmni-$SLUG.$db.all" --partitions 1 --replication-factor 1
 done
 ```
 
 **Generate and register the sinks**
 ```bash
-${BASE_DIR}/cloud/scripts/generate-sink-connectors.sh "$SLUG"
-HUB_MYSQL_CONTAINER="$BASE_MYSQL_CONTAINER" ${BASE_DIR}/cloud/scripts/register-all-sink-connectors.sh
+HUB_MYSQL_CONTAINER="$BASE_MYSQL_CONTAINER" ${BASE_DIR}/cloud/scripts/setup-connectors.sh --db "$DBS" "$SLUG"
 ```
 
 **Check the clinic's sinks**

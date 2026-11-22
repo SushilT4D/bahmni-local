@@ -1,7 +1,8 @@
 #!/bin/bash
-# Registers (or updates) every up sink in ./connectors/*-sink.json with Kafka Connect
-# (openmrs-, odoo- and clinlims-<slug>-sink per clinic), after check-clinical-fks.sh passes
-# against HUB_MYSQL_CONTAINER, then prints each one's state.
+# Registers (or updates) up sinks with Kafka Connect, then prints each one's state:
+# the files given, or every ./connectors/*-sink.json (openmrs-, odoo- and clinlims-<slug>-sink).
+# An OpenMRS sink is registered only after check-clinical-fks.sh passes against HUB_MYSQL_CONTAINER.
+# usage: register-all-sink-connectors.sh [connector.json ...]
 
 set -e
 
@@ -13,7 +14,11 @@ CONNECT_URL="${KAFKA_CONNECT_URL:-http://localhost:8083}"
 echo "Registering all sink connectors..."
 
 # the generated sink configs
-connector_files=("${CONNECTORS_DIR}"/*-sink.json)
+if [ $# -gt 0 ]; then
+    connector_files=("$@")
+else
+    connector_files=("${CONNECTORS_DIR}"/*-sink.json)
+fi
 
 if [ ${#connector_files[@]} -eq 0 ] || [ ! -f "${connector_files[0]}" ]; then
     echo "Error: No sink connector configurations found!"
@@ -22,6 +27,11 @@ if [ ${#connector_files[@]} -eq 0 ] || [ ! -f "${connector_files[0]}" ]; then
 fi
 
 # every OpenMRS sink writes obs, orders, drug_order and test_order: check their foreign keys first
+has_openmrs=0
+for f in "${connector_files[@]}"; do
+    case "$(basename "$f")" in openmrs-*) has_openmrs=1 ;; esac
+done
+if [ "${has_openmrs}" = 1 ]; then
 if [ -z "${HUB_MYSQL_CONTAINER:-}" ]; then
     echo "Error: set HUB_MYSQL_CONTAINER to the hub's OpenMRS MySQL container, so the foreign keys on obs, orders, drug_order and test_order are checked before the sinks are registered. Nothing was registered."
     exit 1
@@ -33,6 +43,7 @@ case "${fk_rc}" in
     2) echo "Note: the foreign keys into the clinical tables differ from cloud/scripts/clinical-fks-in.conf (listed above); a clinic's delete of a row they reference will stop that sink." ;;
     *) echo "Error: check-clinical-fks.sh failed (exit ${fk_rc}, reason above): the sinks would stop on a row that arrives before its parent. Nothing was registered."; exit 1 ;;
 esac
+fi
 
 # create each connector, or update its config when it exists
 success_count=0
