@@ -7,11 +7,11 @@
 # for the operator.
 #
 # Usage:
-#   clinic/install/install.sh --clinic <slug> --seed <folder> [--secrets <file>] [--versions <file>]
+#   clinic/install/install.sh [--clinic <slug>] [--seed <folder>] [--secrets <file>] [--versions <file>]
 #                             [--only NNN] [--from NNN] [--dry-run]
 #   clinic/install/install.sh --clinics | --list
-# --seed: the folder the operator took from the hub (openmrs.sql.gz, odoo.sql.gz,
-#   openelis.sql.gz).
+# --seed: the folder the operator took from the cloud (openmrs.sql.gz, odoo.sql.gz,
+#   openelis.sql.gz). Needed only when a database is not on this Mac yet.
 # --secrets: the operator's hub secrets file (the four hub credentials).
 # --versions: application image versions to run instead of the defaults in
 #   sync/versions.env, as KEY=value lines (e.g. BAHMNI_WEB_IMAGE=bhs-9.9.9; a bare
@@ -78,9 +78,10 @@ fi
 
 if [ -n "$SECRETS_FILE" ]; then [ -f "$SECRETS_FILE" ] || fail "secrets file not found: $SECRETS_FILE"; SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"; fi
 if [ -n "$IMAGE_CHOICES_FILE" ]; then [ -f "$IMAGE_CHOICES_FILE" ] || fail "image versions file not found: $IMAGE_CHOICES_FILE"; IMAGE_CHOICES_FILE="$(cd "$(dirname "$IMAGE_CHOICES_FILE")" && pwd)/$(basename "$IMAGE_CHOICES_FILE")"; fi
-[ -n "$SEED_DIR" ] || { usage; fail "--seed <folder> is required: the folder the operator took from the hub"; }
-[ -d "$SEED_DIR" ] || fail "seed folder not found: $SEED_DIR"
-SEED_DIR="$(cd "$SEED_DIR" && pwd)"
+if [ -n "$SEED_DIR" ]; then
+  [ -d "$SEED_DIR" ] || fail "seed folder not found: $SEED_DIR"
+  SEED_DIR="$(cd "$SEED_DIR" && pwd)"
+fi
 export SECRETS_FILE IMAGE_CHOICES_FILE SEED_DIR
 
 load_inputs(){ # SLUG
@@ -135,14 +136,14 @@ log "install log: ${INSTALL_LOG}"
 
 log "clinic installer  slug=${CLINIC_SLUG} residue=${BHS_SITE_NUMBER} dry=${DRY}"
 log "  clinic dir: ${CLINIC_DIR}"
-log "  seed:       ${SEED_DIR}"
+log "  seed:       ${SEED_DIR:-none (databases already on this Mac are kept)}"
 image_choices_report
 
 . "${INSTALL_DIR}/state.sh"
 how="--clinic $(printf '%q' "$CLINIC")"
 [ -z "${SECRETS_FILE:-}" ] || how="${how} --secrets $(printf '%q' "$SECRETS_FILE")"
 [ -z "${IMAGE_CHOICES_FILE:-}" ] || how="${how} --versions $(printf '%q' "$IMAGE_CHOICES_FILE")"
-how="${how} --seed $(printf '%q' "$SEED_DIR")"
+[ -z "$SEED_DIR" ] || how="${how} --seed $(printf '%q' "$SEED_DIR")"
 if [ -z "${ONLY}" ] || [ "${ONLY}" = 010 ]; then
   if [ -z "${FROM}" ] || [ "${FROM}" -le 10 ]; then . "${INSTALL_DIR}/host-macos.sh"; sudo_upfront; fi
 fi

@@ -3,7 +3,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "50 · databases"
-[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; restore from ${SEED_DIR:-?} each database that is not there yet; record the obs and orders floors in .install-state (kept if already recorded); create sync users, roles and publications"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: up bahmni-mysql bahmni-postgres; restore from ${SEED_DIR:-the seed (none given)} each database that is not there yet; record the obs and orders floors in .install-state (kept if already recorded); create sync users, roles and publications"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"
 E="${CLINIC_DIR}/.env"; set -a; . "$E"; set +a
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
@@ -80,6 +80,7 @@ case "$(restore_state "$has_person" "$has_done" "$db_tables" "$dump_tables")" in
   interrupted)
     fail "openmrs holds ${db_tables} of the dump's ${dump_tables} tables and has no completion marker: an earlier restore was interrupted. A half-restored database is not dropped automatically. If this node holds nothing you need, drop it yourself and resume: ${CT} exec -i ${MY} sh -c 'mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"drop database openmrs\"'  then --from 050" ;;
   restore)
+    [ -f "${D}/openmrs.sql.gz" ] || fail "openmrs is not on this Mac and there is no seed to load it from: run again with --seed <folder holding openmrs.sql.gz>"
     mem_mb="$(ct exec "$MY" awk '/MemTotal/{print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
     pool_mb="$(restore_pool_mb "$mem_mb")"
     before="$(printf 'select concat_ws(" ", @@innodb_buffer_pool_size, @@innodb_redo_log_capacity, @@innodb_flush_log_at_trx_commit, @@sync_binlog)' | mysql_root)"
@@ -168,6 +169,7 @@ ALTER ROLE clinlims WITH PASSWORD '${OPENELIS_DB_PASSWORD}';
 SQL
 for db in odoo openelis; do
   if [ "$(printf "select count(*) from pg_database where datname='$db'" | ct exec -i "$PG" psql -U postgres -At)" = 1 ]; then skip "database $db exists"; else
+    [ -f "${D}/${db}.sql.gz" ] || fail "database $db is not on this Mac and there is no seed to load it from: run again with --seed <folder holding ${db}.sql.gz>"
     printf 'CREATE DATABASE %s OWNER odoo\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     [ "$db" = openelis ] && printf 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n' | ct exec -i "$PG" psql -U postgres -d openelis -q
     gunzip -c "${D}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
