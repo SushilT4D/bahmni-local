@@ -22,17 +22,12 @@ set -a
 source "${ENV_FILE}"
 set +a
 
-DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 MYSQL_SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 # Template uses LOCAL_* / DEBEZIUM_* names; map from root .env conventions.
-LOCAL_MYSQL_HOST="${LOCAL_MYSQL_HOST:-${BAHMNI_MYSQL_HOST:-bahmni-mysql}}"
-LOCAL_MYSQL_PORT="${LOCAL_MYSQL_PORT:-3306}"
-LOCAL_DEBEZIUM_USER="${LOCAL_DEBEZIUM_USER:-${DEBEZIUM_USER:-debezium}}"
-DATABASE_INCLUDE_LIST="${DATABASE_INCLUDE_LIST:-${DATABASE_NAME}}"
+DEBEZIUM_USER="${DEBEZIUM_USER:-debezium}"
 
-export DATABASE_NAME MYSQL_SERVER_NAME
-export LOCAL_MYSQL_HOST LOCAL_MYSQL_PORT LOCAL_DEBEZIUM_USER
-export DATABASE_INCLUDE_LIST
+export MYSQL_SERVER_NAME
+export DEBEZIUM_USER
 
 table_include_list=()
 kafka_topics=()
@@ -45,8 +40,8 @@ filter_recs=""
 recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
 while read -r table _pk _kind _arg; do
   [[ -n "${table}" ]] || continue
-  table_include_list+=("${DATABASE_NAME}.${table}")
-  kafka_topics+=("${MYSQL_SERVER_NAME}.${DATABASE_NAME}.${table}")
+  table_include_list+=("openmrs.${table}")
+  kafka_topics+=("${MYSQL_SERVER_NAME}.openmrs.${table}")
   case "${_kind}" in seed|floor) filter_recs="${filter_recs}${table} ${_pk}
 " ;; esac
 done <<EOF
@@ -57,14 +52,10 @@ EOF
 filter_lines=""
 if [[ -n "${filter_recs}" ]]; then
   FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
-  case "${RESIDUE:-}" in
+  case "${BHS_SITE_NUMBER:-}" in
     [1-9]) ;;
-    *) echo "Error: RESIDUE in ${ENV_FILE} is '${RESIDUE:-}', not a clinic residue (1 to 9); the capture filter of $(printf '%s' "${filter_recs}" | awk '{print $1}' | tr '\n' ' ')needs it. Nothing was written." >&2; exit 1 ;;
+    *) echo "Error: BHS_SITE_NUMBER in ${ENV_FILE} is '${BHS_SITE_NUMBER:-}', not a clinic residue (1 to 9); the capture filter of $(printf '%s' "${filter_recs}" | awk '{print $1}' | tr '\n' ' ')needs it. Nothing was written." >&2; exit 1 ;;
   esac
-  if [[ -n "${BHS_LOCATION_OFFSET:-}" ]] && { [[ "${BHS_LOCATION_OFFSET}" == *[!0-9]* ]] || [[ "$(( 10#${BHS_LOCATION_OFFSET} % 10 ))" != "${RESIDUE}" ]]; }; then
-    echo "Error: RESIDUE=${RESIDUE} but BHS_LOCATION_OFFSET=${BHS_LOCATION_OFFSET} in ${ENV_FILE}: MySQL would issue ids on another residue than the capture filter keeps. Nothing was written." >&2
-    exit 1
-  fi
   floor_recs=""
   while read -r table pk; do
     [[ -n "${table}" ]] || continue
@@ -74,7 +65,7 @@ if [[ -n "${filter_recs}" ]]; then
   done <<EOF
 ${filter_recs}
 EOF
-  filter_lines="$(printf '%s' "${floor_recs}" | origin_filter_lines "${MYSQL_SERVER_NAME}" "${DATABASE_NAME}" "${RESIDUE}")" \
+  filter_lines="$(printf '%s' "${floor_recs}" | origin_filter_lines "${MYSQL_SERVER_NAME}" "openmrs" "${BHS_SITE_NUMBER}")" \
     || { echo "Error: the capture filter cannot be rendered (reason above). Nothing was written." >&2; exit 1; }
   [[ -n "${filter_lines}" ]] || { echo "Error: the capture filter rendered empty for $(printf '%s' "${filter_recs}" | awk '{print $1}' | tr '\n' ' '); nothing was written." >&2; exit 1; }
 fi
@@ -82,7 +73,7 @@ fi
 [[ ${#table_include_list[@]} -gt 0 ]] || { echo "Error: no tables parsed from ${TABLES_CONF}"; exit 1; }
 # the signal table: in the include list (Debezium's source signal channel reads
 # it from the binlog), never in the topics MirrorMaker sends to the hub
-SIGNAL_DATA_COLLECTION="$(up_signal_collection "${DATABASE_NAME}")"
+SIGNAL_DATA_COLLECTION="$(up_signal_collection "openmrs")"
 table_include_list+=("${SIGNAL_DATA_COLLECTION}")
 export SIGNAL_DATA_COLLECTION
 
@@ -91,8 +82,8 @@ TABLE_INCLUDE_LIST="$(IFS=','; echo "${table_include_list[*]}")"
 KAFKA_TOPICS="$(IFS=','; echo "${kafka_topics[*]}")"
 
 mkdir -p "${CONNECTORS_DIR}"
-# ${LOCAL_DEBEZIUM_PASSWORD} stays a placeholder: register-connectors.sh fills it from .env.
-SUBST_VARS='${LOCAL_MYSQL_HOST} ${LOCAL_MYSQL_PORT} ${LOCAL_DEBEZIUM_USER} ${MYSQL_SERVER_NAME} ${DATABASE_INCLUDE_LIST} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE} ${SIGNAL_DATA_COLLECTION}'
+# ${DEBEZIUM_PASSWORD} stays a placeholder: register-connectors.sh fills it from .env.
+SUBST_VARS='${DEBEZIUM_USER} ${MYSQL_SERVER_NAME} ${TABLE_INCLUDE_LIST} ${DEBEZIUM_SERVER_ID} ${DEBEZIUM_SNAPSHOT_MODE} ${SIGNAL_DATA_COLLECTION}'
 rendered="${OUT_PRIMARY}.new"
 envsubst "${SUBST_VARS}" < "${TEMPLATE}" > "${rendered}"
 if [[ -n "${filter_lines}" ]]; then
@@ -103,7 +94,7 @@ if [[ -n "${filter_lines}" ]]; then
 fi
 # Route every captured table into one ordered topic, <server>.openmrs.all, after the filters.
 UP_ALTERNATION="$(printf '%s\n' "${kafka_topics[@]}" | sed "s/^.*\.//" | paste -sd'|' -)"
-python3 - "${rendered}" "${MYSQL_SERVER_NAME}" "${DATABASE_NAME}" "${UP_ALTERNATION}" <<'PY' \
+python3 - "${rendered}" "${MYSQL_SERVER_NAME}" "openmrs" "${UP_ALTERNATION}" <<'PY' \
   || { rm -f "${rendered}"; echo "Error: could not add the routing step to the source configuration; nothing was written." >&2; exit 1; }
 import json, re, sys
 path, server, db, alt = sys.argv[1:5]
@@ -119,8 +110,8 @@ python3 "${PROJECT_DIR}/scripts/_fill_template.py" --mark "${rendered}" "${TEMPL
   || { rm -f "${rendered}"; echo "Error: could not mark ${OUT_PRIMARY} as generated; nothing was written." >&2; exit 1; }
 mv "${rendered}" "${OUT_PRIMARY}"
 
-echo "  mysql-source-connector.json: $(( ${#table_include_list[@]} - 1 )) tables into ${MYSQL_SERVER_NAME}.${DATABASE_NAME}.all, and the signal table ${SIGNAL_DATA_COLLECTION}"
+echo "  mysql-source-connector.json: $(( ${#table_include_list[@]} - 1 )) tables into ${MYSQL_SERVER_NAME}.openmrs.all, and the signal table ${SIGNAL_DATA_COLLECTION}"
 if [[ -n "${filter_lines}" ]]; then
-  echo "  Capture filter (residue ${RESIDUE}):"
+  echo "  Capture filter (residue ${BHS_SITE_NUMBER}):"
   printf '%s' "${floor_recs}" | while read -r table pk fl; do [[ -n "${table}" ]] && echo "    ${table}: ${pk} at or above ${fl}"; done
 fi

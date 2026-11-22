@@ -20,7 +20,7 @@
     "errors.tolerance": "none",
     "primary.key.mode": "record_key",
     "connection.restart.on.errors": "true",
-    "topics": "remote.bahmni-cloud.odoo.all",
+    "topics": "cloud.bahmni-cloud.odoo.all",
     "connection.username": "odoo_sink",
     "errors.retry.delay.max.ms": "60000",
     "flush.max.retries": "10",

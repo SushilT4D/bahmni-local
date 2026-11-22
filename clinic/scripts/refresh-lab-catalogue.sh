@@ -20,8 +20,7 @@ case "${1:-}" in
 esac
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "no ${E}: this is not an installed clinic"
-COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
-[ -n "${COMPOSE_PROJECT_NAME}" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME"
+COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
 OM_USER="$(env_get "$E" OPENMRS_ATOMFEED_USER)"; OM_PASS="$(env_get "$E" OPENMRS_ATOMFEED_PASSWORD)"
 [ -n "${CT:-}" ] || setup_compose
 P="${COMPOSE_PROJECT_NAME}"

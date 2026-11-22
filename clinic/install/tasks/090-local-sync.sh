@@ -21,8 +21,6 @@ fi
 
 plugins="$(curl -s localhost:8083/connector-plugins | jq -r '.[].class' | grep -cE 'MySqlConnector|PostgresConnector|JdbcSinkConnector')"
 [ "$plugins" = 3 ] && ok "connect plugins: MySql, Postgres, JdbcSink" || fail "connect plugins missing (${plugins}/3) -- are the jars mounted as files?"
-til="$(bash scripts/generate-table-config.sh local | grep -E '^TABLE_INCLUDE_LIST=' | cut -d= -f2-)"
-[ -n "$til" ] && env_put "$E" TABLE_INCLUDE_LIST "$til"
 
 SEED_MANIFEST="${STATE_FILE}" bash scripts/generate-connectors.sh >/dev/null \
   || fail "the connector configs could not be generated (reason above)"
@@ -37,7 +35,7 @@ ok "${v#ok }"
 bash scripts/set-schema-history-retention.sh "${CT}" >/dev/null
 
 bash scripts/register-connectors.sh odoo-source-connector clinlims-source-connector odoo-clinic-sink-all clinlims-clinic-sink-all >/dev/null
-ok "OpenELIS down sink registered: keeps the hub's lab test catalogue and lab accounts, and the result, analysis and sample rows routed to this clinic (residue ${RESIDUE})"
+ok "OpenELIS down sink registered: keeps the hub's lab test catalogue and lab accounts, and the result, analysis and sample rows routed to this clinic (residue ${BHS_SITE_NUMBER})"
 
 bash scripts/apply-slot-heartbeat.sh "${CT}" "${COMPOSE_PROJECT_NAME}-bahmni-postgres-1" postgres odoo-source-connector clinlims-source-connector >/dev/null
 bash scripts/register-connectors.sh 'mysql-local-sink-*' >/dev/null
@@ -95,22 +93,22 @@ TS="${CLINIC_DIR}/certs/kafka/kafka.truststore.p12"
 if cloud_tls; then cloud_truststore "$TS" "${MM2_IMAGE}"; ok "hub link $(cloud_protocol): truststore made from ${CLOUD_CA#${REPO_DIR}/}"
 else warn "hub link $(cloud_protocol): no TLS, so the hub password and every record cross the network unencrypted"; fi
 bash scripts/setup-mirrormaker.sh >/dev/null
-grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
+grep -qE "^clusters *= *${BHS_LOCATION}, *cloud" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${BHS_LOCATION}, cloud" || fail "mm2.properties does not carry this node's alias"
 
 # mm2-topics:begin
 mm2_up_topics(){ # MM2_PROPERTIES ALIAS -> one plain topic name per line
-  awk -v k="$2->remote.topics" -F' *= *' '$1==k{print $2}' "$1" \
+  awk -v k="$2->cloud.topics" -F' *= *' '$1==k{print $2}' "$1" \
     | tr -d '()' | tr '|' '\n' | sed 's/\\\././g' | grep -v '^$'
 }
 
 # mm2-topics:end
-up_topics="$(mm2_up_topics config/mirrormaker/mm2.properties "${LOCAL_CLUSTER_ALIAS}")"
-[ -n "$up_topics" ] || fail "mm2.properties carries no ${LOCAL_CLUSTER_ALIAS}->remote.topics pattern"
+up_topics="$(mm2_up_topics config/mirrormaker/mm2.properties "${BHS_LOCATION}")"
+[ -n "$up_topics" ] || fail "mm2.properties carries no ${BHS_LOCATION}->cloud.topics pattern"
 
 if [ "${TWIN_GUARD_SKIP:-0}" = 1 ]; then
-  warn "twin guard skipped (TWIN_GUARD_SKIP=1): not checking whether another node named ${LOCAL_CLUSTER_ALIAS} is already mirroring into the hub"
+  warn "twin guard skipped (TWIN_GUARD_SKIP=1): not checking whether another node named ${BHS_LOCATION} is already mirroring into the hub"
 else
-  hb_topic="${LOCAL_CLUSTER_ALIAS}.heartbeats"
+  hb_topic="${BHS_LOCATION}.heartbeats"
 
   # own-mm2:begin
   if [ "$(ct inspect --format '{{.State.Running}}' mirrormaker-connect 2>/dev/null || true)" = true ]; then
@@ -128,8 +126,8 @@ else
   o1="$(hb_read || true)"; sleep 20; o2="$(hb_read || true)"
   twin_quiet=0
   case "$(twin_state "$o1" "$o2")" in
-    quiet)   twin_quiet=1; ok "no other node named ${LOCAL_CLUSTER_ALIAS} is mirroring into the hub (${hb_topic} end offset ${o1:-0}, unchanged over 20 s)" ;;
-    alive)   fail "another node named ${LOCAL_CLUSTER_ALIAS} is alive and mirroring into the hub right now (${hb_topic} advanced ${o1} -> ${o2} in 20 s). Two nodes under one slug mint the same ids and write the same hub topics. Stop the other node's stack first (on it: cd <its clinic dir> && docker compose --profile local --profile openelis --profile debezium down), then resume with --from 090. TWIN_GUARD_SKIP=1 overrides, knowingly." ;;
+    quiet)   twin_quiet=1; ok "no other node named ${BHS_LOCATION} is mirroring into the hub (${hb_topic} end offset ${o1:-0}, unchanged over 20 s)" ;;
+    alive)   fail "another node named ${BHS_LOCATION} is alive and mirroring into the hub right now (${hb_topic} advanced ${o1} -> ${o2} in 20 s). Two nodes under one slug mint the same ids and write the same hub topics. Stop the other node's stack first (on it: cd <its clinic dir> && docker compose --profile local --profile openelis --profile debezium down), then resume with --from 090. TWIN_GUARD_SKIP=1 overrides, knowingly." ;;
     *)       warn "could not read ${hb_topic} on the hub (${REMOTE_KAFKA_BOOTSTRAP_SERVERS}); the twin check is not proven -- MirrorMaker's own two-minute check below will show whether the hub is reachable at all" ;;
   esac
 
@@ -141,9 +139,9 @@ else
   }
 
   # mm2-reset:end
-  offsets_topic="mm2-offsets.${LOCAL_CLUSTER_ALIAS}.internal"
+  offsets_topic="mm2-offsets.${BHS_LOCATION}.internal"
   if [ "${MM2_OFFSET_RESET_SKIP:-0}" = 1 ]; then
-    warn "MirrorMaker offset reset skipped (MM2_OFFSET_RESET_SKIP=1): if the hub remembers a previous node under ${LOCAL_CLUSTER_ALIAS}, this node's first events may never be mirrored"
+    warn "MirrorMaker offset reset skipped (MM2_OFFSET_RESET_SKIP=1): if the hub remembers a previous node under ${BHS_LOCATION}, this node's first events may never be mirrored"
   else
     hub_has="$(ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --list 2>/dev/null | grep -cx "$offsets_topic" || true)"
     local_events=0
@@ -152,10 +150,10 @@ else
       local_events=$(( local_events + n ))
     done
 
-    [ "${MM2_OFFSET_RESET_FORCE:-0}" = 1 ] && warn "MM2_OFFSET_RESET_FORCE=1: the hub's position for ${LOCAL_CLUSTER_ALIAS} is treated as a previous node's even though this node has mirrored ${local_events} event(s); MirrorMaker re-reads this node's topics from their first event"
+    [ "${MM2_OFFSET_RESET_FORCE:-0}" = 1 ] && warn "MM2_OFFSET_RESET_FORCE=1: the hub's position for ${BHS_LOCATION} is treated as a previous node's even though this node has mirrored ${local_events} event(s); MirrorMaker re-reads this node's topics from their first event"
     case "$(mm2_reset_needed "$twin_quiet" "$local_events" "${hub_has:-0}" "${MM2_OFFSET_RESET_FORCE:-0}")" in
       yes)
-        info "the hub remembers a previous node under ${LOCAL_CLUSTER_ALIAS} (${offsets_topic}) and this node's up topics are empty: dropping that position so MirrorMaker reads this node from its first event"
+        info "the hub remembers a previous node under ${BHS_LOCATION} (${offsets_topic}) and this node's up topics are empty: dropping that position so MirrorMaker reads this node from its first event"
         ct exec kafka kafka-topics --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --delete --topic "$offsets_topic" >/dev/null 2>&1 \
           || fail "could not delete ${offsets_topic} on the hub (${REMOTE_KAFKA_BOOTSTRAP_SERVERS})"
         gone=0
@@ -164,12 +162,12 @@ else
           sleep 5
         done
 
-        [ "$gone" = 1 ] && ok "hub position for ${LOCAL_CLUSTER_ALIAS} reset (${offsets_topic} removed; MirrorMaker recreates it)" || fail "${offsets_topic} still listed on the hub after 60 s"
+        [ "$gone" = 1 ] && ok "hub position for ${BHS_LOCATION} reset (${offsets_topic} removed; MirrorMaker recreates it)" || fail "${offsets_topic} still listed on the hub after 60 s"
         ;;
       no)
-        if [ "${hub_has:-0}" = 1 ] && [ "$local_events" -gt 0 ]; then ok "hub keeps its position for ${LOCAL_CLUSTER_ALIAS}: this node has already mirrored ${local_events} event(s) under it"
-        elif [ "${hub_has:-0}" = 0 ]; then ok "the hub holds no position for ${LOCAL_CLUSTER_ALIAS} yet (first node under this alias)"
-        else warn "not resetting the hub's position for ${LOCAL_CLUSTER_ALIAS}: the twin check did not prove the alias quiet"; fi
+        if [ "${hub_has:-0}" = 1 ] && [ "$local_events" -gt 0 ]; then ok "hub keeps its position for ${BHS_LOCATION}: this node has already mirrored ${local_events} event(s) under it"
+        elif [ "${hub_has:-0}" = 0 ]; then ok "the hub holds no position for ${BHS_LOCATION} yet (first node under this alias)"
+        else warn "not resetting the hub's position for ${BHS_LOCATION}: the twin check did not prove the alias quiet"; fi
         ;;
     esac
   fi
@@ -191,7 +189,7 @@ exp="$(ct logs mirrormaker-connect 2>&1 | grep -c Expiring || true)"
 odoo_topic="$(printf '%s\n' "$up_topics" | grep '\.odoo\.all$' | head -1)"
 assigned=0
 for i in $(seq 1 12); do
-  ct logs mirrormaker-connect 2>&1 | grep -E "replicating [0-9]+ topic-partitions ${LOCAL_CLUSTER_ALIAS}->remote:.*${odoo_topic}-0" >/dev/null 2>&1 && { assigned=1; break; }
+  ct logs mirrormaker-connect 2>&1 | grep -E "replicating [0-9]+ topic-partitions ${BHS_LOCATION}->cloud:.*${odoo_topic}-0" >/dev/null 2>&1 && { assigned=1; break; }
   sleep 10
 done
 

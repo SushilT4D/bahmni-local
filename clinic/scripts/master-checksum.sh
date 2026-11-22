@@ -41,8 +41,7 @@ done
 if [ -z "$MY" ]; then
   E="${CLINIC_DIR}/.env"
   [ -f "$E" ] || fail "no ${E}: name the MySQL container with --container"
-  COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
-  [ -n "${COMPOSE_PROJECT_NAME}" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME: name the MySQL container with --container"
+  COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
   MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 fi
 [ -n "${CT:-}" ] || setup_compose

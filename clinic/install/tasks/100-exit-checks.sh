@@ -52,7 +52,7 @@ MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 # id counters at or above the seed's floors, read now that the applications
 . "${INSTALL_DIR}/state.sh"
 ai_of(){ printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true; }
-v="$(counter_floor_verdicts "${REPO_DIR}/sync/tables/openmrs.conf" "${RESIDUE}" ai_of)" || fail "$v"
+v="$(counter_floor_verdicts "${REPO_DIR}/sync/tables/openmrs.conf" "${BHS_SITE_NUMBER}" ai_of)" || fail "$v"
 while IFS= read -r l; do if [ -n "$l" ]; then ok "${l#ok }"; fi; done <<EOF
 $v
 EOF
@@ -71,5 +71,5 @@ ok "${v#ok }"
 . "${INSTALL_DIR}/state.sh"
 
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
-v="$(order_seed_verdict "$seed_now" "${RESIDUE}")" || fail "$v"
+v="$(order_seed_verdict "$seed_now" "${BHS_SITE_NUMBER}")" || fail "$v"
 ok "${v#ok }"

@@ -1,3 +1,6 @@
+# Stack name: containers bahmni-<service>-1, volumes bahmni_<volume>, on every clinic.
+name: bahmni
+
 # podman-compose: Docker-style names (project-service-1) and networks, which the installer expects.
 x-podman:
   docker_compose_compat: true
@@ -59,7 +62,7 @@ services:
     environment:
       TZ: ${TZ}
       OMRS_DB_NAME: ${OPENMRS_DB_NAME:?}
-      OMRS_DB_HOSTNAME: ${BAHMNI_MYSQL_HOST:?}
+      OMRS_DB_HOSTNAME: bahmni-mysql
       OMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME:?}
       OMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD:?}
       OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
@@ -78,7 +81,6 @@ services:
       MAIL_FROM: ${MAIL_FROM}
       MAIL_USER: ${MAIL_USER}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
-      PHONE_NUMBER: ${PHONE_NUMBER:?}
       HIBERNATE_SHOW_SQL: ${HIBERNATE_SHOW_SQL}
       HIBERNATE_FORMAT_SQL: ${HIBERNATE_FORMAT_SQL}
       OMRS_DOCKER_ENV: ${OPENMRS_DOCKER_ENV}
@@ -196,8 +198,8 @@ services:
     command: >-
       --character-set-server=utf8 --collation-server=utf8_general_ci
       --sql-mode=NO_ENGINE_SUBSTITUTION
-      --auto-increment-increment=10 --auto-increment-offset=${BHS_LOCATION_OFFSET:?}
-      --server-id=${MYSQL_SERVER_ID:?}
+      --auto-increment-increment=10 --auto-increment-offset=${BHS_SITE_NUMBER:?}
+      --server-id=${BHS_SITE_NUMBER:?}
       --wait-timeout=604800 --interactive-timeout=604800
     ports:
       - 3306:3306
@@ -289,7 +291,7 @@ services:
     environment:
       JAVA_TOOL_OPTIONS: ${ATOMFEED_CONSOLE_JAVA_OPTS:--Xmx256m}
       TZ: ${TZ}
-      OPENMRS_DB_HOST: ${BAHMNI_MYSQL_HOST}
+      OPENMRS_DB_HOST: bahmni-mysql
       OPENMRS_DB_NAME: ${OPENMRS_DB_NAME}
       OPENMRS_DB_USERNAME: ${OPENMRS_DB_USERNAME}
       OPENMRS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}

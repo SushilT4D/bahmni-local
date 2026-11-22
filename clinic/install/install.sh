@@ -91,29 +91,25 @@ load_inputs(){ # SLUG
   [ -z "${SECRETS_FILE}" ] || { set -a; . "${SECRETS_FILE}"; set +a; }
   if [ -f "$E" ]; then
     for k in $INPUT_KEYS $OPTIONAL_INPUT_KEYS; do v="$(env_get "$E" "$k")"; [ -z "$v" ] || { eval "$k=\$v"; export "$k"; }; done
-    v="$(env_get "$E" PHONE_NUMBER)"; case "$v" in ''|'<'*) ;; *) CLINIC_PHONE="$v"; export CLINIC_PHONE ;; esac
   fi
-  [ -n "${RESIDUE:-}" ] || RESIDUE="$r"
-  [ -n "${SITE_NUMBER:-}" ] || SITE_NUMBER="$r"
-  ask CLINIC_PHONE "clinic phone, E.164" "+910000000000" "${E} (PHONE_NUMBER)"
+  [ -n "${BHS_SITE_NUMBER:-}" ] || BHS_SITE_NUMBER="$r"
   for k in $CLOUD_KEYS; do eval "[ -n \"\${$k:-}\" ]" || fail "$k is not in ${E}: the hub endpoint (REMOTE_KAFKA_BOOTSTRAP_SERVERS, REMOTE_KAFKA_USERNAME, REMOTE_KAFKA_SECURITY_PROTOCOL) comes from there"; done
   for k in $SECRET_KEYS; do ask_secret "$k" "--secrets"; done
-  export CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER; input_defaults_apply
+  export CLINIC_SLUG BHS_SITE_NUMBER MRN_PREFIX; input_defaults_apply
   info "clinic values: ${E} first, then ${CLINICS_JSON}${SECRETS_FILE:+ and ${SECRETS_FILE}}"
 }
 
 load_inputs "$CLINIC"
 
-REQUIRED="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
+REQUIRED="CLINIC_SLUG BHS_SITE_NUMBER MRN_PREFIX REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
 set -a; . "${VERSIONS_FILE}"; set +a
 [ -z "$IMAGE_CHOICES_FILE" ] || image_choices_load "$IMAGE_CHOICES_FILE"
 for k in $IMAGE_KEYS; do eval "v=\${$k:-}"; [ -z "$v" ] || image_set "$k" "$v"; done
 missing=""
 for k in $REQUIRED; do eval "v=\${$k:-}"; [ -n "$v" ] || missing="$missing $k"; done
 [ -z "$missing" ] || fail "no value for:$missing"
-printf '%s' "$SITE_NUMBER" | grep -Eq '^[0-9]{1,5}$' || fail "SITE_NUMBER '$SITE_NUMBER' must be digits"
-derive_identity "$CLINIC_SLUG" "$RESIDUE"
-refuse_inherited_alias "$LOCAL_CLUSTER_ALIAS" "$CLINIC_SLUG"
+printf '%s' "$BHS_SITE_NUMBER" | grep -Eq '^[0-9]{1,5}$' || fail "BHS_SITE_NUMBER '$BHS_SITE_NUMBER' must be digits"
+derive_identity "$CLINIC_SLUG" "$BHS_SITE_NUMBER"
 export CLINIC_DIR REPO_DIR CLINICS_JSON
 
 if [ "$DRY" = 1 ]; then
@@ -137,7 +133,7 @@ fi
 
 log "install log: ${INSTALL_LOG}"
 
-log "clinic installer  slug=${CLINIC_SLUG} residue=${RESIDUE} dry=${DRY}"
+log "clinic installer  slug=${CLINIC_SLUG} residue=${BHS_SITE_NUMBER} dry=${DRY}"
 log "  clinic dir: ${CLINIC_DIR}"
 log "  seed:       ${SEED_DIR}"
 image_choices_report

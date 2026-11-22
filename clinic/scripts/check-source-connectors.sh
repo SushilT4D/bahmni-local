@@ -85,7 +85,7 @@ cfg_file="$(mktemp)"
 curl -s "${CONNECT_URL}/connectors/${CONNECTOR_NAME}/config" > "${cfg_file}" 2>/dev/null
 offset="${MYSQL_OFFSET:-}"
 if [ -z "${offset}" ]; then
-  project="$(sed -n 's/^COMPOSE_PROJECT_NAME=//p' "${CLINIC_ROOT}/.env" 2>/dev/null | tail -1 | tr -d "\"' ")"
+  project=bahmni
   for ct in docker podman; do
     command -v "$ct" >/dev/null 2>&1 || continue
     offset="$("$ct" exec "${MYSQL_CONTAINER:-${project:-bahmni}-bahmni-mysql-1}" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "select @@global.auto_increment_offset"' 2>/dev/null | tail -1)"

@@ -33,7 +33,7 @@ ORIGIN_FILTER_TYPE="io.debezium.transforms.Filter"
 ORIGIN_FILTER_LANGUAGE="jsr223.groovy"
 ORIGIN_FILTER_PREDICATE_TYPE="org.apache.kafka.connect.transforms.predicates.TopicNameMatches"
 
-# origin_filter_condition PK FLOOR RESIDUE : the Groovy condition, on one line.
+# origin_filter_condition PK FLOOR BHS_SITE_NUMBER : the Groovy condition, on one line.
 # key.get(<column>) reads a field of the record key (a Connect Struct).
 origin_filter_condition(){
   local pk="$1" fl="$2" r="$3"
@@ -49,7 +49,7 @@ origin_filter_topic_pattern(){
   printf '%s.%s.%s' "$1" "$2" "$3" | sed 's/[^A-Za-z0-9_-]/\\&/g'
 }
 
-# origin_filter_lines PREFIX DB RESIDUE : reads "table pk floor" lines on stdin
+# origin_filter_lines PREFIX DB BHS_SITE_NUMBER : reads "table pk floor" lines on stdin
 # and prints the connector configuration keys of the filter, one per line, as
 # "<key><TAB><value>". Prints nothing for no lines. Returns 1, with the reason
 # on stderr, for a line it cannot render: a table with no floor is never

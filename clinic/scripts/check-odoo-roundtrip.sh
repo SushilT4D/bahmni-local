@@ -22,19 +22,19 @@ env_get(){ # KEY -> its value in ENV_FILE, quotes removed
 
 [ -f "${ENV_FILE}" ] || fail "no ${ENV_FILE}"
 SLUG="$(env_get BHS_LOCATION)"
-RESIDUE="$(env_get RESIDUE)"
+BHS_SITE_NUMBER="$(env_get BHS_SITE_NUMBER)"
 USER_="$(env_get ODOO_ATOMFEED_USER)"
 PW="$(env_get ODOO_ATOMFEED_PASSWORD)"
 PORT="$(env_get ODOO_PORT)"; PORT="${PORT:-8069}"
-PG="$(env_get COMPOSE_PROJECT_NAME)-bahmni-postgres-1"
-for k in SLUG RESIDUE USER_ PW; do [ -n "${!k}" ] || fail "${k%_} is not set in ${ENV_FILE}"; done
+PG=bahmni-bahmni-postgres-1
+for k in SLUG BHS_SITE_NUMBER USER_ PW; do [ -n "${!k}" ] || fail "${k%_} is not set in ${ENV_FILE}"; done
 
 mark="ODOO-ROUNDTRIP-${SLUG}-$(date -u +%Y%m%dT%H%M%SZ)"
 id="$(printf "insert into res_partner (name, active, comment, create_date, write_date) values ('Odoo round-trip check %s', true, '%s', now(), now()) returning id" "$SLUG" "$mark" \
   | "$CT" exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null | head -1 || true)"
 case "$id" in ''|*[!0-9]*) fail "could not insert the check row into res_partner in ${PG} (got '${id:-nothing}')" ;; esac
-[ $(( id % 10 )) -eq "$RESIDUE" ] && ok "row ${id} is on this node's residue ${RESIDUE}" \
-  || fail "row ${id} is not on residue ${RESIDUE}: res_partner_id_seq is not strided for this node"
+[ $(( id % 10 )) -eq "$BHS_SITE_NUMBER" ] && ok "row ${id} is on this node's residue ${BHS_SITE_NUMBER}" \
+  || fail "row ${id} is not on residue ${BHS_SITE_NUMBER}: res_partner_id_seq is not strided for this node"
 
 # res.partner.comment is an HTML field in Odoo 16: "=" compares against the sanitised form (<p>...</p>), so the
 # search uses "like"; the value read back is compared exactly.

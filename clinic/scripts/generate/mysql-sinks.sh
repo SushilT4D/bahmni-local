@@ -1,6 +1,6 @@
 #!/bin/bash
 # Part of generate-connectors.sh: the MySQL (OpenMRS) down sink, one for every table in the
-# [down] section of sync/tables/openmrs.conf, reading remote.<cloud>.openmrs.all, written to
+# [down] section of sync/tables/openmrs.conf, reading cloud.<cloud>.openmrs.all, written to
 # connectors/mysql-local-sink-all.json. The sink password stays a placeholder.
 set -euo pipefail
 
@@ -25,15 +25,9 @@ up_lines(){ printf '%s\n' "$UP_LINES"; }
 
 CLOUD_SERVER_NAME="${CLOUD_MYSQL_SERVER_NAME:-bahmni-cloud}"
 CLOUD_DB="${CLOUD_MYSQL_DATABASE:-openmrs}"
-MM2_REMOTE_ALIAS="${MM2_REMOTE_ALIAS:-remote}"     # MM2 cluster alias for the cloud
-LOCAL_MYSQL_HOST="${LOCAL_MYSQL_HOST:-bahmni-mysql}"
-LOCAL_MYSQL_PORT="${LOCAL_MYSQL_PORT:-3306}"
-LOCAL_MYSQL_DATABASE="${LOCAL_MYSQL_DATABASE:-openmrs}"
-LOCAL_MYSQL_USE_SSL="${LOCAL_MYSQL_USE_SSL:-false}"
-LOCAL_MYSQL_USER="${LOCAL_MYSQL_USER:-${SINK_DB_USER:-sink}}"
 
-# the mirrored name on the clinic, e.g. remote.bahmni-cloud.openmrs.all
-SRC_PREFIX="${MM2_REMOTE_ALIAS}.${CLOUD_SERVER_NAME}.${CLOUD_DB}."
+# the mirrored name on the clinic, e.g. cloud.bahmni-cloud.openmrs.all
+SRC_PREFIX="cloud.${CLOUD_SERVER_NAME}.${CLOUD_DB}."
 
 # ---------------------------------------------------------------------------
 # Validate the complete table list before writing configs.
@@ -73,9 +67,9 @@ route_base(){ # COLUMN -> the base of the table it points at
     printf '%s' "$b"
 }
 if [[ "$need_residue" == yes ]]; then
-    RESIDUE_OWN="${RESIDUE:-}"
-    [[ -n "$RESIDUE_OWN" ]] || { [[ -n "${BHS_LOCATION_OFFSET:-}" ]] && RESIDUE_OWN=$(( BHS_LOCATION_OFFSET % 10 )); }
-    [[ "$RESIDUE_OWN" =~ ^[1-9]$ ]] || { echo "this clinic's residue (RESIDUE, 1-9) is not set: the lab-result sinks keep only this clinic's rows and cannot be generated without it" >&2; exit 1; }
+    RESIDUE_OWN="${BHS_SITE_NUMBER:-}"
+    [[ -n "$RESIDUE_OWN" ]] || { [[ -n "${BHS_SITE_NUMBER:-}" ]] && RESIDUE_OWN=$(( BHS_SITE_NUMBER % 10 )); }
+    [[ "$RESIDUE_OWN" =~ ^[1-9]$ ]] || { echo "this clinic's residue (BHS_SITE_NUMBER, 1-9) is not set: the lab-result sinks keep only this clinic's rows and cannot be generated without it" >&2; exit 1; }
 fi
 for i in "${!ROUTE_COLS[@]}"; do
     if [[ -n "${ROUTE_COLS[$i]}" ]]; then ROUTE_BASES[$i]="$(route_base "${ROUTE_COLS[$i]}")" || exit 1
@@ -112,15 +106,11 @@ done
 
 SPECS="$SPECS" RESIDUE_OWN="$RESIDUE_OWN" \
 TEMPLATE="$TEMPLATE" KAFKA_TOPICS="${SRC_PREFIX}all" \
-LOCAL_MYSQL_HOST="$LOCAL_MYSQL_HOST" LOCAL_MYSQL_PORT="$LOCAL_MYSQL_PORT" \
-LOCAL_MYSQL_DATABASE="$LOCAL_MYSQL_DATABASE" LOCAL_MYSQL_USE_SSL="$LOCAL_MYSQL_USE_SSL" \
-LOCAL_MYSQL_USER="$LOCAL_MYSQL_USER" \
 python3 - "$OUT/mysql-local-sink-all.json" <<'PYEOF'
 import json, os, re, sys
 
 raw = open(os.environ['TEMPLATE']).read()
-for key in ('KAFKA_TOPICS','LOCAL_MYSQL_HOST','LOCAL_MYSQL_PORT',
-            'LOCAL_MYSQL_DATABASE','LOCAL_MYSQL_USE_SSL','LOCAL_MYSQL_USER'):
+for key in ('KAFKA_TOPICS',):
     raw = raw.replace('${%s}' % key, os.environ[key])
 
 doc = json.loads(raw)
@@ -128,10 +118,10 @@ doc = json.loads(raw)
 doc['config'] = {k: v for k, v in doc['config'].items() if not k.startswith('//')}
 cfg = doc['config']
 
-# ${LOCAL_MYSQL_PASSWORD} stays a placeholder: register-connectors.sh fills it from .env;
+# ${OPENMRS_SINK_PASSWORD} stays a placeholder: register-connectors.sh fills it from .env;
 # ${source.table} is the sink's own routing variable.
 leftover = [k for k, v in cfg.items()
-            if '${' in str(v).replace('${LOCAL_MYSQL_PASSWORD}', '').replace('${source.table}', '')]
+            if '${' in str(v).replace('${OPENMRS_SINK_PASSWORD}', '').replace('${source.table}', '')]
 if leftover:
     sys.exit(f"unsubstituted placeholder(s) in {leftover}")
 
@@ -171,4 +161,4 @@ python3 "${ROOT}/scripts/_fill_template.py" --mark "$OUT/mysql-local-sink-all.js
 
 echo "  mysql-local-sink-all.json: one down sink for ${#TABLES[@]} tables"
 echo "  mirrored topic : ${SRC_PREFIX}all"
-echo "  target         : ${LOCAL_MYSQL_HOST}:${LOCAL_MYSQL_PORT}/${LOCAL_MYSQL_DATABASE}"
+echo "  target         : bahmni-mysql:3306/openmrs"

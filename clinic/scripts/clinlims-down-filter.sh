@@ -18,8 +18,8 @@ value_of(){ # KEY -> environment, else clinic/.env, else SEED_MANIFEST, else .in
 }
 
 # Resolve the clinic residue and the hub's OpenELIS routing list.
-r="$(value_of RESIDUE)"
-case "$r" in [1-9]) ;; *) die "this clinic's residue (RESIDUE, 1-9) is not set (read '${r}'): the OpenELIS down filter keeps only this clinic's rows and is not written without it" ;; esac
+r="$(value_of BHS_SITE_NUMBER)"
+case "$r" in [1-9]) ;; *) die "this clinic's residue (BHS_SITE_NUMBER, 1-9) is not set (read '${r}'): the OpenELIS down filter keeps only this clinic's rows and is not written without it" ;; esac
 routes="$(bash "${REPO_DIR}/sync/tables/tables.sh" openelis routes)" || die "the hub's down list could not be read (reason above); no filter was written"
 
 unrouted="$(bash "${REPO_DIR}/sync/tables/tables.sh" openelis unrouted)" || die "the hub's down list could not be read (reason above); no filter was written"

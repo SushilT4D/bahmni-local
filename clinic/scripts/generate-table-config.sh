@@ -49,7 +49,6 @@ if [[ -f "${ENV_FILE}" ]]; then
   set +a
 fi
 
-DATABASE_NAME="${DATABASE_NAME:-openmrs}"
 if [[ "${SIDE}" == "local" ]]; then
   SERVER_NAME="${MYSQL_SERVER_NAME:-bahmni-local}"
 else
@@ -68,15 +67,15 @@ if [[ "${SIDE}" == "local" ]]; then
   recs="$(up_tables_read "${TABLES_CONF}")" || { echo "Error: ${TABLES_CONF} cannot be read as the clinic's table list (reason above)" >&2; exit 1; }
   while read -r table pk _kind _arg; do
     [[ -n "${table}" ]] || continue
-    table_include_list+=("${DATABASE_NAME}.${table}")
-    kafka_topics+=("${SERVER_NAME}.${DATABASE_NAME}.${table}")
+    table_include_list+=("openmrs.${table}")
+    kafka_topics+=("${SERVER_NAME}.openmrs.${table}")
     primary_keys+=("$pk")
   done <<EOF
 ${recs}
 EOF
   # the source connector's signal table: captured, but no topic goes up for it
   # and it has no key list here (sync/tables/tables.sh)
-  table_include_list+=("$(up_signal_collection "${DATABASE_NAME}")")
+  table_include_list+=("$(up_signal_collection "openmrs")")
 else
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -90,8 +89,8 @@ else
       if [[ "${role}" == "relay" && "${INCLUDE_RELAY}" != "yes" ]]; then
         continue
       fi
-      table_include_list+=("${DATABASE_NAME}.${table}")
-      kafka_topics+=("${SERVER_NAME}.${DATABASE_NAME}.${table}")
+      table_include_list+=("openmrs.${table}")
+      kafka_topics+=("${SERVER_NAME}.openmrs.${table}")
       primary_keys+=("$pk")
     else
       echo "Warning: skipping malformed line: ${line}" >&2
@@ -102,7 +101,7 @@ fi
 echo "# Generated from ${TABLES_CONF#${PROJECT_DIR}/}"
 echo "# Side: ${SIDE}"
 echo "# Server: ${SERVER_NAME}"
-echo "# Database: ${DATABASE_NAME}"
+echo "# Database: openmrs"
 echo "# Tables: ${#table_include_list[@]}"
 echo ""
 echo "TABLE_INCLUDE_LIST=$(IFS=','; echo "${table_include_list[*]}")"

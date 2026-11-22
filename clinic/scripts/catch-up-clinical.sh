@@ -58,8 +58,8 @@ fi
 [ -f "${ENV_FILE}" ] || die ".env not found at ${ENV_FILE}"
 # Load clinic identity and seed-derived table floors.
 set -a; . "${ENV_FILE}"; set +a
-DB="${DATABASE_NAME:-openmrs}"
-case "${RESIDUE:-}" in [1-9]) ;; *) die "RESIDUE in ${ENV_FILE} is '${RESIDUE:-}', not a clinic residue (1 to 9)" ;; esac
+DB=openmrs
+case "${BHS_SITE_NUMBER:-}" in [1-9]) ;; *) die "BHS_SITE_NUMBER in ${ENV_FILE} is '${BHS_SITE_NUMBER:-}', not a clinic residue (1 to 9)" ;; esac
 FLOORS_FILE="${SEED_MANIFEST:-${PROJECT_DIR}/.install-state}"
 . "${REPO_ROOT}/sync/tables/tables.sh"
 recs="$(up_tables_read "${TABLES_CONF}")" || die "${TABLES_CONF} cannot be read (reason above)"
@@ -83,7 +83,7 @@ for t in $want; do
 done
 [ -n "$plan" ] || { echo "catch-up: no table of ${TABLES_CONF} has a floor from the seed or from another table; nothing to catch up"; exit 0; }
 
-cond_of(){ printf '%s >= %s AND %s %% 10 = %s' "$1" "$2" "$1" "${RESIDUE}"; }
+cond_of(){ printf '%s >= %s AND %s %% 10 = %s' "$1" "$2" "$1" "${BHS_SITE_NUMBER}"; }
 signal_sql(){ # TABLE PK FLOOR
   local data
   data="$(printf '{"data-collections": ["%s.%s"], "type": "incremental", "additional-conditions": [{"data-collection": "%s.%s", "filter": "%s"}]}' "$DB" "$1" "$DB" "$1" "$(cond_of "$2" "$3")")"
@@ -93,7 +93,7 @@ count_sql(){ printf 'SELECT COUNT(*) FROM %s.`%s` WHERE %s;\n' "$DB" "$1" "$(con
 
 # Print the SQL without touching MySQL in dry-run mode.
 if [ "$DRY" = 1 ]; then
-  echo "-- catch-up, residue ${RESIDUE}, run ${RUN} (dry run: nothing counted, nothing inserted)"
+  echo "-- catch-up, residue ${BHS_SITE_NUMBER}, run ${RUN} (dry run: nothing counted, nothing inserted)"
   printf '%s' "$plan" | while read -r t pk fl; do
     [ -n "$t" ] || continue
     printf -- '-- %s: rows this clinic owns\n' "$t"
@@ -116,7 +116,7 @@ if [ -z "$CT" ]; then for c in docker podman; do command -v "$c" >/dev/null 2>&1
 MY="${MYSQL_CONTAINER:-${COMPOSE_PROJECT_NAME:-bahmni}-bahmni-mysql-1}"
 mysql_root(){ "$CT" exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N'; }
 
-echo "catch-up: residue ${RESIDUE}, run ${RUN}"
+echo "catch-up: residue ${BHS_SITE_NUMBER}, run ${RUN}"
 # Count clinic-owned rows and submit one snapshot signal per table.
 total=0
 while read -r t pk fl; do

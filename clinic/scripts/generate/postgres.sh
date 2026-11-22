@@ -8,7 +8,7 @@
 #     openelis.conf;
 #   - MYSQL_SERVER_NAME, from .env;
 #   - the OpenELIS source's own-rows filters (CLINLIMS_UP_CONDITION_<TABLE>), from
-#     the floors installer task 060 records in .install-state and RESIDUE;
+#     the floors installer task 060 records in .install-state and BHS_SITE_NUMBER;
 #   - the OpenELIS down sink's filter (CLINLIMS_DOWN_CONDITION), from
 #     scripts/clinlims-down-filter.sh.
 set -euo pipefail
@@ -38,7 +38,7 @@ value_of(){ # KEY -> the environment, else .env, else the installer's state file
 
 MYSQL_SERVER_NAME="$(value_of MYSQL_SERVER_NAME)"
 [ -n "${MYSQL_SERVER_NAME}" ] || die "MYSQL_SERVER_NAME is not set in ${CLINIC_DIR}/.env"
-RESIDUE="$(value_of RESIDUE)"
+BHS_SITE_NUMBER="$(value_of BHS_SITE_NUMBER)"
 export MYSQL_SERVER_NAME
 
 # The table lists.
@@ -58,7 +58,7 @@ for t in ${UP_CLINLIMS_OWN_ROWS}; do
   k="CLINLIMS_FLOOR_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')"
   fl="$(value_of "$k")"
   [ -n "$fl" ] || die "no ${k} is recorded in ${STATE_FILE} (installer task 060 records it before it strides the OpenELIS ids), so the OpenELIS source cannot tell this clinic's ${t} rows from the hub's"
-  c="$(origin_filter_condition id "$fl" "${RESIDUE}")" || die "the ${t} filter could not be written (reason above)"
+  c="$(origin_filter_condition id "$fl" "${BHS_SITE_NUMBER}")" || die "the ${t} filter could not be written (reason above)"
   export "CLINLIMS_UP_CONDITION_$(printf '%s' "$t" | tr '[:lower:]' '[:upper:]')=$c"
 done
 

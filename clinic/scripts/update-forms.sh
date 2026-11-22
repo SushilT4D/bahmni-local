@@ -20,7 +20,7 @@ done
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "no ${E}: this is not an installed node"
 FORMS_REPO_URL="$(env_get "$E" FORMS_REPO_URL)"; FORMS_REPO_KEY="$(env_get "$E" FORMS_REPO_KEY)"
-COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
+COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
 export FORMS_REPO_URL FORMS_REPO_KEY COMPOSE_PROJECT_NAME
 mounted="$(env_get "$E" FORMS_DIR)"; mounted="${mounted:-${FORMS_FROZEN_DIR}}"
 ro="$(env_get "$E" FORMS_READ_ONLY)"; ro="${ro:-false}"

@@ -8,7 +8,7 @@ appjson_prefix(){ { jq -r '.config.defaultIdentifierPrefix // empty' "$1" 2>/dev
 lab_site_code(){ case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 99999 ] || return 1; printf '%05d' "$((10#$1))"; }
 [ "${1:-}" = "--lib-only" ] && return 0 2>/dev/null
 
-begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${SITE_NUMBER})"
+begin_task "70 · site identity (MRN ${MRN_PREFIX}, site ${BHS_SITE_NUMBER})"
 
 CFG_DIR=""; [ -f "${CLINIC_DIR}/.env" ] && CFG_DIR="$(env_get "${CLINIC_DIR}/.env" BAHMNI_CONFIG_DIR 2>/dev/null || true)"
 [ -n "$CFG_DIR" ] || CFG_DIR="${CLINIC_DIR}/extracted/bahmni_config"
@@ -35,7 +35,7 @@ else
 fi
 
 info "hand-step (idgen): add an identifierSource row with prefix ${MRN_PREFIX} and a fresh UUID $(python3 -c 'import uuid; print(uuid.uuid4())') in masterdata/configuration/idgen/identifierSource.csv, then rebuild the config image"
-SITE_CODE="$(lab_site_code "${SITE_NUMBER}")" || fail "SITE_NUMBER='${SITE_NUMBER}' is not a site number from 1 to 99999: OpenELIS's lab numbers start with it"
+SITE_CODE="$(lab_site_code "${BHS_SITE_NUMBER}")" || fail "BHS_SITE_NUMBER='${BHS_SITE_NUMBER}' is not a site number from 1 to 99999: OpenELIS's lab numbers start with it"
 [ "${DRY}" = 1 ] && { info "would: set clinlims.site_information siteNumber=${SITE_CODE}, acessionFormat=SITEYEARNUM; set ir_sequence prefix ${MRN_PREFIX}-SO for sale.order"; exit 0; }
 setup_compose
 PG="${COMPOSE_PROJECT_NAME}-bahmni-postgres-1"

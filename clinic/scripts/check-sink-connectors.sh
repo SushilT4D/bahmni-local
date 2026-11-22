@@ -33,7 +33,7 @@ fi
 echo ""
 
 # Check specific sink connector
-SINK_CONNECTOR="${SINK_CONNECTOR:-openmrs-${LOCAL_CLUSTER_ALIAS:-<slug>}-sink}"   # one OpenMRS sink per clinic, for every table
+SINK_CONNECTOR="${SINK_CONNECTOR:-openmrs-${BHS_LOCATION:-<slug>}-sink}"   # one OpenMRS sink per clinic, for every table
 echo "Checking connector: ${SINK_CONNECTOR}"
 
 # Check if connector exists

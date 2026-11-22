@@ -8,7 +8,7 @@ set -e
 
 TABLE="${1}"
 TEST_ID="${2}"
-LOCAL_DB="${LOCAL_MYSQL_DATABASE:-openmrs}"
+LOCAL_DB="openmrs"
 REMOTE_DB="${REMOTE_MYSQL_DATABASE:-openmrs}"
 
 # Colors
@@ -30,10 +30,10 @@ echo ""
 echo -e "${BLUE}Step 1: Inserting test record in LOCAL MySQL...${NC}"
 case "$TABLE" in
     person)
-        mysql -h "${LOCAL_MYSQL_HOST:-localhost}" \
-              -P "${LOCAL_MYSQL_PORT:-3306}" \
-              -u "${LOCAL_MYSQL_USER:-root}" \
-              -p"${LOCAL_MYSQL_PASSWORD}" \
+        mysql -h 127.0.0.1 \
+              -P 3306 \
+              -u root \
+              -p"${MYSQL_ROOT_PASSWORD}" \
               "$LOCAL_DB" <<EOF
 INSERT INTO person (person_id, gender, birthdate, creator, date_created, uuid)
 VALUES ($TEST_ID, 'M', '1990-01-01', 1, NOW(), UUID())
@@ -46,10 +46,10 @@ EOF
         ;;
     patient)
         # First ensure person exists
-        mysql -h "${LOCAL_MYSQL_HOST:-localhost}" \
-              -P "${LOCAL_MYSQL_PORT:-3306}" \
-              -u "${LOCAL_MYSQL_USER:-root}" \
-              -p"${LOCAL_MYSQL_PASSWORD}" \
+        mysql -h 127.0.0.1 \
+              -P 3306 \
+              -u root \
+              -p"${MYSQL_ROOT_PASSWORD}" \
               "$LOCAL_DB" <<EOF
 INSERT INTO person (person_id, gender, birthdate, creator, date_created, uuid)
 VALUES ($TEST_ID, 'M', '1990-01-01', 1, NOW(), UUID())
@@ -63,10 +63,10 @@ SELECT * FROM patient WHERE patient_id = $TEST_ID;
 EOF
         ;;
     visit)
-        mysql -h "${LOCAL_MYSQL_HOST:-localhost}" \
-              -P "${LOCAL_MYSQL_PORT:-3306}" \
-              -u "${LOCAL_MYSQL_USER:-root}" \
-              -p"${LOCAL_MYSQL_PASSWORD}" \
+        mysql -h 127.0.0.1 \
+              -P 3306 \
+              -u root \
+              -p"${MYSQL_ROOT_PASSWORD}" \
               "$LOCAL_DB" <<EOF
 INSERT INTO visit (visit_id, patient_id, visit_type_id, date_started, creator, date_created, uuid)
 VALUES ($TEST_ID, 1, 1, NOW(), 1, NOW(), UUID())
@@ -104,12 +104,12 @@ echo ""
 echo -e "${BLUE}Step 3: Checking REMOTE MySQL...${NC}"
 REMOTE_HOST="${REMOTE_MYSQL_HOST}"
 REMOTE_PORT="${REMOTE_MYSQL_PORT:-3306}"
-REMOTE_USER="${DEBEZIUM_DB_USER:-debezium}"
-REMOTE_PASS="${DEBEZIUM_DB_PASSWORD}"
+REMOTE_USER="${CLOUD_MYSQL_USER:-debezium}"
+REMOTE_PASS="${CLOUD_MYSQL_PASSWORD:-}"
 
 if [ -z "$REMOTE_HOST" ]; then
     echo -e "${YELLOW}⚠ REMOTE_MYSQL_HOST not set - skipping remote check${NC}"
-    echo "Set REMOTE_MYSQL_HOST, DEBEZIUM_DB_USER and DEBEZIUM_DB_PASSWORD (the cloud's) to test remote"
+    echo "Set REMOTE_MYSQL_HOST, CLOUD_MYSQL_USER and CLOUD_MYSQL_PASSWORD (the cloud's) to test remote"
 else
     case "$TABLE" in
         person)

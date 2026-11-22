@@ -69,7 +69,7 @@ for t in $TABLES; do
 done
 
 E="${CLINIC_DIR}/.env"
-[ ! -f "$E" ] || COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
+COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
 if [ -z "$MY" ]; then
   [ -f "$E" ] || die2 "no ${E}: name the MySQL container with --container"
   [ -n "${COMPOSE_PROJECT_NAME}" ] || die2 "clinic/.env has no COMPOSE_PROJECT_NAME: name the MySQL container with --container"

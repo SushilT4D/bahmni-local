@@ -41,7 +41,6 @@ run both scripts. `unregister-connectors.sh` removes the MySQL source.
 | script | renders |
 |---|---|
 | `generate-table-config.sh` | `TABLE_INCLUDE_LIST` / `KAFKA_TOPICS` |
-| `generate-topics.sh` | the Kafka topic list |
 | `setup-mirrormaker.sh` | `mm2.properties` from the template |
 
 **OpenELIS sink role** — `create-clinlims-sink-role.sh` creates the `clinlims_sink`

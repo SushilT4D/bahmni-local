@@ -6,8 +6,8 @@ T=$1; PG=$2; SU=$3; OSRC=$4; CSRC=$5; C=${6:-http://localhost:8083}
 here=$(cd "$(dirname "$0")/.." && pwd)
 # Install the heartbeat table and publication in both databases.
 $T cp "$here/scripts/sql/apply-slot-heartbeat.sql" "$PG:/tmp/hb.sql"
-$T exec "$PG" psql -U "$SU" -d odoo     -v ON_ERROR_STOP=1 -v s=public   -v r=odoo     -v p=dbz_odoo_owned     -f /tmp/hb.sql | grep 'carries'
-$T exec "$PG" psql -U "$SU" -d openelis -v ON_ERROR_STOP=1 -v s=clinlims -v r=clinlims -v p=dbz_clinlims_owned -f /tmp/hb.sql | grep 'carries'
+$T exec "$PG" psql -U "$SU" -d odoo     -v ON_ERROR_STOP=1 -v s=public   -v r=odoo_source     -v p=dbz_odoo_owned     -f /tmp/hb.sql | grep 'carries'
+$T exec "$PG" psql -U "$SU" -d openelis -v ON_ERROR_STOP=1 -v s=clinlims -v r=clinlims_source -v p=dbz_clinlims_owned -f /tmp/hb.sql | grep 'carries'
 # Enable heartbeat events on both source connectors.
 patch() { # name schema
   curl -s "$C/connectors/$1/config" | python3 -c "

@@ -6,11 +6,10 @@ begin_task "00 · preflight"
 
 r="$(clinic_residue "${CLINIC_SLUG}")"
 [ -n "$r" ] || fail "'${CLINIC_SLUG}' has no site_number in ${CLINICS_JSON}: the operator sets it there, commits, pushes, and this checkout pulls"
-[ "$r" = "${RESIDUE}" ] || fail "sync/clinics.json gives ${CLINIC_SLUG} site_number ${r}, but clinic/.env says RESIDUE=${RESIDUE}; sync/clinics.json wins -- fix RESIDUE in clinic/.env"
-c="$(residue_conflicts "${CLINIC_SLUG}" "${RESIDUE}")"
-[ -z "$c" ] || fail "residue ${RESIDUE} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.json"
-ok "residue ${RESIDUE} allocated to ${CLINIC_SLUG}, unique in sync/clinics.json"
-refuse_inherited_alias "${LOCAL_CLUSTER_ALIAS}" "${CLINIC_SLUG}"
+[ "$r" = "${BHS_SITE_NUMBER}" ] || fail "sync/clinics.json gives ${CLINIC_SLUG} site_number ${r}, but clinic/.env says BHS_SITE_NUMBER=${BHS_SITE_NUMBER}; sync/clinics.json wins -- fix BHS_SITE_NUMBER in clinic/.env"
+c="$(residue_conflicts "${CLINIC_SLUG}" "${BHS_SITE_NUMBER}")"
+[ -z "$c" ] || fail "residue ${BHS_SITE_NUMBER} is already held by: $(printf '%s' "$c" | tr '\n' ' ')-- pick a free one in sync/clinics.json"
+ok "residue ${BHS_SITE_NUMBER} allocated to ${CLINIC_SLUG}, unique in sync/clinics.json"
 
 # counters:begin
 . "${INSTALL_DIR}/state.sh"
@@ -22,14 +21,14 @@ preflight_mysql_read(){
   fi
 
   local p q
-  p="$(env_get "${CLINIC_DIR}/.env" COMPOSE_PROJECT_NAME 2>/dev/null || true)"
+  p=bahmni
   if [ "$1" = --stride ]; then q='select @@auto_increment_increment, @@auto_increment_offset'
   else q="$(printf "set session information_schema_stats_expiry=0; select auto_increment from information_schema.tables where table_schema='openmrs' and table_name='%s'" "$1")"; fi
   [ -n "${CT:-}" ] || setup_compose
   printf '%s\n' "$q" | ct exec -i "${p}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 | tr '\t' ' ' || true
 }
 
-v="$(node_counters_verdict "$(stamp_get STATE)" "${REPO_DIR}/sync/tables/openmrs.conf" "${RESIDUE}" preflight_mysql_read)" || fail "$v"
+v="$(node_counters_verdict "$(stamp_get STATE)" "${REPO_DIR}/sync/tables/openmrs.conf" "${BHS_SITE_NUMBER}" preflight_mysql_read)" || fail "$v"
 while IFS= read -r l; do
   case "$l" in skip\ *) ok "${l#skip }" ;; ok\ *) ok "${l#ok }" ;; esac
 done <<EOF
@@ -61,7 +60,7 @@ fi
 
 # Each clinic has a fixed LAN address: 192.168.1.8<site number>.
 ifconfig -a 2>/dev/null | grep -q "inet ${LAN_IP} " && ok "LAN address ${LAN_IP}" \
-  || fail "this Mac does not have ${LAN_IP}, the fixed address of ${CLINIC_SLUG} (site ${RESIDUE}): sudo networksetup -setmanualwithdhcprouter <service> ${LAN_IP}"
+  || fail "this Mac does not have ${LAN_IP}, the fixed address of ${CLINIC_SLUG} (site ${BHS_SITE_NUMBER}): sudo networksetup -setmanualwithdhcprouter <service> ${LAN_IP}"
 
 require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt install jq"; require_cmd openssl; require_cmd curl; require_cmd gzip
 

@@ -26,7 +26,7 @@ got_b="$(ct exec "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1
 [ -n "$want_mb" ] && [ "$(( ${got_b:-0} / 1048576 ))" -ge "$want_mb" ] && ok "mysql innodb_buffer_pool_size ${want_mb} MB in force (read back from the server)" \
   || fail "mysql buffer pool is $(( ${got_b:-0} / 1048576 )) MB, config/mysql/sync-tuning.cnf says ${want_mb:-?} MB: the conf.d mount is not in force (compose up -d --force-recreate bahmni-mysql)"
 
-ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offset=${RESIDUE}" && ok "mysql runs with --auto-increment-offset=${RESIDUE}" || fail "mysql Config.Cmd lacks --auto-increment-offset=${RESIDUE}"
+ct inspect "$MY" --format '{{.Config.Cmd}}' | grep -q -- "--auto-increment-offset=${BHS_SITE_NUMBER}" && ok "mysql runs with --auto-increment-offset=${BHS_SITE_NUMBER}" || fail "mysql Config.Cmd lacks --auto-increment-offset=${BHS_SITE_NUMBER}"
 
 mysql_root(){ ct exec -i "$MY" sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N'; }
 psql_pg(){ ct exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
@@ -126,9 +126,9 @@ printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' 
 # sink-grants:begin
 grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from sync/tables/openmrs.conf [down]"
 mysql_root <<SQL
-CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_DB_PASSWORD}';
+CREATE USER IF NOT EXISTS 'debezium'@'%' IDENTIFIED BY '${DEBEZIUM_PASSWORD}';
 GRANT SELECT, RELOAD, SHOW DATABASES, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'debezium'@'%';
-CREATE USER IF NOT EXISTS 'sink'@'%' IDENTIFIED BY '${LOCAL_MYSQL_PASSWORD}';
+CREATE USER IF NOT EXISTS 'sink'@'%' IDENTIFIED BY '${OPENMRS_SINK_PASSWORD}';
 GRANT SYSTEM_VARIABLES_ADMIN ON *.* TO 'sink'@'%';
 ${grants}
 FLUSH PRIVILEGES;
@@ -206,3 +206,20 @@ got_odoo="$(printf "select count(*) from pg_publication_tables where pubname='db
 got_clinlims="$(printf "select count(*) from pg_publication_tables where pubname='dbz_clinlims_owned'" | ct exec -i "$PG" psql -U postgres -d openelis -At)"
 [ "${got_odoo:-0}" = "${want_odoo}" ] && ok "publication dbz_odoo_owned: ${got_odoo} tables" || fail "publication dbz_odoo_owned: ${got_odoo:-0} tables, want ${want_odoo}"
 [ "${got_clinlims:-0}" = "${want_clinlims}" ] && ok "publication dbz_clinlims_owned: ${got_clinlims} tables" || fail "publication dbz_clinlims_owned: ${got_clinlims:-0} tables, want ${want_clinlims}"
+
+# The Postgres source connectors' own roles: replication, and read on their publication's tables only.
+source_role(){ # db  schema  pubname  role  password
+  ct exec -i "$PG" psql -U postgres -d "$1" -v ON_ERROR_STOP=1 -q <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='$4') THEN CREATE ROLE $4 LOGIN REPLICATION; END IF;
+END \$\$;
+ALTER ROLE $4 WITH LOGIN REPLICATION NOSUPERUSER PASSWORD '$5';
+GRANT CONNECT ON DATABASE $1 TO $4;
+GRANT USAGE ON SCHEMA $2 TO $4;
+SELECT format('GRANT SELECT ON %I.%I TO $4', schemaname, tablename) FROM pg_publication_tables WHERE pubname = '$3' \\gexec
+SQL
+  [ "$(printf "select count(*) from pg_publication_tables where pubname='%s' and not has_table_privilege('%s', format('%%I.%%I', schemaname, tablename), 'SELECT')" "$3" "$4" | ct exec -i "$PG" psql -U postgres -d "$1" -At)" = 0 ] \
+    && ok "role $4: replication, read on every ${3} table" || fail "role $4 cannot read every ${3} table"
+}
+source_role odoo public dbz_odoo_owned odoo_source "${ODOO_SOURCE_PASSWORD}"
+source_role openelis clinlims dbz_clinlims_owned clinlims_source "${CLINLIMS_SOURCE_PASSWORD}"

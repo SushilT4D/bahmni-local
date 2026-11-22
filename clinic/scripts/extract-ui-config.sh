@@ -30,7 +30,7 @@ DOMAINS="${DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}"
 # Read the Initializer domains configured in each existing OpenMRS container.
 container_domains(){
   local project id opts d
-  project="${COMPOSE_PROJECT_NAME:-$(env_file_get COMPOSE_PROJECT_NAME)}"
+  project=bahmni
   for id in $("$CT" ps -a -q --filter label=com.docker.compose.service=openmrs ${project:+--filter "label=com.docker.compose.project=${project}"} 2>/dev/null); do
     opts="$("$CT" inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null | sed -n 's/^OMRS_JAVA_SERVER_OPTS=//p')"
     # Java keeps the last of a repeated -D

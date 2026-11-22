@@ -26,8 +26,7 @@ if [ "$DRYRUN" = 1 ]; then
 fi
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "no ${E}: this is not an installed node"
-COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
-[ -n "${COMPOSE_PROJECT_NAME}" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME"
+COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
 [ -n "${CT:-}" ] || setup_compose
 MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
 mysql_root(){ ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N'; }

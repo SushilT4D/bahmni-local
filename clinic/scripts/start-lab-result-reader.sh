@@ -18,7 +18,7 @@ done
 printf '%s' "$DB" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*$' || fail "bad database name: $DB"
 if [ -z "$OM" ] || [ -z "$MY" ]; then
   E="${CLINIC_DIR}/.env"; [ -f "$E" ] || fail "no ${E}: name the containers with --openmrs-container and --mysql-container"
-  P="$(env_get "$E" COMPOSE_PROJECT_NAME)"; [ -n "$P" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME"
+  P=bahmni
   [ -n "$OM" ] || OM="${P}-openmrs-1"; [ -n "$MY" ] || MY="${P}-bahmni-mysql-1"
 fi
 [ -n "${CT:-}" ] || setup_compose

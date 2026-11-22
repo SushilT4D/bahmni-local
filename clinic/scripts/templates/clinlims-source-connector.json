@@ -29,7 +29,7 @@
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "publication.autocreate.mode": "disabled",
     "transforms.agg.type": "org.apache.kafka.connect.transforms.RegexRouter",
-    "database.user": "clinlims",
+    "database.user": "clinlims_source",
     "database.dbname": "openelis",
     "time.precision.mode": "connect",
     "heartbeat.interval.ms": "60000",

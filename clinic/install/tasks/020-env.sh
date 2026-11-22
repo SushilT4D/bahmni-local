@@ -7,6 +7,7 @@ E="${CLINIC_DIR}/.env"
 X="${CLINIC_DIR}/.env.example"
 [ -f "$X" ] || fail "no ${X}"
 T="$(mktemp "${CLINIC_DIR}/.env.render.XXXXXX")"; cp "$X" "$T"
+trap 'rm -f "$T"' EXIT   # a failed run leaves no render (it can hold the cloud password)
 put(){ env_put "$T" "$1" "$2"; }
 
 put CONTAINER_DATA_PATH "${CLINIC_DIR}"
@@ -24,14 +25,13 @@ mkdir -p "${CLINIC_DIR}/config/mysql"
 mysql_tuning_cnf "$pool_mb" > "${CLINIC_DIR}/config/mysql/sync-tuning.cnf"
 ok "mysql tuning: buffer pool ${pool_mb} MB (node memory ${mem_mb} MB), redo log 512 MB -> config/mysql/sync-tuning.cnf"
 
-IDENTITY_KEYS="BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME"
+IDENTITY_KEYS="BHS_LOCATION MYSQL_SERVER_NAME BHS_SITE_NUMBER DEBEZIUM_SERVER_ID"
 for k in $IDENTITY_KEYS; do
   eval "put $k \"\${$k}\""
 done
 
-put PHONE_NUMBER "${CLINIC_PHONE}"
 
-put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
+put MRN_PREFIX "${MRN_PREFIX}"
 put LAN_NAME "${LAN_NAME}"
 
 [ -z "${OPENMRS_INITIALIZER_DOMAINS:-}" ] || put OPENMRS_INITIALIZER_DOMAINS "${OPENMRS_INITIALIZER_DOMAINS}"
@@ -41,7 +41,6 @@ put RESTART_POLICY always
 
 put OPENMRS_MEM_LIMIT 6g
 put REMOTE_SERVER_NAME bahmni-cloud
-put MM2_REMOTE_ALIAS remote
 put ODOO_HOST odoo; put ODOO_PORT 8069
 versions_put "$T"   # every fleet pin from sync/versions.env, the one place they live
 put ODOO_ATOMFEED_USER "${ODOO_ATOMFEED_USER:-emrsync}"   # the hub's own Odoo feed login (lib.sh INPUT_DEFAULTS)
@@ -72,15 +71,15 @@ put MYSQL_ROOT_PASSWORD "$(gen_secret)"
 put OPENMRS_DB_PASSWORD "$(gen_secret)"
 put ODOO_DB_PASSWORD "$(gen_secret)"
 put POSTGRES_SUPERUSER_PASSWORD "$(gen_secret)"
-oe="$(gen_secret)"; put OPENELIS_DB_PASSWORD "$oe"; put CLINLIMS_SOURCE_PASSWORD "$oe"   # the clinlims source logs in as role clinlims
+put OPENELIS_DB_PASSWORD "$(gen_secret)"; put ODOO_SOURCE_PASSWORD "$(gen_secret)"; put CLINLIMS_SOURCE_PASSWORD "$(gen_secret)"   # the clinlims source logs in as role clinlims
 put OPENELIS_DB_USERNAME clinlims; put OPENELIS_DB_USER clinlims
-dz="$(gen_secret)"; put LOCAL_DEBEZIUM_PASSWORD "$dz"; put DEBEZIUM_DB_PASSWORD "$dz"
-put LOCAL_MYSQL_PASSWORD "$(gen_secret)"
+put DEBEZIUM_PASSWORD "$(gen_secret)"
+put OPENMRS_SINK_PASSWORD "$(gen_secret)"
 
 put ODOO_SINK_PASSWORD "$(gen_secret)"; put CLINLIMS_SINK_PASSWORD "$(gen_secret)"
 
-DERIVED_KEYS="${IDENTITY_KEYS} CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER LAN_NAME $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "${VERSIONS_FILE}" | tr '\n' ' ')"
-RETIRED_KEYS="KAFKA_TOPICS KAFKA_TOPIC_PATTERNS"   # setup-mirrormaker.sh derives both from MYSQL_SERVER_NAME; an older .env's copies name the old server
+DERIVED_KEYS="${IDENTITY_KEYS} CLINIC_SLUG MRN_PREFIX LAN_NAME $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "${VERSIONS_FILE}" | tr '\n' ' ')"
+RETIRED_KEYS="KAFKA_TOPICS KAFKA_TOPIC_PATTERNS LOCAL_CLUSTER_ALIAS MM2_REMOTE_ALIAS PHONE_NUMBER COMPOSE_PROJECT_NAME LOCAL_DEBEZIUM_PASSWORD DEBEZIUM_DB_PASSWORD LOCAL_DEBEZIUM_USER DEBEZIUM_DB_USER DATABASE_NAME DATABASE_INCLUDE_LIST TABLE_INCLUDE_LIST LOCAL_MYSQL_PASSWORD RESIDUE SITE_NUMBER BHS_LOCATION_OFFSET MYSQL_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME LOCAL_MYSQL_HOST LOCAL_MYSQL_PORT LOCAL_MYSQL_DATABASE LOCAL_MYSQL_USE_SSL LOCAL_MYSQL_USER BAHMNI_MYSQL_HOST"   # dropped from an older .env: setup-mirrormaker.sh derives them
 if [ -f "$E" ] && ! head -n 1 "$E" | grep -q '^# DRY-RUN RENDER'; then
   n=0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -92,9 +91,16 @@ if [ -f "$E" ] && ! head -n 1 "$E" | grep -q '^# DRY-RUN RENDER'; then
       *) v="$(printf '%s' "$v" | sed -E 's/[[:space:]]+#.*$//')" ;;   # an unquoted value's inline comment is not part of it (compose reads it the same way)
     esac
     [ -n "$v" ] || continue
-    case " ${DERIVED_KEYS} ${RETIRED_KEYS} " in *" $k "*) continue ;; esac   # derived from CLINIC_SLUG and RESIDUE, or pinned in sync/versions.env
+    case " ${DERIVED_KEYS} ${RETIRED_KEYS} " in *" $k "*) continue ;; esac   # derived from CLINIC_SLUG and BHS_SITE_NUMBER, or pinned in sync/versions.env
     put "$k" "$v"; n=$((n + 1))
   done < "$E"
+  # An older .env's debezium password, under either retired name, is the one MySQL holds.
+  if [ -z "$(env_get "$E" DEBEZIUM_PASSWORD)" ]; then
+    dz="$(env_get "$E" LOCAL_DEBEZIUM_PASSWORD)"; [ -n "$dz" ] || dz="$(env_get "$E" DEBEZIUM_DB_PASSWORD)"
+    [ -z "$dz" ] || put DEBEZIUM_PASSWORD "$dz"
+  fi
+  # Likewise the sink user's password under its old name.
+  [ -n "$(env_get "$E" OPENMRS_SINK_PASSWORD)" ] || { dz="$(env_get "$E" LOCAL_MYSQL_PASSWORD)"; [ -z "$dz" ] || put OPENMRS_SINK_PASSWORD "$dz"; }
   ok "kept ${n} values from the existing ${E}"
   if [ "${DRY}" = 1 ]; then rm -f "$T"; ok "would re-render ${E}, its values kept (dry run: left as it is)"; exit 0; fi
   cp -p "$E" "${E}.prev"
@@ -122,4 +128,4 @@ if ! compose config >/dev/null 2>"${CLINIC_DIR}/.env.render.err"; then
 fi
 
 rm -f "${CLINIC_DIR}/.env.render.err" "${E}.prev"
-ok "rendered ${E}; compose config passes; COMPOSE_PROJECT_NAME=$(env_get "$E" COMPOSE_PROJECT_NAME)"
+ok "rendered ${E}; compose config passes"

@@ -50,6 +50,9 @@ _on_err(){
 
 case "$-" in *e*) [ "${BASH_VERSINFO[0]}" -ge 4 ] && { set -E; trap _on_err ERR; } ;; esac
 
+# Stack name, as name: in docker-compose.yml.
+COMPOSE_PROJECT_NAME=bahmni; export COMPOSE_PROJECT_NAME
+
 # Every clinic's podman machine.
 MACHINE_CPUS=5; MACHINE_MIB=11000; MACHINE_DISK_GB=100; MACHINE_SWAP_GB=4
 
@@ -227,16 +230,12 @@ derive_identity(){
   printf '%s' "$slug" | grep -Eq '^[a-z][a-z0-9]{1,15}$' || fail "slug '$slug' must match ^[a-z][a-z0-9]{1,15}$"
   printf '%s' "$residue" | grep -Eq '^[1-9]$' || fail "residue '$residue' must be a single digit 1-9 (10 is the cloud)"
   BHS_LOCATION="$slug"
-  COMPOSE_PROJECT_NAME=bahmni   # same stack and volume names on every clinic
+  COMPOSE_PROJECT_NAME=bahmni   # matches name: in docker-compose.yml
   MYSQL_SERVER_NAME="bahmni-${slug}"
-  LOCAL_CLUSTER_ALIAS="$slug"
-  BHS_LOCATION_OFFSET="$residue"
-  MYSQL_SERVER_ID="$residue"
+  BHS_SITE_NUMBER="$residue"
   DEBEZIUM_SERVER_ID="18405${residue}"
-  ODOO_DB_VOLUME_NAME=bahmni_odoodb-data
-  ODOO_APP_VOLUME_NAME=bahmni_odooapp-data
   LAN_IP="192.168.1.8${residue}"   # each clinic's fixed LAN address
-  export LAN_IP BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME
+  export LAN_IP BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME BHS_SITE_NUMBER DEBEZIUM_SERVER_ID
 }
 
 clinic_get(){ # SLUG FIELD -> the field from sync/clinics.json; nothing when absent or null
@@ -244,7 +243,7 @@ clinic_get(){ # SLUG FIELD -> the field from sync/clinics.json; nothing when abs
 }
 clinic_known(){ jq -e --arg s "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" 'has($s)' "${CLINICS_JSON}" >/dev/null; }
 clinic_residue(){ clinic_get "$1" site_number; }   # a clinic's site number is its residue
-residue_conflicts(){ # SLUG RESIDUE -> every other clinic whose site number is RESIDUE
+residue_conflicts(){ # SLUG SITE -> every other clinic whose site number is SITE
   jq -r --arg s "$(printf '%s' "$1" | tr 'A-Z' 'a-z')" --argjson r "$2" 'to_entries[] | select(.key != $s and .value.site_number == $r) | .key' "${CLINICS_JSON}"
 }
 
@@ -257,11 +256,8 @@ has_placeholders(){
   return 0
 }
 
-refuse_inherited_alias(){ # ALIAS SLUG
-  [ "$1" = "$2" ] || fail "LOCAL_CLUSTER_ALIAS '$1' is not this node's slug '$2' -- an alias inherited from another node's env; a node takes its own slug"
-}
 
-INPUT_KEYS="RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
+INPUT_KEYS="BHS_SITE_NUMBER MRN_PREFIX REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
 
 INPUT_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"
 input_defaults_apply(){ local kv k; for kv in $INPUT_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
@@ -550,7 +546,7 @@ capture_filter_check(){
   return "$rc"
 }
 
-signal_table_db(){ printf '%s' "${1:-${DATABASE_NAME:-openmrs}}"; }
+signal_table_db(){ printf '%s' "${1:-openmrs}"; }
 signal_table_ddl(){ printf 'CREATE TABLE IF NOT EXISTS %s.debezium_signal (id VARCHAR(42) PRIMARY KEY, type VARCHAR(32) NOT NULL, data VARCHAR(2048) NULL)' "$(signal_table_db "${1:-}")"; }
 signal_table_grant(){ printf "GRANT SELECT, INSERT, UPDATE, DELETE ON %s.debezium_signal TO 'debezium'@'%%'" "$(signal_table_db "${1:-}")"; }
 

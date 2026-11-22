@@ -38,12 +38,12 @@ fi
 
 # The passwords, from the environment or .env.
 pw(){ local v="${!1:-}"; [ -n "$v" ] || v="$(env_get "$E" "$1")"; printf '%s' "$v"; }
-LOCAL_DEBEZIUM_PASSWORD="$(pw LOCAL_DEBEZIUM_PASSWORD)"; [ -n "$LOCAL_DEBEZIUM_PASSWORD" ] || LOCAL_DEBEZIUM_PASSWORD="$(pw DEBEZIUM_PASSWORD)"
-LOCAL_MYSQL_PASSWORD="$(pw LOCAL_MYSQL_PASSWORD)"; [ -n "$LOCAL_MYSQL_PASSWORD" ] || LOCAL_MYSQL_PASSWORD="$(pw SINK_DB_PASSWORD)"
-ODOO_DB_PASSWORD="$(pw ODOO_DB_PASSWORD)"; ODOO_SINK_PASSWORD="$(pw ODOO_SINK_PASSWORD)"
+DEBEZIUM_PASSWORD="$(pw DEBEZIUM_PASSWORD)"
+OPENMRS_SINK_PASSWORD="$(pw OPENMRS_SINK_PASSWORD)"
+ODOO_SOURCE_PASSWORD="$(pw ODOO_SOURCE_PASSWORD)"; ODOO_SINK_PASSWORD="$(pw ODOO_SINK_PASSWORD)"
 CLINLIMS_SOURCE_PASSWORD="$(pw CLINLIMS_SOURCE_PASSWORD)"; CLINLIMS_SINK_PASSWORD="$(pw CLINLIMS_SINK_PASSWORD)"
-export LOCAL_DEBEZIUM_PASSWORD LOCAL_MYSQL_PASSWORD ODOO_DB_PASSWORD ODOO_SINK_PASSWORD CLINLIMS_SOURCE_PASSWORD CLINLIMS_SINK_PASSWORD
-for v in LOCAL_DEBEZIUM_PASSWORD LOCAL_MYSQL_PASSWORD ODOO_DB_PASSWORD ODOO_SINK_PASSWORD CLINLIMS_SOURCE_PASSWORD CLINLIMS_SINK_PASSWORD; do
+export DEBEZIUM_PASSWORD OPENMRS_SINK_PASSWORD ODOO_SOURCE_PASSWORD ODOO_SINK_PASSWORD CLINLIMS_SOURCE_PASSWORD CLINLIMS_SINK_PASSWORD
+for v in DEBEZIUM_PASSWORD OPENMRS_SINK_PASSWORD ODOO_SOURCE_PASSWORD ODOO_SINK_PASSWORD CLINLIMS_SOURCE_PASSWORD CLINLIMS_SINK_PASSWORD; do
   [ -n "${!v}" ] || unset "$v"
 done
 
@@ -53,8 +53,7 @@ for f in "${files[@]}"; do case "${f##*/}" in mysql-local-sink-*) sinks+=("$f") 
 if (( ${#sinks[@]} )); then
   tables="$(bash "${REPO_DIR}/sync/tables/tables.sh" openmrs down | cut -d: -f1)" \
     || fail "could not read the OpenMRS [down] list (reason above); nothing was registered"
-  COMPOSE_PROJECT_NAME="$(env_get "$E" COMPOSE_PROJECT_NAME)"
-  [ -n "${COMPOSE_PROJECT_NAME}" ] || fail "clinic/.env has no COMPOSE_PROJECT_NAME: the sink user's grants cannot be read, so nothing was registered"
+  COMPOSE_PROJECT_NAME=bahmni   # name: in docker-compose.yml
   [ -n "${CT:-}" ] || setup_compose
   MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
   granted="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N')" \

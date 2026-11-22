@@ -6,7 +6,7 @@ CLINIC_DIR="${CLINIC_DIR:-$(cd "${HERE}/.." && pwd)}"; export CLINIC_DIR
 # shellcheck disable=SC1091
 . "${HERE}/../install/lib.sh"
 E="${CLINIC_DIR}/.env"
-for k in COMPOSE_PROJECT_NAME OPENMRS_ATOMFEED_USER OPENMRS_ATOMFEED_PASSWORD; do
+for k in OPENMRS_ATOMFEED_USER OPENMRS_ATOMFEED_PASSWORD; do
   [ -n "${!k:-}" ] || { [ -f "$E" ] && v="$(env_get "$E" "$k")" && [ -n "$v" ] && printf -v "$k" '%s' "$v"; } || fail "${k} is not set and not in ${E}"
 done
 [ -n "${CT:-}" ] || setup_compose
