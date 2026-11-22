@@ -62,13 +62,15 @@ else
 
   CT="${RUNTIME:-}"
   if [ -z "$CT" ]; then
-    for c in docker podman; do
-      command -v "$c" >/dev/null 2>&1 && "$c" ps >/dev/null 2>&1 && { CT="$c"; break; }
-    done
+    if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
+      CT="sudo docker"
+    elif command -v podman >/dev/null 2>&1 && podman ps >/dev/null 2>&1; then
+      CT="podman"
+    fi
   fi
-  [ -n "$CT" ] || die "no working container engine (tried docker, podman)"
+  [ -n "$CT" ] || die "no working container engine (tried sudo docker, podman)"
 
-  rows="$(printf '%s\n' "$SQL" | "$CT" exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B' 2>/dev/null)" \
+  rows="$(printf '%s\n' "$SQL" | $CT exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B' 2>/dev/null)" \
     || die "could not read information_schema in ${MY}; nothing was checked"
 fi
 
