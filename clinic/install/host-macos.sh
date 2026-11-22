@@ -129,7 +129,7 @@ host_macos(){
   fi
 
   require_cmd brew
-  for pkg in podman podman-compose jq gettext; do   # gettext: envsubst, for the connector generators
+  for pkg in podman podman-compose jq gettext mkcert; do   # gettext: envsubst; mkcert: the trusted clinic certificate
     if brew list --formula "$pkg" >/dev/null 2>&1; then skip "$pkg installed"; else run brew install "$pkg"; fi
   done
 

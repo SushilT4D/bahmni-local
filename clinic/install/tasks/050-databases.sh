@@ -194,12 +194,23 @@ END \$\$;
 ALTER ROLE odoo WITH PASSWORD '${ODOO_DB_PASSWORD}';
 ALTER ROLE clinlims WITH PASSWORD '${OPENELIS_DB_PASSWORD}';
 SQL
+pg_loaded(){ # DB -> true when its application tables are there
+  local q; case "$1" in odoo) q="to_regclass('public.res_partner')" ;; openelis) q="to_regclass('clinlims.patient')" ;; esac
+  [ "$(printf "select %s is not null" "$q" | ct exec -i "$PG" psql -U postgres -d "$1" -At 2>/dev/null)" = t ]
+}
 for db in odoo openelis; do
-  if [ "$(printf "select count(*) from pg_database where datname='$db'" | ct exec -i "$PG" psql -U postgres -At)" = 1 ]; then skip "database $db exists"; else
+  if pg_loaded "$db"; then skip "database $db exists"; else
     [ -f "${D}/${db}.sql.gz" ] || fail "database $db is not on this Mac and there is no seed to load it from: run again with --seed <folder holding ${db}.sql.gz>"
+    # An empty database left by an earlier failed load is dropped and loaded again.
+    printf 'DROP DATABASE IF EXISTS %s WITH (FORCE)\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     printf 'CREATE DATABASE %s OWNER odoo\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     [ "$db" = openelis ] && printf 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n' | ct exec -i "$PG" psql -U postgres -d openelis -q
-    gunzip -c "${D}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q 2>&1 | grep -E '^ERROR' | sort | uniq -c | sed 's/^/    restore error: /' || true
+    if ! out="$(gunzip -c "${D}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q -1 -v ON_ERROR_STOP=1 2>&1 >/dev/null)"; then
+      printf 'DROP DATABASE IF EXISTS %s WITH (FORCE)\n' "$db" | ct exec -i "$PG" psql -U postgres -q
+      fail "could not load ${D}/${db}.sql.gz (nothing kept): $(printf '%s' "$out" | grep -m1 -E 'ERROR|invalid|restrict' || printf '%s' "$out" | tail -1)"
+    fi
+    pg_loaded "$db" || fail "${D}/${db}.sql.gz loaded but $db has no application tables: is it an ${db} dump?"
+    ok "database $db loaded from ${D}/${db}.sql.gz"
   fi
 done
 
