@@ -7,13 +7,11 @@ folder the operator took from the hub:
     clinic/install/install.sh --clinic <slug> --seed <folder> --secrets <hub secrets file> --dry-run
     clinic/install/install.sh --clinic <slug> --seed <folder> --secrets <hub secrets file> [--versions <file>]
 
-The seed folder holds `openmrs.sql.gz`, `odoo.sql.gz`, `openelis.sql.gz` and
-`manifest.env`. The installer first refuses a folder with no manifest, a dump
-older than six days (the hub keeps a week of changes; `SEED_MAX_AGE_DAYS`), a
-damaged dump, a dump from the wrong OpenMRS or Odoo version or taken before the
-hub partitioned its address ids, and a machine already installed. Then it builds
-the host, the images and the name service, loads the three databases from the
-seed, strides them, sets the site identity, checks the hub credentials, starts
+The seed folder holds `openmrs.sql.gz`, a plain `mysqldump` of the hub's OpenMRS.
+Odoo and OpenELIS load from the SQL dumps inside `BASELINE_ODOO_IMAGE` and
+`BASELINE_OPENELIS_IMAGE` (`sync/versions.env`). The installer builds
+the host, the images and the name service, loads the three databases,
+strides them, sets the site identity, checks the hub credentials, starts
 the feeds and the sync layer, and proves the node. It ends with the machine
 marked SEEDED (`clinic/.install-state`); the operator then joins the clinic to
 the hub. A run that stops part-way is resumed with `--from NNN`, or run again

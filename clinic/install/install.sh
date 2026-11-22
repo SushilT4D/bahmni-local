@@ -10,8 +10,8 @@
 #   clinic/install/install.sh [--clinic <slug>] [--seed <folder>] [--secrets <file>] [--versions <file>]
 #                             [--only NNN] [--from NNN] [--dry-run]
 #   clinic/install/install.sh --clinics | --list
-# --seed: the folder the operator took from the cloud (openmrs.sql.gz, odoo.sql.gz,
-#   openelis.sql.gz). Needed only when a database is not on this Mac yet.
+# --seed: the folder the operator took from the cloud (openmrs.sql.gz). Needed only when
+#   openmrs is not on this Mac yet. Odoo and OpenELIS load from their baseline images (sync/versions.env).
 # --secrets: the operator's hub secrets file (the four hub credentials).
 # --versions: application image versions to run instead of the defaults in
 #   sync/versions.env, as KEY=value lines (e.g. BAHMNI_WEB_IMAGE=bhs-9.9.9; a bare

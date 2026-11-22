@@ -167,14 +167,12 @@ left="$(printf 'select (select count(*) from openmrs.scheduler_task_config where
 # Feed events whose drug or concept no longer exists (and Bahmni Connect's): readers retry them forever.
 STALE_WHERE='category = "offline-concepts" OR (object LIKE "/openmrs/ws/rest/v1/reference-data/drug/%%" AND NOT EXISTS (SELECT 1 FROM openmrs.drug d WHERE d.uuid = substring_index(substring_index(e.object, "?", 1), "/", -1))) OR (object LIKE "/openmrs/ws/rest/v1/reference-data/%%" AND object NOT LIKE "/openmrs/ws/rest/v1/reference-data/drug/%%" AND NOT EXISTS (SELECT 1 FROM openmrs.concept c WHERE c.uuid = substring_index(substring_index(e.object, "?", 1), "/", -1)))'
 stale="$(printf "SELECT substring_index(substring_index(object, '?', 1), '/', -1) FROM openmrs.event_records e WHERE ${STALE_WHERE}" | mysql_root)" || fail "could not read openmrs.event_records"
+# The list is kept in STALE_FILE until the Odoo and OpenELIS readers' failed retries of them are removed below.
+STALE_FILE="${CLINIC_DIR}/.stale-feed-events"
 if [ -n "$stale" ]; then
+  printf '%s\n' "$stale" >> "$STALE_FILE"
   printf "USE openmrs; SET sql_log_bin=0; DELETE e FROM event_records e WHERE ${STALE_WHERE};\n" | mysql_root >/dev/null || fail "could not remove stale events from openmrs.event_records"
-  for db in odoo:public openelis:clinlims; do
-    for u in $stale; do
-      printf "DELETE FROM %s.failed_events WHERE event_content LIKE '%%/%s%%'; DELETE FROM %s.failed_event_retry_log WHERE event_content LIKE '%%/%s%%';\n" "${db#*:}" "$u" "${db#*:}" "$u"
-    done | ct exec -i "$PG" psql -U postgres -d "${db%%:*}" -q -v ON_ERROR_STOP=1 >/dev/null || fail "could not remove the ${db%%:*} feed reader's failed events for stale openmrs events"
-  done
-  ok "removed $(printf '%s\n' "$stale" | wc -l | tr -d ' ') feed event(s) for drugs or concepts no longer in openmrs, and the readers' failed retries of them"
+  ok "removed $(printf '%s\n' "$stale" | wc -l | tr -d ' ') feed event(s) for drugs or concepts no longer in openmrs"
 else
   skip "no stale feed events in openmrs.event_records"
 fi
@@ -190,6 +188,7 @@ DO \$\$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='odoo_sink')     THEN CREATE ROLE odoo_sink     LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='clinlims_sink') THEN CREATE ROLE clinlims_sink LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='poc_sink')      THEN CREATE ROLE poc_sink      LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='atomfeed-console') THEN CREATE ROLE "atomfeed-console"; END IF;
 END \$\$;
 ALTER ROLE odoo WITH PASSWORD '${ODOO_DB_PASSWORD}';
 ALTER ROLE clinlims WITH PASSWORD '${OPENELIS_DB_PASSWORD}';
@@ -198,21 +197,45 @@ pg_loaded(){ # DB -> true when its application tables are there
   local q; case "$1" in odoo) q="to_regclass('public.res_partner')" ;; openelis) q="to_regclass('clinlims.patient')" ;; esac
   [ "$(printf "select %s is not null" "$q" | ct exec -i "$PG" psql -U postgres -d "$1" -At 2>/dev/null)" = t ]
 }
+# Odoo and OpenELIS load from the SQL dumps inside their baseline images. The OpenELIS one is a
+# Postgres 9.6 dump: system_user, reserved since Postgres 16, is quoted everywhere but in the COPY data.
+ODOO_IMAGE="$(pin_get BASELINE_ODOO_IMAGE)"; ELIS_IMAGE="$(pin_get BASELINE_OPENELIS_IMAGE)"
+[ -n "${ODOO_IMAGE}" ] && [ -n "${ELIS_IMAGE}" ] || fail "BASELINE_ODOO_IMAGE and BASELINE_OPENELIS_IMAGE must be set in ${VERSIONS_FILE}"
+pg_image(){ case "$1" in odoo) printf '%s' "${ODOO_IMAGE}" ;; openelis) printf '%s' "${ELIS_IMAGE}" ;; esac; }
+pg_source_name(){ case "$1" in odoo) printf '%s:/docker-entrypoint-initdb.d/odoodb_backup.sql.gz' "${ODOO_IMAGE}" ;; openelis) printf '%s:/resources/openelis_backup.sql' "${ELIS_IMAGE}" ;; esac; }
+pg_source(){ # DB -> its dump on stdout
+  case "$1" in
+    odoo) ct run --rm --entrypoint gunzip "${ODOO_IMAGE}" -c /docker-entrypoint-initdb.d/odoodb_backup.sql.gz 2>/dev/null ;;
+    openelis) ct run --rm --entrypoint cat "${ELIS_IMAGE}" /resources/openelis_backup.sql 2>/dev/null \
+                | perl -pe 'if ($c) { $c = 0 if /^\\\.$/; next } s/(?<![\w"])system_user(?![\w"])/"system_user"/g; $c = 1 if /^COPY .* FROM stdin;$/' ;;
+  esac
+}
 for db in odoo openelis; do
   if pg_loaded "$db"; then skip "database $db exists"; else
-    [ -f "${D}/${db}.sql.gz" ] || fail "database $db is not on this Mac and there is no seed to load it from: run again with --seed <folder holding ${db}.sql.gz>"
+    ct image exists "$(pg_image "$db")" || ct pull -q "$(pg_image "$db")" >/dev/null || fail "could not pull $(pg_image "$db")"
     # An empty database left by an earlier failed load is dropped and loaded again.
     printf 'DROP DATABASE IF EXISTS %s WITH (FORCE)\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     printf 'CREATE DATABASE %s OWNER odoo\n' "$db" | ct exec -i "$PG" psql -U postgres -q
     [ "$db" = openelis ] && printf 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n' | ct exec -i "$PG" psql -U postgres -d openelis -q
-    if ! out="$(gunzip -c "${D}/${db}.sql.gz" | ct exec -i "$PG" psql -U postgres -d "$db" -q -1 -v ON_ERROR_STOP=1 2>&1 >/dev/null)"; then
+    if ! out="$(pg_source "$db" | ct exec -i "$PG" psql -U postgres -d "$db" -q -1 -v ON_ERROR_STOP=1 2>&1 >/dev/null)"; then
       printf 'DROP DATABASE IF EXISTS %s WITH (FORCE)\n' "$db" | ct exec -i "$PG" psql -U postgres -q
-      fail "could not load ${D}/${db}.sql.gz (nothing kept): $(printf '%s' "$out" | grep -m1 -E 'ERROR|invalid|restrict' || printf '%s' "$out" | tail -1)"
+      fail "could not load $(pg_source_name "$db") (nothing kept): $(printf '%s' "$out" | grep -m1 -E 'ERROR|invalid|restrict' || printf '%s' "$out" | tail -1)"
     fi
-    pg_loaded "$db" || fail "${D}/${db}.sql.gz loaded but $db has no application tables: is it an ${db} dump?"
-    ok "database $db loaded from ${D}/${db}.sql.gz"
+    pg_loaded "$db" || fail "$(pg_source_name "$db") loaded but $db has no application tables: is it an ${db} dump?"
+    ok "database $db loaded from $(pg_source_name "$db")"
   fi
 done
+
+if [ -s "$STALE_FILE" ]; then
+  for db in odoo:public openelis:clinlims; do
+    sort -u "$STALE_FILE" | while read -r u; do
+      [ -n "$u" ] || continue
+      printf "DELETE FROM %s.failed_events WHERE event_content LIKE '%%/%s%%'; DELETE FROM %s.failed_event_retry_log WHERE event_content LIKE '%%/%s%%';\n" "${db#*:}" "$u" "${db#*:}" "$u"
+    done | ct exec -i "$PG" psql -U postgres -d "${db%%:*}" -q -v ON_ERROR_STOP=1 >/dev/null || fail "could not remove the ${db%%:*} feed reader's failed events for stale openmrs events"
+  done
+  ok "removed the Odoo and OpenELIS readers' failed retries of $(sort -u "$STALE_FILE" | grep -c .) stale openmrs feed event(s)"
+  rm -f "$STALE_FILE"
+fi
 
 # odoo-assets:begin
 n="$(printf '%s\n' "delete from ir_attachment where res_model='ir.ui.view' and name like '%assets%'" | ct exec -i "$PG" psql -U postgres -d odoo -At 2>/dev/null | sed -nE 's/^DELETE ([0-9]+)$/\1/p')"

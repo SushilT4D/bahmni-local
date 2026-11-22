@@ -134,6 +134,8 @@ clinic/.env.render.*
 clinic/.env.tmp.*
 # task 050 writes this when the openmrs restore has finished (a rerun tells a finished restore from an interrupted one by it)
 clinic/.openmrs-restore.done
+# task 050's list of stale openmrs feed events, kept until the Odoo and OpenELIS failed retries of them are removed
+clinic/.stale-feed-events
 
 # Node-local runtime state the installer creates under clinic/: the Odoo
 # config copied out of the image, and the Odoo / PostgreSQL filestores. The
