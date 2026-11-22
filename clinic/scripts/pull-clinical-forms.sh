@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Usage: clinic/scripts/pull-clinical-forms.sh <ssh-host> <openmrs-container>
+# Usage: clinic/scripts/pull-clinical-forms.sh [<openmrs-container>]
 # Copies the hub's form files (/home/bahmni/clinical_forms in its OpenMRS container, translations/ included)
 # into clinic/bahmni_home/clinical_forms, the copy clinics mount when no forms repo is configured.
 # Files are added or updated, never deleted: observations saved with an old form version need its file.
+# The hub is the host in clinic/.env's REMOTE_KAFKA_BOOTSTRAP_SERVERS; the container defaults to the
+# hub's one running OpenMRS (not its database).
 set -euo pipefail
 
-[ $# -eq 2 ] || { echo "usage: $0 <ssh-host> <openmrs-container>" >&2; exit 1; }
-HOST=$1
-CONTAINER=$2
-DEST="$(cd "$(dirname "$0")/.." && pwd)/bahmni_home/clinical_forms"
+CLINIC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+HOST="$(sed -n 's/^REMOTE_KAFKA_BOOTSTRAP_SERVERS=//p' "${CLINIC_DIR}/.env" 2>/dev/null | tail -1 | cut -d, -f1 | sed -E 's/:[0-9]+$//')"
+[ -n "$HOST" ] || { echo "REMOTE_KAFKA_BOOTSTRAP_SERVERS is not set in ${CLINIC_DIR}/.env" >&2; exit 1; }
+CONTAINER="${1:-$(ssh "$HOST" "sudo -n docker ps --format '{{.Names}}'" | grep -i openmrs | grep -vi db | head -1)}"
+[ -n "$CONTAINER" ] || { echo "no OpenMRS container found on $HOST: pass its name" >&2; exit 1; }
+DEST="${CLINIC_DIR}/bahmni_home/clinical_forms"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
