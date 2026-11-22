@@ -16,8 +16,8 @@ lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
 }
 
 DNS_ETC="${DNS_ETC:-/etc}"
-dns_wrong_answer(){ # NAME -> why NAME, asked at LAN_IP, is not LAN_IP; nothing when it is
-  local got; got="$(lan_resolve "$1" "${LAN_IP}")"
+dns_wrong_answer(){ # NAME -> why NAME, asked of the local dnsmasq, is not LAN_IP; nothing when it is
+  local got; got="$(lan_resolve "$1")"
   [ "$got" = "${LAN_IP}" ] || printf "%s answers '%s', not %s" "$1" "${got:-nothing}" "${LAN_IP}"
 }
 
@@ -84,14 +84,14 @@ dns_install_macos(){ # NAME
   ok "dnsmasq answers ${LAN_IP} for ${name} and odoo.${name}"
 }
 
-dns_check(){ # NAME : both names answer LAN_IP
+dns_check(){ # NAME : both names answer LAN_IP from the local dnsmasq, whether or not this Mac holds LAN_IP yet
   local name="$1" ip="${LAN_IP}" got n
   [ "${DRY}" = 1 ] && { info "would: check ${name} and odoo.${name} resolve to this machine"; return 0; }
   local budget="${DNS_WAIT_S:-30}" t
   for n in "$name" "odoo.${name}"; do
     t=0
-    got="$(lan_resolve "$n" "$ip")"
-    while [ "$got" != "$ip" ] && [ "$t" -lt "$budget" ]; do sleep 2; t=$((t + 2)); got="$(lan_resolve "$n" "$ip")"; done
+    got="$(lan_resolve "$n")"
+    while [ "$got" != "$ip" ] && [ "$t" -lt "$budget" ]; do sleep 2; t=$((t + 2)); got="$(lan_resolve "$n")"; done
     [ -n "$got" ] && [ "$got" = "$ip" ] && ok "${n} -> ${ip} (dnsmasq)" \
       || fail "${n} did not resolve to ${ip} within ${budget}s (DNS_WAIT_S), last answer '${got:-nothing}': dnsmasq --test -C \$(brew --prefix)/etc/dnsmasq.conf on macOS; check that nothing else holds port 53"
   done

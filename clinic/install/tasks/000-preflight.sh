@@ -60,7 +60,7 @@ fi
 
 # Each clinic has a fixed LAN address: 192.168.1.8<site number>.
 ifconfig -a 2>/dev/null | grep -q "inet ${LAN_IP} " && ok "LAN address ${LAN_IP}" \
-  || fail "this Mac does not have ${LAN_IP}, the fixed address of ${CLINIC_SLUG} (site ${BHS_SITE_NUMBER}): sudo networksetup -setmanualwithdhcprouter <service> ${LAN_IP}"
+  || warn "this Mac does not have ${LAN_IP} yet, the fixed address of ${CLINIC_SLUG} (site ${BHS_SITE_NUMBER}); dnsmasq is set up for it anyway. Before clinic devices connect: sudo networksetup -setmanualwithdhcprouter <service> ${LAN_IP}"
 
 require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt install jq"; require_cmd openssl; require_cmd curl; require_cmd gzip
 
