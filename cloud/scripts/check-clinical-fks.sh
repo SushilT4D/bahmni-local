@@ -3,7 +3,7 @@
 #   OUT: no foreign key out of them to a table a clinic writes (one would stop an up sink).
 #   IN:  the foreign keys into them match cloud/scripts/clinical-fks-in.conf.
 # usage: check-clinical-fks.sh --container NAME [--database DB] | --from FILE
-# Exit: 0 both pass; 1 an FK out (or the read failed); 2 the FKs in differ. RUNTIME picks docker or podman.
+# Exit: 0 both pass; 1 an FK out (or the read failed); 2 the FKs in differ. Runs docker through sudo.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -60,17 +60,9 @@ if [ -n "$FROM" ]; then
 else
   [ -n "$MY" ] || { usage >&2; die "--container or --from is required"; }
 
-  CT="${RUNTIME:-}"
-  if [ -z "$CT" ]; then
-    if command -v docker >/dev/null 2>&1 && sudo docker ps >/dev/null 2>&1; then
-      CT="sudo docker"
-    elif command -v podman >/dev/null 2>&1 && podman ps >/dev/null 2>&1; then
-      CT="podman"
-    fi
-  fi
-  [ -n "$CT" ] || die "no working container engine (tried sudo docker, podman)"
+  sudo docker ps >/dev/null 2>&1 || die "sudo docker ps failed; nothing was checked"
 
-  rows="$(printf '%s\n' "$SQL" | $CT exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B' 2>/dev/null)" \
+  rows="$(printf '%s\n' "$SQL" | sudo docker exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N -B' 2>/dev/null)" \
     || die "could not read information_schema in ${MY}; nothing was checked"
 fi
 

@@ -431,7 +431,7 @@ Two checks:
 
 Exit status: 0 both checks pass; 1 an FK out of a clinical table (or the
 read failed); 2 no FK out, but the FKs in differ from the recorded list.
-RUNTIME=docker|podman picks the container engine (default: whichever answers).
+It runs docker through sudo.
 
 > Before: `set -euo pipefail`
 
