@@ -126,9 +126,6 @@ printf 'SET sql_log_bin=0; ALTER TABLE openmrs.liquibasechangelog MODIFY ID VARC
 [ "$(printf 'select character_maximum_length from information_schema.columns where table_schema="openmrs" and table_name="liquibasechangelog" and column_name="ID"' | mysql_root)" = 255 ] \
   && ok "openmrs liquibasechangelog.ID is varchar(255)" || fail "could not widen openmrs.liquibasechangelog.ID"
 
-printf "SET sql_log_bin=0; UPDATE openmrs.global_property SET property_value='' WHERE property='search.indexVersion';\n" | mysql_root
-[ -z "$(printf "select property_value from openmrs.global_property where property='search.indexVersion'" | mysql_root)" ] \
-  && ok "openmrs search index set to rebuild on its next start" || fail "could not clear openmrs search.indexVersion"
 # sink-grants:begin
 grants="$(sink_grant_sql)" || fail "could not build the sink user's grants from sync/tables/openmrs.conf [down]"
 mysql_root <<SQL
@@ -147,10 +144,40 @@ missing="$(printf '%s\n' "${SINK_GRANTS_READ_SQL}" | mysql_root | sink_grants_mi
 # sink-grants:end
 # signal-table:begin
 printf '%s;\n%s;\nFLUSH PRIVILEGES;\n' "$(signal_table_ddl)" "$(signal_table_grant)" | mysql_root >/dev/null || fail "could not create $(signal_table_db).debezium_signal or grant the debezium user on it"
+# An older install made data a text column: set it to varchar(2048).
+if [ "$(printf "select data_type from information_schema.columns where table_schema='%s' and table_name='debezium_signal' and column_name='data'" "$(signal_table_db)" | mysql_root)" = text ]; then
+  printf 'SET sql_log_bin=0; ALTER TABLE %s.debezium_signal MODIFY data VARCHAR(2048) NULL;\n' "$(signal_table_db)" | mysql_root >/dev/null \
+    || fail "could not change $(signal_table_db).debezium_signal.data to varchar(2048) (a signal longer than 2048 characters?)"
+  ok "$(signal_table_db).debezium_signal.data changed from text to varchar(2048)"
+fi
 v="$(signal_table_read_sql | mysql_root | signal_table_verdict)" || fail "$v"
 ok "${v#ok }"
 
 # signal-table:end
+
+# Bahmni Connect (bahmniOfflineSync) is not in the clinic image: drop its scheduler task and settings.
+printf 'SET sql_log_bin=0;
+DELETE FROM openmrs.scheduler_task_config_property WHERE task_config_id IN (SELECT task_config_id FROM openmrs.scheduler_task_config WHERE schedulable_class LIKE "org.bahmni.module.bahmniOfflineSync.%%");
+DELETE FROM openmrs.scheduler_task_config WHERE schedulable_class LIKE "org.bahmni.module.bahmniOfflineSync.%%";
+DELETE FROM openmrs.global_property WHERE property LIKE "bahmniOfflineSync.%%";
+' | mysql_root >/dev/null || fail "could not remove Bahmni Connect's scheduler task and settings from openmrs"
+left="$(printf 'select (select count(*) from openmrs.scheduler_task_config where schedulable_class like "org.bahmni.module.bahmniOfflineSync.%%") + (select count(*) from openmrs.global_property where property like "bahmniOfflineSync.%%")' | mysql_root)"
+[ "$left" = 0 ] && ok "no Bahmni Connect (bahmniOfflineSync) task or setting in openmrs" || fail "${left} Bahmni Connect row(s) still in openmrs"
+
+# Feed events whose drug or concept no longer exists (and Bahmni Connect's): readers retry them forever.
+STALE_WHERE='category = "offline-concepts" OR (object LIKE "/openmrs/ws/rest/v1/reference-data/drug/%%" AND NOT EXISTS (SELECT 1 FROM openmrs.drug d WHERE d.uuid = substring_index(substring_index(e.object, "?", 1), "/", -1))) OR (object LIKE "/openmrs/ws/rest/v1/reference-data/%%" AND object NOT LIKE "/openmrs/ws/rest/v1/reference-data/drug/%%" AND NOT EXISTS (SELECT 1 FROM openmrs.concept c WHERE c.uuid = substring_index(substring_index(e.object, "?", 1), "/", -1)))'
+stale="$(printf "SELECT substring_index(substring_index(object, '?', 1), '/', -1) FROM openmrs.event_records e WHERE ${STALE_WHERE}" | mysql_root)" || fail "could not read openmrs.event_records"
+if [ -n "$stale" ]; then
+  printf "USE openmrs; SET sql_log_bin=0; DELETE e FROM event_records e WHERE ${STALE_WHERE};\n" | mysql_root >/dev/null || fail "could not remove stale events from openmrs.event_records"
+  for db in odoo:public openelis:clinlims; do
+    for u in $stale; do
+      printf "DELETE FROM %s.failed_events WHERE event_content LIKE '%%/%s%%'; DELETE FROM %s.failed_event_retry_log WHERE event_content LIKE '%%/%s%%';\n" "${db#*:}" "$u" "${db#*:}" "$u"
+    done | ct exec -i "$PG" psql -U postgres -d "${db%%:*}" -q -v ON_ERROR_STOP=1 >/dev/null || fail "could not remove the ${db%%:*} feed reader's failed events for stale openmrs events"
+  done
+  ok "removed $(printf '%s\n' "$stale" | wc -l | tr -d ' ') feed event(s) for drugs or concepts no longer in openmrs, and the readers' failed retries of them"
+else
+  skip "no stale feed events in openmrs.event_records"
+fi
 
 psql_pg <<SQL
 DO \$\$ BEGIN

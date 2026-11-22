@@ -3,7 +3,7 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "80 · stack"
-[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park the odoo-connect and OpenELIS feed bookmarks; start OpenMRS's lab-result reader; start odoo-connect; on seed, wait until patient search finds a restored patient"; exit 0; }
+[ "${DRY}" = 1 ] && { info "would: seed-odoo-conf.sh; fix-mount-ownership.sh; compose --profile local --profile openelis up -d; wait for OpenMRS; park the odoo-connect and OpenELIS feed bookmarks; start OpenMRS's lab-result reader; start odoo-connect"; exit 0; }
 setup_compose; cd "${CLINIC_DIR}"; E="${CLINIC_DIR}/.env"
 
 ensure_openmrs_jvm_opts "$E"
@@ -114,18 +114,3 @@ state="$(ct inspect --format '{{.State.Running}} {{.RestartCount}}' "$OC" 2>/dev
 n="$(ct logs --since 2m "$OC" 2>&1 | grep -c 'Processing event' || true)"
 [ "${n:-0}" -lt 50 ] && ok "odoo-connect processed ${n} events in its first two minutes (no replay)" || fail "odoo-connect is replaying: ${n} events in two minutes -- markers did not take"
 
-MY="${COMPOSE_PROJECT_NAME}-bahmni-mysql-1"
-probe="$(printf "select identifier from openmrs.patient_identifier where voided=0 order by patient_identifier_id limit 1" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N' 2>/dev/null || true)"
-[ -n "$probe" ] || fail "no patient identifier in openmrs to test patient search with"
-search_s="${SEARCH_INDEX_TIMEOUT_S:-2700}"
-info "waiting up to $((search_s/60)) min for OpenMRS to index the restored patients (SEARCH_INDEX_TIMEOUT_S overrides)"
-t0="$(date +%s)"
-found=0
-while [ $(( $(date +%s) - t0 )) -lt "$search_s" ]; do
-  reply="$(curl -sk --max-time 30 -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "https://localhost/openmrs/ws/rest/v1/patient?identifier=${probe}&v=custom:(uuid)" 2>/dev/null || true)"
-  has_text "$reply" '"uuid"' && { found=1; break; }
-  sleep 30
-done
-
-[ "$found" = 1 ] && ok "patient search finds ${probe} after $(( $(date +%s) - t0 ))s" \
-  || fail "patient search still finds nothing for ${probe} after $((search_s/60)) min: OpenMRS has not finished indexing (${COMPOSE_CMD} logs openmrs | grep -i index). Resume with --from 080 once it has"

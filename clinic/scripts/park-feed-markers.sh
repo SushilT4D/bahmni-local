@@ -41,9 +41,12 @@ mk(){
     | ct exec -i "$PGC" sh -c 'psql -U postgres -d "$1" -v ON_ERROR_STOP=1 -q -At -v f="$2" -v e="$3" -v p="$4"' _ "$db" "${1:-}" "${2:-}" "${3:-}"
 }
 feed(){ # NAME : sets FEED_CODE and FEED_BODY from this clinic's OpenMRS
+  # The feed is outside the REST API: log in for a session first, as the readers do.
   local out
-  out="$(ct exec "$OM" curl -s -w '\n%{http_code}' -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "http://localhost:8080/openmrs/ws/atomfeed/$1/recent" 2>/dev/null || true)"
+  out="$(ct exec -e U="${OPENMRS_ATOMFEED_USER}" -e P="${OPENMRS_ATOMFEED_PASSWORD}" -e F="$1" "$OM" sh -c 'j=$(mktemp); curl -s -c "$j" -u "$U:$P" http://localhost:8080/openmrs/ws/rest/v1/session >/dev/null; curl -s -b "$j" -w "\n%{http_code}" "http://localhost:8080/openmrs/ws/atomfeed/$F/recent"; rm -f "$j"' 2>/dev/null || true)"
   FEED_CODE="${out##*$'\n'}"; FEED_BODY="${out%$'\n'*}"
+  # OpenMRS answers 200 with an error body when it refuses: that is not an empty feed
+  case "$FEED_BODY" in *"<feed"*) ;; *) FEED_CODE="${FEED_CODE:-none}, not a feed" ;; esac
 }
 WAITED=0
 head_of(){ # NAME : sets PAGE and ENTRY (both empty for a feed with no entries)

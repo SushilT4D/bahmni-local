@@ -47,8 +47,10 @@ if [ -n "$REPO" ] && [ ! -d "$REPO/sync" ] && [ -d "$(dirname "$REPO")/sync" ]; 
 
 # --- VM disk + memory -------------------------------------------------------
 # Measure the podman machine's disk and memory.
+# Podman keeps its storage under /var/lib/containers; "-" holds a missing value's place.
 read -r disk mem <<< "$("$CT" run --rm --privileged --pid=host alpine:3.20 nsenter -t 1 -m -u -n -i \
-  sh -c 'echo $(df -m /var/lib/docker 2>/dev/null | tail -1 | awk "{print \$4}") $(free -m | awk "NR==2{print \$7}")' 2>/dev/null)"
+  sh -c 'd=$(df -m /var/lib/containers 2>/dev/null | tail -1 | awk "{print \$4}"); m=$(free -m | awk "NR==2{print \$7}"); echo "${d:--} ${m:--}"' 2>/dev/null)"
+[ "${disk:-}" != - ] || disk=""; [ "${mem:-}" != - ] || mem=""
 probe="nsenter"
 
 # Fall back to podman info when rootless mode blocks nsenter; never skip missing probes.

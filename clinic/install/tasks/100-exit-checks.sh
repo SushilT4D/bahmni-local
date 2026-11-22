@@ -73,3 +73,16 @@ ok "${v#ok }"
 seed_now="$(printf "select property_value from openmrs.global_property where property='order.nextOrderNumberSeed'" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N' 2>/dev/null | tail -1 || true)"
 v="$(order_seed_verdict "$seed_now" "${BHS_SITE_NUMBER}")" || fail "$v"
 ok "${v#ok }"
+
+# Patient search index: started last, in the background, only when search finds no patient yet.
+omrs_api(){ curl -sk --max-time 60 -u "${OPENMRS_ATOMFEED_USER}:${OPENMRS_ATOMFEED_PASSWORD}" "$@"; }
+probe="$(printf "select identifier from openmrs.patient_identifier where voided=0 order by patient_identifier_id limit 1" | ct exec -i "$MY" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N' 2>/dev/null || true)"
+if [ -n "$probe" ] && has_text "$(omrs_api "https://localhost/openmrs/ws/rest/v1/patient?identifier=${probe}&v=custom:(uuid)" 2>/dev/null || true)" '"uuid"'; then
+  skip "OpenMRS search index already finds ${probe}"
+else
+  code="$(omrs_api -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"async":true}' https://localhost/openmrs/ws/rest/v1/searchindexupdate 2>/dev/null || true)"
+  case "$code" in
+    2*) ok "OpenMRS search index rebuild started in the background: patient search fills in as it runs (${COMPOSE_CMD} logs openmrs | grep -i index)" ;;
+    *)  warn "OpenMRS search index rebuild not started (HTTP ${code:-none}): start it in OpenMRS Administration > Search Index" ;;
+  esac
+fi
