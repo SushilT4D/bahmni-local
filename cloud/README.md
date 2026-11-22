@@ -119,7 +119,7 @@ that does not claim an origin writes rows the cloud server captures for every cl
   certificate, whose name must cover `REMOTE_KAFKA_HOST`), `keystore_creds`
   holding the keystore password, and `key_creds` holding the key password
   (the same value for a PKCS12 keystore). Every clinic trusts the certificate
-  through `sync/hub-ca.pem`.
+  through `sync/cloud-ca.pem`.
 
 Making the keystore from a key and certificate in PEM form:
 

@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Start Podman machine at login, then restore containers with a restart policy.
-# restart: always alone is not enough on macOS — the machine must start first,
-# and Podman machine does not always reattach those containers by itself.
-set -euo pipefail
+# Podman supervisor, run at boot by /Library/LaunchDaemons/com.bahmni.podman.plist.
+# Starts the machine and containers (data tier first), stays up, and stops them in reverse on SIGTERM.
+set -uo pipefail
 
-LOG_PREFIX="[podman-start-at-login]"
-log() { printf '%s %s\n' "${LOG_PREFIX}" "$*"; }
+log() { printf '%s [podman-supervisor] %s\n' "$(date '+%F %T')" "$*"; }
 
 # LaunchDaemon may not set a full user environment — normalize.
 export HOME="${HOME:-$(eval echo "~$(id -un)")}"
@@ -13,33 +11,69 @@ export USER="${USER:-$(id -un)}"
 export LOGNAME="${LOGNAME:-${USER}}"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
-PODMAN_BIN="$(command -v podman || true)"
-if [[ -z "${PODMAN_BIN}" && -x /opt/homebrew/bin/podman ]]; then
-  PODMAN_BIN=/opt/homebrew/bin/podman
-elif [[ -z "${PODMAN_BIN}" && -x /usr/local/bin/podman ]]; then
-  PODMAN_BIN=/usr/local/bin/podman
-fi
-[[ -x "${PODMAN_BIN}" ]] || { log "podman not found"; exit 1; }
+PODMAN="$(command -v podman || true)"
+[[ -x "${PODMAN}" ]] || { log "podman not found"; exit 1; }
 
-# Homebrew / mysql-client etc. for any PATH-dependent tooling
-if [[ -x /opt/homebrew/bin/brew ]]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || true
-elif [[ -x /usr/local/bin/brew ]]; then
-  eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
-fi
+# Container tiers, matched against container names.
+DATA_RE='mysql|postgres|^kafka$'              # stopped last, started first
+MIDDLE_RE='kafka-connect|mirrormaker'          # depend on data tier
+APP_GRACE=30; MIDDLE_GRACE=30; DATA_GRACE=90   # seconds per tier on shutdown
 
-log "user=${USER} home=${HOME} podman=${PODMAN_BIN}"
+# Containers that should be running (restart policy always / unless-stopped).
+managed() {
+  { "${PODMAN}" ps -a --filter restart-policy=always --format '{{.Names}}'
+    "${PODMAN}" ps -a --filter restart-policy=unless-stopped --format '{{.Names}}'
+  } 2>/dev/null | sort -u
+}
+running() { "${PODMAN}" ps --format '{{.Names}}' 2>/dev/null | sort -u; }
 
+tier() {  # tier <data|middle|app> < names
+  case "$1" in
+    data)   grep -E  "${DATA_RE}" ;;
+    middle) grep -E  "${MIDDLE_RE}" ;;
+    app)    grep -vE "${DATA_RE}|${MIDDLE_RE}" ;;
+  esac || true
+}
+
+start_tier() {
+  local names; names=$(managed | tier "$1")
+  [[ -z "${names}" ]] && return
+  log "Starting $1 tier: $(echo ${names})"
+  # One at a time, so one broken container doesn't block the rest.
+  for n in ${names}; do "${PODMAN}" start "${n}" >/dev/null 2>&1 || log "  failed to start ${n}"; done
+}
+
+stop_tier() {  # stop_tier <tier> <grace>
+  local names; names=$(running | tier "$1")
+  [[ -z "${names}" ]] && return
+  log "Stopping $1 tier (grace $2s): $(echo ${names})"
+  "${PODMAN}" stop -t "$2" ${names} >/dev/null 2>&1 || log "  some $1 containers did not stop cleanly"
+}
+
+shutting_down=false
+shutdown() {
+  ${shutting_down} && return
+  shutting_down=true
+  log "Shutdown signal received — stopping gracefully"
+  stop_tier app    "${APP_GRACE}"
+  stop_tier middle "${MIDDLE_GRACE}"
+  stop_tier data   "${DATA_GRACE}"
+  log "Stopping Podman machine…"
+  "${PODMAN}" machine stop 2>&1 || log "  machine stop failed"
+  log "Shutdown complete"
+  exit 0
+}
+trap shutdown TERM INT HUP
+
+# ---------- startup ----------
+log "user=${USER} home=${HOME} podman=${PODMAN}"
 log "Starting Podman machine…"
-"${PODMAN_BIN}" machine start 2>&1 || true
+"${PODMAN}" machine start 2>&1 || true
 
 log "Waiting for Podman API…"
 ready=false
 for _ in $(seq 1 60); do
-  if "${PODMAN_BIN}" info >/dev/null 2>&1; then
-    ready=true
-    break
-  fi
+  if "${PODMAN}" info >/dev/null 2>&1; then ready=true; break; fi
   sleep 2
 done
 if [[ "${ready}" != true ]]; then
@@ -48,11 +82,16 @@ if [[ "${ready}" != true ]]; then
 fi
 log "Podman API ready"
 
-# Restore containers that compose created with restart policies.
-# (always + unless-stopped cover Bahmni stack + MirrorMaker)
-log "Starting containers with restart-policy always / unless-stopped…"
-"${PODMAN_BIN}" start --all --filter restart-policy=always 2>&1 || true
-"${PODMAN_BIN}" start --all --filter restart-policy=unless-stopped 2>&1 || true
+start_tier data
+sleep 10   # let databases / Kafka begin accepting connections
+start_tier middle
+start_tier app
+log "Startup done. Running:"
+"${PODMAN}" ps --format '  {{.Names}} {{.Status}}' 2>&1 || true
 
-log "Done"
-"${PODMAN_BIN}" ps --format '{{.Names}} {{.Status}}' 2>&1 || true
+# ---------- supervise ----------
+# Background sleep + wait, so the TERM trap runs immediately.
+log "Supervising — waiting for shutdown signal"
+while true; do
+  sleep 86400 & wait $! || true
+done

@@ -82,7 +82,7 @@ refused before the stack starts.
 
 The hub link is SASL over TLS when `clinic/.env` says
 `REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL`: task 090 builds MirrorMaker's
-truststore from the hub's certificate in `sync/hub-ca.pem`, and task 020 stops
+truststore from the hub's certificate in `sync/cloud-ca.pem`, and task 020 stops
 if that file is missing. `SASL_PLAINTEXT` is for a hub that has no certificate;
 the password and every record then cross the network unencrypted.
 

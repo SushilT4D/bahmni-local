@@ -47,7 +47,7 @@ services:
 
   kafka-controller:
     profiles: ["debezium"]
-    image: confluentinc/cp-kafka:8.4.0
+    image: ${KAFKA_IMAGE:?from sync/versions.env}
     hostname: kafka-controller
     container_name: kafka-controller
     restart: always
@@ -81,7 +81,7 @@ services:
 
   kafka:
     profiles: ["debezium"]
-    image: confluentinc/cp-kafka:8.4.0
+    image: ${KAFKA_IMAGE:?from sync/versions.env}
     hostname: kafka
     container_name: kafka
     restart: always
@@ -144,7 +144,7 @@ services:
 
   schema-registry:
     profiles: ["debezium"]
-    image: confluentinc/cp-schema-registry:8.4.0
+    image: ${SCHEMA_REGISTRY_IMAGE:?from sync/versions.env}
     hostname: schema-registry
     container_name: schema-registry
     restart: always
@@ -168,7 +168,7 @@ services:
 
   kafka-connect:
     profiles: ["debezium"]
-    image: quay.io/debezium/connect:3.6.3.Final
+    image: ${DEBEZIUM_CONNECT_IMAGE:?from sync/versions.env}
     hostname: kafka-connect
     container_name: kafka-connect
     restart: always
@@ -210,7 +210,7 @@ services:
 
   kafka-ui:
     profiles: ["debezium"]
-    image: kafbat/kafka-ui:v1.5.0
+    image: ${KAFKA_UI_IMAGE:?from sync/versions.env}
     hostname: kafka-ui
     container_name: kafka-ui
     restart: always

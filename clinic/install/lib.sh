@@ -50,6 +50,9 @@ _on_err(){
 
 case "$-" in *e*) [ "${BASH_VERSINFO[0]}" -ge 4 ] && { set -E; trap _on_err ERR; } ;; esac
 
+# Every clinic's podman machine.
+MACHINE_CPUS=5; MACHINE_MIB=11000; MACHINE_DISK_GB=100; MACHINE_SWAP_GB=4
+
 # The address staff open Bahmni at (and odoo.<it> for Odoo), on every clinic.
 LAN_NAME=bahmni.clinic; export LAN_NAME
 
@@ -57,18 +60,44 @@ run(){ if [ "${DRY}" = 1 ]; then printf '  would: %s\n' "$*"; else "$@"; fi; }
 
 require_macos(){ [ "$(uname -s)" = Darwin ] || fail "this installer runs on macOS only (found $(uname -s))"; }
 
-podman_socket(){ printf 'unix://%s\n' "$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null)"; }
-
 setup_compose(){
   CT="${CT:-podman}"
-  COMPOSE_CMD="docker-compose"
-  [ -n "${DOCKER_HOST:-}" ] || export DOCKER_HOST="$(podman_socket)"
+  COMPOSE_CMD="podman-compose"
   export CT COMPOSE_CMD
 }
 
 ct(){ "${CT:?setup_compose first}" "$@"; }
 
 compose(){ ( cd "${CLINIC_DIR}" && ${COMPOSE_CMD:?setup_compose first} ${PROFILES} "$@" ); }
+
+# podman-compose has no `config --format json` or `--images`: its own Python (which has PyYAML) converts.
+compose_json(){ # : the merged config as JSON, volumes in long form (type, source, target, read_only)
+  local py
+  py="$(head -1 "$(command -v podman-compose)" | sed 's/^#! *//')"
+  compose config | "$py" -c '
+import json, os, sys, yaml
+d = yaml.safe_load(sys.stdin) or {}
+here = sys.argv[1]
+for svc in (d.get("services") or {}).values():
+    vols = []
+    for v in svc.get("volumes") or []:
+        if isinstance(v, str):
+            p = v.split(":")
+            src, tgt, opt = p[0], (p[1] if len(p) > 1 else p[0]), (p[2] if len(p) > 2 else "")
+            bind = src.startswith(("/", ".", "~"))
+            if bind: src = os.path.normpath(os.path.join(here, os.path.expanduser(src)))
+            v = {"type": "bind" if bind else "volume", "source": src, "target": tgt, "read_only": "ro" in opt.split(",")}
+        vols.append(v)
+    if vols: svc["volumes"] = vols
+json.dump(d, sys.stdout)' "${CLINIC_DIR}"
+}
+
+compose_images(){ compose_json | python3 -c 'import json,sys; print("\n".join(s["image"] for s in json.load(sys.stdin)["services"].values() if s.get("image")))'; }
+
+compose_bind_sources(){ compose_json | python3 -c 'import json,sys
+for s in json.load(sys.stdin)["services"].values():
+    for v in s.get("volumes") or []:
+        if v.get("type") == "bind" and v.get("source"): print(v["source"])'; }
 
 env_put(){
   local f="$1" k="$2" v="$3" bare
@@ -198,15 +227,16 @@ derive_identity(){
   printf '%s' "$slug" | grep -Eq '^[a-z][a-z0-9]{1,15}$' || fail "slug '$slug' must match ^[a-z][a-z0-9]{1,15}$"
   printf '%s' "$residue" | grep -Eq '^[1-9]$' || fail "residue '$residue' must be a single digit 1-9 (10 is the cloud)"
   BHS_LOCATION="$slug"
-  COMPOSE_PROJECT_NAME="bahmni-${slug}"
+  COMPOSE_PROJECT_NAME=bahmni   # same stack and volume names on every clinic
   MYSQL_SERVER_NAME="bahmni-${slug}"
   LOCAL_CLUSTER_ALIAS="$slug"
   BHS_LOCATION_OFFSET="$residue"
   MYSQL_SERVER_ID="$residue"
   DEBEZIUM_SERVER_ID="18405${residue}"
-  ODOO_DB_VOLUME_NAME="bahmni-${slug}_odoodb-data"
-  ODOO_APP_VOLUME_NAME="bahmni-${slug}_odooapp-data"
-  export BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME
+  ODOO_DB_VOLUME_NAME=bahmni_odoodb-data
+  ODOO_APP_VOLUME_NAME=bahmni_odooapp-data
+  LAN_IP="192.168.1.8${residue}"   # each clinic's fixed LAN address
+  export LAN_IP BHS_LOCATION COMPOSE_PROJECT_NAME MYSQL_SERVER_NAME LOCAL_CLUSTER_ALIAS BHS_LOCATION_OFFSET MYSQL_SERVER_ID DEBEZIUM_SERVER_ID ODOO_DB_VOLUME_NAME ODOO_APP_VOLUME_NAME
 }
 
 clinic_get(){ # SLUG FIELD -> the field from sync/clinics.json; nothing when absent or null
@@ -231,33 +261,33 @@ refuse_inherited_alias(){ # ALIAS SLUG
   [ "$1" = "$2" ] || fail "LOCAL_CLUSTER_ALIAS '$1' is not this node's slug '$2' -- an alias inherited from another node's env; a node takes its own slug"
 }
 
-INPUT_KEYS="CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
+INPUT_KEYS="RESIDUE MRN_PREFIX SITE_NUMBER CLINIC_PHONE REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_USER ODOO_ATOMFEED_PASSWORD"
 
 INPUT_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"
 input_defaults_apply(){ local kv k; for kv in $INPUT_DEFAULTS; do k="${kv%%=*}"; eval "[ -n \"\${$k:-}\" ] || $k=\"\${kv#*=}\"; export $k"; done; }
 SECRET_KEYS="REMOTE_KAFKA_PASSWORD OPENMRS_ATOMFEED_PASSWORD OPENELIS_ATOMFEED_PASSWORD ODOO_ATOMFEED_PASSWORD"
-HUB_KEYS="REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_SECURITY_PROTOCOL"   # the hub endpoint, from clinic/.env
+CLOUD_KEYS="REMOTE_KAFKA_BOOTSTRAP_SERVERS REMOTE_KAFKA_USERNAME REMOTE_KAFKA_SECURITY_PROTOCOL"   # the hub endpoint, from clinic/.env
 
-hub_protocol(){
+cloud_protocol(){
   local p="${REMOTE_KAFKA_SECURITY_PROTOCOL:-}"
   [ -n "$p" ] || p="$(env_get "${CLINIC_DIR}/.env" REMOTE_KAFKA_SECURITY_PROTOCOL 2>/dev/null || true)"
   printf '%s\n' "${p:-SASL_SSL}"
 }
 
-hub_tls(){ case "$(hub_protocol)" in *SSL) return 0 ;; *) return 1 ;; esac; }
+cloud_tls(){ case "$(cloud_protocol)" in *SSL) return 0 ;; *) return 1 ;; esac; }
 
-HUB_CA_KEPT="${CLINIC_DIR}/certs/hub-ca.pem"
-if [ -z "${HUB_CA:-}" ]; then
-  if [ -s "${HUB_CA_KEPT}" ]; then HUB_CA="${HUB_CA_KEPT}"; else HUB_CA="${REPO_DIR}/sync/hub-ca.pem"; fi
+CLOUD_CA_KEPT="${CLINIC_DIR}/certs/cloud-ca.pem"
+if [ -z "${CLOUD_CA:-}" ]; then
+  if [ -s "${CLOUD_CA_KEPT}" ]; then CLOUD_CA="${CLOUD_CA_KEPT}"; else CLOUD_CA="${REPO_DIR}/sync/cloud-ca.pem"; fi
 fi
 
-hub_truststore(){
+cloud_truststore(){
   local out="$1" img="$2" listing
-  [ -s "${HUB_CA}" ] || fail "the hub link is $(hub_protocol) but ${HUB_CA#${REPO_DIR}/} (the hub's certificate) is missing"
+  [ -s "${CLOUD_CA}" ] || fail "the hub link is $(cloud_protocol) but ${CLOUD_CA#${REPO_DIR}/} (the hub's certificate) is missing"
   TSPW="${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD:?}" ct run --rm -i -e TSPW --entrypoint sh "$img" -c \
     'cat > /tmp/ca.pem && keytool -importcert -noprompt -alias hub -file /tmp/ca.pem -keystore /tmp/t.p12 -storetype PKCS12 -storepass:env TSPW >/dev/null 2>&1 && cat /tmp/t.p12' \
-    < "${HUB_CA}" > "${out}.new" || { rm -f "${out}.new"; fail "keytool in ${img} could not make a truststore from ${HUB_CA#${REPO_DIR}/}"; }
-  [ -s "${out}.new" ] || { rm -f "${out}.new"; fail "the truststore made from ${HUB_CA#${REPO_DIR}/} is empty"; }
+    < "${CLOUD_CA}" > "${out}.new" || { rm -f "${out}.new"; fail "keytool in ${img} could not make a truststore from ${CLOUD_CA#${REPO_DIR}/}"; }
+  [ -s "${out}.new" ] || { rm -f "${out}.new"; fail "the truststore made from ${CLOUD_CA#${REPO_DIR}/} is empty"; }
   mv "${out}.new" "$out"; chmod 644 "$out"
   listing="$(TSPW="${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}" ct run --rm -i -e TSPW --entrypoint sh "$img" -c \
     'cat > /tmp/t.p12 && keytool -list -keystore /tmp/t.p12 -storetype PKCS12 -storepass:env TSPW' < "$out" 2>&1 || true)"

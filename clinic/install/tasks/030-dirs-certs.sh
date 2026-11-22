@@ -6,12 +6,12 @@ begin_task "30 · directories + certificate"
 [ "${DRY}" = 1 ] && { info "would: create every bind source under ${CLINIC_DIR} listed by compose config, then a self-signed cert for ${LAN_NAME} and odoo.${LAN_NAME}"; exit 0; }
 setup_compose
 
-compose config 2>/dev/null | awk '/^ *source: /{print $2}' | grep -E "^${CLINIC_DIR}/" | sort -u | while read -r src; do
+compose_bind_sources 2>/dev/null | grep -E "^${CLINIC_DIR}/" | sort -u | while read -r src; do
   if [ -e "$src" ]; then continue; fi
   case "$src" in *.jar|*.conf|*.xml|*.sh|*.html|*.json|*.properties|*.pem|*.p12|*.sql|*.zip) mkdir -p "$(dirname "$src")" ;; *) mkdir -p "$src" ;; esac
 done
 
-n="$(compose config 2>/dev/null | awk '/^ *source: /{print $2}' | grep -cE "^${CLINIC_DIR}/")"
+n="$(compose_bind_sources 2>/dev/null | grep -cE "^${CLINIC_DIR}/")"
 ok "bind sources present for ${n} mount(s)"
 C="${CLINIC_DIR}/certs"; mkdir -p "$C/kafka"
 # A self-signed certificate that does not name the LAN name and odoo.<LAN name> is replaced; the old pair is kept as *.pem.old.

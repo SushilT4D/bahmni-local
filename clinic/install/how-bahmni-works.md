@@ -590,7 +590,7 @@ Hence the `|| true` guard. Strips a matching pair of quotes off the ends --
 single (env_put's own output) or double (an operator-hand-
 written .env, or a file predating this change) -- never an unpaired quote,
 and never spawns a subprocess just to do it (env_get is called very often,
-e.g. once per HUB_KEYS entry in 020-env.sh's round-trip check).
+e.g. once per CLOUD_KEYS entry in 020-env.sh's round-trip check).
 
 > Before: `env_get(){`
 
@@ -690,23 +690,23 @@ whose file names no user uses emrsync, the feed login of the hub's Odoo image.
 > Before: `INPUT_DEFAULTS="ODOO_ATOMFEED_USER=emrsync"`
 
 --- the hub link --------------------------------------------------------------
-hub_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
+cloud_protocol: SASL_SSL (TLS, the default) or SASL_PLAINTEXT, from the
 environment, else clinic/.env.
 
-> Before: `hub_protocol(){`
+> Before: `cloud_protocol(){`
 
-The hub's certificate: the one given for this run (HUB_CA), else the copy the
+The hub's certificate: the one given for this run (CLOUD_CA), else the copy the
 install kept beside the node's own certificates (task 020), else the fleet's
-sync/hub-ca.pem. The kept copy is what lets a resumed run, or a script run
+sync/cloud-ca.pem. The kept copy is what lets a resumed run, or a script run
 later without the install's environment, trust the same hub.
 
-> Before: `HUB_CA_KEPT="${CLINIC_DIR}/certs/hub-ca.pem"`
+> Before: `CLOUD_CA_KEPT="${CLINIC_DIR}/certs/cloud-ca.pem"`
 
-hub_truststore OUT IMAGE : a PKCS12 truststore holding sync/hub-ca.pem, made with
+cloud_truststore OUT IMAGE : a PKCS12 truststore holding sync/cloud-ca.pem, made with
 the image's keytool. The password comes from REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD
 through the container's environment, never its command line.
 
-> Before: `hub_truststore(){`
+> Before: `cloud_truststore(){`
 
 mysql_ready CONTAINER : true only when the FINAL server answers an authenticated query
 over TCP. `mysqladmin ping` exits 0 even on "Access denied", and the official image's first
@@ -1257,7 +1257,7 @@ the hub
 
 keep the certificate this install was given, so every later sitting trusts the same hub
 
-> Before: `if [ "$proto" = SASL_SSL ] && [ "${DRY}" != 1 ] && [ "${HUB_CA}" != "${HUB_CA_KEPT}" ]; then`
+> Before: `if [ "$proto" = SASL_SSL ] && [ "${DRY}" != 1 ] && [ "${CLOUD_CA}" != "${CLOUD_CA_KEPT}" ]; then`
 
 hub credentials (from the operator's secrets file; the seed's databases carry the matching users)
 and secrets born here (generated)
@@ -1807,7 +1807,7 @@ two reads; it is started again below with the freshly rendered properties.
 
 the client properties live only inside the kafka container, for the two reads
 
-> Before: `if hub_tls; then ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.p12' < "$TS"; fi`
+> Before: `if cloud_tls; then ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.p12' < "$TS"; fi`
 
 The hub remembers a node by its alias: MirrorMaker keeps its read position
 per alias in mm2-offsets.<alias>.internal on the hub and seeks each topic

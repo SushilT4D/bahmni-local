@@ -2,19 +2,12 @@
 # Sets up dnsmasq so clinic devices reach Bahmni and Odoo by the clinic's LAN name.
 DNS_UPSTREAMS="${DNS_UPSTREAMS:-1.1.1.1 8.8.8.8}"
 
-dnsmasq_conf(){ # NAME IFACE UPSTREAMS
-  local name="$1" ifc="$2" u
+dnsmasq_conf(){ # NAME IP UPSTREAMS : address=/NAME/ also answers odoo.NAME
+  local u
   printf '# rendered by the clinic installer\n'
   printf 'local-service\nno-resolv\n'
   for u in $3; do printf 'server=%s\n' "$u"; done
-  printf 'local=/%s/\ninterface-name=%s,%s\ninterface-name=odoo.%s,%s\n' "$name" "$name" "$ifc" "$name" "$ifc"
-}
-
-lan_iface(){ route -n get default 2>/dev/null | awk '/interface:/{print $2; exit}'; }
-
-lan_ip(){
-  local i; i="$(lan_iface)"
-  ipconfig getifaddr "$i" 2>/dev/null || true
+  printf 'local=/%s/\naddress=/%s/%s\n' "$1" "$1" "$2"
 }
 
 lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
@@ -23,10 +16,9 @@ lan_resolve(){ # NAME [SERVER] -> first A record; SERVER defaults to 127.0.0.1.
 }
 
 DNS_ETC="${DNS_ETC:-/etc}"
-dns_wrong_answer(){ # NAME -> why NAME, asked at this machine's LAN address, is not that address; nothing when it is
-
-  local ip got; ip="$(lan_ip)"; got="$(lan_resolve "$1" "$ip")"
-  [ -n "$ip" ] && [ "$got" = "$ip" ] || printf "%s answers '%s', this machine is '%s'" "$1" "${got:-nothing}" "${ip:-unknown}"
+dns_wrong_answer(){ # NAME -> why NAME, asked at LAN_IP, is not LAN_IP; nothing when it is
+  local got; got="$(lan_resolve "$1" "${LAN_IP}")"
+  [ "$got" = "${LAN_IP}" ] || printf "%s answers '%s', not %s" "$1" "${got:-nothing}" "${LAN_IP}"
 }
 
 dns_main_conf_ok(){ # PREFIX : the main dnsmasq.conf holds only the conf-dir line; any other setting (an old listen-address, address=) overrides the rendered file
@@ -35,11 +27,11 @@ dns_main_conf_ok(){ # PREFIX : the main dnsmasq.conf holds only the conf-dir lin
 }
 
 dns_restart_reason(){ # NAME : why dnsmasq needs a (root) restart; nothing when it does not
-  local name="$1" prefix ifc new
+  local name="$1" prefix new
   command -v brew >/dev/null 2>&1 && brew list --formula dnsmasq >/dev/null 2>&1 || { printf 'dnsmasq not installed'; return 0; }
-  prefix="$(brew --prefix)"; ifc="$(lan_iface)"
+  prefix="$(brew --prefix)"
   dns_main_conf_ok "$prefix" || { printf 'main config changes'; return 0; }
-  new="$(dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}")"
+  new="$(dnsmasq_conf "$name" "${LAN_IP}" "${DNS_UPSTREAMS}")"
   [ "$new" = "$(cat "${prefix}/etc/dnsmasq.d/bahmni-clinic.conf" 2>/dev/null)" ] || { printf 'config changes'; return 0; }
   pgrep -x dnsmasq >/dev/null 2>&1 || { printf 'dnsmasq not running'; return 0; }
   dns_wrong_answer "$name"
@@ -57,13 +49,12 @@ dns_root_pending(){ # NAME : the dnsmasq steps that need sudo, comma-separated; 
 }
 
 dns_install_macos(){ # NAME
-  local name="$1" ifc prefix d main conf why
+  local name="$1" prefix d main conf why
   if [ "${DRY}" = 1 ]; then
-    info "would: brew install dnsmasq; reduce \$(brew --prefix)/etc/dnsmasq.conf to its conf-dir line (old one kept as dnsmasq.conf.bak); write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq unless the config is unchanged and ${name} already answers with this machine's address; /etc/resolver/${name##*.} -> 127.0.0.1 unless it already says so"
+    info "would: brew install dnsmasq; reduce \$(brew --prefix)/etc/dnsmasq.conf to its conf-dir line (old one kept as dnsmasq.conf.bak); write \$(brew --prefix)/etc/dnsmasq.d/bahmni-clinic.conf for ${name} and odoo.${name}; sudo brew services restart dnsmasq unless the config is unchanged and ${name} already answers ${LAN_IP}; /etc/resolver/${name##*.} -> 127.0.0.1 unless it already says so"
     return 0
   fi
 
-  ifc="$(lan_iface)"; [ -n "$ifc" ] || fail "no default network interface: connect this Mac to the clinic network (Ethernet) and re-run --from 010"
   why="$(dns_restart_reason "$name")"
   if brew list --formula dnsmasq >/dev/null 2>&1; then skip "dnsmasq installed"; else run brew install dnsmasq; fi
   prefix="$(brew --prefix)"
@@ -74,10 +65,10 @@ dns_install_macos(){ # NAME
     printf 'conf-dir=%s/,*.conf\n' "$d" > "$main"
     ok "${main} holds only conf-dir (earlier settings kept in ${main}.bak)"
   fi
-  dnsmasq_conf "$name" "$ifc" "${DNS_UPSTREAMS}" > "$conf"
+  dnsmasq_conf "$name" "${LAN_IP}" "${DNS_UPSTREAMS}" > "$conf"
 
   if [ -z "$why" ]; then
-    skip "dnsmasq restart: config unchanged, dnsmasq running, ${name} already answers with this machine's address"
+    skip "dnsmasq restart: config unchanged, dnsmasq running, ${name} already answers ${LAN_IP}"
   else
     info "dnsmasq restarts (${why})"
     sudo -n brew services restart dnsmasq >/dev/null || fail "sudo brew services restart dnsmasq needs a password: the installer asks for it when it starts; run it from a terminal"
@@ -90,14 +81,13 @@ dns_install_macos(){ # NAME
       || fail "writing ${DNS_ETC}/resolver/${name##*.} needs sudo: the installer asks for it when it starts; run it from a terminal"
   fi
 
-  ok "dnsmasq answers for ${name} and odoo.${name} on ${ifc}"
+  ok "dnsmasq answers ${LAN_IP} for ${name} and odoo.${name}"
 }
 
-dns_check(){ # NAME : both names answer with this machine's address
-  local name="$1" ip got n
+dns_check(){ # NAME : both names answer LAN_IP
+  local name="$1" ip="${LAN_IP}" got n
   [ "${DRY}" = 1 ] && { info "would: check ${name} and odoo.${name} resolve to this machine"; return 0; }
   local budget="${DNS_WAIT_S:-30}" t
-  ip="$(lan_ip)"
   for n in "$name" "odoo.${name}"; do
     t=0
     got="$(lan_resolve "$n" "$ip")"

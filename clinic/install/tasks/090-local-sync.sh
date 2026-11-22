@@ -92,8 +92,8 @@ twin_state(){ # FIRST SECOND -> alive | quiet | unknown
 
 # twin-guard:end
 TS="${CLINIC_DIR}/certs/kafka/kafka.truststore.p12"
-if hub_tls; then hub_truststore "$TS" "${MM2_IMAGE}"; ok "hub link $(hub_protocol): truststore made from ${HUB_CA#${REPO_DIR}/}"
-else warn "hub link $(hub_protocol): no TLS, so the hub password and every record cross the network unencrypted"; fi
+if cloud_tls; then cloud_truststore "$TS" "${MM2_IMAGE}"; ok "hub link $(cloud_protocol): truststore made from ${CLOUD_CA#${REPO_DIR}/}"
+else warn "hub link $(cloud_protocol): no TLS, so the hub password and every record cross the network unencrypted"; fi
 bash scripts/setup-mirrormaker.sh >/dev/null
 grep -qE "^clusters *= *${LOCAL_CLUSTER_ALIAS}, *remote" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${LOCAL_CLUSTER_ALIAS}, remote" || fail "mm2.properties does not carry this node's alias"
 
@@ -120,9 +120,9 @@ else
   fi
 
   # own-mm2:end
-  if hub_tls; then ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.p12' < "$TS"; fi
-  { printf 'security.protocol=%s\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="%s" password="%s";\n' "$(hub_protocol)" "${REMOTE_KAFKA_USERNAME}" "${REMOTE_KAFKA_PASSWORD}"
-    if hub_tls; then printf 'ssl.truststore.location=/tmp/twin-guard.p12\nssl.truststore.type=PKCS12\nssl.truststore.password=%s\n' "${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}"; fi
+  if cloud_tls; then ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.p12' < "$TS"; fi
+  { printf 'security.protocol=%s\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="%s" password="%s";\n' "$(cloud_protocol)" "${REMOTE_KAFKA_USERNAME}" "${REMOTE_KAFKA_PASSWORD}"
+    if cloud_tls; then printf 'ssl.truststore.location=/tmp/twin-guard.p12\nssl.truststore.type=PKCS12\nssl.truststore.password=%s\n' "${REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD}"; fi
   } | ct exec -i kafka sh -c 'umask 077; cat > /tmp/twin-guard.properties'
   hb_read(){ ct exec kafka kafka-get-offsets --bootstrap-server "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}" --command-config /tmp/twin-guard.properties --topic "$hb_topic" 2>&1 | twin_offset "$hb_topic"; }
   o1="$(hb_read || true)"; sleep 20; o2="$(hb_read || true)"

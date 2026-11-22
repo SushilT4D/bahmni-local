@@ -179,7 +179,7 @@ EOF"
     fi
 else
     echo "   MirrorMaker container is not running"
-    echo "   Start with: docker-compose --profile debezium up -d"
+    echo "   Start with: podman-compose --profile debezium up -d"
 fi
 
 echo ""

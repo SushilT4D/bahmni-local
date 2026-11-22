@@ -1,3 +1,7 @@
+# podman-compose: Docker-style names (project-service-1) and networks, which the installer expects.
+x-podman:
+  docker_compose_compat: true
+
 x-default-logging: &default
   driver: json-file
   options:
@@ -61,7 +65,7 @@ services:
       OMRS_CREATE_TABLES: ${OPENMRS_DB_CREATE_TABLES}
       OMRS_AUTO_UPDATE_DATABASE: ${OPENMRS_DB_AUTO_UPDATE}
       OMRS_MODULE_WEB_ADMIN: ${OPENMRS_MODULE_WEB_ADMIN}
-      OMRS_JAVA_SERVER_OPTS: "${OMRS_JAVA_SERVER_OPTS} -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-globalproperties,idgen}"
+      OMRS_JAVA_SERVER_OPTS: "${OMRS_JAVA_SERVER_OPTS} -Dliquibase.should.run=false -Dinitializer.domains=${OPENMRS_INITIALIZER_DOMAINS:-globalproperties,idgen}"
       OMRS_JAVA_MEMORY_OPTS: ${OMRS_JAVA_MEMORY_OPTS}
       SEND_MAIL: ${SEND_MAIL}
       MAIL_TRANSPORT_PROTOCOL: ${MAIL_TRANSPORT_PROTOCOL}

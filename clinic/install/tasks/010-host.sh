@@ -11,6 +11,6 @@ setup_compose
 ct info >/dev/null 2>&1 || fail "podman is not answering: is the podman machine running? (podman machine start)"
 ok "${CT} answers"
 
-v="$(compose version 2>/dev/null | head -1)"
+v="$(compose version 2>/dev/null | tail -1)"
 [ -n "$v" ] || fail "compose is not available"
 ok "compose: $v"

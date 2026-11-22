@@ -59,13 +59,17 @@ fi
 
 [ "${PREFLIGHT_SKIP_HOST:-0}" = 1 ] && { ok "host facts skipped (PREFLIGHT_SKIP_HOST)"; exit 0; }
 
+# Each clinic has a fixed LAN address: 192.168.1.8<site number>.
+ifconfig -a 2>/dev/null | grep -q "inet ${LAN_IP} " && ok "LAN address ${LAN_IP}" \
+  || fail "this Mac does not have ${LAN_IP}, the fixed address of ${CLINIC_SLUG} (site ${RESIDUE}): sudo networksetup -setmanualwithdhcprouter <service> ${LAN_IP}"
+
 require_cmd git; require_cmd python3; require_cmd jq "brew install jq / apt install jq"; require_cmd openssl; require_cmd curl; require_cmd gzip
 
 avail_gb="$(( $(df -Pk "${CLINIC_DIR}" | awk 'NR==2{print $4}') / 1048576 ))"
 min_gb="${CLINIC_MIN_DISK_GB:-45}"
 [ "$avail_gb" -ge "$min_gb" ] && ok "disk free ${avail_gb} GB" || fail "disk free ${avail_gb} GB < ${min_gb} GB (a restored clinic database takes ~11 GB of MySQL; images, Kafka and logs need the rest; CLINIC_MIN_DISK_GB overrides)"
 ram_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
-[ "$ram_mb" -ge 8192 ] && ok "RAM ${ram_mb} MB" || fail "RAM ${ram_mb} MB < 8192 MB"
+[ "$ram_mb" -ge 16384 ] && ok "RAM ${ram_mb} MB" || fail "RAM ${ram_mb} MB < 16384 MB: the podman machine alone takes ${MACHINE_MIB} MiB"
 
 # cpu-budget:begin
 cpus="${PREFLIGHT_CPUS:-$(sysctl -n hw.ncpu)}"
@@ -79,17 +83,11 @@ case "$arch" in
   *) fail "arch ${arch}: the clinic needs an Apple Silicon Mac (arm64)" ;;
 esac
 
-machine_mib="${PREFLIGHT_MACHINE_MIB:-}"
-[ -n "$machine_mib" ] || machine_mib="$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || true)"
-if [ -n "${machine_mib:-}" ]; then
-  host_mib="${PREFLIGHT_HOST_MIB:-}"
-  [ -n "$host_mib" ] || host_mib="$(( $(sysctl -n hw.memsize) / 1048576 ))"
-  [ "$machine_mib" -ge 10240 ] || fail "podman machine memory ${machine_mib} MiB < 10240 MiB -- the stack needs 10 GiB; podman machine set --memory 10240 (or more), then restart the machine"
-  ok "podman machine memory ${machine_mib} MiB"
-  pct=$(( machine_mib * 100 / host_mib ))
-  if [ "$pct" -gt 55 ]; then
-    warn "podman machine memory ${machine_mib} MiB is ${pct}% of host RAM (${host_mib} MiB), over the 55% rule: a 15 GB VM on an 18 GB Mac made macOS swap fill the disk and the VM was killed four times in a day"
-  fi
+if podman machine list --format '{{.Name}}' 2>/dev/null | grep -q .; then
+  got="$(podman machine inspect --format '{{.Resources.CPUs}} {{.Resources.Memory}} {{.Resources.DiskSize}} {{.Rootful}}' 2>/dev/null || true)"
+  want="${MACHINE_CPUS} ${MACHINE_MIB} ${MACHINE_DISK_GB} true"
+  [ "$got" = "$want" ] && ok "podman machine: ${MACHINE_CPUS} CPU, ${MACHINE_MIB} MiB, ${MACHINE_DISK_GB} GiB, rootful" \
+    || fail "podman machine is '${got}' (CPU MiB GiB rootful), clinics run '${want}': podman machine stop; podman machine set --rootful --cpus ${MACHINE_CPUS} --memory ${MACHINE_MIB} --disk-size ${MACHINE_DISK_GB}; podman machine start (a disk only grows)"
 else
   ok "no podman machine yet (task 010 creates one)"
 fi

@@ -33,7 +33,7 @@ ok "odoo image ${odoo_img}"
 bash odoo-connect/build.sh || fail "the odoo-connect image could not be built (reason above)"
 ok "odoo-connect image bahmni-local/odoo-connect:$(env_get "$E" ODOO_CONNECT_IMAGE_TAG)"
 
-for img in $(compose config --images 2>/dev/null | sort -u); do
+for img in $(compose_images 2>/dev/null | sort -u); do
   case "$img" in bahmni-local/*) continue ;; esac
   ct image inspect "$img" >/dev/null 2>&1 && continue
   for attempt in 1 2 3; do
@@ -43,8 +43,8 @@ for img in $(compose config --images 2>/dev/null | sort -u); do
 done
 
 missing=""
-for img in $(compose config --images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
-[ -z "$missing" ] && ok "every image present ($(compose config --images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
+for img in $(compose_images 2>/dev/null | sort -u); do ct image inspect "$img" >/dev/null 2>&1 || missing="$missing $img"; done
+[ -z "$missing" ] && ok "every image present ($(compose_images 2>/dev/null | sort -u | wc -l | tr -d ' '))" || fail "images missing:${missing}"
 
 J="${CLINIC_DIR}/config/kafka-connect"
 GV="$(env_get "$E" GROOVY_VERSION)"

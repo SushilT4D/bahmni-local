@@ -93,11 +93,10 @@ load_inputs(){ # SLUG
     for k in $INPUT_KEYS $OPTIONAL_INPUT_KEYS; do v="$(env_get "$E" "$k")"; [ -z "$v" ] || { eval "$k=\$v"; export "$k"; }; done
     v="$(env_get "$E" PHONE_NUMBER)"; case "$v" in ''|'<'*) ;; *) CLINIC_PHONE="$v"; export CLINIC_PHONE ;; esac
   fi
-  [ "$(printf '%s' "${CLINIC_SLUG:-}" | tr 'A-Z' 'a-z')" = "$slug" ] || fail "CLINIC_SLUG in ${E} is '${CLINIC_SLUG:-}', not $slug"
   [ -n "${RESIDUE:-}" ] || RESIDUE="$r"
   [ -n "${SITE_NUMBER:-}" ] || SITE_NUMBER="$r"
   ask CLINIC_PHONE "clinic phone, E.164" "+910000000000" "${E} (PHONE_NUMBER)"
-  for k in $HUB_KEYS; do eval "[ -n \"\${$k:-}\" ]" || fail "$k is not in ${E}: the hub endpoint (REMOTE_KAFKA_BOOTSTRAP_SERVERS, REMOTE_KAFKA_USERNAME, REMOTE_KAFKA_SECURITY_PROTOCOL) comes from there"; done
+  for k in $CLOUD_KEYS; do eval "[ -n \"\${$k:-}\" ]" || fail "$k is not in ${E}: the hub endpoint (REMOTE_KAFKA_BOOTSTRAP_SERVERS, REMOTE_KAFKA_USERNAME, REMOTE_KAFKA_SECURITY_PROTOCOL) comes from there"; done
   for k in $SECRET_KEYS; do ask_secret "$k" "--secrets"; done
   export CLINIC_SLUG RESIDUE MRN_PREFIX SITE_NUMBER; input_defaults_apply
   info "clinic values: ${E} first, then ${CLINICS_JSON}${SECRETS_FILE:+ and ${SECRETS_FILE}}"

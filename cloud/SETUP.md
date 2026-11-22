@@ -7,8 +7,8 @@ Here are the cloud setup steps as commands. Run them on the cloud server.
 
 ```bash
 cd /App/bahmni-std-cloud-package-master
-set -a; . ./.env; set +a
 export BASE_DIR=/home/ubuntu/bahmni-local
+set -a; . ./.env; . "${BASE_DIR}/sync/versions.env"; set +a   # versions.env: the image pins docker compose reads
 export BASE_PG_CONTAINER=bahmni-std-cloud-package-master-odoodb-1
 export BASE_ELIS_CONTAINER=bahmni-std-cloud-package-master-openelisdb-1
 export BASE_MYSQL_CONTAINER=bahmni-std-cloud-package-master-openmrsdb-1
@@ -165,8 +165,8 @@ docker restart kafka-connect
 
 **Publish the CA and give clinics their login settings** (on a checkout that can push)
 ```bash
-cp certs/ca/ca.crt ${BASE_DIR}/sync/hub-ca.pem
-git -C ${BASE_DIR} add sync/hub-ca.pem && git -C ${BASE_DIR} commit -m "Cloud Kafka CA" && git -C ${BASE_DIR} push
+cp certs/ca/ca.crt ${BASE_DIR}/sync/cloud-ca.pem
+git -C ${BASE_DIR} add sync/cloud-ca.pem && git -C ${BASE_DIR} commit -m "Cloud Kafka CA" && git -C ${BASE_DIR} push
 echo "Each clinic's clinic/.env: REMOTE_KAFKA_BOOTSTRAP_SERVERS=${KAFKA_CLOUD_HOST}:9092 REMOTE_KAFKA_USERNAME=app REMOTE_KAFKA_SECURITY_PROTOCOL=SASL_SSL REMOTE_KAFKA_PASSWORD=$KAFKA_APP_PASSWORD"
 ```
 
@@ -228,5 +228,5 @@ curl -s "$C/connectors?expand=status" | jq -r --arg s "$SLUG" '.[] | select(.sta
 
 ## Gaps in the repo
 
-- `cloud/docker-compose.yml` has no mounts for the Groovy jars, so the `docker cp` above is lost whenever kafka-connect is recreated. The jars are also for Debezium scripting 3.6.2, while the cloud's Connect image is 3.6.3.
+- `cloud/docker-compose.yml` has no mounts for the Groovy jars, so the `docker cp` above is lost whenever kafka-connect is recreated.
 

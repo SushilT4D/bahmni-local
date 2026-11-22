@@ -1,14 +1,90 @@
 #!/usr/bin/env bash
-# Prepares the Mac: Homebrew, podman and its machine, docker-compose, start at login, dnsmasq, ports 80/443.
+# Prepares the Mac: Homebrew, podman and its machine, podman-compose, the boot-time LaunchDaemon, dnsmasq, ports 80/443.
 
-podman_machine_size(){
-  local host_mib="$1" host_cpus="$2" mem cpus
-  mem=$(( host_mib * 55 / 100 )); [ "$mem" -le 12288 ] || mem=12288
-  mem=$(( (mem / 1024) * 1024 ))
-  [ "$mem" -ge 10240 ] || [ "$host_mib" -lt 16384 ] || mem=10240
-  cpus=$(( host_cpus - 2 )); [ "$cpus" -le 8 ] || cpus=8; [ "$cpus" -ge 2 ] || cpus=2
-  MACHINE_MIB="$mem"
-  MACHINE_CPUS="$cpus"
+# Boot-time LaunchDaemon running podman/start-at-login.sh, which stays up and stops the stack on SIGTERM.
+# AbandonProcessGroup false + ExitTimeOut 300: launchd waits for that shutdown.
+DAEMON_LABEL=com.bahmni.podman
+DAEMON_PLIST="${DAEMON_PLIST:-/Library/LaunchDaemons/${DAEMON_LABEL}.plist}"
+OLD_AGENT_PLIST="${HOME}/Library/LaunchAgents/com.bahmni.clinic.start-at-login.plist"   # older installs
+
+daemon_plist(){ # : in plutil's layout, so an installed copy compares equal
+  local u g; u="$(id -un)"; g="$(id -gn)"
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>AbandonProcessGroup</key>
+	<false/>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>${HOME}</string>
+		<key>LOGNAME</key>
+		<string>${u}</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<key>USER</key>
+		<string>${u}</string>
+	</dict>
+	<key>ExitTimeOut</key>
+	<integer>300</integer>
+	<key>GroupName</key>
+	<string>${g}</string>
+	<key>KeepAlive</key>
+	<false/>
+	<key>Label</key>
+	<string>${DAEMON_LABEL}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>${CLINIC_DIR}/podman/start-at-login.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>${HOME}/Library/Logs/bahmni-podman.err</string>
+	<key>StandardOutPath</key>
+	<string>${HOME}/Library/Logs/bahmni-podman.out</string>
+	<key>UserName</key>
+	<string>${u}</string>
+</dict>
+</plist>
+EOF
+}
+
+daemon_pending(){ # : why the plist needs a root write; nothing when current
+  [ -f "${DAEMON_PLIST}" ] || { printf 'LaunchDaemon %s install' "${DAEMON_LABEL}"; return 0; }
+  [ "$(daemon_plist)" = "$(cat "${DAEMON_PLIST}" 2>/dev/null)" ] || printf 'LaunchDaemon %s update' "${DAEMON_LABEL}"
+}
+
+daemon_loaded(){ launchctl print "system/${DAEMON_LABEL}" >/dev/null 2>&1; }
+
+daemon_install(){
+  local why tmp
+  if [ -f "${OLD_AGENT_PLIST}" ]; then
+    launchctl unload "${OLD_AGENT_PLIST}" 2>/dev/null || true   # its job has exited; the machine stays up
+    rm -f "${OLD_AGENT_PLIST}"
+    ok "old LaunchAgent removed (${OLD_AGENT_PLIST}): the LaunchDaemon replaces it"
+  fi
+  why="$(daemon_pending)"
+  if [ -z "$why" ]; then skip "LaunchDaemon ${DAEMON_PLIST} current"
+  else
+    tmp="$(mktemp)"; daemon_plist > "$tmp"
+    plutil -lint "$tmp" >/dev/null || { rm -f "$tmp"; fail "the rendered LaunchDaemon plist does not lint: plutil -lint"; }
+    { [ ! -f "${DAEMON_PLIST}" ] || sudo -n cp -p "${DAEMON_PLIST}" "${DAEMON_PLIST}.bak"; } \
+      && sudo -n install -m 644 -o root -g wheel "$tmp" "${DAEMON_PLIST}" \
+      || { rm -f "$tmp"; fail "writing ${DAEMON_PLIST} needs sudo: the installer asks for it when it starts; run it from a terminal"; }
+    rm -f "$tmp"
+    ok "${why}: ${DAEMON_PLIST} (a previous one is kept as ${DAEMON_PLIST}.bak)"
+  fi
+  # Never boot out a loaded supervisor: SIGTERM stops the whole stack. A new plist applies at next boot.
+  if daemon_loaded; then
+    [ -z "$why" ] && skip "LaunchDaemon ${DAEMON_LABEL} loaded" || info "LaunchDaemon ${DAEMON_LABEL} is already loaded; the new plist takes effect at the next boot"
+  else
+    sudo -n launchctl bootstrap system "${DAEMON_PLIST}" || fail "sudo launchctl bootstrap system ${DAEMON_PLIST} failed"
+    ok "LaunchDaemon ${DAEMON_LABEL} loaded: it starts the podman machine and the containers at boot, and stops them at shutdown"
+  fi
 }
 
 autorestart_state(){ # -> on | off | unsupported
@@ -19,6 +95,8 @@ root_steps_pending(){ # : the host steps that need sudo, comma-separated; nothin
   local out='' d
   command -v brew >/dev/null 2>&1 || out="Homebrew install"
   [ "$(autorestart_state)" != off ] || out="${out:+${out}, }pmset autorestart"
+  d="$(daemon_pending)"; [ -z "$d" ] || out="${out:+${out}, }${d}"
+  if [ -z "$d" ] && ! daemon_loaded; then out="${out:+${out}, }LaunchDaemon ${DAEMON_LABEL} load"; fi
   . "${INSTALL_DIR}/dns.sh"
   d="$(dns_root_pending "${LAN_NAME}")"; [ -z "$d" ] || out="${out:+${out}, }${d}"
   printf '%s' "$out"
@@ -40,7 +118,7 @@ sudo_upfront(){ # : asks for the sudo password once, before any task runs, when 
 
 host_macos(){
   if [ "${DRY}" = 1 ]; then
-    info "would install Homebrew + podman/docker-compose/jq/gettext via brew, create/start a podman machine sized from host RAM, persist DOCKER_HOST in ~/.zprofile, and install the LaunchAgent that starts it at login, and set power-on after a power failure"
+    info "would install Homebrew + podman/podman-compose/jq/gettext via brew, create/start a rootful podman machine (${MACHINE_CPUS} CPU, ${MACHINE_MIB} MiB, ${MACHINE_DISK_GB} GiB), install the LaunchDaemon ${DAEMON_PLIST} that starts it and the containers at boot and stops them at shutdown (retiring any old LaunchAgent), and set power-on after a power failure"
     return 0
   fi
 
@@ -51,92 +129,40 @@ host_macos(){
   fi
 
   require_cmd brew
-  for pkg in podman docker-compose jq gettext; do   # gettext: envsubst, for the connector generators
+  for pkg in podman podman-compose jq gettext; do   # gettext: envsubst, for the connector generators
     if brew list --formula "$pkg" >/dev/null 2>&1; then skip "$pkg installed"; else run brew install "$pkg"; fi
   done
 
   if ! podman machine list --format '{{.Name}}' 2>/dev/null | grep -q .; then
-    host_mib="${HOST_MIB:-$(( $(sysctl -n hw.memsize) / 1048576 ))}"
-    host_cpus="${HOST_CPUS:-$(sysctl -n hw.ncpu)}"
-    podman_machine_size "$host_mib" "$host_cpus"
-    if [ "$MACHINE_MIB" -lt 10240 ]; then
-      fail "this Mac has ${host_mib} MiB RAM; a clinic's podman machine needs 10 GiB (10240 MiB), which this installer gives a Mac of 16 GiB (16384 MiB) or more"
-    fi
-
-    info "creating the podman machine (${MACHINE_CPUS} CPU, ${MACHINE_MIB} MiB, 120 GiB, rootless; 55% of ${host_mib} MiB host RAM, capped at 12288)"
-    run podman machine init --cpus "${MACHINE_CPUS}" --memory "${MACHINE_MIB}" --disk-size 120
+    info "creating the podman machine (${MACHINE_CPUS} CPU, ${MACHINE_MIB} MiB, ${MACHINE_DISK_GB} GiB, rootful)"
+    run podman machine init --rootful --cpus "${MACHINE_CPUS}" --memory "${MACHINE_MIB}" --disk-size "${MACHINE_DISK_GB}"
   else
-    skip "podman machine exists"
-
-    existing_mib="$(podman machine inspect --format '{{.Resources.Memory}}' 2>/dev/null || true)"
-    if [ -n "${existing_mib:-}" ] && [ "$existing_mib" -lt 10240 ]; then
-      warn "the existing podman machine has ${existing_mib} MiB, below the 10 GiB a clinic needs: podman machine set --memory 10240 (or more), then restart the machine"
-    fi
+    skip "podman machine exists (preflight checked its size)"
   fi
 
   if [ "${DRY}" = 1 ] || ! command -v podman >/dev/null 2>&1; then
-    info "would start the podman machine and persist DOCKER_HOST in ~/.zprofile"
+    info "would start the podman machine"
   else
     if podman machine list --format '{{.Running}}' 2>/dev/null | grep -q true; then skip "podman machine running"; else run podman machine start; fi
-    sock="$(podman_socket)"
-    if ! grep -q 'DOCKER_HOST=' "${HOME}/.zprofile" 2>/dev/null; then
-      run sh -c "printf 'export DOCKER_HOST=%s\n' '${sock}' >> '${HOME}/.zprofile'"
-      ok "DOCKER_HOST persisted in ~/.zprofile"
-    else skip "DOCKER_HOST already in ~/.zprofile"; fi
-    export DOCKER_HOST="${sock}"
+    # Rootful on every clinic: ports 80/443 work as is, and the data stays in one storage.
+    [ "$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null)" = false ] && ok "podman runs rootful" \
+      || fail "podman runs rootless: podman machine stop; podman machine set --rootful; podman machine start (rootless volumes are not seen by rootful)"
   fi
 
-  plist="${HOME}/Library/LaunchAgents/com.bahmni.clinic.start-at-login.plist"
-  if [ -f "$plist" ] && [ "$(plutil -extract AbandonProcessGroup raw "$plist" 2>/dev/null || true)" != true ]; then
-    run plutil -insert AbandonProcessGroup -bool true "$plist"
-    run launchctl unload "$plist"
-    run launchctl load "$plist"
-    ok "LaunchAgent keeps the podman machine it starts: ${plist}"
-  elif [ ! -f "$plist" ]; then
-    mkdir -p "${HOME}/Library/LaunchAgents"
-    run sh -c "cat > '${plist}' <<EOF
-<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\"><dict>
-  <key>Label</key><string>com.bahmni.clinic.start-at-login</string>
-  <key>ProgramArguments</key><array><string>/bin/bash</string><string>${CLINIC_DIR}/podman/start-at-login.sh</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>AbandonProcessGroup</key><true/>
-  <key>StandardOutPath</key><string>${HOME}/Library/Logs/bahmni-clinic-start.log</string>
-  <key>StandardErrorPath</key><string>${HOME}/Library/Logs/bahmni-clinic-start.log</string>
-</dict></plist>
-EOF"
-    run launchctl load "$plist"
-    ok "LaunchAgent installed: ${plist}"
-  else skip "LaunchAgent present"; fi
+  daemon_install
   # A portable has no autorestart setting; the install goes on without it.
   case "$(autorestart_state)" in
     on)  skip "powers on after a power failure" ;;
     off) sudo -n pmset -a autorestart 1 2>/dev/null && ok "powers on after a power failure" || warn "pmset autorestart needs sudo: the installer asks for it when it starts; run it from a terminal" ;;
     *)   warn "this Mac does not offer power-on after a power failure (pmset autorestart)" ;;
   esac
-  [ -n "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)" ] && ok "automatic login is on" \
-    || warn "automatic login is off: after a power cut nothing starts until someone logs in. Turn it on in System Settings > Users & Groups"
-  case "$(fdesetup status 2>/dev/null || true)" in *"FileVault is Off"*) true ;; *) false ;; esac && ok "FileVault is off" \
-    || warn "FileVault is on: the Mac waits at the unlock screen after a power cut, and automatic login cannot be turned on"
-  # The proxy publishes 80 and 443. Rootless podman runs containers as a user
-  # inside the podman machine, where Linux refuses ports below
-  # ip_unprivileged_port_start (1024 by default); lower it to 80 there, and
-  # persist it. A rootful machine is not the fix: its storage is separate,
-  # and this node's databases live on the rootless one's volumes.
-  # sysctl --system applies /etc/sysctl.conf last, so a value set there is rewritten too.
-  run podman machine ssh "printf 'net.ipv4.ip_unprivileged_port_start=80\n' | sudo tee /etc/sysctl.d/90-clinic-low-ports.conf >/dev/null && sudo sed -i 's/^net.ipv4.ip_unprivileged_port_start=.*/net.ipv4.ip_unprivileged_port_start=80/' /etc/sysctl.conf && sudo sysctl -q --system"
-  # The machine has no swap by default: when the stack's peak (a restore, a
-  # first boot) outgrows the machine, the kernel kills a database instead of
-  # slowing down. A 4 GiB swapfile, persisted in fstab.
-  run podman machine ssh "sudo sh -c '[ -f /var/swapfile ] || { fallocate -l 4G /var/swapfile && chmod 600 /var/swapfile && mkswap /var/swapfile >/dev/null; }; swapon --show=NAME --noheadings | grep -qx /var/swapfile || swapon /var/swapfile; grep -qs /var/swapfile /etc/fstab || echo \"/var/swapfile none swap defaults 0 0\" >> /etc/fstab'"
+  # Swap in the VM, so a peak (a restore, a first boot) slows down instead of killing a database.
+  # A swapfile of another size is made again at MACHINE_SWAP_GB.
+  run podman machine ssh "sudo sh -c 'f=/var/swapfile; want=\$((${MACHINE_SWAP_GB} * 1073741824)); if [ -f \$f ] && [ \$(stat -c %s \$f) != \$want ]; then swapoff \$f 2>/dev/null; rm -f \$f; fi; [ -f \$f ] || { fallocate -l ${MACHINE_SWAP_GB}G \$f && chmod 600 \$f && mkswap \$f >/dev/null; }; swapon --show=NAME --noheadings | grep -qx \$f || swapon \$f; grep -qs \$f /etc/fstab || echo \"\$f none swap defaults 0 0\" >> /etc/fstab'"
   if [ "${DRY}" != 1 ]; then
-    sw="$(podman machine ssh "swapon --show=NAME --noheadings" 2>/dev/null | tr -d '\r' | grep -x /var/swapfile || true)"
-    [ -n "$sw" ] && ok "podman machine has 4 GiB of swap (/var/swapfile)" || fail "podman machine has no swap: podman machine ssh swapon --show"
-  fi
-  if [ "${DRY}" != 1 ]; then
-    lp="$(podman machine ssh sysctl -n net.ipv4.ip_unprivileged_port_start 2>/dev/null | tr -d '\r')"
-    [ "${lp:-1024}" -le 80 ] && ok "podman machine allows ports from ${lp}" || fail "podman machine still refuses ports below ${lp:-unknown}: podman machine ssh sysctl net.ipv4.ip_unprivileged_port_start"
+    sw="$(podman machine ssh "swapon --show=NAME --noheadings | grep -qx /var/swapfile && stat -c %s /var/swapfile" 2>/dev/null | tr -d '\r')"
+    [ "${sw:-0}" = "$((MACHINE_SWAP_GB * 1073741824))" ] && ok "podman machine has ${MACHINE_SWAP_GB} GiB of swap (/var/swapfile)" \
+      || fail "podman machine swap is '${sw:-none}' bytes, want ${MACHINE_SWAP_GB} GiB: podman machine ssh swapon --show"
   fi
   # the clinic LAN name (dns.sh)
   . "${INSTALL_DIR}/dns.sh"

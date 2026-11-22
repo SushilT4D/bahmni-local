@@ -34,7 +34,7 @@ json="${COMPOSE_JSON_FILE:-}"
 cleanup_json=0
 if [ -z "$json" ]; then
   json="$(mktemp)"; cleanup_json=1
-  ( cd "${CLINIC_DIR}" && compose config --format json ) > "$json" || fail "compose config --format json failed"
+  compose_json > "$json" || fail "compose config could not be read as JSON"
 fi
 # Keep the EXIT trap successful when no temporary config was created.
 cleanup(){ if [ "$cleanup_json" = 1 ]; then rm -f "$json"; fi; }

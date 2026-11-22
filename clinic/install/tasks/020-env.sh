@@ -31,7 +31,7 @@ done
 
 put PHONE_NUMBER "${CLINIC_PHONE}"
 
-put CLINIC_SLUG "${CLINIC_SLUG}"; put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
+put RESIDUE "${RESIDUE}"; put MRN_PREFIX "${MRN_PREFIX}"; put SITE_NUMBER "${SITE_NUMBER}"
 put LAN_NAME "${LAN_NAME}"
 
 [ -z "${OPENMRS_INITIALIZER_DOMAINS:-}" ] || put OPENMRS_INITIALIZER_DOMAINS "${OPENMRS_INITIALIZER_DOMAINS}"
@@ -52,15 +52,15 @@ put MAIL_USER ""; put MAIL_PASSWORD ""; put MAIL_FROM none@localhost
 put REMOTE_KAFKA_BOOTSTRAP_SERVERS "${REMOTE_KAFKA_BOOTSTRAP_SERVERS}"
 put REMOTE_KAFKA_USERNAME "${REMOTE_KAFKA_USERNAME}"
 put REMOTE_KAFKA_PASSWORD "${REMOTE_KAFKA_PASSWORD}"
-put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # opens the truststore task 090 makes from sync/hub-ca.pem
-proto="$(hub_protocol)"
+put REMOTE_KAFKA_SSL_TRUSTSTORE_PASSWORD "$(gen_secret)"   # opens the truststore task 090 makes from sync/cloud-ca.pem
+proto="$(cloud_protocol)"
 case "$proto" in SASL_SSL|SASL_PLAINTEXT) ;; *) fail "REMOTE_KAFKA_SECURITY_PROTOCOL is '${proto}': SASL_SSL or SASL_PLAINTEXT" ;; esac
-[ "$proto" = SASL_PLAINTEXT ] || [ -s "${HUB_CA}" ] || fail "the hub link is SASL_SSL but ${HUB_CA#${REPO_DIR}/} (the hub's certificate) is missing"
+[ "$proto" = SASL_PLAINTEXT ] || [ -s "${CLOUD_CA}" ] || fail "the hub link is SASL_SSL but ${CLOUD_CA#${REPO_DIR}/} (the hub's certificate) is missing"
 
-if [ "$proto" = SASL_SSL ] && [ "${DRY}" != 1 ] && [ "${HUB_CA}" != "${HUB_CA_KEPT}" ]; then
-  mkdir -p "$(dirname "${HUB_CA_KEPT}")"
-  cp "${HUB_CA}" "${HUB_CA_KEPT}.new" && mv "${HUB_CA_KEPT}.new" "${HUB_CA_KEPT}" || fail "could not keep the hub's certificate at ${HUB_CA_KEPT}"
-  ok "hub certificate kept at ${HUB_CA_KEPT#${REPO_DIR}/} for later tasks"
+if [ "$proto" = SASL_SSL ] && [ "${DRY}" != 1 ] && [ "${CLOUD_CA}" != "${CLOUD_CA_KEPT}" ]; then
+  mkdir -p "$(dirname "${CLOUD_CA_KEPT}")"
+  cp "${CLOUD_CA}" "${CLOUD_CA_KEPT}.new" && mv "${CLOUD_CA_KEPT}.new" "${CLOUD_CA_KEPT}" || fail "could not keep the hub's certificate at ${CLOUD_CA_KEPT}"
+  ok "hub certificate kept at ${CLOUD_CA_KEPT#${REPO_DIR}/} for later tasks"
 fi
 
 put REMOTE_KAFKA_SECURITY_PROTOCOL "$proto"

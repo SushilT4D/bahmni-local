@@ -21,7 +21,7 @@ env_get(){ # KEY -> its value in ENV_FILE, quotes removed
 }
 
 [ -f "${ENV_FILE}" ] || fail "no ${ENV_FILE}"
-SLUG="$(env_get CLINIC_SLUG)"
+SLUG="$(env_get BHS_LOCATION)"
 RESIDUE="$(env_get RESIDUE)"
 USER_="$(env_get ODOO_ATOMFEED_USER)"
 PW="$(env_get ODOO_ATOMFEED_PASSWORD)"
