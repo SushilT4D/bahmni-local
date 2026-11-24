@@ -114,6 +114,7 @@ clinic/extracted.new.*/
 # .forms.lock is held by the run changing clinic/forms (.forms.lock.stale.* is
 # one being taken over).
 clinic/forms/
+clinic/cloud-forms/
 clinic/.forms.new.*/
 clinic/.forms.lock/
 clinic/.forms.lock.stale.*/
