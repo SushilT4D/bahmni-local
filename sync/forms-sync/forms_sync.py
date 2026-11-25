@@ -12,6 +12,7 @@ import time
 import formslogic as fl
 
 POLL_MS = 5000
+PASS_SPACING_SECONDS = 5
 MISSING_RETRY_SECONDS = 60
 CHECK_AFTER_WRITE_SECONDS = 60
 CHECK_REPEAT_SECONDS = 600
@@ -101,6 +102,18 @@ def send_pass(producer, topic, root, sent):
     return missing
 
 
+def missing_deadline(now, missing):
+    """Until when a file that was not in the folder is looked for again."""
+    return now + MISSING_RETRY_SECONDS if missing else 0
+
+
+def pass_due(now, last, dirty, failed, missing, deadline):
+    """Whether to read the database and send now. The change stream carries every table, so passes are spaced."""
+    if now - last < PASS_SPACING_SECONDS:
+        return False
+    return bool(dirty or failed or (missing and now < deadline))
+
+
 def send():
     from kafka import KafkaConsumer, KafkaProducer
 
@@ -123,19 +136,21 @@ def send():
     missing = until_ready(lambda: send_pass(producer, topic, root, sent))
     say(f"start-up pass: {len(sent)} files sent, {len(missing)} missing")
 
-    retry_until, failed = 0.0, False
+    last = time.monotonic()
+    deadline, dirty, failed = missing_deadline(last, missing), False, False
     while True:
         records = consumer.poll(timeout_ms=POLL_MS)
-        changed = any(fl.is_form_change(r.value) for batch in records.values() for r in batch)
         now = time.monotonic()
-        if changed:
-            retry_until = now + MISSING_RETRY_SECONDS
-        if changed or failed or (missing and now < retry_until):
-            try:
-                missing, failed = send_pass(producer, topic, root, sent), False
-            except Exception as e:
-                failed = True
-                say(scrub(f"ERROR could not send, trying again: {type(e).__name__}: {e}"))
+        if any(fl.is_form_change(r.value) for batch in records.values() for r in batch):
+            dirty, deadline = True, now + MISSING_RETRY_SECONDS
+        if not pass_due(now, last, dirty, failed, missing, deadline):
+            continue
+        last, dirty = now, False
+        try:
+            missing, failed = send_pass(producer, topic, root, sent), False
+        except Exception as e:
+            failed = True
+            say(scrub(f"ERROR could not send, trying again: {type(e).__name__}: {e}"))
 
 
 def handle(root, key, value, log=say):
@@ -171,6 +186,11 @@ def receive():
         sys.exit(f"forms-sync: no forms folder at {root}")
 
     consumer = until_ready(lambda: KafkaConsumer(bootstrap_servers=bootstrap, group_id=None, enable_auto_commit=False))
+    # Said before the wait: if the topic never comes, the log still names the forms that cannot open.
+    try:
+        self_check(root)
+    except Exception as e:
+        say(scrub(f"ERROR could not check the forms folder: {type(e).__name__}: {e}"))
     tps = until_ready(lambda: partitions(consumer, topic), what=f"topic {topic}")
     consumer.assign(tps)
     # Every start reads the whole topic again, so a restart is a full check of the folder.

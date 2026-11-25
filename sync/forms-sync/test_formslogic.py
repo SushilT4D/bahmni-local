@@ -175,6 +175,25 @@ class ProgramTest(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(root)), ["a.json"])
             self.assertEqual(sum(line.startswith("ERROR") for line in lines), 5)
 
+    def test_send_passes_are_paced(self):
+        import forms_sync
+        due = forms_sync.pass_due
+        gap = forms_sync.PASS_SPACING_SECONDS
+        self.assertTrue(due(now=100, last=0, dirty=True, failed=False, missing=[], deadline=0))
+        self.assertFalse(due(now=100, last=100 - gap + 1, dirty=True, failed=True, missing=["a.json"], deadline=999),
+                         "a busy change stream must not cause a database read per message")
+        self.assertTrue(due(now=100, last=100 - gap, dirty=False, failed=True, missing=[], deadline=0),
+                        "a failed pass is tried again with no time limit")
+        self.assertTrue(due(now=100, last=0, dirty=False, failed=False, missing=["a.json"], deadline=101))
+        self.assertFalse(due(now=100, last=0, dirty=False, failed=False, missing=["a.json"], deadline=100),
+                         "a missing file is retried only until its deadline")
+        self.assertFalse(due(now=100, last=0, dirty=False, failed=False, missing=[], deadline=999))
+
+    def test_a_file_missing_at_start_is_retried(self):
+        import forms_sync
+        self.assertEqual(forms_sync.missing_deadline(now=50, missing=["a.json"]), 50 + forms_sync.MISSING_RETRY_SECONDS)
+        self.assertEqual(forms_sync.missing_deadline(now=50, missing=[]), 0)
+
     def test_unknown_mode_is_a_usage_error(self):
         import forms_sync
         with self.assertRaises(SystemExit) as e:

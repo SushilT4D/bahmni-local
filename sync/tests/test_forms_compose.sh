@@ -20,8 +20,11 @@ check "$c" 'CHANGE_TOPIC: bahmni-cloud.openmrs.all' "cloud: listens to the chang
 check "$c" 'cloud-forms:/forms:ro' "cloud: the forms folder is mounted read-only"
 check "$c" 'restart: always' "cloud: restarted like the other services"
 check "$c" '# shortcut:' "cloud: the reused database login is marked"
-grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -q 'external: true' && grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -qF 'name: ${CLOUD_FORMS_VOLUME:?' \
+grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -q 'external: true' && grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -qF 'name: ${CLOUD_FORMS_VOLUME:-' \
   && ok_ "cloud: the forms volume is the base stack's own, named by CLOUD_FORMS_VOLUME" || bad "cloud: cloud-forms is not an external volume named by CLOUD_FORMS_VOLUME"
+grep -vE '^[[:space:]]*#' "$CLOUD" | grep -qF 'CLOUD_FORMS_VOLUME:?' && bad "cloud: CLOUD_FORMS_VOLUME is required, so a hub without it cannot run any compose command" \
+  || ok_ "cloud: a hub without CLOUD_FORMS_VOLUME can still run its other services"
+grep -q 'sync/forms-sync/build.sh' "${HERE}/../../cloud/SETUP.md" && ok_ "cloud: the setup steps build the image" || bad "cloud/SETUP.md does not say how the forms-sync image is built"
 
 k="$(block "$CLINIC")"
 [ -n "$k" ] && ok_ "clinic: a forms-sync service" || bad "clinic: no forms-sync service"

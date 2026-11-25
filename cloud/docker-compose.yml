@@ -273,5 +273,6 @@ volumes:
   connect-data:
   # The base stack's forms folder, read by forms-sync.
   cloud-forms:
-    name: ${CLOUD_FORMS_VOLUME:?set CLOUD_FORMS_VOLUME to the base stack's clinical forms volume}
+    # A default, not a required setting: a missing one would stop every compose command on this stack.
+    name: ${CLOUD_FORMS_VOLUME:-bahmni-clinical-forms}
     external: true

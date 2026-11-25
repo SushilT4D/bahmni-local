@@ -159,6 +159,15 @@ bash ${BASE_DIR}/clinic/config/kafka-connect/ext/fetch-scripting-jars.sh
 docker compose --profile debezium up -d --force-recreate kafka kafka-connect
 ```
 
+**Build and start forms-sync, which sends the form files to the clinics**
+
+Set `CLOUD_FORMS_VOLUME` in `.env` to the base stack's clinical forms volume (`docker volume ls | grep -i form`).
+```bash
+CT=docker bash ${BASE_DIR}/sync/forms-sync/build.sh
+docker compose --profile debezium up -d forms-sync
+docker logs --tail 20 forms-sync
+```
+
 **Load the Groovy jars into Connect**
 ```bash
 for j in ${BASE_DIR}/clinic/config/kafka-connect/ext/*.jar; do docker cp "$j" kafka-connect:/kafka/connect/debezium-connector-mysql/; done
