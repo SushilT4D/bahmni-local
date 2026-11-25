@@ -81,6 +81,7 @@ build_topic_pattern() {
       aggs+=("${sn}\\.${schema}\\.all")
       for table in ${dtabs}; do subs+=("${sn}\\.${schema}\\.${table}"); done
     done
+    aggs+=("${sn}\\.forms\\.files")
   else
     # Odoo and OpenELIS: each [up] table, and the aggregate topic <schema>.all
     # every table is captured into.
