@@ -34,12 +34,14 @@ def _valid_key(key):
     return len(parts) in (1, 2) and all(p and not p.startswith(".") and "\\" not in p for p in parts)
 
 
-def published_files(forms, resources, forms_dir):
+def published_files(forms, resources, forms_dir, retired=True):
     """Paths, relative to the forms folder, of every published form's files.
 
-    A retired form stays: saved observations name the version they were entered with.
+    A retired form's files travel too: saved observations name the version they were
+    entered with. retired=False leaves them out, for reporting what a clinic must have.
     """
-    published = {str(f["form_id"]): _text(f["uuid"]) for f in forms if _flag(f["published"])}
+    published = {str(f["form_id"]): _text(f["uuid"]) for f in forms
+                 if _flag(f["published"]) and (retired or not _flag(f.get("retired")))}
     prefix = forms_dir.rstrip("/") + "/"
     wanted = set()
     for r in resources:

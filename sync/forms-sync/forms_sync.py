@@ -45,7 +45,10 @@ def until_ready(fn, wait=10, log=say, what="Kafka and the database"):
 
 
 def wanted():
-    """Paths of every published form's files, asked of the database now."""
+    """(every published form's files, those of forms still in use), asked of the database now.
+
+    Old retired forms may never have had a file, so only forms in use are reported when one is missing.
+    """
     import pymysql
 
     conn = pymysql.connect(
@@ -54,13 +57,14 @@ def wanted():
         cursorclass=pymysql.cursors.DictCursor)
     try:
         with conn.cursor() as c:
-            c.execute("select form_id, uuid, published from form")
+            c.execute("select form_id, uuid, published, retired from form")
             forms = c.fetchall()
             c.execute("select form_id, value_reference, datatype from form_resource")
             resources = c.fetchall()
     finally:
         conn.close()
-    return fl.published_files(forms, resources, setting("OPENMRS_FORMS_DIR", "/home/bahmni/clinical_forms"))
+    forms_dir = setting("OPENMRS_FORMS_DIR", "/home/bahmni/clinical_forms")
+    return fl.published_files(forms, resources, forms_dir), fl.published_files(forms, resources, forms_dir, retired=False)
 
 
 def partitions(consumer, topics):
@@ -94,7 +98,9 @@ def ensure_topic(bootstrap, topic):
 
 def send_pass(producer, topic, root, sent):
     """Send every published form file not yet sent with its current content. Returns the missing ones."""
-    messages, missing, too_big = fl.to_send(root, wanted(), sent)
+    every, in_use = wanted()
+    messages, missing, too_big = fl.to_send(root, every, sent)
+    missing = [key for key in missing if key in in_use]
     for key, value, digest in messages:
         producer.send(topic, key=key.encode("utf-8"), value=value).get(timeout=60)
         sent[key] = digest
@@ -172,7 +178,7 @@ def handle(root, key, value, log=say):
 
 def self_check(root):
     """Log every published form whose file is not here. Returns how many."""
-    missing = fl.missing_definitions(root, wanted())
+    missing = fl.missing_definitions(root, wanted()[1])
     for key in missing:
         say(f"ERROR a published form has no file at this clinic: {key}")
     if not missing:

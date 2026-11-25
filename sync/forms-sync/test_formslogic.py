@@ -29,6 +29,12 @@ class PublishedFilesTest(unittest.TestCase):
             {"a.json", "translations/a.json", "translations/u1.json",
              "c.json", "translations/c.json", "translations/u3.json"})
 
+    def test_retired_forms_can_be_left_out(self):
+        forms = [form(1, "u1", 1), form(3, "u3", 1, retired=1), form(4, "u4", 1, retired=b"\x01")]
+        resources = [res(1, DIR + "/a.json"), res(3, DIR + "/c.json"), res(4, DIR + "/d.json")]
+        self.assertEqual(fl.published_files(forms, resources, DIR, retired=False),
+                         {"a.json", "translations/a.json", "translations/u1.json"})
+
     def test_published_flag_as_bytes_or_text(self):
         for flag in (b"\x01", "1", True):
             self.assertIn("a.json", fl.published_files([form(1, "u1", flag)], [res(1, DIR + "/a.json")], DIR))
