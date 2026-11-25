@@ -194,6 +194,24 @@ class ProgramTest(unittest.TestCase):
         self.assertEqual(forms_sync.missing_deadline(now=50, missing=["a.json"]), 50 + forms_sync.MISSING_RETRY_SECONDS)
         self.assertEqual(forms_sync.missing_deadline(now=50, missing=[]), 0)
 
+    def test_change_topic_may_be_a_list(self):
+        import forms_sync
+
+        class Consumer:
+            def partitions_for_topic(self, topic):
+                return {"a": {0}, "b": {1, 0}}.get(topic)
+
+        # A stand-in for the Kafka library's partition type, so this runs where the library is not installed.
+        import collections
+        import types
+        kafka = types.SimpleNamespace(TopicPartition=collections.namedtuple("TopicPartition", "topic partition"))
+        with mock.patch.dict("sys.modules", {"kafka": kafka}):
+            got = forms_sync.partitions(Consumer(), "a, b")
+            self.assertEqual([(tp.topic, tp.partition) for tp in got], [("a", 0), ("b", 0), ("b", 1)])
+            with self.assertRaises(RuntimeError) as e:
+                forms_sync.partitions(Consumer(), "a,c")
+            self.assertIn("c", str(e.exception))
+
     def test_unknown_mode_is_a_usage_error(self):
         import forms_sync
         with self.assertRaises(SystemExit) as e:

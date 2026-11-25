@@ -63,13 +63,17 @@ def wanted():
     return fl.published_files(forms, resources, setting("OPENMRS_FORMS_DIR", "/home/bahmni/clinical_forms"))
 
 
-def partitions(consumer, topic):
+def partitions(consumer, topics):
+    """Every partition of the named topics (one name, or several separated by commas)."""
     from kafka import TopicPartition
 
-    found = consumer.partitions_for_topic(topic)
-    if not found:
-        raise RuntimeError(f"topic {topic} does not exist yet")
-    return [TopicPartition(topic, p) for p in sorted(found)]
+    out = []
+    for topic in (t.strip() for t in topics.split(",") if t.strip()):
+        found = consumer.partitions_for_topic(topic)
+        if not found:
+            raise RuntimeError(f"topic {topic} does not exist yet")
+        out.extend(TopicPartition(topic, p) for p in sorted(found))
+    return out
 
 
 def ensure_topic(bootstrap, topic):
