@@ -440,7 +440,7 @@ services:
       FORMS_TOPIC: cloud.bahmni-cloud.forms.files
       FORMS_DB_HOST: bahmni-mysql
       FORMS_DB_NAME: ${OPENMRS_DB_NAME}
-      # shortcut: reuses the OpenMRS login and only reads, give forms-sync its own read-only login before production
+      # The OpenMRS login: forms-sync only reads.
       FORMS_DB_USER: ${OPENMRS_DB_USERNAME}
       FORMS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}
     volumes:

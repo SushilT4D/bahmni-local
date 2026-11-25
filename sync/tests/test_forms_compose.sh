@@ -19,7 +19,7 @@ check "$c" 'FORMS_TOPIC: bahmni-cloud.forms.files' "cloud: writes the forms topi
 check "$c" 'CHANGE_TOPIC: bahmni-cloud.openmrs.all' "cloud: listens to the change stream the form rows travel in"
 check "$c" 'cloud-forms:/forms:ro' "cloud: the forms folder is mounted read-only"
 check "$c" 'restart: always' "cloud: restarted like the other services"
-check "$c" '# shortcut:' "cloud: the reused database login is marked"
+check "$c" 'FORMS_DB_USER: ${DEBEZIUM_DB_USER}' "cloud: reads with the capture login"
 grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -q 'external: true' && grep -A3 -E '^  cloud-forms:' "$CLOUD" | grep -qF 'name: ${CLOUD_FORMS_VOLUME:-' \
   && ok_ "cloud: the forms volume is the base stack's own, named by CLOUD_FORMS_VOLUME" || bad "cloud: cloud-forms is not an external volume named by CLOUD_FORMS_VOLUME"
 grep -vE '^[[:space:]]*#' "$CLOUD" | grep -qF 'CLOUD_FORMS_VOLUME:?' && bad "cloud: CLOUD_FORMS_VOLUME is required, so a hub without it cannot run any compose command" \
@@ -34,7 +34,7 @@ check "$k" 'command: ["receive"]' "clinic: receive mode"
 check "$k" 'FORMS_TOPIC: cloud.bahmni-cloud.forms.files' "clinic: reads MirrorMaker's copy of the forms topic"
 check "$k" '${FORMS_DIR:?' "clinic: the forms folder must be set, there is no default"
 check "$k" 'restart: ${RESTART_POLICY}' "clinic: restarted like the other services"
-check "$k" '# shortcut:' "clinic: the reused database login is marked"
+check "$k" 'FORMS_DB_USER: ${OPENMRS_DB_USERNAME}' "clinic: reads with the OpenMRS login"
 
 for b in "$c" "$k"; do
   printf '%s\n' "$b" | grep -E 'FORMS_DB_PASSWORD:' | grep -vqE 'FORMS_DB_PASSWORD: *"?\$\{[A-Z_]+(:\?[^}]*)?\}"? *$' && bad "a database password is written into a compose file" || true

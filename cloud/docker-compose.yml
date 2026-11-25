@@ -256,7 +256,7 @@ services:
       CHANGE_TOPIC: bahmni-cloud.openmrs.all
       FORMS_DB_HOST: ${OPENMRS_DB_HOST}
       FORMS_DB_NAME: ${OPENMRS_DB_NAME}
-      # shortcut: reuses the capture login, give forms-sync its own read-only login before production
+      # The capture login: forms-sync only reads.
       FORMS_DB_USER: ${DEBEZIUM_DB_USER}
       FORMS_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD}
     volumes:
