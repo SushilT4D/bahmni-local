@@ -429,6 +429,25 @@ services:
       timeout: 10s
       retries: 3
 
+  # Writes the form files the cloud sends into this clinic's forms folder.
+  forms-sync:
+    profiles: ["debezium"]
+    image: bahmni-local/forms-sync:1.0
+    mem_limit: ${FORMS_SYNC_MEM_LIMIT:-128m}
+    logging: *log-config
+    restart: ${RESTART_POLICY}
+    command: ["receive"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      FORMS_TOPIC: cloud.bahmni-cloud.forms.files
+      FORMS_DB_HOST: bahmni-mysql
+      FORMS_DB_NAME: ${OPENMRS_DB_NAME}
+      # shortcut: reuses the OpenMRS login and only reads, give forms-sync its own read-only login before production
+      FORMS_DB_USER: ${OPENMRS_DB_USERNAME}
+      FORMS_DB_PASSWORD: ${OPENMRS_DB_PASSWORD}
+    volumes:
+      - "${FORMS_DIR:?set FORMS_DIR to this clinic's forms folder}:/forms"
+
   kafka-ui:
     profiles: [ "debezium" ]
     image: provectuslabs/kafka-ui:latest

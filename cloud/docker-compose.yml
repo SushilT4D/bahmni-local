@@ -240,6 +240,28 @@ services:
       - "${CONTAINER_DATA_PATH}/config/nginx/kafka-ui-nginx.conf:/etc/nginx/nginx.conf:ro"
     restart: ${RESTART_POLICY}
 
+  # Sends the file of every published form to the clinics. Build it first: sync/forms-sync/build.sh
+  forms-sync:
+    profiles: ["debezium"]
+    image: bahmni-local/forms-sync:1.0
+    container_name: forms-sync
+    restart: always
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: ["send"]
+    environment:
+      KAFKA_BOOTSTRAP: kafka:29092
+      FORMS_TOPIC: bahmni-cloud.forms.files
+      CHANGE_TOPIC: bahmni-cloud.openmrs.all
+      FORMS_DB_HOST: ${OPENMRS_DB_HOST}
+      FORMS_DB_NAME: ${OPENMRS_DB_NAME}
+      # shortcut: reuses the capture login, give forms-sync its own read-only login before production
+      FORMS_DB_USER: ${DEBEZIUM_DB_USER}
+      FORMS_DB_PASSWORD: ${DEBEZIUM_DB_PASSWORD}
+    volumes:
+      - cloud-forms:/forms:ro
+
 # Joins the base Bahmni stack's network, so Connect reaches its databases.
 networks:
   default:
@@ -249,3 +271,7 @@ networks:
 volumes:
   kafka-data:
   connect-data:
+  # The base stack's forms folder, read by forms-sync.
+  cloud-forms:
+    name: ${CLOUD_FORMS_VOLUME:?set CLOUD_FORMS_VOLUME to the base stack's clinical forms volume}
+    external: true

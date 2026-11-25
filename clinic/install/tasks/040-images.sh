@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gets every image: builds OpenMRS, Odoo, odoo-connect, the proxy and systemdate locally, pulls the rest, fetches the Connect jars.
+# Gets every image: builds OpenMRS, Odoo, odoo-connect, the proxy, systemdate and forms-sync locally, pulls the rest, fetches the Connect jars.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 begin_task "40 · images + jars"
@@ -25,6 +25,9 @@ ok "openmrs image: native ${run_tag}, built from ${omrs}"
 
 if ct image inspect "bahmni-local/proxy:$(env_get "$E" PROXY_IMAGE_TAG)" >/dev/null 2>&1; then skip "proxy image built"; else bash proxy/build.sh; fi
 if ct image inspect bahmni-local/systemdate:1.0 >/dev/null 2>&1; then skip "systemdate image built"; else bash systemdate/build.sh; fi
+# Built on every run: the tag is fixed, so a skip would keep an old program after an update.
+CT="${CT}" bash "${CLINIC_DIR}/../sync/forms-sync/build.sh" >/dev/null || fail "the forms-sync image could not be built"
+ok "forms-sync image bahmni-local/forms-sync:1.0"
 
 odoo_img="$(env_get "$E" ODOO_LOCAL_IMAGE)"
 bash odoo/build.sh || fail "the Odoo image ${odoo_img} could not be built (reason above)"
