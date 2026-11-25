@@ -168,8 +168,8 @@ mv "$B.away" "$B"
 N6="$TMP/n6"; mkdir -p "$N6/bahmni_home/clinical_forms/translations"; echo '{}' > "$N6/bahmni_home/clinical_forms/$U1.json"
 printf 'COMPOSE_PROJECT_NAME=bahmni-t\nFORMS_REPO_URL=\n' > "$N6/.env"
 out="$(ROWS="$TMP/rows3" run "$N6")"; rc=$?
-[ "$rc" -eq 0 ] && [ ! -e "$N6/forms" ] && printf '%s' "$out" | grep -q 'no forms repo configured' && printf '%s' "$out" | grep -q 'WARN row/file check' \
-  && ok_ "no forms repo: exit 0, nothing cloned, missing files on the frozen copy are a warning" || bad "no repo: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && [ ! -e "$N6/forms" ] && printf '%s' "$out" | grep -q 'no forms repo configured' && printf '%s' "$out" | grep -q 'row/file check: .* 2 missing' \
+  && ok_ "no forms repo: exit 0, nothing cloned, missing files are listed" || bad "no repo: rc=$rc out=$out"
 
 # --- a node taking the forms repo for the first time -------------------------------------------------------------
 N7="$TMP/n7"; mkdir -p "$N7/bahmni_home/clinical_forms/translations"; echo '{}' > "$N7/bahmni_home/clinical_forms/$U1.json"

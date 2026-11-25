@@ -22,16 +22,14 @@ done
 chmod +x "$TMP/bin/"*
 export FAKE_LOG="$TMP/calls.log"
 
-node(){ # DIR : an installed node: config tree, frozen forms copy, clinic/.env
+node(){ # DIR : an installed node: config tree, forms folder, clinic/.env
   local n="$1" d
   for d in globalproperties idgen concepts drugs; do mkdir -p "$n/extracted/bahmni_config/masterdata/configuration/$d"; echo x > "$n/extracted/bahmni_config/masterdata/configuration/$d/$d.csv"; done
-  mkdir -p "$n/bahmni_home/clinical_forms/translations"; echo '{}' > "$n/bahmni_home/clinical_forms/f.json"
+  mkdir -p "$n/data/clinical_forms/translations"; echo '{}' > "$n/data/clinical_forms/f.json"
   cat > "$n/.env" <<EOF
 COMPOSE_PROJECT_NAME=bahmni-t
 BAHMNI_CONFIG_DIR=$n/extracted/bahmni_config
-FORMS_DIR=$n/bahmni_home/clinical_forms
-FORMS_READ_ONLY=false
-FORMS_REPO_URL=
+FORMS_DIR=$n/data/clinical_forms
 OMRS_JAVA_MEMORY_OPTS='-Xms512m -Xmx2048m'
 OMRS_JAVA_SERVER_OPTS='-server -Dinitializer.domains=!bahmniforms -Dfile.encoding=UTF-8'
 EOF
@@ -48,7 +46,7 @@ up_line='--profile local --profile debezium --profile openelis up -d --no-deps -
 N="$TMP/n"; node "$N"; : > "$FAKE_LOG"
 out="$(run "$N")"; rc=$?
 [ "$rc" -eq 0 ] && calls | grep -qF "docker-compose ${up_line} | cwd=$N" && ok_ "checks pass: openmrs alone is recreated, from clinic/, with the fleet's profiles" || bad "good node: rc=$rc out=$out calls=$(calls)"
-printf '%s' "$out" | grep -q 'ok   forms: 1 form files .*(mounted read-write)' && printf '%s' "$out" | grep -q 'ok   initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' \
+printf '%s' "$out" | grep -q 'ok   forms: 1 form files in ' && printf '%s' "$out" | grep -q 'ok   initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' \
   && ok_ "it says what it checked: the forms mount and the domain list" || bad "check lines: $out"
 [ "$(envv "$N" OMRS_JAVA_SERVER_OPTS)" = "-server -Dfile.encoding=UTF-8" ] && ok_ "a -Dinitializer.domains left in OMRS_JAVA_SERVER_OPTS is taken out first, so the property is passed once" || bad "jvm opts: $(envv "$N" OMRS_JAVA_SERVER_OPTS)"
 
@@ -70,15 +68,15 @@ out="$(run "$N2b")"; rc=$?
 [ "$rc" -eq 0 ] && calls | grep -qF -- "$up_line" && printf '%s' "$out" | grep -q 'initializer domains: inclusion list; from the config tree it loads: globalproperties idgen' && ok_ "with no list set, the default inclusion list loads no htmlforms folder, and the tree is recreated on" || bad "default with htmlforms: rc=$rc out=$out"
 
 # --- the forms mount ---------------------------------------------------------------------------------
-N3="$TMP/n3"; node "$N3"; rm -rf "$N3/bahmni_home/clinical_forms"; : > "$FAKE_LOG"
+N3="$TMP/n3"; node "$N3"; rm -rf "$N3/data/clinical_forms"; : > "$FAKE_LOG"
 out="$(run "$N3")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'clinical_forms does not exist' && [ ! -s "$FAKE_LOG" ] && ok_ "a missing forms folder is refused before anything is recreated" || bad "missing forms: rc=$rc out=$out calls=$(calls)"
-N4="$TMP/n4"; node "$N4"; printf 'FORMS_REPO_URL=git@h:o/r.git\n' >> "$N4/.env"; : > "$FAKE_LOG"
+N4="$TMP/n4"; node "$N4"; rm -f "$N4/data/clinical_forms/f.json"; : > "$FAKE_LOG"
 out="$(run "$N4")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'names a forms repo, but the forms mount is .*not its clone' && [ ! -s "$FAKE_LOG" ] && ok_ "a forms repo with the mount not on its clone is refused" || bad "repo vs mount: rc=$rc out=$out"
-N5="$TMP/n5"; node "$N5"; printf 'FORMS_READ_ONLY=ro\n' >> "$N5/.env"; : > "$FAKE_LOG"
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'ok   forms: 0 form files in ' && calls | grep -qF -- "$up_line" && ok_ "a forms folder with no file yet is recreated on" || bad "empty forms: rc=$rc out=$out"
+N5="$TMP/n5"; node "$N5"; grep -v '^FORMS_DIR=' "$N5/.env" > "$N5/.env.new"; mv "$N5/.env.new" "$N5/.env"; : > "$FAKE_LOG"
 out="$(run "$N5")"; rc=$?
-[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q "FORMS_READ_ONLY is 'ro'" && [ ! -s "$FAKE_LOG" ] && ok_ "a FORMS_READ_ONLY other than true or false is refused" || bad "read-only value: rc=$rc out=$out"
+[ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'FORMS_DIR is not set' && [ ! -s "$FAKE_LOG" ] && ok_ "a clinic/.env without FORMS_DIR is refused" || bad "no FORMS_DIR: rc=$rc out=$out"
 
 # --- --check changes nothing ---------------------------------------------------------------------------
 N6="$TMP/n6"; node "$N6"; before="$(cat "$N6/.env")"; : > "$FAKE_LOG"

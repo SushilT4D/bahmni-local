@@ -17,14 +17,14 @@ forms_mount_word(){ if [ "$1" = true ]; then echo read-only; else echo read-writ
 
 forms_folder_verdict(){
   local d="$1" n l
-  [ -d "$d" ] || { printf '%s does not exist, so OpenMRS would not start (its forms mount refuses a missing folder). Installer task 075 sets it up (a clone of the forms repo, or the frozen copy); on a running node, clinic/scripts/update-forms.sh does.\n' "$d"; return 1; }
+  [ -n "$d" ] || { printf 'FORMS_DIR is not set in clinic/.env, so OpenMRS would not start. Installer task 075 sets it (resume --from 075).\n'; return 1; }
+  [ -d "$d" ] || { printf '%s does not exist, so OpenMRS would not start (its forms mount refuses a missing folder). Installer task 075 creates it (resume --from 075).\n' "$d"; return 1; }
 
   l="$(find "$d" -type l 2>/dev/null | head -1)"
   [ -z "$l" ] || { printf '%s holds a symlink (%s); a form file must be a plain file, so OpenMRS does not start on it\n' "$d" "$l"; return 1; }
-  [ -d "$d/translations" ] || { printf '%s has no translations/ folder, which OpenMRS mounts for the form translations. The forms repo must carry clinical_forms/translations/.\n' "$d"; return 1; }
+  [ -d "$d/translations" ] || { printf '%s has no translations/ folder, which OpenMRS mounts for the form translations. Installer task 075 creates it (resume --from 075).\n' "$d"; return 1; }
   n="$(find "$d" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')"
-  [ "${n:-0}" -gt 0 ] || { printf '%s holds no form file (*.json), so every form would fail to open.\n' "$d"; return 1; }
-  printf 'ok %s form files in %s\n' "$n" "$d"
+  printf 'ok %s form files in %s\n' "${n:-0}" "$d"
 }
 
 forms_tree_symlinks(){ git -C "$1" ls-tree -r "$2" | awk -F'\t' '$1 ~ /^120000 / {print $2}'; }
@@ -371,7 +371,7 @@ forms_rowfile_gate(){
     fail "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). Each form listed above would fail to open. The forms repo must hold every file the database points at: pull its latest (it only adds files); if the latest lacks them, the hub's forms have not been exported to it yet"
   fi
 
-  warn "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). Each form listed above fails to open on this node; the frozen copy lacks its file. A forms repo (FORMS_REPO_URL) carries them"
+  info "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). forms-sync writes each file listed above when it arrives; until then that form does not open"
 }
 
 forms_manifest_diff(){ diff "$1" "$2" 2>/dev/null | grep -E '^[<>]' || true; }

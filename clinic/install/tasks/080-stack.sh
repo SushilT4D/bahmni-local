@@ -18,11 +18,9 @@ bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership
 
 # forms-guard:begin
 . "${INSTALL_DIR}/forms.sh"
-v="$(forms_mount_verdict "${FORMS_DIR:-${FORMS_FROZEN_DIR}}" "${FORMS_READ_ONLY:-false}" "${FORMS_REPO_URL:-}")" || fail "$v"
+v="$(forms_folder_verdict "${FORMS_DIR:-}")" || fail "$v"
 ok "forms: ${v#ok }"
-fdir="${FORMS_DIR:-${FORMS_FROZEN_DIR}}"
-strict=0; [ -n "${FORMS_REPO_URL:-}" ] && strict=1
-forms_rowfile_gate "$fdir" "$strict"
+forms_rowfile_gate "${FORMS_DIR}" 0
 
 # forms-guard:end
 # initializer-guard:begin

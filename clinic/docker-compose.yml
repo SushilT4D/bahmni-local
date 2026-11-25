@@ -102,15 +102,13 @@ services:
       - "${CONTAINER_DATA_PATH}/data/configuration_checksums:/openmrs/data/configuration_checksums"
       - "${CONTAINER_DATA_PATH}/data/openmrs/lucene:/openmrs/data/lucene"
       - type: bind
-        source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}"
+        source: "${FORMS_DIR:?set FORMS_DIR to this clinic's forms folder}"
         target: /home/bahmni/clinical_forms
-        read_only: ${FORMS_READ_ONLY:-false}
         bind:
           create_host_path: false
       - type: bind
-        source: "${FORMS_DIR:-${CONTAINER_DATA_PATH:?}/bahmni_home/clinical_forms}/translations"
+        source: "${FORMS_DIR:?set FORMS_DIR to this clinic's forms folder}/translations"
         target: /var/www/bahmni_config/openmrs/apps/forms/translations
-        read_only: ${FORMS_READ_ONLY:-false}
         bind:
           create_host_path: false
       - "${BAHMNI_UI_DIR:?}/images/blank-user.png:/etc/bahmni/blank-user.png:ro"

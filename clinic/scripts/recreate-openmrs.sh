@@ -32,7 +32,7 @@ else
   ensure_openmrs_jvm_opts "$E"
 fi
 set -a; . "$E"; set +a
-v="$(forms_mount_verdict "${FORMS_DIR:-${FORMS_FROZEN_DIR}}" "${FORMS_READ_ONLY:-false}" "${FORMS_REPO_URL:-}")" || fail "$v"
+v="$(forms_folder_verdict "${FORMS_DIR:-}")" || fail "$v"
 ok "forms: ${v#ok }"
 v="$(initializer_domains_verdict "${OPENMRS_INITIALIZER_DOMAINS:-${INITIALIZER_DOMAINS_DEFAULT}}" "${BAHMNI_CONFIG_DIR:-${CLINIC_DIR}/extracted/bahmni_config}")" || fail "$v"
 ok "initializer domains: ${v#ok }"
