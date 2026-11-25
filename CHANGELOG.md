@@ -94,6 +94,14 @@ file gives the date of each.
   folder and its file there. The installer lists the forms whose file has not
   arrived and goes on; `clinic/scripts/update-forms.sh` runs the same check by
   hand and exits 1 with the list. A file arriving never restarts OpenMRS.
+- **Upgrading a running clinic.** A clinic on an earlier version reads its
+  forms from `clinic/bahmni_home/clinical_forms`, and updating the code removes
+  the files there. Before updating the code, copy the forms the clinic has:
+  `mkdir -p clinic/data && cp -R clinic/bahmni_home/clinical_forms clinic/data/clinical_forms`
+  (use the clinic's own data path if `CONTAINER_DATA_PATH` is not `clinic/`).
+  Then update the code and run `install.sh resume --from 020`. The installer
+  keeps a forms folder that already holds files, and `forms-sync` adds what is
+  missing.
 - At a clinic the Initializer loads no forms and no other master data the hub
   owns: `-Dinitializer.domains` from `OPENMRS_INITIALIZER_DOMAINS`, by default
   the inclusion list `globalproperties,idgen`; an exclusion list is accepted as

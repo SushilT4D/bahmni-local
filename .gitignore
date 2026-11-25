@@ -111,6 +111,10 @@ clinic/extracted.new.*/
 # What clinic/scripts/fetch-cloud-forms.sh fetched from the cloud
 clinic/cloud-forms/
 
+# Form files an upgraded clinic may still hold where earlier versions kept them: never part of this repo.
+clinic/forms/
+clinic/bahmni_home/clinical_forms/
+
 # openmrs/build.sh's build context (create+cp of the source image's
 # trees, plus Dockerfile) -- removed by its own EXIT trap on every
 # path; this rule is for the run that is killed outright.

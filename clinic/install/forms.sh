@@ -15,6 +15,10 @@ forms_folder_verdict(){
   printf 'ok %s form files in %s\n' "${n:-0}" "$d"
 }
 
+forms_topic_listed(){ # MM2_PROPERTIES ALIAS: does this clinic's MirrorMaker pull the form files topic?
+  awk -v k="cloud->$2.topics" -F' *= *' '$1==k{print $2}' "$1" 2>/dev/null | grep -q '\\\.forms\\\.files'
+}
+
 forms_sql(){
   [ -n "${CT:-}" ] || setup_compose
   printf '%s' "$1" | ct exec -i "${COMPOSE_PROJECT_NAME:?}-bahmni-mysql-1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot -N openmrs'

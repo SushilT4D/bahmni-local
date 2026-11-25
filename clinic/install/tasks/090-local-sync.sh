@@ -94,6 +94,9 @@ if cloud_tls; then cloud_truststore "$TS" "${MM2_IMAGE}"; ok "hub link $(cloud_p
 else warn "hub link $(cloud_protocol): no TLS, so the hub password and every record cross the network unencrypted"; fi
 bash scripts/setup-mirrormaker.sh >/dev/null
 grep -qE "^clusters *= *${BHS_LOCATION}, *cloud" config/mirrormaker/mm2.properties && ok "mm2.properties: clusters = ${BHS_LOCATION}, cloud" || fail "mm2.properties does not carry this node's alias"
+. "${INSTALL_DIR}/forms.sh"
+forms_topic_listed config/mirrormaker/mm2.properties "${BHS_LOCATION}" && ok "mm2.properties: pulls the hub's form files topic" \
+  || fail "mm2.properties does not pull the hub's form files topic, so no form would open here. If clinic/.env sets KAFKA_DOWN_TOPIC_PATTERNS, add bahmni-cloud\\.forms\\.files to it or remove the setting, then resume --from 090"
 
 # mm2-topics:begin
 mm2_up_topics(){ # MM2_PROPERTIES ALIAS -> one plain topic name per line
@@ -194,3 +197,6 @@ for i in $(seq 1 12); do
 done
 
 [ "$assigned" = 1 ] && ok "mirrormaker replicates ${odoo_topic} (assigned at start)" || fail "mirrormaker has not reported ${odoo_topic} assigned within 2 more minutes: ${COMPOSE_CMD} logs mirrormaker-connect | grep 'topic-partitions'"
+
+( cd "${CLINIC_DIR}" && ${COMPOSE_CMD} --profile debezium up -d forms-sync >/dev/null ) || fail "forms-sync did not start, so no form file would arrive: ${COMPOSE_CMD} logs forms-sync"
+ok "forms-sync started: it writes the hub's form files into $(env_get "${CLINIC_DIR}/.env" FORMS_DIR)"

@@ -12,7 +12,9 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 T20=clinic/install/tasks/020-env.sh
 for w in FORMS_REPO_URL FORMS_REPO_KEY FORMS_CLONE_DIR FORMS_READ_ONLY FORMS_FROZEN_DIR FORMS_MOUNT_MODE 'clinic/forms/' 'forms repo' 'bahmni_home/clinical_forms' \
          pull-clinical-forms test_update_forms '.forms.lock' '.forms.new'; do
-  hits="$(git -C "$RP" grep -n -I -i -F -e "$w" -- . ":!clinic/install/tests/test_no_forms_repo.sh" ":!clinic/install/tests/test_forms_folder.sh" ":!${T20}" | head -5)"
+  # The two old folders stay ignored, and the upgrade steps name the one a clinic copies its forms from.
+  keep=":!${T20}"; case "$w" in 'clinic/forms/'|'bahmni_home/clinical_forms') keep=":!.gitignore" ;; esac
+  hits="$(git -C "$RP" grep -n -I -i -F -e "$w" -- . ":!clinic/install/tests/test_no_forms_repo.sh" ":!clinic/install/tests/test_forms_folder.sh" ":!clinic/install/tests/test_forms_start.sh" ":!CHANGELOG.md" ":!${T20}" "$keep" | head -5)"
   [ -z "$hits" ] && ok_ "nothing names ${w}" || bad "${w} is still named: ${hits}"
 done
 hits="$(git -C "$RP" grep -n -I -F -e MANIFEST.tsv -- . ":!clinic/install/tests/test_no_forms_repo.sh" ":!clinic/install/tests/test_check_form_concepts.sh" ":!clinic/install/check-form-concepts.py" | head -5)"
