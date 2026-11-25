@@ -146,5 +146,41 @@ class ApplyTest(unittest.TestCase):
             self.assertEqual(fl.missing_definitions(root, wanted), ["b.json"])
 
 
+class ProgramTest(unittest.TestCase):
+    def test_waits_and_tries_again(self):
+        import forms_sync
+        calls, lines = [], []
+
+        def fn():
+            calls.append(1)
+            if len(calls) < 3:
+                raise RuntimeError("Access denied (using password: s3cret-value)")
+            return "ready"
+
+        with mock.patch.dict(os.environ, {"FORMS_DB_PASSWORD": "s3cret-value"}):
+            self.assertEqual(forms_sync.until_ready(fn, wait=0, log=lines.append), "ready")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all("s3cret-value" not in line and "RuntimeError" in line for line in lines), lines)
+
+    def test_handle_reports_a_bad_message_and_goes_on(self):
+        import forms_sync
+        with tempfile.TemporaryDirectory() as root:
+            lines = []
+            self.assertEqual(forms_sync.handle(root, b"a.json", fl.encode(b"{}"), lines.append), "written")
+            self.assertEqual(forms_sync.handle(root, b"a.json", fl.encode(b"{}"), lines.append), "same")
+            for key, value in ((b"a.json", None), (b"../b.json", fl.encode(b"{}")), (None, fl.encode(b"{}")),
+                               (b"\xff.json", fl.encode(b"{}")), (b"c.json", b"junk")):
+                self.assertEqual(forms_sync.handle(root, key, value, lines.append), "error")
+            self.assertEqual(sorted(os.listdir(root)), ["a.json"])
+            self.assertEqual(sum(line.startswith("ERROR") for line in lines), 5)
+
+    def test_unknown_mode_is_a_usage_error(self):
+        import forms_sync
+        with self.assertRaises(SystemExit) as e:
+            forms_sync.main(["forms_sync.py", "sideways"])
+        self.assertEqual(e.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
