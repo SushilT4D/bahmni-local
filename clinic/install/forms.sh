@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# Helpers for the observation forms folder OpenMRS mounts (clone, check, mount settings).
+# Helpers for the observation forms folder OpenMRS mounts (folder check, row/file check, demo forms).
 
-FORMS_CLONE_DIR="${FORMS_CLONE_DIR:-${CLINIC_DIR}/forms}"
-FORMS_FROZEN_DIR="${FORMS_FROZEN_DIR:-${CLINIC_DIR}/bahmni_home/clinical_forms}"
 FORMS_PREFIX="/home/bahmni/clinical_forms/"
-FORMS_RC_OFFLINE=3
-FORMS_RC_BUSY=4
-
-FORMS_ASIDE="move clinic/forms aside, then at once run clinic/scripts/update-forms.sh (or the installer task again), which takes a fresh clone. Until then OpenMRS cannot be recreated: its forms mount refuses a missing folder"
-
-forms_fail(){ local rc="$1"; shift; printf '  FAIL %s\n' "$*" >&2; exit "$rc"; }
-
-forms_folder_for(){ if [ -n "$1" ]; then printf '%s\n' "${FORMS_CLONE_DIR}/clinical_forms"; else printf '%s\n' "${FORMS_FROZEN_DIR}"; fi; }
-forms_read_only_for(){ if [ -n "$1" ]; then echo true; else echo false; fi; }
-forms_mount_word(){ if [ "$1" = true ]; then echo read-only; else echo read-write; fi; }
 
 forms_folder_verdict(){
   local d="$1" n l
@@ -25,61 +13,6 @@ forms_folder_verdict(){
   [ -d "$d/translations" ] || { printf '%s has no translations/ folder, which OpenMRS mounts for the form translations. Installer task 075 creates it (resume --from 075).\n' "$d"; return 1; }
   n="$(find "$d" -maxdepth 1 -type f -name '*.json' | wc -l | tr -d ' ')"
   printf 'ok %s form files in %s\n' "${n:-0}" "$d"
-}
-
-forms_tree_symlinks(){ git -C "$1" ls-tree -r "$2" | awk -F'\t' '$1 ~ /^120000 / {print $2}'; }
-
-forms_mount_verdict(){
-  local d="$1" ro="$2" url="$3" v
-  case "$ro" in true|false) ;; *) printf "clinic/.env FORMS_READ_ONLY is '%s'; it is true or false (task 075 sets it)\n" "$ro"; return 1 ;; esac
-  if [ -n "$url" ] && { [ "$d" != "$(forms_folder_for "$url")" ] || [ "$ro" != true ]; }; then
-    printf "clinic/.env names a forms repo, but the forms mount is %s (%s), not its clone's %s (read-only): installer task 075 sets both (resume --from 075), and on a running node clinic/scripts/update-forms.sh does\n" "$d" "$(forms_mount_word "$ro")" "$(forms_folder_for "$url")"
-    return 1
-  fi
-
-  v="$(forms_folder_verdict "$d")" || { printf '%s\n' "$v"; return 1; }
-  printf '%s (mounted %s)\n' "$v" "$(forms_mount_word "$ro")"
-}
-
-forms_state(){
-  local d="$1"
-  [ -e "$d" ] || { echo absent; return 0; }
-  [ -d "$d" ] || { echo foreign; return 0; }
-  [ -d "$d/.git" ] && { echo clone; return 0; }
-  [ -z "$(find "$d" -mindepth 1 2>/dev/null | head -1)" ] && { echo placeholder; return 0; }
-  echo foreign
-}
-
-forms_key_verdict(){
-  local k="$1" perm
-  [ -n "$k" ] || { printf 'ok no deploy key (git uses its own ssh setup)\n'; return 0; }
-  case "$k" in /*) ;; *) printf 'FORMS_REPO_KEY is %s, a relative path; give the absolute path (each caller runs from its own directory)\n' "$k"; return 1 ;; esac
-  case "$k" in *[!A-Za-z0-9._/-]*) printf 'FORMS_REPO_KEY %s has a character other than letters, digits and . _ / -; git hands the path to ssh through /bin/sh, so keep it plain\n' "$k"; return 1 ;; esac
-  [ -f "$k" ] || { printf 'FORMS_REPO_KEY names %s, which does not exist on this machine\n' "$k"; return 1; }
-  [ -r "$k" ] || { printf 'FORMS_REPO_KEY names %s, which this user cannot read\n' "$k"; return 1; }
-  perm="$(ls -l "$k" | cut -c5-10)"
-  [ "$perm" = "------" ] || { printf 'FORMS_REPO_KEY %s is readable by other users; ssh refuses such a key: chmod 600 %s\n' "$k" "$k"; return 1; }
-  printf 'ok deploy key %s\n' "$k"
-}
-
-forms_git(){
-  if [ -n "${FORMS_REPO_KEY:-}" ]; then
-    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -i ${FORMS_REPO_KEY} -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4" git "$@"
-  else
-    GIT_TERMINAL_PROMPT=0 git "$@"
-  fi
-}
-
-forms_upstream_verdict(){
-  local d="$1" head up dirty
-  dirty="$(git -C "$d" status --porcelain 2>/dev/null)"
-  [ -z "$dirty" ] || { printf 'clinic/forms has local changes (%s); the forms come only from the forms repo. To start again from the forms repo, %s.\n' "$(printf '%s' "$dirty" | head -3 | tr '\n' ' ')" "$FORMS_ASIDE"; return 1; }
-  up="$(git -C "$d" rev-parse -q --verify '@{u}' 2>/dev/null)" || { printf 'clinic/forms has no upstream branch to follow; %s.\n' "$FORMS_ASIDE"; return 1; }
-  head="$(git -C "$d" rev-parse HEAD)"
-  if [ "$head" = "$up" ]; then printf 'uptodate\n'; return 0; fi
-  if git -C "$d" merge-base --is-ancestor "$head" "$up"; then printf 'ff\n'; return 0; fi
-  printf 'clinic/forms is at %s, which the forms repo (%s) does not contain: not a fast-forward. The forms repo is the only source of forms and its history is never rewritten; %s.\n' "$(git -C "$d" rev-parse --short HEAD)" "$(git -C "$d" rev-parse --short "$up")" "$FORMS_ASIDE"
-  return 1
 }
 
 forms_sql(){
@@ -163,134 +96,6 @@ forms_concept_warn(){
   return 0
 }
 
-forms_lock_dir(){ printf '%s\n' "${FORMS_LOCK:-$(dirname "${FORMS_CLONE_DIR}")/.forms.lock}"; }
-forms_lock(){
-  local l pid i
-  l="$(forms_lock_dir)"
-  for i in 1 2 3; do
-    if mkdir "$l" 2>/dev/null; then printf '%s\n' "$$" > "$l/pid"; return 0; fi
-    pid="$(cat "$l/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && ! ps -p "$pid" >/dev/null 2>&1; then
-      warn "taking over ${l}: the run that took it (pid ${pid}) is gone"
-    elif [ -z "$pid" ] && [ -n "$(find "$l" -maxdepth 0 -mmin "+${FORMS_LOCK_STALE_MIN:-60}" 2>/dev/null)" ]; then
-      warn "taking over ${l}: it names no run and is older than ${FORMS_LOCK_STALE_MIN:-60} min"
-    else
-      printf '  FAIL another run is changing clinic/forms (pid %s holds %s); this run changed nothing. It runs again on the next schedule, or by hand once that run ends\n' "${pid:-starting}" "$l" >&2
-      return "$FORMS_RC_BUSY"
-    fi
-
-    if mv "$l" "${l}.stale.$$" 2>/dev/null; then
-      if [ "$(cat "${l}.stale.$$/pid" 2>/dev/null || true)" != "$pid" ]; then
-        { [ ! -e "$l" ] && mv "${l}.stale.$$" "$l"; } 2>/dev/null || rm -rf "${l}.stale.$$"
-        printf '  FAIL another run took over %s first; this run changed nothing\n' "$l" >&2
-        return "$FORMS_RC_BUSY"
-      fi
-
-      rm -rf "${l}.stale.$$"
-    fi
-  done
-
-  printf '  FAIL could not take %s\n' "$l" >&2
-  return "$FORMS_RC_BUSY"
-}
-
-forms_unlock(){
-  local l; l="$(forms_lock_dir)"
-  [ "$(cat "$l/pid" 2>/dev/null || true)" = "$$" ] && rm -rf "$l"
-  return 0
-}
-
-forms_sync(){
-  local check="$1" dry="$2" vars rc=0 e=0
-  FORMS_OLD_REV=""
-  FORMS_NEW_REV=""
-  FORMS_CHANGED=0
-  FORMS_CONCEPTS_UNCHECKED=0
-  if [ -z "${FORMS_REPO_URL:-}" ]; then
-    [ "$(forms_state "${FORMS_CLONE_DIR}")" != clone ] || fail "clinic/forms is a clone of a forms repo, but no forms repo is configured (FORMS_REPO_URL is empty). Set FORMS_REPO_URL, or move clinic/forms aside to run from the frozen copy"
-    return 0
-  fi
-
-  forms_lock || exit "$?"
-  vars="$(mktemp "${TMPDIR:-/tmp}/forms-sync.XXXXXX")"
-
-  case "$-" in *e*) e=1 ;; esac
-  set +e
-  ( [ "$e" = 1 ] && set -e; _forms_sync "$check" "$dry" "$vars" )
-  rc=$?
-  [ "$e" = 1 ] && set -e
-  forms_unlock
-  if [ "$rc" != 0 ]; then rm -f "$vars"; exit "$rc"; fi
-  . "$vars"; rm -f "$vars"
-}
-
-_forms_sync(){
-  local check="$1" dry="$2" vars="$3" st url="${FORMS_REPO_URL:-}" v origin tmp parent d
-  trap 'printf "FORMS_OLD_REV=%s\nFORMS_NEW_REV=%s\nFORMS_CHANGED=%s\nFORMS_CONCEPTS_UNCHECKED=%s\n" "${FORMS_OLD_REV}" "${FORMS_NEW_REV}" "${FORMS_CHANGED}" "${FORMS_CONCEPTS_UNCHECKED}" > "'"$vars"'"' EXIT
-  parent="$(dirname "${FORMS_CLONE_DIR}")"
-
-  { find "$parent" -maxdepth 1 -type d -name '.forms.new.??????' ! -newer "$(forms_lock_dir)" 2>/dev/null || true; } | while IFS= read -r d; do
-    if rm -rf "$d"; then info "removed ${d##*/}, a clone an earlier run did not finish"; else warn "could not remove ${d}, a clone an earlier run did not finish"; fi
-  done
-
-  st="$(forms_state "${FORMS_CLONE_DIR}")"
-  v="$(forms_key_verdict "${FORMS_REPO_KEY:-}")" || fail "$v"
-  case "$st" in
-    foreign) fail "clinic/forms holds files the installer did not put there; ${FORMS_ASIDE}" ;;
-    clone)
-      origin="$(git -C "${FORMS_CLONE_DIR}" config --get remote.origin.url || true)"
-      [ "$origin" = "$url" ] || fail "clinic/forms is a clone of ${origin:-an unknown repo}, not of FORMS_REPO_URL (${url}); to clone the configured repo, ${FORMS_ASIDE}"
-      FORMS_OLD_REV="$(git -C "${FORMS_CLONE_DIR}" rev-parse HEAD)"
-      forms_git -C "${FORMS_CLONE_DIR}" fetch --quiet origin || forms_fail "$FORMS_RC_OFFLINE" "could not fetch the forms repo (${url}); check the network and the deploy key. The forms already here keep working"
-      v="$(forms_upstream_verdict "${FORMS_CLONE_DIR}")" || fail "$v"
-      FORMS_NEW_REV="$(git -C "${FORMS_CLONE_DIR}" rev-parse '@{u}')"
-      if [ "$v" = uptodate ]; then ok "forms repo: clinic/forms is at $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD), what the forms repo holds"; return 0; fi
-      v="$(forms_tree_symlinks "${FORMS_CLONE_DIR}" '@{u}' | head -3 | tr '\n' ' ')"
-      [ -z "$v" ] || fail "the forms repo's latest commit carries symlinks (${v}); a form file must be a plain file (a symlink would be followed inside OpenMRS). clinic/forms is left as it was; fix the forms repo"
-      if [ "$dry" = 1 ]; then
-        info "would: fast-forward clinic/forms $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD) -> $(git -C "${FORMS_CLONE_DIR}" rev-parse --short '@{u}'):"
-        git -C "${FORMS_CLONE_DIR}" log --oneline 'HEAD..@{u}' | sed 's/^/    /'
-        info "MANIFEST.tsv changes:"
-        git -C "${FORMS_CLONE_DIR}" diff 'HEAD' '@{u}' -- MANIFEST.tsv | sed -n '/^[-+][^-+]/p' | sed 's/^/    /'
-        info "form files:"
-        git -C "${FORMS_CLONE_DIR}" diff --stat 'HEAD' '@{u}' -- clinical_forms | sed 's/^/    /'
-        return 0
-      fi
-
-      if [ "$check" = 1 ]; then
-        tmp="$(mktemp -d "${TMPDIR:-/tmp}/forms-incoming.XXXXXX")"
-        git -C "${FORMS_CLONE_DIR}" archive '@{u}' | tar -x -C "$tmp"
-        forms_concept_warn "$tmp"
-        rm -rf "$tmp"
-      fi
-
-      git -C "${FORMS_CLONE_DIR}" merge --quiet --ff-only '@{u}' || fail "could not fast-forward clinic/forms"
-      FORMS_CHANGED=1
-      ok "forms repo: clinic/forms fast-forwarded $(printf '%s' "${FORMS_OLD_REV}" | cut -c1-7) -> $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD)"
-      ;;
-    absent|placeholder)
-      tmp="$(mktemp -d "${parent}/.forms.new.XXXXXX")"
-      if ! forms_git clone --quiet "$url" "$tmp/forms"; then rm -rf "$tmp"; forms_fail "$FORMS_RC_OFFLINE" "could not clone the forms repo (${url}); check the network and the deploy key"; fi
-      FORMS_NEW_REV="$(git -C "$tmp/forms" rev-parse HEAD)"
-      v="$(forms_tree_symlinks "$tmp/forms" HEAD | head -3 | tr '\n' ' ')"
-      [ -z "$v" ] || { rm -rf "$tmp"; fail "the forms repo carries symlinks (${v}); a form file must be a plain file (a symlink would be followed inside OpenMRS). Nothing was cloned; fix the forms repo"; }
-      if [ "$dry" = 1 ]; then
-        info "would: clone the forms repo into clinic/forms at $(git -C "$tmp/forms" rev-parse --short HEAD); its MANIFEST.tsv:"
-        sed 's/^/    /' "$tmp/forms/MANIFEST.tsv" 2>/dev/null || info "  (no MANIFEST.tsv)"
-        rm -rf "$tmp"; return 0
-      fi
-
-      [ "$check" != 1 ] || forms_concept_warn "$tmp/forms"
-      rm -rf "${FORMS_CLONE_DIR}" || { rm -rf "$tmp"; fail "could not remove ${FORMS_CLONE_DIR} to put the clone in its place (a directory the container runtime created is owned by root): sudo rm -rf ${FORMS_CLONE_DIR}, then run again"; }
-
-      [ ! -e "${FORMS_CLONE_DIR}" ] || { rm -rf "$tmp"; fail "${FORMS_CLONE_DIR} appeared while the clone was made; nothing was changed. Run again"; }
-      mv "$tmp/forms" "${FORMS_CLONE_DIR}"; rm -rf "$tmp"
-      FORMS_CHANGED=1
-      ok "forms repo: cloned into clinic/forms at $(git -C "${FORMS_CLONE_DIR}" rev-parse --short HEAD)"
-      ;;
-  esac
-}
-
 FORMS_ROWS_SQL="select f.uuid, f.name, f.version, f.published, f.retired, coalesce(r.value_reference, '') from form f left join form_resource r on r.form_id = f.form_id and (r.datatype like '%FileSystemStorageDatatype' or r.value_reference like '/%') order by f.form_id, r.form_resource_id"
 forms_rows(){
   if [ -n "${FORMS_ROWS_FILE:-}" ]; then cp "${FORMS_ROWS_FILE}" "$1"; return; fi
@@ -368,10 +173,8 @@ forms_rowfile_gate(){
   printf '%s\n' "$out" | sed -n 's/^warn //p' | while IFS= read -r w; do warn "row/file check: ${w}"; done
   if [ "$rc" = 0 ]; then ok "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p')"; return 0; fi
   if [ "$strict" = 1 ]; then
-    fail "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). Each form listed above would fail to open. The forms repo must hold every file the database points at: pull its latest (it only adds files); if the latest lacks them, the hub's forms have not been exported to it yet"
+    fail "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). Each form listed above fails to open until forms-sync writes its file: read the forms-sync container's log"
   fi
 
   info "row/file check: $(printf '%s\n' "$out" | sed -n 's/^summary //p'). forms-sync writes each file listed above when it arrives; until then that form does not open"
 }
-
-forms_manifest_diff(){ diff "$1" "$2" 2>/dev/null | grep -E '^[<>]' || true; }

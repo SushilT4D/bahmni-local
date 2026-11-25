@@ -58,44 +58,33 @@ A form is two things that must travel together:
     /home/bahmni/clinical_forms/<uuid>.json. The hub is the only node that
     publishes forms; the rows reach a clinic by sync (sync/tables/openmrs.conf [down]) or
     with the seed. A clinic does not create them: its Initializer does not
-    load forms (initializer.sh), its stack does not run the form builder, and
-    its forms folder is read-only.
+    load forms (initializer.sh) and its stack does not run the form builder.
   - files: <uuid>.json and translations/<uuid>.json in the forms folder,
     which docker-compose.yml mounts at /home/bahmni/clinical_forms (and its
-    translations/ where the form module reads translations), from
-    FORMS_DIR, read-only when FORMS_READ_ONLY is true, both in clinic/.env.
-    The mounts never create a missing source: OpenMRS refuses to start
-    instead of starting with no forms.
+    translations/ where the form module reads translations), from FORMS_DIR
+    in clinic/.env. The mounts never create a missing source: OpenMRS
+    refuses to start instead.
 
-With a forms repo configured (FORMS_REPO_URL, FORMS_REPO_KEY), clinic/forms
-is a clone of it, made and fast-forwarded with git using the deploy key by
-path, and the forms folder is clinic/forms/clinical_forms, read-only. The
-repo holds clinical_forms/<uuid>.json, clinical_forms/translations/ and
-MANIFEST.tsv, and only ever adds files: an old version's file stays, because saved observations still open with it. So a
-clone newer than the database is always safe, and an older one is caught by
-the row/file check. One run at a time changes clinic/forms: a lock
-(clinic/.forms.lock) is taken around the clone or fast-forward.
+The forms folder is a data folder, data/clinical_forms under
+CONTAINER_DATA_PATH. It starts empty, and the forms-sync service writes each
+file the hub sends into it; nothing here copies a file in or deletes one. An
+old version's file stays, because saved observations still open with it.
 
-With none configured, the forms folder is the frozen copy tracked in this
-repo, clinic/bahmni_home/clinical_forms, read-write. clinic/forms is unused.
-
-The concept check is this repo's check-form-concepts.py, run on a copy of
-the incoming tree with <concepts> (every concept uuid that exists and is not
+The concept check is this repo's check-form-concepts.py, run on a tree of
+form files with <concepts> (every concept uuid that exists and is not
 retired in this node's OpenMRS) and <forms> (every form uuid published and
-not retired there). The forms repo is data to a clinic: its files are read
-and mounted read-only, and nothing in it is executed, so write access to it
-cannot run code on a clinic. The check's findings are warnings: a form
-missing a concept opens with a field that saves nothing, and the fix is to
-deliver the concept the way the hub got it, not to hold the form back, whose
-rows arrive by sync either way. When the check cannot run, the run says
-"concepts NOT checked".
+not retired there). The tree is read as data and nothing in it is executed.
+The check's findings are warnings: a form missing a concept opens with a
+field that saves nothing, and the fix is to deliver the concept the way the
+hub got it, not to hold the form back, whose rows arrive by sync either way.
+When the check cannot run, the run says "concepts NOT checked".
 
-The row/file check is the gate: every published, unretired form must have a
-pointer row, its pointer must be a plain path inside the forms folder, and
-its file must be there. A file with no row is fine (its rows have not synced
-yet, or it is an old version kept for saved observations). Retired versions
-whose file is missing, and pointers of retired or unpublished forms outside
-the forms folder, are warnings.
+The row/file check: every published, unretired form should have a pointer
+row, its pointer a plain path inside the forms folder, and its file there. A
+file with no row is fine (its rows have not synced yet, or it is an old
+version kept for saved observations). Retired versions whose file is
+missing, and pointers of retired or unpublished forms outside the forms
+folder, are warnings.
 
 The config package's stock demo forms (demo-forms.conf) are retired, never
 deleted, on a node whose OpenMRS holds them: a clinic that keeps its own
@@ -103,67 +92,19 @@ database across an upgrade from a stack that loaded every Initializer domain.
 Only those uuids are touched, and only on this node: clinics do not send form
 rows up (sync/tables/openmrs.conf [up]).
 
-Exit codes, for a schedule: 1 a check refused (act on the FAIL line), 3 the
-forms repo could not be reached (the forms already here keep working), 4
-another run holds the lock.
-
-What every refusal of clinic/forms tells the operator to do.
-
-> Before: `FORMS_ASIDE="move clinic/forms aside, then at once run clinic/scripts/update-forms.sh (or the installer task a`
-
-forms_folder_for URL / forms_read_only_for URL : the forms folder a node with
-(or without) a forms repo mounts, and whether the mount is read-only
-
-> Before: `forms_folder_for(){ if [ -n "$1" ]; then printf '%s\n' "${FORMS_CLONE_DIR}/clinical_forms"; else printf '%s\n'`
-
-forms_folder_verdict DIR : the mount source must exist, hold forms, and have
-the translations/ folder the second mount takes. The mounts refuse a missing
-source, so OpenMRS would not start.
+forms_folder_verdict DIR : the mount source OpenMRS may start on: it must
+exist and have the translations/ folder the second mount takes, since the
+mounts refuse a missing source. It may hold no form file yet. Every path that
+starts or recreates OpenMRS runs it first (task 080,
+scripts/recreate-openmrs.sh).
 
 > Before: `forms_folder_verdict(){`
 
-a symlink in the forms folder is followed inside the container, read-only
-mount or not: a form "file" pointing at /proc/self/environ would serve
-OpenMRS's environment, passwords included, to anyone opening the form
+a symlink in the forms folder is followed inside the container: a form
+"file" pointing at /proc/self/environ would serve OpenMRS's environment,
+passwords included, to anyone opening the form
 
 > Before: `l="$(find "$d" -type l 2>/dev/null | head -1)"`
-
-forms_tree_symlinks GITDIR REV : prints the paths REV of the clone at GITDIR
-carries as symlinks (none for a forms repo; see forms_folder_verdict)
-
-> Before: `forms_tree_symlinks(){ git -C "$1" ls-tree -r "$2" | awk -F'\t' '$1 ~ /^120000 / {print $2}'; }`
-
-forms_mount_verdict DIR READ_ONLY URL : the forms mount docker-compose.yml
-will make from clinic/.env (FORMS_DIR, FORMS_READ_ONLY, FORMS_REPO_URL) is
-one OpenMRS may start on. Every path that starts or recreates OpenMRS runs
-it first (task 080, scripts/recreate-openmrs.sh).
-
-> Before: `forms_mount_verdict(){`
-
-forms_state DIR -> absent | placeholder | clone | foreign. placeholder: an
-empty directory. foreign: anything this file did not put there, which is
-never removed.
-
-> Before: `forms_state(){`
-
-forms_key_verdict PATH : a deploy key ssh will accept: an absolute path of
-plain characters (git hands it to ssh through /bin/sh, and every caller runs
-from its own directory), present, readable, private to its owner. Its
-contents are never read here.
-
-> Before: `forms_key_verdict(){`
-
-forms_git ARGS... : git with the deploy key, never prompting. The key is
-passed by path only; forms_key_verdict has made it a plain absolute path.
-accept-new trusts the git host's key the first time it is seen: put the
-host's key in this user's ~/.ssh/known_hosts before the first run to pin it.
-
-> Before: `forms_git(){`
-
-forms_upstream_verdict DIR : a clone may only move forward to what the forms
-repo holds. Run after a fetch. Prints uptodate | ff, or the refusal.
-
-> Before: `forms_upstream_verdict(){`
 
 forms_sql QUERY : runs QUERY against this node's openmrs database, rows on
 stdout, tab-separated, no header. Every query is a SELECT except the stock
@@ -208,62 +149,17 @@ unquoted on purpose: one argument per uuid, each checked by forms_demo_uuids
 
 > Before: `out="$(forms_sql "$(forms_retire_demo_sql $uuids)")" || fail "could not retire the stock demo forms in openmrs`
 
-forms_concept_warn TREE : runs the concept check on TREE, a copy of the
-incoming forms, against this node's concepts and published forms, and shows
-what it finds. The checker is this repo's check-form-concepts.py, which
-reads TREE as data; nothing in the forms repo is executed. Never stops
-anything: every finding is a WARN. Sets FORMS_CONCEPTS_UNCHECKED=1 when the
-concepts could not be checked.
+forms_concept_warn TREE : runs the concept check on TREE, a folder of form
+files, against this node's concepts and published forms, and shows what it
+finds. The checker is this repo's check-form-concepts.py, which reads TREE as
+data; nothing in it is executed. Never stops anything: every finding is a
+WARN. Sets FORMS_CONCEPTS_UNCHECKED=1 when the concepts could not be checked.
 
 > Before: `forms_concept_warn(){`
 
 the checker's exits: 0 nothing blocked, 1 a form misses concepts, 2 it could not run
 
 > Before: `case "$rc" in`
-
-forms_lock / forms_unlock : one run at a time changes clinic/forms. The lock
-is a directory beside it holding the owner's pid. A lock whose pid is gone is
-taken over; one whose run is alive is never taken, however old (git's ssh
-gives up on a stalled connection, so a live run ends). A lock with no pid
-(its run died before writing one) is taken over once older than
-FORMS_LOCK_STALE_MIN minutes (default 60). Taking over renames the old lock
-aside first, which only one run can do, and checks that what it renamed is
-the lock it judged, so two runs that both judge it stale never both hold it.
-A run that hangs keeps its lock until it is ended. forms_lock returns
-FORMS_RC_BUSY, with the FAIL line, when another run holds it.
-
-> Before: `forms_lock_dir(){ printf '%s\n' "${FORMS_LOCK:-$(dirname "${FORMS_CLONE_DIR}")/.forms.lock}"; }`
-
-Only one run can rename it; a run that loses the rename tries mkdir again.
-What was renamed must be the lock judged above: if another run took over
-first and made a fresh lock in between, it is put back and this run backs off.
-
-> Before: `if mv "$l" "${l}.stale.$$" 2>/dev/null; then`
-
-forms_sync CHECK DRY : brings clinic/forms to what the configured forms repo
-holds (clone, or fast-forward only), holding the lock. CHECK 1 runs the
-concept check on the incoming tree first (warnings only); DRY 1 shows what
-would change (the commits and the MANIFEST.tsv lines) and changes nothing in
-clinic/. Sets FORMS_OLD_REV, FORMS_NEW_REV, FORMS_CHANGED (0 or 1) and
-FORMS_CONCEPTS_UNCHECKED (0 or 1). A refusal ends the caller with the exit
-code above.
-
-> Before: `forms_sync(){`
-
-The work runs in a subshell so that every refusal in it (fail, an exit)
-comes back here, where the lock is released. -e is set again inside: a
-subshell tested with || would run with it off.
-
-> Before: `case "$-" in *e*) e=1 ;; esac`
-
-an interrupted clone leaves a .forms.new.XXXXXX beside clinic/forms; with
-the lock held, any made before the lock was taken is dead
-
-> Before: `{ find "$parent" -maxdepth 1 -type d -name '.forms.new.??????' ! -newer "$(forms_lock_dir)" 2>/dev/null || tru`
-
-mv onto an existing directory would put the clone inside it
-
-> Before: `[ ! -e "${FORMS_CLONE_DIR}" ] || { rm -rf "$tmp"; fail "${FORMS_CLONE_DIR} appeared while the clone was made; `
 
 forms_rows OUT : one line per form row and pointer row of it,
 "uuid<TAB>name<TAB>version<TAB>published<TAB>retired<TAB>pointer", pointer
@@ -297,15 +193,12 @@ folder is judged below like any other pointer
 > Before: `case "$ptr" in *..*) ;; "${FORMS_PREFIX}translations/"*) continue ;; esac`
 
 forms_rowfile_gate DIR STRICT : reads this node's form rows and runs the
-report on DIR. STRICT 1 (a forms repo is configured) fails on a missing
-file; STRICT 0 (the frozen copy) warns. The report's warnings are WARN lines
-either way.
+report on DIR. STRICT 1 (scripts/update-forms.sh, the check by hand) fails on
+a missing file; STRICT 0 (the installer) lists it and goes on, since
+forms-sync writes the file when it arrives. The report's warnings are WARN
+lines either way.
 
 > Before: `forms_rowfile_gate(){`
-
-forms_manifest_diff OLD NEW : MANIFEST.tsv lines that changed (< before, > now)
-
-> Before: `forms_manifest_diff(){ diff "$1" "$2" 2>/dev/null | grep -E '^[<>]' || true; }`
 
 ## `host-macos.sh`
 
@@ -730,12 +623,11 @@ clinic_table : one line per clinic in sync/clinics.json -- slug, site number ("-
 
 > Before: `clinic_table(){ jq -r 'to_entries[] | select(.key != "cloud")`
 
-Values a clinic may leave out: the forms repo (task 075; empty = the node
-runs the frozen copy in clinic/bahmni_home/clinical_forms) and the
+Values a clinic may leave out: the hub link's security protocol and the
 Initializer domain list (task 020 writes it into clinic/.env; empty = the
 clinic default, initializer.sh). They come from clinic/.env or --secrets.
 
-> Before: `OPTIONAL_INPUT_KEYS="FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"`
+> Before: `OPTIONAL_INPUT_KEYS="REMOTE_KAFKA_SECURITY_PROTOCOL OPENMRS_INITIALIZER_DOMAINS"`
 
 interactive : stdin is a terminal, or INSTALL_INTERACTIVE=1 (tests pipe input in).
 
@@ -1579,32 +1471,14 @@ node-local tree: the prefix is this node's to write (task 045 normally has)
 
 ## `tasks/075-forms.sh`
 
-The forms folder OpenMRS mounts at /home/bahmni/clinical_forms (forms.sh).
-With a forms repo (FORMS_REPO_URL, FORMS_REPO_KEY in clinic/.env or --secrets): a clone of
-it in clinic/forms, fast-forwarded on every run, whose clinical_forms/ is
-mounted read-only. Without one: the frozen copy in
-clinic/bahmni_home/clinical_forms, read-write. clinic/.env gets FORMS_DIR and
-FORMS_READ_ONLY for docker-compose.yml. At seed, after the database is
-restored, the incoming forms' concepts are checked (warnings only) and every
-published form row must find its file: with a forms repo a missing file
-stops the seed. Safe to re-run.
+The forms folder OpenMRS mounts at /home/bahmni/clinical_forms (forms.sh):
+data/clinical_forms under CONTAINER_DATA_PATH, with its translations/,
+created empty when absent and left as it is when it holds files. clinic/.env
+gets FORMS_DIR for docker-compose.yml. After the database is restored, the
+published form rows whose file has not arrived are listed; forms-sync writes
+them. Safe to re-run.
 
 > Before: `set -euo pipefail`
-
-clinic/.env names the forms repo for
-scripts/update-forms.sh, which reads nothing else. A relative key path is
-taken from where the installer runs, and kept absolute: the schedule runs
-update-forms.sh from elsewhere.
-
-> Before: `case "${FORMS_REPO_KEY}" in`
-
-The concept and row/file checks run against the restored database.
-
-> Before: `forms_sync 1 0`
-
-FORMS_MOUNT_MODE was the mount setting before FORMS_READ_ONLY; compose no longer reads it
-
-> Before: `grep -q '^FORMS_MOUNT_MODE=' "$E" && { env_del "$E" FORMS_MOUNT_MODE; info "removed FORMS_MOUNT_MODE from clin`
 
 ## `tasks/080-stack.sh`
 
@@ -1640,12 +1514,10 @@ kafka-connect, mirrormaker-connect: no separate call there).
 
 > Before: `bash "${CLINIC_DIR}/scripts/fix-mount-ownership.sh" || fail "fix-mount-ownership.sh reported a FAIL above"`
 
-OpenMRS mounts the forms folder (FORMS_DIR, FORMS_READ_ONLY; forms.sh). The
-mount refuses a missing source, so the stack does not start until task 075
-has set it up, and a node with a forms repo runs only from that repo's
-clone, read-only. At seed, every published form row in the restored
-database must find its file. scripts/recreate-openmrs.sh runs the same
-check.
+OpenMRS mounts the forms folder (FORMS_DIR; forms.sh). The mount refuses a
+missing source, so the stack does not start until task 075 has created it.
+The published form rows whose file has not arrived are listed.
+scripts/recreate-openmrs.sh runs the same folder check.
 
 > Before: `. "${INSTALL_DIR}/forms.sh"`
 

@@ -133,138 +133,69 @@ author them:
   later change through the down sync, so a form has the same id, uuid and
   version on every node. That matters because a saved observation names its
   form by name and version.
-- **Files by the forms repo.** The operator's private forms repo holds
-  `clinical_forms/<uuid>.json`, `clinical_forms/translations/<uuid>.json`,
-  `MANIFEST.tsv` (one row per form version: `form_name`, `version`, `uuid`,
-  `published`, `retired`, `file`, empty for a version with no file, `source`,
-  `exported_at`), exported from the hub's forms folder. It only ever adds files: an old version's file stays, because
-  observations saved with it still open with it. Task 075 clones it into
-  `clinic/forms` (node-local, gitignored), and the openmrs service mounts
-  `clinic/forms/clinical_forms` at `/home/bahmni/clinical_forms`, and its
-  `translations/` where the form module reads translations, **read-only**. The
-  mounts never create a missing folder: if `clinic/forms` is missing, OpenMRS
-  does not start, rather than starting with no forms.
+- **Files by Kafka.** The hub's `forms-sync` service sends the file of every
+  published form to a topic; the clinic's MirrorMaker pulls that topic, and
+  the clinic's `forms-sync` service writes each file into the clinic's forms
+  folder. That is the only way a form file reaches a clinic. Nothing is ever
+  deleted there: an old version's file stays, because observations saved with
+  it still open with it.
+- **The forms folder** is a data folder, `clinic/data/clinical_forms`
+  (`FORMS_DIR` in `clinic/.env`). Task 075 creates it and its `translations/`
+  empty; a folder that already holds files is left as it is. The openmrs
+  service mounts it at `/home/bahmni/clinical_forms`, and its `translations/`
+  where the form module reads translations. The mounts never create a missing
+  folder: without it OpenMRS does not start.
 - **No form builder.** The `implementer-interface` service is in no profile
   the clinic starts (only in its own, `implementer-interface`), the proxy
   starts without it, and `extract-ui-config.sh` removes its home page tile. If
-  someone starts it by hand, the read-only mount stops it writing a form's
-  file; the form builder writes the form's row over REST before the file, so
-  the mount alone does not keep a row from being written. The proxy refuses
-  that write (see "Master data writes refused at the proxy" below).
+  someone starts it by hand, the proxy refuses the form's write (see "Master
+  data writes refused at the proxy" below).
 - **No forms from the Initializer** (see "Initializer domains" below).
 
-Two values name the forms repo:
+### The checks at install
 
-| Key | Value |
-|---|---|
-| `FORMS_REPO_URL` | the repo's SSH clone address |
-| `FORMS_REPO_KEY` | the path on this machine to the repo's read-only deploy key, mode 600 (one key per clinic, so one clinic can be revoked alone) |
+After the database is restored, task 075 runs the **row/file check** on every
+form row and its file pointer rows: every published, unretired form should
+have a pointer row, the pointer a plain path inside the forms folder, and its
+file there. Translation pointers are not required. On a new clinic the folder
+is empty, so every published form is listed (form, version, file); that is
+information, not a refusal, and `forms-sync` writes the files once the sync
+tasks have started it. A file with no row is fine (counted as pending).
+Retired versions whose file is missing are counted in a warning with their
+first uuids, since observations saved with them do not open; so are pointers
+of retired or unpublished forms outside the forms folder.
 
-They go in `clinic/.env` or in the `--secrets` file. Task 075 writes both into
-`clinic/.env`, where later tasks and `update-forms.sh` read them, together
-with the folder `docker-compose.yml` mounts and whether it is read-only
-(`FORMS_DIR`, `FORMS_READ_ONLY`). Git gets the key by path; nothing prints its
-contents. The key path must be absolute and plain (letters, digits, `. _ / -`);
-a relative path is kept as an absolute one, from where the
-installer runs. Git trusts the git host's key the first time it sees it; to pin
-it, put the host's key in the installing user's `~/.ssh/known_hosts` first.
+Task 080 does not start the stack while `FORMS_DIR` is unset, or the forms
+folder is missing, holds a symlink or has no `translations/`, and it runs the
+row/file check again.
 
-The forms repo is data to a clinic: its files are read and mounted
-read-only (a commit carrying a symlink is refused, since OpenMRS would
-follow it), and nothing in it is executed (anything else the repo carries,
-such as its own tools, is never run here). The concept check below is this
-repo's `check-form-concepts.py`. Write access to the forms repo therefore
-decides which forms a clinic shows, but cannot run code on a clinic.
+### Checking the forms on a running node
 
-**Without a forms repo** (both empty) the node mounts the frozen copy tracked
-in this repo, `clinic/bahmni_home/clinical_forms`, read-write. Its source is the
-hub's `/home/bahmni/clinical_forms` (the form builder writes there; no image
-carries the files): `clinic/scripts/pull-clinical-forms.sh` adds the hub's new
-and changed files (the hub is the host in `REMOTE_KAFKA_BOOTSTRAP_SERVERS`), then
-commit them. That is a
-transition: it goes once every node runs from the forms repo.
-
-`clinic/forms` only moves forward. A checkout with local edits, with commits the
-forms repo lacks, or cloned from another URL is refused. To start again from
-the forms repo, move it aside and run `update-forms.sh` straight away, which
-takes a fresh clone: until it has, OpenMRS cannot be recreated, because its
-forms mount refuses a missing folder. One run at a time changes
-`clinic/forms` (a lock, `clinic/.forms.lock`, taken over when its run is gone
-or after an hour); a clone an earlier run did not finish
-(`clinic/.forms.new.XXXXXX`) is removed by the next run.
-
-### The checks at seed
-
-After the database is restored, task 075:
-
-1. runs the concept check on a copy of the incoming tree,
-
-       check-form-concepts.py --repo <tree> --known <concepts> --known-forms <forms>
-
-   with two lists read from this node's OpenMRS (SELECT only): every concept uuid that
-   exists and is not retired, and every form uuid that is published and not
-   retired, one per line. The checker exits 0 when nothing is missing, 1 when
-   a form misses concepts, 2 when it cannot run. Every non-zero exit is a
-   **warning** here, and when the check could not run the output says
-   "concepts NOT checked": a form that uses a concept the node lacks opens
-   with a field that saves nothing, and the fix is to deliver that concept the
-   way the hub got it; the form's rows arrive from the hub either way.
-2. runs the **row/file check** on every form row and its file pointer rows:
-   every published, unretired form must have a pointer row, the pointer must be
-   a plain path inside the forms folder (a pointer anywhere else is a failure,
-   named), and its file must be there. Translation pointers are not required.
-   A failure **stops the seed** with the list (form, version, file). Pull the
-   forms repo's latest, which only ever adds files; if it still lacks the file,
-   the hub's forms have not been exported to it yet. A file with no row is fine
-   (counted as pending). Retired versions whose file is missing (many old ones
-   point at files that exist nowhere) are counted in a warning with their
-   first uuids, since observations saved with them do not open; so are
-   pointers of retired or unpublished forms outside the forms folder. On the
-   frozen copy a missing file is a warning.
-
-Task 080 does not start the stack while the forms folder is missing, holds no
-form or has no `translations/`, or, with a forms repo, while the mount is not
-the clone, read-only, and it runs the row/file check again against the restored
-database.
-
-### Updating the forms on a running node
-
-    clinic/scripts/update-forms.sh --dry-run    # the incoming commits and MANIFEST.tsv changes; changes nothing
     clinic/scripts/update-forms.sh
 
-fetches the forms repo, fast-forwards `clinic/forms` (refusing local edits or
-history the repo lacks), runs the concept check (warnings), runs the row/file
-check and prints a summary. It **never restarts OpenMRS**: OpenMRS reads a
-form's file when the form is opened, so users see a new version after reloading
-the page. It only ever adds form files to what the node has; the node's form
-rows come from its seed and the down sync. Exit codes, for a schedule: 0
-`clinic/forms` is current and every published form has its file; 1 a check
-refused (act on the FAIL line); 3 the forms repo could not be reached (the
-forms already here keep working; the next run tries again); 4 another run holds
-`clinic/forms`. With no forms repo configured it reports the frozen copy and
-exits 0.
-
-Schedule it every 15 minutes, as the user that owns the checkout: a launchd
-agent with `StartInterval` 900 running `<checkout>/clinic/scripts/update-forms.sh`.
+runs the row/file check and changes nothing: exit 0 when every published form
+has its file, 1 with the list otherwise. A listed form fails to open until its
+file arrives; the `forms-sync` container's log says what it received and
+wrote. OpenMRS is never restarted for a form: it reads a form's file when the
+form is opened, so users see a new version after reloading the page.
 
 The rows and the files travel separately. A form row can arrive before its
-file; that form then fails to open until the next pull, and the row/file check
-names it. The hub's forms are exported to the forms repo right after they are
-published, and clinics pull often, to keep that gap short. A file can also
-arrive before its rows; nothing shows it until they do.
+file; that form then fails to open until the file arrives, and the row/file
+check names it. A file can also arrive before its rows; nothing shows it until
+they do.
+
+`clinic/scripts/fetch-cloud-forms.sh` compares this clinic's form rows and
+files with the cloud's by hand, over ssh, and with `--apply` copies the
+missing or changed files into the forms folder and upserts the rows.
 
 **A node seeded before forms were pulled by sync** takes them by a **reseed**.
-The seed brings the hub's form rows, task 050 grants
-the sink user the form tables, and task 075 clones the forms repo. The down
-sinks carry only later changes, so registering them on such a node would keep
-any form row it already has that differs from the hub's, and the row/file
-check reads only the node's own rows, so it could not notice.
-`update-forms.sh` on that node only adds form files; it does not bring its
-rows into line with the hub's.
+The seed brings the hub's form rows and task 050 grants the sink user the form
+tables. The down sinks carry only later changes, so registering them on such a
+node would keep any form row it already has that differs from the hub's, and
+the row/file check reads only the node's own rows, so it could not notice.
 
-**Recreating OpenMRS on a running node** (after `update-forms.sh` points the
-forms mount at the clone, after `extract-ui-config.sh` takes a new config
-image, after an edit of `clinic/.env`):
+**Recreating OpenMRS on a running node** (after `extract-ui-config.sh` takes a
+new config image, after an edit of `clinic/.env`):
 
     clinic/scripts/recreate-openmrs.sh --check    # the checks only; changes nothing
     clinic/scripts/recreate-openmrs.sh
@@ -277,8 +208,8 @@ not with a compose command by hand.
 
 **Retiring a form.** Forms are never deleted. A bad version is retired on the
 hub (or its previous content published again as a new version); the retired
-flag reaches the clinic by sync, and the file stays in the forms repo for the
-observations saved with it.
+flag reaches the clinic by sync, and the file stays in the forms folder for
+the observations saved with it.
 
 **The config package's demo forms.** A stack that let the Initializer load
 every domain created the config package's stock demo forms on its clinic, and
@@ -292,8 +223,8 @@ own Referral letter, which stays, and the forms folder holds these forms'
 files too, so neither can decide. Clinics do not send form rows up, so the
 retirement stays on the clinic.
 
-**The hub is the source.** Forms are published on the hub, exported to the
-forms repo, and only then pulled by clinics. The hub keeps its forms folder
+**The hub is the source.** Forms are published on the hub, and its
+`forms-sync` service sends their files to the clinics. The hub keeps its forms folder
 across upgrades, captures `form` and `form_resource`, and is the only node
 where the form builder is used.
 

@@ -32,11 +32,9 @@ done
 E="${CLINIC_DIR}/.env"
 [ -f "$E" ] || fail "no ${E}: this is not an installed node"
 HOST="$(env_get "$E" REMOTE_KAFKA_BOOTSTRAP_SERVERS | cut -d, -f1 | sed -E 's/:[0-9]+$//')"
-LOCAL_FORMS="$(env_get "$E" FORMS_DIR)"; LOCAL_FORMS="${LOCAL_FORMS:-${CLINIC_DIR}/bahmni_home/clinical_forms}"
-if [ "$APPLY" = 1 ]; then
-  [ "$(env_get "$E" FORMS_READ_ONLY)" != true ] || fail "the forms folder ${LOCAL_FORMS} is mounted read-only from a forms repo; update that repo, then clinic/scripts/update-forms.sh"
-  [ -d "$LOCAL_FORMS" ] || fail "no forms folder ${LOCAL_FORMS}"
-fi
+LOCAL_FORMS="$(env_get "$E" FORMS_DIR)"
+[ -n "$LOCAL_FORMS" ] || fail "FORMS_DIR is not set in ${E}: installer task 075 sets it (resume --from 075)"
+[ "$APPLY" = 0 ] || [ -d "$LOCAL_FORMS" ] || fail "no forms folder ${LOCAL_FORMS}"
 [ -n "$HOST" ] || fail "REMOTE_KAFKA_BOOTSTRAP_SERVERS is not set in ${E}"
 HOST="ubuntu@${HOST}"
 r(){ if [ -n "$KEY" ]; then ssh -i "$KEY" -o IdentitiesOnly=yes "$HOST" "$@"; else ssh "$HOST" "$@"; fi; }

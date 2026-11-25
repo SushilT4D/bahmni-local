@@ -108,16 +108,8 @@ clinic/extracted/
 clinic/extracted.prev/
 clinic/extracted.new.*/
 
-# The forms' files: a clone of the operator's private forms repo, whose
-# clinical_forms/ OpenMRS mounts read-only (clinic/install/forms.sh).
-# Node-local, and the forms repo is private. .forms.new.* is a clone in progress;
-# .forms.lock is held by the run changing clinic/forms (.forms.lock.stale.* is
-# one being taken over).
-clinic/forms/
+# What clinic/scripts/fetch-cloud-forms.sh fetched from the cloud
 clinic/cloud-forms/
-clinic/.forms.new.*/
-clinic/.forms.lock/
-clinic/.forms.lock.stale.*/
 
 # openmrs/build.sh's build context (create+cp of the source image's
 # trees, plus Dockerfile) -- removed by its own EXIT trap on every

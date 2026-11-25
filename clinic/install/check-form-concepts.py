@@ -3,7 +3,7 @@
 
     check-form-concepts.py --repo <forms tree> --known <concepts-file> [--known-forms <forms-file>]
 
-<forms tree> is a copy of the forms repo: MANIFEST.tsv at its root and the
+<forms tree> is a folder with MANIFEST.tsv at its root and the
 form files it names. The forms checked are the manifest rows that are
 published, not retired, and have a file. Each form's concepts are read from
 its file: each field's concept, its coded answers, and the members of grouped
@@ -16,7 +16,7 @@ concept; one it already publishes under the same uuid is only a WARN (the
 node runs it today with the same gaps).
 
 This checker ships with the installer and only reads the forms tree as data:
-nothing from the forms repo is executed on a clinic.
+nothing in it is executed on a clinic.
 
 Exit 0 when nothing blocks (warnings included), 1 when a form is blocked,
 2 when the check could not run.

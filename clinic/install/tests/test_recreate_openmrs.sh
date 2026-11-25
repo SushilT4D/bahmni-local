@@ -72,8 +72,8 @@ N3="$TMP/n3"; node "$N3"; rm -rf "$N3/data/clinical_forms"; : > "$FAKE_LOG"
 out="$(run "$N3")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'clinical_forms does not exist' && [ ! -s "$FAKE_LOG" ] && ok_ "a missing forms folder is refused before anything is recreated" || bad "missing forms: rc=$rc out=$out calls=$(calls)"
 N4="$TMP/n4"; node "$N4"; rm -f "$N4/data/clinical_forms/f.json"; : > "$FAKE_LOG"
-out="$(run "$N4")"; rc=$?
-[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'ok   forms: 0 form files in ' && calls | grep -qF -- "$up_line" && ok_ "a forms folder with no file yet is recreated on" || bad "empty forms: rc=$rc out=$out"
+out="$(run "$N4" --check)"; rc=$?
+[ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'ok   forms: 0 form files in ' && ok_ "a forms folder with no file yet passes the checks" || bad "empty forms: rc=$rc out=$out"
 N5="$TMP/n5"; node "$N5"; grep -v '^FORMS_DIR=' "$N5/.env" > "$N5/.env.new"; mv "$N5/.env.new" "$N5/.env"; : > "$FAKE_LOG"
 out="$(run "$N5")"; rc=$?
 [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'FORMS_DIR is not set' && [ ! -s "$FAKE_LOG" ] && ok_ "a clinic/.env without FORMS_DIR is refused" || bad "no FORMS_DIR: rc=$rc out=$out"
@@ -91,8 +91,6 @@ out="$(DH=unix:///run/podman.sock run "$N7")"; rc=$?
   && ok_ "on podman: docker-compose over the podman socket" || bad "podman: rc=$rc out=$out calls=$(calls)"
 
 # --- the documented paths name it -----------------------------------------------------------------------------
-grep -q 'scripts/recreate-openmrs.sh' "$CL/scripts/update-forms.sh" && ok_ "update-forms.sh's hint names recreate-openmrs.sh" || bad "update-forms.sh does not name recreate-openmrs.sh"
-grep -vE '^[[:space:]]*#' "$CL/scripts/update-forms.sh" | grep -q -- '--force-recreate' && bad "update-forms.sh still hints a raw compose recreate" || ok_ "update-forms.sh hints no raw compose recreate"
 grep -q 'scripts/recreate-openmrs.sh' "$CL/scripts/extract-ui-config.sh" && ok_ "extract-ui-config.sh's config-release steps name recreate-openmrs.sh" || bad "extract-ui-config.sh does not name recreate-openmrs.sh"
 grep -q 'recreate-openmrs.sh' "$CL/install/README.md" && ! grep -q -- '--force-recreate openmrs' "$CL/install/README.md" \
   && ok_ "the installer README names recreate-openmrs.sh, not a raw compose recreate" || bad "README still documents a raw recreate"

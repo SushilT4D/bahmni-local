@@ -147,16 +147,14 @@ table plus publication membership in both Postgres databases).
 > the file. Nothing here SSHes to the hub to dump and download — see the note
 > below.
 
-**Forms** — `update-forms.sh` takes new form files from the operator's private
-forms repo on a running node, from a schedule or by hand: fast-forward
-`clinic/forms` (refusing local edits and history the repo lacks), warn about
-concepts the node lacks, and check that every published form row in the
-database has its file. It never restarts OpenMRS. `--dry-run` shows the
-incoming commits and `MANIFEST.tsv` changes and changes nothing. See
-`../install/README.md` ("Forms"). Its one remote is the forms repo's git host,
-read-only, with the deploy key `clinic/.env` names; it opens no shell anywhere.
-Exit codes: 0 done, 1 a check refused, 3 the forms repo could not be reached,
-4 another run holds `clinic/forms`.
+**Forms** — form files arrive through the `forms-sync` service, with no
+script. `update-forms.sh` checks, changing nothing, that every published form
+row in the database has its file in the forms folder: exit 0 when all are
+there, 1 with the list otherwise. `fetch-cloud-forms.sh` is the by-hand
+comparison: it fetches the cloud's form rows and files over ssh, lists the
+differences, and with `--apply` copies missing or changed files into the forms
+folder (never deleting) and upserts the rows. See `../install/README.md`
+("Forms").
 
 **Concepts minted at this clinic** — `clinic-minted-concepts.sh --hub-ids
 <file>` compares this clinic's concept dictionary (the tables `sync/tables/openmrs.conf [down]`

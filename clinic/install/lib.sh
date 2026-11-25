@@ -319,7 +319,7 @@ mysql_ready(){ [ "$(ct exec "$1" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -
 
 clinic_table(){ jq -r 'to_entries[] | select(.key != "cloud") | "  \(.key | . + "          " | .[0:10]) site \(.value.site_number // "-" | tostring | . + "  " | .[0:2])  MRN \(.value.mrn_prefix // "-")"' "${CLINICS_JSON}"; }
 
-OPTIONAL_INPUT_KEYS="REMOTE_KAFKA_SECURITY_PROTOCOL FORMS_REPO_URL FORMS_REPO_KEY OPENMRS_INITIALIZER_DOMAINS"
+OPTIONAL_INPUT_KEYS="REMOTE_KAFKA_SECURITY_PROTOCOL OPENMRS_INITIALIZER_DOMAINS"
 
 gen_password(){ python3 -c 'import secrets,string
 while True:

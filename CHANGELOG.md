@@ -77,26 +77,23 @@ file gives the date of each.
 - The hub owns forms. They are published only on the hub. A clinic does not
   run the form builder (the `implementer-interface` service is in no profile
   the clinic starts, and the home page has no tile for it), its Initializer
-  loads no forms, and its forms folder is read-only. A form's rows (`form`,
+  loads no forms, and the proxy refuses a form write. A form's rows (`form`,
   `form_resource`) come down by sync, like users and providers, so a form has
   the same id, uuid and version on every node, which is what a saved
   observation's form name and version refer to. A node takes the hub's form
   rows as its baseline with its seed; sync carries later changes. The clinic's
   sink user is granted every table `cloud/tables.conf` lists.
-- A form's files come from the operator's private forms repo, exported from
-  the hub: cloned into `clinic/forms` with a per-clinic read-only deploy key,
-  fast-forward only, one run at a time, and mounted read-only at
-  `/home/bahmni/clinical_forms` (`FORMS_DIR`, `FORMS_READ_ONLY`). The mounts
-  never create a missing folder: OpenMRS does not start without its forms.
-  The repo only adds files. With no forms repo the node mounts the frozen copy
-  in `clinic/bahmni_home/clinical_forms`, read-write, until every node runs
-  from the repo.
-- Every published, unretired form must have a pointer row into the forms
-  folder and its file there: the installer stops a seed otherwise, and
-  `clinic/scripts/update-forms.sh` (scheduled, every 15 minutes) fails with the
-  list. A concept a form needs and the node lacks is a warning, not a refusal,
-  found by the checker the node already runs. Taking new forms never restarts
-  OpenMRS.
+- A form's files come through Kafka and no other way. The hub's `forms-sync`
+  service sends the file of every published form; the clinic's MirrorMaker
+  pulls that topic and the clinic's `forms-sync` service writes each file into
+  the clinic's forms folder, `clinic/data/clinical_forms` (`FORMS_DIR`), which
+  starts empty and is mounted at `/home/bahmni/clinical_forms`. Nothing is
+  ever deleted there. The mounts never create a missing folder: OpenMRS does
+  not start without it.
+- Every published, unretired form should have a pointer row into the forms
+  folder and its file there. The installer lists the forms whose file has not
+  arrived and goes on; `clinic/scripts/update-forms.sh` runs the same check by
+  hand and exits 1 with the list. A file arriving never restarts OpenMRS.
 - At a clinic the Initializer loads no forms and no other master data the hub
   owns: `-Dinitializer.domains` from `OPENMRS_INITIALIZER_DOMAINS`, by default
   the inclusion list `globalproperties,idgen`; an exclusion list is accepted as
